@@ -1519,8 +1519,10 @@ reveal included.
 
 The live transcript uses the remaining conversation height. Voice recovery notices
 are interactive end content in that scroll area; a voice binding alone reserves no
-empty row. An active desktop call retains its existing 108 px recovery region
-inside the transcript, keeping recovery changes stable. Without a visible question card, short transcripts start at the top;
+empty row. Without a visible question card, an active desktop call retains its
+existing 108 px recovery region inside the transcript, keeping recovery changes
+stable. Beside a card, only visible recovery content takes room, so starting a
+call leaves the reply and its controls in place. Without a visible question card, short transcripts start at the top;
 with a card, the latest reply stays beside its question. Unbound visuals reserve
 no concept bar; configured image visuals keep their 44 px row. The transcript keeps
 scroll gestures in its pane and suppresses boundary rebound.
@@ -1546,6 +1548,10 @@ localized More action. Send and mic stay pinned while the field grows. The card
 margin stays outside the reading pane, counted once. Combined desktop layout
 reserves the fixed footer inside the configured component height before and
 after entrance.
+At desktop heights up to 700 px, combined mode yields spare outer grid gaps,
+starts the field at 44 px, and keeps the full footer row plus a 4 px gutter.
+Its notice, feedback and status retain their intrinsic text rows while the
+shared sizing owner preserves the reply and question-card floors.
 A visible header voice message uses free space above a short, top-aligned
 conversation without resizing the pane. Notice growth clears obsolete retained
 space; a deliberate transcript wheel gesture releases retained notice space.

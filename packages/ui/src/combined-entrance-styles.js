@@ -75,6 +75,16 @@ export const combinedEntranceStyles = `
   /* Reserve the conversation width before the overview reveals. */
   .workspace[data-entrance="combined"][data-understanding="absent"] { grid-template-columns:minmax(0,1.55fr) minmax(22rem,.88fr); column-gap:clamp(1rem,2.5vw,2rem); }
 }
+@media(min-width:960px) and (max-height:700px) {
+  /* The same footer owner keeps its full 57px row plus a 4px gutter. Yield
+     spare outer grid gaps before the 128px reply and 150px card floors.
+     Notice, feedback and status still own their full intrinsic text rows. */
+  .workspace[data-entrance="combined"] { row-gap:0; padding-bottom:calc(57px + env(safe-area-inset-bottom,0px) + 4px); }
+  /* Keep the combined grid's row gaps compact, independent of card arrival.
+     ComposerSize alone measures and caps growth. */
+  .workspace[data-entrance="combined"] .composer { row-gap:0; }
+  .workspace[data-entrance="combined"] textarea { min-height:44px; height:var(--composer-field-height,44px); }
+}
 @media(max-width:600px) {
   .workspace[data-entrance="combined"] { height:auto; padding-bottom:calc(var(--phone-dock,250px) + var(--phone-footer,57px) + 24px); }
   .workspace[data-entrance="combined"] .conversation { height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,250px) - 32px); min-height:0; }

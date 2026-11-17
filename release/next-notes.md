@@ -58,8 +58,10 @@
 
 - AIT-511/AIT-513: the transcript uses the remaining height and voice recovery
   notices appear as interactive transcript end content at every width. A voice
-  binding reserves no empty notice row. An active desktop call retains its
-  existing 108 px recovery region inside the transcript. Image visuals retain their 44 px bar;
+  binding reserves no empty notice row. Without a visible question card, an
+  active desktop call retains its existing 108 px recovery region inside the
+  transcript. Beside a card, only visible recovery content takes room; call
+  start leaves the reply and its controls in place. Image visuals retain their 44 px bar;
   unbound visuals reserve none. Short transcripts align at the top without a
   visible question card, and beside their question when a card is present. Transcript
   scrolling remains contained and suppresses native boundary rebound. A visible
@@ -82,7 +84,10 @@
   Combined disclosure/status slots retain their intrinsic reservations and the
   top-anchored notice grows downward; Send and mic stay pinned. The card margin is counted once outside the
   combined reading pane. Combined desktop retains the same fixed-footer clearance
-  before and after entrance.
+  before and after entrance. At desktop heights up to 700 px it yields spare
+  outer grid gaps, starts the field at 44 px and retains the full footer row
+  plus a 4 px gutter. Intrinsic notice, feedback and status rows stay readable
+  within the shared reply/card budget.
 - Additive measured CSS outputs on the workspace:
   `--aithema-composer-height` and `--aithema-composer-growth`. Added visitor content
   counts as growth; responsive viewport/keyboard/stage modes reset the empty
