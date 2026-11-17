@@ -12,7 +12,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 function fixture(t, copy = en, available = true, options = {}) {
   const c = document.createElement('aithema-session'), session = options.session ?? createSession({ demo: true, locale: copy === de ? 'de' : 'en' });
   session.featureMatrix = { best: Object.fromEntries(['text', 'analysis', 'uploads', 'imageInput', 'images'].map(key => [key,
-    { available: key === 'imageInput' ? available : true, reason: key === 'imageInput' && !available ? options.imageReason ?? 'current processing consent required' : null }])) };
+    { available: key === 'imageInput' ? available : key === 'uploads' ? options.documentsAvailable ?? true : true, reason: key === 'imageInput' && !available ? options.imageReason ?? 'current processing consent required' : key === 'uploads' && options.documentsAvailable === false ? 'current processing consent required' : null }])) };
   const calls = [], asks = []; let imageGranted = available;
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
     calls.push({ url, options });
@@ -47,7 +47,9 @@ for (const copy of [en, de]) test(`AIT-510: ${copy === en ? 'EN' : 'DE'} start-g
   f.c.receive({ sessionId: f.c.session.id, seq: f.c.session.seq + 1, type: 'upload.state', data: {
     ...f.c.session.uploads[0], state: 'staged-refused', reason: 'malformed' } });
   assert.equal(f.c.session.inputRevision, revision);
-  assert.match(f.root.querySelector('.staged-image').textContent, new RegExp(copy.imageRefusals.malformed, 'u'));
+  assert.equal(f.root.querySelector('.staged-image__status').textContent, 'fixture.png');
+  assert.match(f.root.querySelector('.image-refusals').textContent, new RegExp(copy.imageRefusals.malformed, 'u'));
+  assert.equal(f.root.querySelector('.staged-image').textContent.includes(copy.imageRefusals.malformed), false, 'the refusal is shown once');
 });
 test('AIT-510: supported image types include clipboard names without extension; HEIC remains refused', () => {
   const files = ['image.png', 'image.JPG', 'image.webp', 'image.gif', 'image.heic', 'clipboard'].map(name => new window.File(['fixture'], name, { type: name === 'clipboard' ? 'image/png' : '' }));
@@ -79,8 +81,8 @@ for (const copy of [en, de]) for (const documentRefusal of [false, true]) {
     const reason = f.root.querySelector('.composer-reason');
     assert.equal(reason.textContent.includes('photo.heic'), false, 'no duplicate image refusal remains after send');
     if (documentRefusal) {
-      assert.equal(reason.textContent, copy === en ? 'Not attached: blocked.exe (file type not accepted).'
-        : 'Nicht angehängt: blocked.exe (Dateityp wird nicht angenommen).');
+      assert.equal(reason.textContent, (copy === en ? 'Not attached: blocked.exe (file type not accepted).'
+        : 'Nicht angehängt: blocked.exe (Dateityp wird nicht angenommen).') + '\u00a0· ' + copy.uploadsSupported);
       assert.equal(f.root.querySelector('.composer-feedback').hasAttribute('data-saved'), false);
     } else assert.equal(reason.hasAttribute('data-shortcut'), true);
     assert.equal(f.root.querySelector('.composer-saved-announcement').textContent, copy.saved);
@@ -166,7 +168,16 @@ for (const copy of [en, de]) test(`AIT-510 T-M3: ${copy.display.locale} withheld
   assert.equal(tile.style.width, ''); assert.equal(tile.style.height, '');
 });
 for (const copy of [en, de]) test(`AIT-510 L6: ${copy.display.locale} enabled Attach describes selection before consent`, t => {
-  const f = fixture(t, copy, false);
+  const f = fixture(t, copy, false, { documentsAvailable: false });
   assert.equal(f.root.querySelector('.attach').getAttribute('aria-disabled'), 'false');
   assert.equal(f.root.querySelector('.attach').title.includes(copy.uploads.unavailable.split('{reason}')[0]), false);
+});
+
+for (const copy of [en, de]) test(`AIT-510 L5: ${copy.display.locale} image-limit refusal resolves absent and overridden copy`, async () => {
+  const { refusalText } = await import('../src/uploads.js');
+  const plan = planUploads([new window.File(['pixels'], 'image.png')], { limits: { maxImagesPerSession: 1 }, uploads: [{ id: 'sent', kind: 'image', state: 'sent' }] });
+  assert.equal(plan.blocked, 'images');
+  const legacy = { ...copy }; delete legacy.imageRefusals;
+  assert.equal(refusalText(legacy, plan, copy.display.locale), copy.imageRefusals.limit);
+  assert.equal(refusalText({ ...copy, imageRefusals: { limit: 'Host image limit' } }, plan, copy.display.locale), 'Host image limit');
 });

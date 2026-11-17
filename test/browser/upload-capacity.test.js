@@ -479,7 +479,7 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
           notice: { version: 'fixture-notice', deliveryEnabled: true }, privacyDocumentConfigured: true });
         if (/\/events(?:\?|$)/u.test(String(url))) return new Response(new ReadableStream({ start(controller) { options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
         if (String(url).endsWith(`/api/sessions/${session.id}`)) {
-          const snapshot = c.session; snapshot.featureMatrix.best.imageInput = { available: window.imageGranted, reason: window.imageGranted ? null : 'current processing consent required' };
+          const snapshot = c.session; snapshot.featureMatrix.best.imageInput = { available: window.imageGranted && !window.imageUnavailableReason, reason: window.imageUnavailableReason ?? (window.imageGranted ? null : 'current processing consent required') };
           return Response.json(snapshot);
         }
         if (String(url).endsWith('/consent')) return Response.json({ consentRevision: c.session.consentRevision, selected: window.imageGranted ? ['images', 'image-input'] : ['images'], features: { images: ['images'], imageInput: ['image-input'] } });
@@ -490,8 +490,9 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
         if (/\/uploads$/u.test(String(url))) {
           if (options.method !== 'POST') return Response.json({ uploads: c.session.uploads });
           const files = options.body.getAll('files');
+          (window.imageUploadPicks ??= []).push(files.map(file => file.name));
           return Response.json({ events: files.map((file, index) => ({ sessionId: c.session.id, seq: c.session.seq + index + 1, type: 'upload.state', data: {
-            id: `fixture-${++window.imageSeq}`, filename: file.name, kind: 'image', state: 'staged-pending', bytes: file.size, mediaType: 'image/png', at: new Date(0).toISOString() } })) }, { status: 202 });
+            id: `fixture-${++window.imageSeq}`, filename: file.name, kind: file.name.endsWith('.pdf') ? 'document' : 'image', state: file.name.endsWith('.pdf') ? 'accepted' : 'staged-pending', bytes: file.size, mediaType: 'image/png', at: new Date(0).toISOString() } })) }, { status: 202 });
         }
         if (/\/uploads\/[^/]+\/image$/u.test(String(url))) {
           (window.imageOwnerHeaders ??= []).push(new Headers(options.headers).get('x-aithema-session-token'));
@@ -567,6 +568,29 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
           `${state}: ${a} and ${b} do not overlap`);
       }
     };
+    const reading = async state => {
+      if (entrance !== 'combined') return;
+      const scene = await inShadow(page, c => {
+        const root = c.shadowRoot, box = node => { const r = node.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height, bottom: r.bottom, right: r.right }; };
+        const shell = box(root.querySelector('.transcript-shell')), scroll = box(root.querySelector('.conversation-scroll'));
+        const band = box(root.querySelector('.band')), composer = box(root.querySelector('.composer'));
+        const pane = { top: Math.max(shell.y, scroll.y, band.bottom), bottom: Math.min(shell.bottom, scroll.bottom, composer.y) };
+        const rows = [...root.querySelectorAll('.transcript-shell > ol > li')].map(node => ({ kind: node.className, box: box(node),
+          entry: node.matches('.email-offer') ? box(node.querySelector('.email-offer__row')) : null }));
+        return { shell, scroll, band, composer, pane, last: rows.at(-1), first: rows.find(row => row.box.bottom > pane.top && row.box.y < pane.bottom) };
+      });
+      if (evidence) await writeFile(join(evidence, `${prefix}-${state}-reading.json`), JSON.stringify(scene, null, 2));
+      for (const r of [scene.shell, scene.scroll, scene.band, scene.composer, scene.last.box]) assert.ok(r.w > 0 && r.h > 0, `${state}: positive reading box`);
+      assert.ok(scene.pane.bottom > scene.pane.top, `${state}: positive visible conversation height`);
+      const room = scene.pane.bottom - scene.pane.top;
+      if (scene.last.box.h <= room) assert.ok(scene.last.box.y >= scene.pane.top - .5 && scene.last.box.bottom <= scene.pane.bottom + .5, `${state}: last conversation item is fully visible above the composer`);
+      else if (scene.last.entry) {
+        assert.ok(scene.last.entry.w > 0 && scene.last.entry.h > 0);
+        assert.ok(scene.last.entry.y >= scene.pane.top - .5 && scene.last.entry.bottom <= scene.pane.bottom + .5, `${state}: a tall offer retains its complete entry row`);
+      }
+      if (scene.first?.kind.includes('email-offer') && scene.first.box.h <= room)
+        assert.ok(scene.first.box.y >= scene.pane.top - .5, `${state}: the email offer starts below the header band`);
+    };
     if (entrance === 'combined') await waitForShadow(page, '.email-offer');
     await clearances('idle'); await shot('idle');
     const unstaged = await boxes();
@@ -609,7 +633,7 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
       });
     }
     if (entrance === 'combined' && width === 390) await resize(900);
-    for (const reason of ['unsupported', 'size', 'limit', 'empty', 'malformed', 'dimensions', 'deadline', 'cancelled', 'unavailable', 'session', 'model', 'live-call', 'batch']) {
+    for (const reason of ['unsupported', 'size', 'limit', 'empty', 'malformed', 'dimensions', 'deadline', 'cancelled', 'unavailable', 'session', 'model', 'live-call', 'batch', 'paused']) {
       await inShadow(page, (c, reason) => { const image = c.session.uploads.find(u => u.kind === 'image');
         c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'upload.state', data: { ...image, state: 'staged-refused', reason } });
       }, reason);
@@ -645,10 +669,10 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
     assert.ok(thumbnailControls.remove.width >= 44 && thumbnailControls.remove.height >= 44);
     assert.ok(thumbnailControls.remove.x >= thumbnailControls.preview.right || thumbnailControls.remove.y >= thumbnailControls.preview.bottom, 'remove target stays outside the preview');
     assert.ok(thumbnailControls.name.includes('fixture.png'));
-    await clearances('ready'); await shot('ready');
+    await reading('ready'); await clearances('ready'); await shot('ready');
     const shortState = async state => {
       if (entrance !== 'combined' || width !== 390) return;
-      await resize(568); await clearances(`short-568-${state}`); await shot(`short-568-${state}`); await resize(900);
+      await resize(568); await reading(`short-568-${state}`); await clearances(`short-568-${state}`); await shot(`short-568-${state}`); await resize(900);
     };
     await shortState('ready');
     if (width === 390) {
@@ -678,6 +702,7 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
     });
     await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason').textContent.includes('fixture.unknown'));
     const documentNotice = await inShadow(page, c => c.shadowRoot.querySelector('.composer-reason').textContent);
+    assert.match(documentNotice, /PNG, JPEG, WebP/u, 'unknown file type names the accepted image formats');
     await inShadow(page, c => {
       window.imageSendDelay = new Promise(resolve => { window.releaseImageSend = resolve; });
       c.shadowRoot.querySelector('.send').click();
@@ -694,7 +719,7 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
     await waitForShadow(page, '.turn .image-thumbnail');
     await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.turn .image-thumbnail')?.naturalWidth === 1);
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.composer-reason').textContent), documentNotice, 'document notice survives image send');
-    await clearances('sent-document-notice'); await shot('sent-document-notice'); await shortState('sent-document-notice');
+    await reading('sent-document-notice'); await clearances('sent-document-notice'); await shot('sent-document-notice'); await shortState('sent-document-notice');
     await shot('sent');
     const tileBefore = await inShadow(page, c => { const r = c.shadowRoot.querySelector('.turn-image').getBoundingClientRect(); return { w: r.width, h: r.height }; });
     assert.ok(tileBefore.w > 0 && tileBefore.h > 0);
@@ -774,6 +799,23 @@ for (const entrance of ['choice', 'combined']) for (const width of [390, 1024, 1
     }
     changes.push({ reason: 'discarded', before: consentBefore, rects: discarded });
     if (evidence) await writeFile(join(evidence, `${prefix}-rects.json`), JSON.stringify({ unstaged, before, changes, tileBefore, tileReload, after: await boxes() }, null, 2));
+    await inShadow(page, async c => {
+      window.imageUnavailableReason = 'image normalizer not configured';
+      const session = c.session; session.featureMatrix.best.imageInput = { available: false, reason: window.imageUnavailableReason };
+      const { [session.locale]: copy } = await import(`/packages/ui/src/i18n/${session.locale}.js`);
+      c.configure({ entrance: window.imageEntrance, session, copy, sessionToken: 'fixture', voiceClient: {},
+        ...(window.imageEntrance === 'combined' ? { host: { credits: true, verification: { delivery: true, privacyDocumentConfigured: true } } } : {}) });
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([window.imageFixturePNG], 'photo.png', { type: 'image/png' }));
+      transfer.items.add(new File(['fixture'], 'notes.pdf', { type: 'application/pdf' }));
+      c.shadowRoot.querySelector('.conversation').dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: transfer }));
+    });
+    await page.waitForFunction(() => [...document.querySelector('aithema-session').shadowRoot.querySelectorAll('.upload__name')].some(name => name.textContent === 'notes.pdf'));
+    assert.deepEqual(await page.evaluate(() => window.imageUploadPicks.at(-1)), ['notes.pdf'], 'mixed pick uploads the document without sending the refused image');
+    const mixedReason = await inShadow(page, c => c.shadowRoot.querySelector('.image-refusals').textContent);
+    assert.ok(mixedReason.includes('photo.png'));
+    assert.ok(mixedReason.includes((locale === 'de' ? de : en).imageRefusals.unavailable));
+    await clearances('mixed-pick'); await shot('mixed-pick');
 
   });
 }

@@ -84,7 +84,7 @@ test('AIT-510: fixture pixels reach reply and final understanding only after ima
         const pixels = await sharp(Buffer.from(image.image_url.url.split(',')[1], 'base64')).resize(1, 1).removeAlpha().raw().toBuffer();
         red = pixels[0] > 200 && pixels[1] < 70 && pixels[2] < 70;
       }
-      seen.push({ stream: body.stream, red });
+      seen.push({ stream: body.stream, red, earlierMarker: body.messages.some(message => typeof message.content === 'string' && message.content.includes('[image: "red.png", sent earlier]')) });
       const summary = red ? 'Red screenshot' : 'No screenshot';
       const result = body.stream ? { content: summary, question_short: null, options: [] } : { summary, signals: [summary], openQuestions: [],
         constraints: Object.fromEntries(storage.get(session.id).preset.slots.map(key => [key, null])),
@@ -137,6 +137,17 @@ test('AIT-510: fixture pixels reach reply and final understanding only after ima
     assert.equal(storage.get(session.id).understanding.summary, 'Red screenshot');
     assert.equal(seen.length, callsBeforeRefusals, 'unsupported images schedule no provider work');
   }
+  const { imageInput: previousCapability, ...textBinding } = binding;
+  presets.custom = { plugins: ['openrouter'], bindings: { reaction: textBinding, understanding: textBinding }, policy: { endpoints: [binding.endpoint] } };
+  storage.append(session.id, 'settings.changed', { processingPreset: 'custom', settings: { ...storage.get(session.id).settings, revision: 1 } });
+  const beforeSwitch = seen.length;
+  const continuation = await handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/turns`, { method: 'POST', body: JSON.stringify({ clientEventId: 'text-after-switch', content: 'Continue in text mode.' }) }));
+  assert.equal(continuation.status, 200); await handlers.idle();
+  const switched = seen.slice(beforeSwitch);
+  assert.ok(switched.some(call => call.stream && !call.red && call.earlierMarker), 'reply continues with an earlier-image marker after a preset switch');
+  assert.ok(switched.some(call => !call.stream && !call.red && call.earlierMarker), 'final understanding continues without image bytes');
+  assert.equal(storage.get(session.id).understanding.summary, 'No screenshot');
+  assert.equal(storage.get(session.id).uploads[0].state, 'sent');
 });
 
 test('AIT-510: late normalization cannot restore a discarded or consent-revoked image', t => {
@@ -196,7 +207,7 @@ for (const lane of ['reaction', 'understanding']) test(`AIT-510 G-M2: ${lane} co
   f.storage.postTurn(f.session.id, 'image-turn', Buffer.from('image-turn'), '', { attachments: [upload.id] });
   f.storage.append(f.session.id, 'settings.changed', { processingPreset: 'custom', settings: { ...f.session.settings, revision: 1 } });
   const session = f.storage.get(f.session.id), reasoning = createMockReasoning();
-  const binding = { plugin: 'mock', model: 'mock', effort: 'none', endpoint: 'https://example.test', maxMicro: 0, maxTokens: 1000,
+  const binding = { plugin: 'mock', model: 'mock', effort: 'none', endpoint: 'https://example.test', accountRef: 'fixture', secretRef: 'fixture', maxMicro: 0, maxTokens: 1000,
     rates: { inputMicro: 0, outputMicro: 0 } };
   const runtime = createPluginRuntime({ storage: f.storage, reasoning, registry: new PluginRegistry().register(reasoning), now: () => clock,
     presets: { custom: { plugins: ['mock'], bindings: { reaction: binding, understanding: binding } } } });

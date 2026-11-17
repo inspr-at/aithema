@@ -154,3 +154,20 @@ test('AIT-505 M3: document-first persistence retains the opener row after Start 
   assert.equal(c.shadowRoot.querySelector('[data-id="host:opener"]'), row);
   assert.equal(c.shadowRoot.querySelectorAll('[data-id="host:opener"]').length, 1);
 });
+
+test('AIT-510 G-M2: device continuation retains earlier-image markers within canonical turns only', async t => {
+  const c = document.createElement('aithema-session'), source = session(), requests = [];
+  source.processingPreset = 'device'; source.featureMatrix.device = source.featureMatrix.best;
+  source.transcript.push({ id: 'earlier-image', role: 'user', content: '', attachments: ['screen'] });
+  source.uploads.push({ id: 'screen', kind: 'image', state: 'sent', filename: 'screen.png', digest: 'fixture', w: 2, h: 1, mediaType: 'image/png' });
+  const deviceReasoning = { id: 'fixture-device', model: 'fixture-model', async connect() {}, async *stream(request) {
+    requests.push(request); yield JSON.stringify({ content: 'Text continuation.', question_short: null, options: [] });
+  } };
+  c.configure({ copy: en, session: source, deviceReasoning }); t.after(() => c.remove());
+  c.shadowRoot.querySelector('textarea').value = 'Continue locally.';
+  c.shadowRoot.querySelector('form.composer').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick();
+  assert.equal(requests.length, 1);
+  assert.deepEqual(requests[0].messages, [{ role: 'user', content: '[image: "screen.png", sent earlier]' }, { role: 'user', content: 'Continue locally.' }]);
+  assert.equal(requests[0].documentMessageIndex, null);
+  assert.equal(c.session.transcript.at(-1).content, 'Text continuation.');
+});
