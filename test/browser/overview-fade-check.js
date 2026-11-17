@@ -230,7 +230,7 @@ export async function compactStatusCheck(t) {
   for (const [width, height, font] of [[1024, 600], [1024, 768], [1280, 800], [1366, 768], [1440, 900], [1024, 768, 'Verdana'], [1280, 800, 'Verdana']])
     for (const slots of ['row-only', 'both-slots']) for (const [locale, theme] of [['en', 'light'], ['de', 'dark']]) {
       await page.setViewport({ width, height }); await page.mouse.move(-10, -10);
-      let baseline; const group = [];
+      let baseline, expectedMaximum; const group = [];
       for (const state of ['current', 'updating', 'idle', 'draft', 'preparing', 'failed', 'both-failed', 'reasoning-failed', 'reply-pending', 'no-details', 'unavailable', 'consent', 'paused', 'reconciling', 'empty']) {
         await shadow(page, async (c, locale, theme, slots, state, manifest, font) => {
           const { createSession, inputRevision, applyEvent } = await import('/packages/core/src/session.js');
@@ -275,6 +275,7 @@ export async function compactStatusCheck(t) {
         }, locale, theme, slots, state, manifest, font);
         await settle(page);
         await shadow(page, c => { c.shadowRoot.querySelector('.analysis-content').scrollTop = 0; }); await settle(page);
+        if (state === 'current') expectedMaximum = await compactStatusMaximum(page);
         const geometry = await shadow(page, c => {
           const r = c.shadowRoot, slot = r.querySelector('.overview-status'), text = slot.querySelector('.notice-text');
           const pane = r.querySelector('.analysis-stack').getBoundingClientRect(), box = slot.getBoundingClientRect();
@@ -434,7 +435,7 @@ export async function compactStatusCheck(t) {
         // Keep all failing states, plus the requested compact-state TICK packet.
         if (evidence) await page.screenshot({ path: join(evidence, `${name}.png`), fullPage: false });
       }
-      const maximum = Math.max(...group.map(({ geometry }) => geometry.naturalSlot.height));
+      const maximum = expectedMaximum;
       for (const { name, geometry } of group) if (geometry.compact && Math.abs(geometry.slot.height - maximum) > .5)
         failures.push({ name, problems: ['slot differs from the measured longest real state'], maximum, geometry });
     }
