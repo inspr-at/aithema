@@ -480,8 +480,9 @@ it or attach a contact handler. The sidebar row scrolls independently, bounded b
 30% of the desktop sidebar and 14rem below 60rem. On desktop the reading pane
 retains at least 40% of the sidebar; the contact row shrinks and scrolls when
 the header or other reserved rows need more room. Below 48rem window height,
-the desktop launcher stays visible and sidebar chrome compacts to keep its foot
-inside the frame. Its 44 px header slot remains reserved when hidden. The launcher
+the desktop pinned row is absent from layout and Tab order, and the reserved
+header launcher becomes the contact action. One condition switches both controls;
+sidebar chrome compacts to keep its foot inside the frame. Its 44 px header slot remains reserved when hidden. The launcher
 fades and becomes inert during About, like the other header controls; the phone
 contact row and the personal-conversation action in the analysis pane have a
 44 px left inset to clear the fold chevron. Host content must fit its
