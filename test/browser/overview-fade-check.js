@@ -273,6 +273,8 @@ export async function compactStatusCheck(t) {
         const session = createSession({ demo: true, locale });
         session.identity = { status: 'anonymous', verificationRequired: true, assessmentUnlocked: false };
         c.style.removeProperty('--aithema-font');
+        c.querySelector('.demo-contact-note').textContent = locale === 'de' ? 'Kontakt aufnehmen' : 'Get in touch';
+        c.querySelector('.demo-contact-open').textContent = locale === 'de' ? 'Kontakt' : 'Contact';
         c.querySelectorAll('[slot="contact-launcher"]').forEach(n => n.remove());
         if (slots === 'both-slots') {
           const launcher = document.createElement('button'); launcher.slot = 'contact-launcher'; launcher.textContent = '@'; c.append(launcher);
