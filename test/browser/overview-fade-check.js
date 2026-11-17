@@ -154,12 +154,12 @@ export async function compactStatusCheck(t) {
   await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
   await page.addStyleTag({ content: await readFile(new URL('../../demo/host.css', import.meta.url), 'utf8') });
-  for (const [width, height] of [[1024, 600], [1280, 800], [1366, 768], [1440, 900]])
+  for (const [width, height, font] of [[1024, 600], [1024, 768], [1280, 800], [1366, 768], [1440, 900], [1024, 768, 'Verdana'], [1280, 800, 'Verdana']])
     for (const slots of ['row-only', 'both-slots']) for (const [locale, theme] of [['en', 'light'], ['de', 'dark']]) {
       await page.setViewport({ width, height }); await page.mouse.move(-10, -10);
       let baseline;
-      for (const state of ['current', 'updating', 'idle', 'draft', 'preparing', 'failed', 'both-failed', 'reply-pending', 'no-details', 'unavailable', 'consent', 'paused', 'reconciling', 'empty']) {
-        await shadow(page, async (c, locale, theme, slots, state, manifest) => {
+      for (const state of ['current', 'updating', 'idle', 'draft', 'preparing', 'failed', 'both-failed', 'reasoning-failed', 'reply-pending', 'no-details', 'unavailable', 'consent', 'paused', 'reconciling', 'empty']) {
+        await shadow(page, async (c, locale, theme, slots, state, manifest, font) => {
           const { createSession, inputRevision, applyEvent } = await import('/packages/core/src/session.js');
           const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
           const session = createSession({ demo: true, locale });
@@ -178,6 +178,7 @@ export async function compactStatusCheck(t) {
           if (state === 'preparing') { u.readinessAssessed = false; ops.running = ['understanding']; }
           if (state === 'failed') fail(['understanding']);
           if (state === 'both-failed') fail(['reaction', 'understanding']);
+          if (state === 'reasoning-failed') fail(['other']);
           if (state === 'reply-pending') { u.readinessAssessed = false; session.transcript.pop(); fail(['reaction']); }
           if (state === 'no-details') u.readinessAssessed = false;
           if (state === 'unavailable') { u.readinessAssessed = false; session.featureMatrix.best.analysis = { available: false, reason: 'admission deadline' }; }
@@ -196,8 +197,9 @@ export async function compactStatusCheck(t) {
           if (slots === 'both-slots') {
             const launcher = document.createElement('button'); launcher.slot = 'contact-launcher'; launcher.className = 'demo-contact-launcher'; launcher.textContent = '@'; c.append(launcher);
           }
+          c.style.setProperty('--aithema-font', font || 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
           c.setAttribute('theme', theme); c.setAttribute('motion', 'off'); c.configure({ session, copy, voiceClient: { manifest } });
-        }, locale, theme, slots, state, manifest);
+        }, locale, theme, slots, state, manifest, font);
         await settle(page);
         await shadow(page, c => { c.shadowRoot.querySelector('.analysis-content').scrollTop = 0; }); await settle(page);
         const geometry = await shadow(page, c => {
@@ -212,7 +214,7 @@ export async function compactStatusCheck(t) {
             textBoxes: [text, ...text.querySelectorAll('.consent-line-copy')].map(measureText),
             actions: [...slot.querySelectorAll('button:not([hidden])')].map(n => ({ text: n.textContent, ...n.getBoundingClientRect().toJSON() })) };
         });
-        const name = `${width}x${height}-${slots}-${locale}-${theme}-${state}`;
+        const name = `${width}x${height}-${slots}-${locale}-${theme}-${font || 'default'}-${state}`;
         records.push({ name, state, ...geometry });
         positive(geometry.slot, `${name}: slot`); positive(geometry.pane, `${name}: pane`);
         baseline ??= geometry.slot;
@@ -230,7 +232,7 @@ export async function compactStatusCheck(t) {
         }
         if (problems.length) failures.push({ name, problems, geometry });
         // Keep all failing states, plus the requested compact-state TICK packet.
-        if (evidence && (width >= 1366 || problems.length)) await page.screenshot({ path: join(evidence, `${name}.png`), fullPage: false });
+        if (evidence && (width >= 1366 || font || problems.length)) await page.screenshot({ path: join(evidence, `${name}.png`), fullPage: false });
       }
     }
   t.diagnostic(`AIT-547 real status states: ${records.length} scenes, ${failures.length} clipped/unstable states`);
