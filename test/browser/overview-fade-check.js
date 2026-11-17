@@ -27,10 +27,8 @@ export async function compactStatusMaximum(page) {
       innerWidth >= 60 * parseFloat(getComputedStyle(document.documentElement).fontSize) && pane.height <= 500;
     if (!compact) return null;
     const { [c.session.locale]: copy } = await import(`/packages/ui/src/i18n/${c.session.locale}.js`);
-    const variants = ['empty', 'stale', 'preparingOverview', 'reasoningFailed', 'overviewPendingReply',
-      'noProjectDetails', 'draft', 'overviewCurrent', 'paused', 'notConfigured'].map(key => ({ text: copy[key] }));
-    variants.push({ text: copy.understandingFailed + '.' }, { text: copy.reasons['admission deadline'] },
-      { text: copy.understandingFailed, retry: true }, { text: copy.staleIdle, retry: true }, { consent: true });
+    const { overviewStatusCandidates } = await import('/packages/ui/src/overview-status-copy.js');
+    const variants = overviewStatusCandidates(copy, c.session.locale);
     const probe = slot.cloneNode(false), width = bounds.width;
     Object.assign(probe.style, { position: 'fixed', left: '-10000px', top: '0', width: `${width}px`,
       height: 'auto', minHeight: '0', overflow: 'visible', visibility: 'hidden', margin: '0' });
@@ -212,6 +210,23 @@ export async function compactStatusCheck(t) {
   await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
   await page.addStyleTag({ content: await readFile(new URL('../../demo/host.css', import.meta.url), 'utf8') });
+  await page.evaluate(() => {
+    window.compactControlBoxes = c => {
+      const r = c.shadowRoot;
+      const nodes = [...r.querySelectorAll('.summary-heading h3, .signals-heading h3, .signals-toggle, .summary-toggle, .overview-retry, .consent-action')]
+        .filter(n => n.checkVisibility({ checkVisibilityCSS: true }));
+      nodes.push(...c.querySelectorAll('[slot="sidebar-contact"] button, [slot="contact-launcher"]'));
+      return Object.fromEntries(nodes.filter(n => n.checkVisibility({ checkVisibilityCSS: true })).map(n =>
+        [n.matches('h3') ? n.id : n.className || n.slot, n.getBoundingClientRect().toJSON()]));
+    };
+  });
+  const assertControls = (after, before, label) => {
+    for (const [key, box] of Object.entries(after)) {
+      positive(box, `${label}/${key}`);
+      if (before[key]) for (const axis of ['x', 'y', 'width', 'height'])
+        assert.ok(Math.abs(box[axis] - before[key][axis]) <= .5, `${label}/${key}.${axis} moves 0px`);
+    }
+  };
   for (const [width, height, font] of [[1024, 600], [1024, 768], [1280, 800], [1366, 768], [1440, 900], [1024, 768, 'Verdana'], [1280, 800, 'Verdana']])
     for (const slots of ['row-only', 'both-slots']) for (const [locale, theme] of [['en', 'light'], ['de', 'dark']]) {
       await page.setViewport({ width, height }); await page.mouse.move(-10, -10);
@@ -280,7 +295,7 @@ export async function compactStatusCheck(t) {
           const measureText = n => { const b = n.getBoundingClientRect(), style = getComputedStyle(n); return { box: b.toJSON(),
             scrollHeight: n.scrollHeight, clientHeight: n.clientHeight, scrollWidth: n.scrollWidth, clientWidth: n.clientWidth,
             font: style.fontFamily, clamp: style.webkitLineClamp, ellipsis: style.textOverflow === 'ellipsis', lineHeight: parseFloat(style.lineHeight) }; };
-          return { slot: box.toJSON(), pane: pane.toJSON(), text: text.textContent,
+          return { slot: box.toJSON(), pane: pane.toJSON(), text: text.textContent, controls: window.compactControlBoxes(c),
             compact: r.querySelector('.workspace').hasAttribute('data-contact') && innerWidth >= 60 * parseFloat(getComputedStyle(document.documentElement).fontSize) && pane.height <= 500,
             normalHeight: parseFloat(getComputedStyle(slot).fontSize) * 4.35,
             naturalSlot, naturalTexts, textBoxes: [text, ...text.querySelectorAll('.consent-line-copy')].map(measureText),
@@ -307,6 +322,55 @@ export async function compactStatusCheck(t) {
           if (action.top < geometry.slot.top - .5 || action.bottom > geometry.slot.bottom + .5 || action.left < geometry.slot.left - .5 || action.right > geometry.slot.right + .5) problems.push('action outside slot');
         }
         if (problems.length) failures.push({ name, problems, geometry });
+        if (state === 'current' && geometry.compact) {
+          const transitions = await shadow(page, async c => {
+            const { overviewStatusCandidates } = await import('/packages/ui/src/overview-status-copy.js');
+            const { paintConsentLine } = await import('/packages/ui/src/consent-line.js');
+            const copy = (await import(`/packages/ui/src/i18n/${c.session.locale}.js`))[c.session.locale];
+            const r = c.shadowRoot, slot = r.querySelector('.overview-status'), text = slot.querySelector('.notice-text');
+            const retry = r.querySelector('.overview-retry'), results = [];
+            for (const variant of [...overviewStatusCandidates(copy, c.session.locale), { state: 'restored', text: copy.overviewCurrent }]) {
+              paintConsentLine(text, { copy, feature: 'analysis', separator: '', text: variant.text,
+                verdict: { available: !variant.consent, reason: 'current processing consent required' }, open: () => {} });
+              retry.textContent = copy.understandingRetry; retry.hidden = !variant.retry;
+              if (variant.retry) slot.append(retry); else slot.after(retry);
+              const box = text.getBoundingClientRect();
+              results.push({ state: variant.state, reason: variant.rawReason, text: text.textContent,
+                slot: slot.getBoundingClientRect().toJSON(), textBox: box.toJSON(), scrollHeight: text.scrollHeight, clientHeight: text.clientHeight,
+                controls: window.compactControlBoxes(c) });
+            }
+            return results;
+          });
+          const seenControls = { ...geometry.controls };
+          for (const transition of transitions) {
+            const label = `${name}/${transition.state}/${transition.reason ?? ''}`;
+            positive(transition.slot, `${label}: slot`); positive(transition.textBox, `${label}: text`);
+            for (const axis of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(transition.slot[axis] - geometry.slot[axis]) <= .5, `${label}: constant slot ${axis}`);
+            assert.ok(transition.scrollHeight <= transition.clientHeight, `${label}: complete text`);
+            assert.ok(transition.textBox.top >= transition.slot.top - .5 && transition.textBox.bottom <= transition.slot.bottom + .5, `${label}: text inside reserve`);
+            assertControls(transition.controls, seenControls, label);
+            Object.assign(seenControls, transition.controls);
+            for (const [key, box] of Object.entries(transition.controls)) if (key === 'overview-retry' || key === 'consent-action')
+              assert.ok(box.top >= transition.slot.top - .5 && box.bottom <= transition.slot.bottom + .5 && box.left >= transition.slot.left - .5 && box.right <= transition.slot.right + .5, `${label}/${key}: action inside reserve`);
+          }
+          records.push({ name: `${name}-catalog-transitions`, transitions });
+          if (evidence) {
+            // Preserve the longest reason and idle state in every requested font/layout.
+            for (const target of ['longest', 'idle']) {
+              const chosen = target === 'longest' ? transitions.filter(value => value.reason).sort((a, b) => b.textBox.height - a.textBox.height || b.text.length - a.text.length)[0]
+                : transitions.find(value => value.state === 'idle');
+              await shadow(page, async (c, chosen) => {
+                const r = c.shadowRoot, slot = r.querySelector('.overview-status'), retry = r.querySelector('.overview-retry');
+                r.querySelector('.notice-text').textContent = chosen.text; retry.hidden = chosen.state !== 'idle';
+                if (chosen.state === 'idle') slot.append(retry); else slot.after(retry);
+              }, chosen);
+              await page.screenshot({ path: join(evidence, `${name}-${target}.png`) });
+            }
+            await shadow(page, (c, current) => {
+              const r = c.shadowRoot; r.querySelector('.notice-text').textContent = current; r.querySelector('.overview-retry').hidden = true;
+            }, geometry.text);
+          }
+        }
         // A live state update must reuse the already measured reservation,
         // rather than measuring only the newly displayed message.
         if (state === 'current' && width === 1024 && height === 768 && slots === 'both-slots' && locale === 'de' && !font) {
@@ -329,9 +393,10 @@ export async function compactStatusCheck(t) {
             await settle(page);
             const live = await shadow(page, c => {
               const slot = c.shadowRoot.querySelector('.overview-status'), text = slot.querySelector('.notice-text');
-              return { box: slot.getBoundingClientRect().toJSON(), scrollHeight: text.scrollHeight, clientHeight: text.clientHeight };
+              return { box: slot.getBoundingClientRect().toJSON(), scrollHeight: text.scrollHeight, clientHeight: text.clientHeight, controls: window.compactControlBoxes(c) };
             });
             positive(live.box, `${name}/${next}: live slot`);
+            assertControls(live.controls, geometry.controls, `${name}/${next}: live controls`);
             for (const axis of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(live.box[axis] - geometry.slot[axis]) <= .5, `${name}/${next}: live ${axis} moves 0px`);
             assert.ok(live.scrollHeight <= live.clientHeight, `${name}/${next}: live text is complete`);
             records.push({ name: `${name}-live-${next}`, ...live });
@@ -367,7 +432,7 @@ export async function compactStatusCheck(t) {
           }
         }
         // Keep all failing states, plus the requested compact-state TICK packet.
-        if (evidence && (width >= 1366 || font || problems.length)) await page.screenshot({ path: join(evidence, `${name}.png`), fullPage: false });
+        if (evidence) await page.screenshot({ path: join(evidence, `${name}.png`), fullPage: false });
       }
       const maximum = Math.max(...group.map(({ geometry }) => geometry.naturalSlot.height));
       for (const { name, geometry } of group) if (geometry.compact && Math.abs(geometry.slot.height - maximum) > .5)
