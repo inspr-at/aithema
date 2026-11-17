@@ -623,11 +623,15 @@ one-use, tab-scoped intent for at most three minutes for typing or 60 seconds fo
 voice, bound to the conversation, mode and settings revision. Its stored copy is
 written before the consent event is dispatched and removed when consumed, explicitly
 cancelled, expired or invalidated. The additive `requestId` is unique per event;
-additive `cancel()` lets the host settle that request when its consent interface
-is dismissed without a grant. It is idempotent and does nothing after a grant,
-TTL expiry or a superseding request. Existing hosts can ignore both fields and
-retain the existing TTL behavior. A host can retain `event.detail.cancel` and
-call it when its own dialog closes without granting consent.
+additive `cancel()` lets the host settle a `start` request when its consent
+interface is dismissed without a grant. For other intents it is a no-op for
+the intent state; a concept keeps its existing TTL and later grant continuation.
+It is idempotent and does nothing after a grant, TTL expiry or a superseding
+request. Existing hosts can ignore both fields and retain the existing TTL
+behavior. A host can retain `event.detail.cancel` and call it when its own dialog
+closes without granting consent. Never call `cancel()` after granting: the
+callback is fenced when the component receives the `consent.revised` receipt,
+which can arrive after the host's grant action.
 A covering consent snapshot or refresh resumes typing. Voice resumes only while
 user activation is active; after a navigation to a consent page, voice needs one
 click on "Start call".

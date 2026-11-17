@@ -1854,7 +1854,6 @@ export class AithemaSession extends HTMLElement {
     const requestId = this.#consentRequestId = crypto.randomUUID(), sessionId = this.#session.id,
       consentRevision = this.#session.consentRevision, settingsRevision = this.#session.settings.revision,
       startId = intent === 'start' ? this.#startIntent?.tabId : null,
-      conceptRequestId = this.#session.conceptStatus?.consentRequest?.id,
       expiresAt = (intent === 'start' ? this.#startIntent?.expiresAt : null) ?? Date.now() + startIntentTTL(intent === 'concept' ? 'text' : mode);
     const cancel = () => {
       // A retained callback belongs only to this request, before a grant or expiry.
@@ -1863,7 +1862,6 @@ export class AithemaSession extends HTMLElement {
         Date.now() >= expiresAt) return;
       this.#consentRequestId = null;
       if (intent === 'start' && startId && this.#startIntent?.tabId === startId) this.#clearStartIntent();
-      if (intent === 'concept' && this.#session.conceptStatus?.consentRequest?.id === conceptRequestId) this.#concept?.cancelConsent();
     };
     // The host's consent interface lies outside this modal dialog.
     this.#dialog.close();
