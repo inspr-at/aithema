@@ -2154,6 +2154,7 @@ export class AithemaSession extends HTMLElement {
       const words = this.#composerPaused ? '' : !text.available || this.#rail?.moved ? unavailable : this.#sendFailed ? copy.failed
         : this.#images?.pending ? resolveCopy(copy, 'imagePreparing', undefined, this.#session.locale) : this.#uploadNotice || copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '');
       setText(root.querySelector('#upload-retry-reason'), this.#retryFiles.length ? plural(copy.uploads.notUploaded, this.#retryFiles.length) : '');
+      let uploadNotice = false;
       if (this.#retryFiles.length) {
         const refusal = this.#retryRefusal();
         if (!reason.querySelector('.upload-discard')) {
@@ -2197,7 +2198,10 @@ export class AithemaSession extends HTMLElement {
         paintConsentLine(reason, { copy, feature: 'text', text: words,
           verdict: text,
           open: opener => this.#dialog.openConsent('text', opener) });
+        uploadNotice = this.#imageLayout && text.available && !this.#rail?.moved && !this.#sendFailed && Boolean(words) && words === this.#uploadNotice;
+        if (uploadNotice) this.#images.paintNotice(reason, words);
       }
+      reason.toggleAttribute('data-upload-notice', uploadNotice);
       reason.toggleAttribute('data-send-failed', this.#sendFailed && text.available && !this.#rail?.moved);
       if (reason.hasAttribute('data-send-failed')) {
         const line = reason.querySelector('.upload-retry-copy') ?? reason;

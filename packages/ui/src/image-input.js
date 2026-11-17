@@ -64,12 +64,14 @@ export class ImageInputView {
     const reasons = ['batch', 'unsupported', 'size', 'limit', 'empty', 'malformed', 'dimensions', 'deadline', 'cancelled', 'unavailable', 'session', 'model', 'live-call', 'paused'];
     // A type refusal shares this slot with decoder feedback. Reserve its full
     // localized sentence and accepted formats before intake can settle.
-    const documentNotice = [this.#copy.uploads.refused.replace('{list}', this.#copy.uploads.type.replace('{name}', 'filename.unknown')),
-      this.#text('uploadsSupported')].filter(Boolean).join(' ');
-    const key = JSON.stringify([reasons.map(reason => this.refusalText(reason)), this.#copy.uploads.discard, documentNotice]);
+    const documentFacts = this.#copy.uploads.refused.replace('{list}', this.#copy.uploads.type.replace('{name}', 'filename.unknown'));
+    const documentFormats = this.#text('uploadsSupported');
+    const key = JSON.stringify([reasons.map(reason => this.refusalText(reason)), this.#copy.uploads.discard, documentFacts, documentFormats]);
     if (this.#reserve.dataset.copy !== key) {
       this.#reserve.dataset.copy = key;
-      this.#reserve.replaceChildren(node('span', 'image-feedback-document-reserve', documentNotice), ...reasons.map(reason => {
+      const documentNotice = node('span', 'image-feedback-document-reserve');
+      documentNotice.append(node('span', 'upload-notice-facts', documentFacts), node('span', 'upload-notice-formats', documentFormats));
+      this.#reserve.replaceChildren(documentNotice, ...reasons.map(reason => {
         const row = node('span', 'image-refusals-reserve__row');
         const icon = node('span', 'image-refusals__icon');
         const list = node('span', 'image-refusals__list'); list.append(this.#refusal({ name: 'file', reason }));
@@ -79,6 +81,17 @@ export class ImageInputView {
     }
     const height = Math.ceil(this.#reserve.getBoundingClientRect().height);
     if (height > 0) this.#ports.form.style.setProperty('--image-feedback-height', `${height}px`);
+  }
+  paintNotice(line, text) {
+    const supported = this.#text('uploadsSupported') ?? '';
+    const formats = supported && text.endsWith(supported) ? supported : '';
+    if (!line.querySelector('.upload-notice-facts')) {
+      const facts = node('span', 'upload-notice-facts'); facts.tabIndex = 0;
+      line.replaceChildren(facts, node('span', 'upload-notice-formats'));
+    }
+    setText(line.querySelector('.upload-notice-facts'), formats ? text.slice(0, -formats.length) : text);
+    const help = line.querySelector('.upload-notice-formats');
+    setText(help, formats); help.hidden = !formats;
   }
   paintRefusals(line) {
     let region = line.querySelector('.image-refusals');

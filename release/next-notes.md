@@ -194,6 +194,8 @@
   image.” / “ist kein lesbares Bild.”; host overrides keep precedence.
   This also covers native `unsupported` bytes behind an accepted extension;
   only UI wording changes, and native refusal codes remain unchanged.
+  Multiple refused names keep a keyboard-scrollable two-line area; the full
+  accepted-format sentence stays outside that area in the reserved slot.
 - AIT-515: `understanding.signals` remains `string[]` and is now newest-first by
   first-seen server sequence, with stable provider-order ties. Current finals
   hide omitted texts; rewordings are new keys, without replacement IDs or an

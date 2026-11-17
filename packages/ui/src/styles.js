@@ -890,6 +890,11 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .composer[data-image-input] .image-feedback-reserve { display:grid; }
 .image-feedback-reserve > * { grid-area:1/1; }
 .image-feedback-document-reserve { overflow-wrap:anywhere; }
+/* Keep arbitrary refusal batches in their established two-line scroll area;
+   accepted formats have their own fully wrapped row and never scroll away. */
+.upload-notice-facts { display:block; min-height:2.6em; max-height:2.6em; overflow:auto; overscroll-behavior:contain; overflow-wrap:anywhere; }
+.upload-notice-formats { display:block; overflow-wrap:anywhere; }
+.composer-reason[data-upload-notice] { display:block; overflow:visible; }
 .composer[data-image-input] .composer-reason:not(:has(.upload-discard)) { max-height:none; }
 .image-refusals, .image-refusals-reserve__row { display:flex; align-items:flex-start; gap:5px; min-height:44px; font-size:.72rem; line-height:1.3; }
 .image-refusals { position:absolute; inset:0; overflow:auto; color:var(--aithema-warning); }
