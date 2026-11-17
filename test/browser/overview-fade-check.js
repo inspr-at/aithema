@@ -137,3 +137,102 @@ export async function overviewFadeCheck(t) {
       }
   assert.deepEqual(errors, []);
 }
+
+// Exercise the real status renderer: changing only textContent misses consent,
+// failure and availability states, including the width reserved for their actions.
+export async function compactStatusCheck(t) {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-compact-status-'));
+  const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(directory, 'unused.sqlite'));
+  const browser = await browserForFile(), page = await browser.newPage(), records = [], failures = [];
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR && join(process.env.AITHEMA_EVIDENCE_DIR, 'compact-status');
+  if (evidence) await mkdir(evidence, { recursive: true });
+  t.after(async () => {
+    if (evidence) await writeFile(join(evidence, 'states.json'), JSON.stringify({ head: evidenceCommit, records, failures }, null, 2));
+    await browser.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true });
+  });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+  await page.addStyleTag({ content: await readFile(new URL('../../demo/host.css', import.meta.url), 'utf8') });
+  for (const [width, height] of [[1024, 600], [1280, 800], [1366, 768], [1440, 900]])
+    for (const slots of ['row-only', 'both-slots']) for (const [locale, theme] of [['en', 'light'], ['de', 'dark']]) {
+      await page.setViewport({ width, height }); await page.mouse.move(-10, -10);
+      let baseline;
+      for (const state of ['current', 'updating', 'idle', 'draft', 'preparing', 'failed', 'both-failed', 'reply-pending', 'no-details', 'unavailable', 'consent', 'paused', 'reconciling', 'empty']) {
+        await shadow(page, async (c, locale, theme, slots, state, manifest) => {
+          const { createSession, inputRevision, applyEvent } = await import('/packages/core/src/session.js');
+          const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+          const session = createSession({ demo: true, locale });
+          session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, voice: { available: true } } };
+          session.transcript = [{ id: 'u', role: 'user', content: 'We reconcile invoices.' }, { id: 'a', role: 'assistant', content: 'Which workflow follows?' }];
+          session.transcript[1].inputRevision = inputRevision(session);
+          const u = session.understanding;
+          Object.assign(u, { inputRevision: inputRevision(session), readinessAssessed: true, draft: false,
+            summary: (locale === 'de' ? 'Sie planen einen übersichtlichen Ablauf für die Buchung und Freigabe. ' : 'You plan a clear workflow for booking and approval. ').repeat(30),
+            signals: Array.from({ length: 7 }, (_, i) => locale === 'de' ? `Sie nutzen den Ablauf ${i + 1}.` : `You use workflow ${i + 1}.`) });
+          const ops = session.operations = { inputRevision: inputRevision(session), running: [], failures: [], lastFailure: null };
+          const fail = lanes => { ops.failures = lanes.map(lane => ({ lane, error: 'reasoning-unavailable', retryable: true })); ops.lastFailure = ops.failures.at(-1); };
+          if (['updating', 'idle', 'reconciling'].includes(state)) u.inputRevision = 'older';
+          if (state === 'updating') ops.running = ['understanding'];
+          if (state === 'draft') { u.draft = true; ops.running = ['understanding']; }
+          if (state === 'preparing') { u.readinessAssessed = false; ops.running = ['understanding']; }
+          if (state === 'failed') fail(['understanding']);
+          if (state === 'both-failed') fail(['reaction', 'understanding']);
+          if (state === 'reply-pending') { u.readinessAssessed = false; session.transcript.pop(); fail(['reaction']); }
+          if (state === 'no-details') u.readinessAssessed = false;
+          if (state === 'unavailable') { u.readinessAssessed = false; session.featureMatrix.best.analysis = { available: false, reason: 'admission deadline' }; }
+          if (state === 'consent') session.featureMatrix.best.analysis = { available: false, reason: 'current processing consent required' };
+          if (state === 'paused') session.paused = true;
+          if (state === 'reconciling') session.featureMatrix.best.analysis = { available: false, reason: 'budget reconciling' };
+          if (state === 'empty') Object.assign(session, applyEvent(session, { seq: session.seq + 1, type: 'turn.withdrawn', data: { turnId: 'u', reason: 'withdrawal' } }));
+          window.fetch = async (url, init = {}) => String(url).endsWith('/events') ? new Response(new ReadableStream({ start(controller) {
+            init.signal?.addEventListener('abort', () => controller.close(), { once: true });
+          } })) : Response.json(c.session);
+          document.documentElement.lang = locale; document.documentElement.dataset.theme = theme;
+          c.querySelectorAll('[slot="sidebar-contact"], [slot="contact-launcher"]').forEach(n => n.remove());
+          const contact = document.createElement('section'); contact.slot = 'sidebar-contact'; contact.className = 'demo-contact';
+          contact.innerHTML = `<p class="demo-contact-note">${locale === 'de' ? 'Kontakt aufnehmen' : 'Get in touch'}</p><button class="demo-contact-open" type="button">${locale === 'de' ? 'Kontakt' : 'Contact'}</button>`;
+          c.append(contact);
+          if (slots === 'both-slots') {
+            const launcher = document.createElement('button'); launcher.slot = 'contact-launcher'; launcher.className = 'demo-contact-launcher'; launcher.textContent = '@'; c.append(launcher);
+          }
+          c.setAttribute('theme', theme); c.setAttribute('motion', 'off'); c.configure({ session, copy, voiceClient: { manifest } });
+        }, locale, theme, slots, state, manifest);
+        await settle(page);
+        await shadow(page, c => { c.shadowRoot.querySelector('.analysis-content').scrollTop = 0; }); await settle(page);
+        const geometry = await shadow(page, c => {
+          const r = c.shadowRoot, slot = r.querySelector('.overview-status'), text = slot.querySelector('.notice-text');
+          const pane = r.querySelector('.analysis-stack').getBoundingClientRect(), box = slot.getBoundingClientRect();
+          const measureText = n => { const b = n.getBoundingClientRect(), style = getComputedStyle(n); return { box: b.toJSON(),
+            scrollHeight: n.scrollHeight, clientHeight: n.clientHeight, scrollWidth: n.scrollWidth, clientWidth: n.clientWidth,
+            ellipsis: style.textOverflow === 'ellipsis', lineHeight: parseFloat(style.lineHeight) }; };
+          return { slot: box.toJSON(), pane: pane.toJSON(), text: text.textContent,
+            compact: r.querySelector('.workspace').hasAttribute('data-contact') && innerWidth >= 60 * parseFloat(getComputedStyle(document.documentElement).fontSize) && pane.height <= 500,
+            expectedHeight: parseFloat(getComputedStyle(slot).fontSize) * (innerWidth >= 960 && pane.height <= 500 ? 2.9 : 4.35),
+            textBoxes: [text, ...text.querySelectorAll('.consent-line-copy')].map(measureText),
+            actions: [...slot.querySelectorAll('button:not([hidden])')].map(n => ({ text: n.textContent, ...n.getBoundingClientRect().toJSON() })) };
+        });
+        const name = `${width}x${height}-${slots}-${locale}-${theme}-${state}`;
+        records.push({ name, state, ...geometry });
+        positive(geometry.slot, `${name}: slot`); positive(geometry.pane, `${name}: pane`);
+        baseline ??= geometry.slot;
+        const problems = [];
+        if (Math.abs(geometry.slot.height - geometry.expectedHeight) > .5) problems.push('incorrect exact slot height');
+        if (Math.abs(geometry.slot.height - baseline.height) > .5) problems.push('status height shifted');
+        for (const [i, text] of geometry.textBoxes.entries()) {
+          positive(text.box, `${name}: text ${i}`);
+          if (geometry.compact && (text.scrollHeight > text.clientHeight || text.scrollWidth > text.clientWidth || text.ellipsis || text.box.height > text.lineHeight * 2 + .5)) problems.push(`text ${i} clipped or ellipsized`);
+        }
+        if (['failed', 'idle', 'consent'].includes(state) && !geometry.actions.length) problems.push('missing Retry/consent action');
+        for (const action of geometry.actions) {
+          positive(action, `${name}: action`);
+          if (action.top < geometry.slot.top - .5 || action.bottom > geometry.slot.bottom + .5 || action.left < geometry.slot.left - .5 || action.right > geometry.slot.right + .5) problems.push('action outside slot');
+        }
+        if (problems.length) failures.push({ name, problems, geometry });
+        // Keep all failing states, plus the requested compact-state TICK packet.
+        if (evidence && (width >= 1366 || problems.length)) await page.screenshot({ path: join(evidence, `${name}.png`), fullPage: false });
+      }
+    }
+  t.diagnostic(`AIT-547 real status states: ${records.length} scenes, ${failures.length} clipped/unstable states`);
+  assert.deepEqual(failures, [], 'every real compact overview status fits two lines without clipping; actions stay inside the constant slot');
+}

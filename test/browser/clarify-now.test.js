@@ -1,5 +1,5 @@
 // AIT-274: one page and one browser; all state-only contracts live in unit tests.
-import { overviewFadeCheck } from './overview-fade-check.js';
+import { overviewFadeCheck, compactStatusCheck } from './overview-fade-check.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
@@ -1763,4 +1763,4 @@ test('AIT-524 status-only hit testing, real padding and stationary rows: EN/DE l
 });
 
 test('AIT-547 pinned contact: opaque heading and first signal above the fade, stable status EN/DE',
-  { timeout: 180_000 }, overviewFadeCheck);
+  { timeout: 180_000 }, async t => { await overviewFadeCheck(t); await compactStatusCheck(t); });
