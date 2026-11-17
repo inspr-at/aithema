@@ -1553,7 +1553,7 @@ export class AithemaSession extends HTMLElement {
   #enterErased(id, via) {
     if (id !== this.#session.id || this.#erased) return;
     this.#clearStartIntent();
-    this.#summaryExpanded = false; this.#summaryView?.freeze();
+    this.#summaryExpanded = false; this.#overviewStatusSize?.disconnect(); this.#summaryView?.freeze();
     const root = this.shadowRoot, workspace = root.querySelector('.workspace');
     this.#signals.clear();
     const remembered = this.#erasedIds.get(id);
