@@ -10,6 +10,7 @@ import { de } from '../src/i18n/de.js';
 // the production measurer still builds the real consent and Retry DOM.
 function harness(copy) {
   const window = new Window();
+  globalThis.document = window.document;
   const root = window.document.createElement('div');
   root.innerHTML = '<div class="analysis-stack"><div class="analysis-content"><p class="overview-status"><span class="notice-text">Current</span></p></div></div>';
   window.document.body.append(root);
