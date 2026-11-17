@@ -88,6 +88,15 @@ export class Verification {
   get delivery() { return this.#email.delivery; }
   get canCollect() { return this.#email.canCollect; }
   get email() { return this.#email; }
+  /** Undefined until the host capability loads; legacy hosts retain saving. */
+  get canSave() { return this.#visitorEmail === null ? undefined : this.#visitorEmail.canSave !== false; }
+  get #confirmationPath() { return `identity/${this.#identity?.status === 'guest' || !this.#identity?.address ? 'request' : 'change'}`; }
+  /** Offer-only link delivery: identity hosts grant credit at confirmation. */
+  async sendIdentityLink(address) {
+    if (!this.#alive || this.#ui.busy || !this.canCollect || this.changeBlocked) return { ok: false };
+    const response = await this.#post(this.#confirmationPath, { address });
+    return { ...(response ?? { ok: false }), sent: response?.ok === true && response.body?.identity?.delivery !== 'failed' };
+  }
   /** A2 save acknowledgement precedes C1/C2. A failed link keeps the saved tier. */
   async saveAndConfirm(address, { delivery } = {}) {
     if (!this.#email.notice?.version) await this.load();
@@ -275,8 +284,7 @@ export class Verification {
       this.#ui.message = response.sent ? '' : v.deliveryFailed; this.#ui.error = !response.sent;
       this.#paint(); this.#focusForm(entry); return;
     }
-    const command = this.#identity?.status === 'guest'  || !this.#identity?.address ? 'request' : 'change';
-    await this.#post(`identity/${command}`, { address }, () => { this.#ui.editing = false; entry.input.value = ''; });
+    await this.#post(this.#confirmationPath, { address }, () => { this.#ui.editing = false; entry.input.value = ''; });
     if (this.#alive) this.#focusForm(entry);
   }
   /** Send a link for an already saved address without saving or replacing it. */
