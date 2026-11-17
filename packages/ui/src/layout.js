@@ -293,7 +293,9 @@ class ComposerSize {
     // an answer-chip send cannot expand a retained draft into newly free space.
     if (!visitor && this.value === this.input.value && this.context === context) return;
     this.value = this.input.value; this.context = context;
-    const following = this.following(), previousEffective = this.effective ?? 0;
+    // First publication compares against the real pre-fit box. An unchanged
+    // default size must not notify a resize and turn initial reading into follow.
+    const following = this.following(), previousEffective = this.effective ?? composer.height;
     const line = parseFloat(css.lineHeight) || 24;
     const padding = (parseFloat(css.paddingTop) || 0) + (parseFloat(css.paddingBottom) || 0);
     // The hidden used-up peer can stretch the live form. Measure intrinsic
