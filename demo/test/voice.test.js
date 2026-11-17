@@ -14,6 +14,7 @@ test('labelled fake agent exercises speech, voice barge-in, typing, acknowledged
   const originals = Object.fromEntries(keys.map(key => [key, globalThis[key]]));
   let cookie = '', failRecovery = false; const paths = [], failures = [];
   let releaseDelayedTurn = () => {};
+  let step = 0;
   const notifications = eventProbe(), render = AudioRail.prototype.render, consume = AudioRail.prototype.consume;
   t.mock.method(AudioRail.prototype, 'render', function () {
     render.call(this);
@@ -24,7 +25,10 @@ test('labelled fake agent exercises speech, voice barge-in, typing, acknowledged
     releaseDelayedTurn();
   });
   t.mock.method(AudioRail.prototype, 'consume', function (session, generation) {
-    session.events = observedVoiceEvents(session.events, event => notifications.record({ source: 'voice', event }));
+    session.events = observedVoiceEvents(session.events, event => {
+      notifications.record({ source: 'voice', event });
+      if (event.type === 'ended') t.diagnostic(`AIT-495 action ${step} voice ended: ${event.reason}`);
+    });
     return consume.call(this, session, generation);
   });
   try {
@@ -66,7 +70,6 @@ test('labelled fake agent exercises speech, voice barge-in, typing, acknowledged
         t.diagnostic(`AIT-390 forced snapshot adoption before delayed turn ${event.seq}`);
       });
     };
-    let step = 0;
     const act = async (action, ...predicates) => {
       const currentStep = ++step;
       t.diagnostic(`AIT-390 action ${currentStep} started`);
