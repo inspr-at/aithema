@@ -1,3 +1,4 @@
+import { serverEvents } from './session-events.js';
 import { emailOfferStyles } from './email-offer.js';
 import { hostOpenerTurn, openerTranscript } from './host-opener.js';
 import { consentTimeout } from './consent-timer.js';
@@ -58,21 +59,6 @@ function spareSpace(pane) {
   const last = pane.lastElementChild; if (!last) return 0;
   const end = last.getBoundingClientRect().bottom + parseFloat(getComputedStyle(last).marginBottom) + parseFloat(getComputedStyle(pane).paddingBottom);
   return Math.max(0, pane.getBoundingClientRect().top + pane.clientTop + pane.clientHeight - end);
-}
-// Server-sent events from a fetch body, one parsed event at a time.
-async function* serverEvents(reader) {
-  let buffer = ''; const decoder = new TextDecoder();
-  while (true) {
-    const { done, value } = await reader.read(); if (done) return;
-    buffer += decoder.decode(value, { stream: true });
-    if (buffer.length > 2_000_000) throw new Error('Event stream too large');
-    let boundary;
-    while ((boundary = buffer.indexOf('\n\n')) >= 0) {
-      const block = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2);
-      const data = block.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5)).join('\n');
-      if (data) yield JSON.parse(data);
-    }
-  }
 }
 // Tick's approved 16 px state glyphs (the action itself retains a 44 px target).
 const CLARIFY_ICONS = Object.fromEntries(Object.entries({
@@ -752,7 +738,7 @@ export class AithemaSession extends HTMLElement {
         <div class="host-bar" role="group" data-reveal hidden><div class="conversations-wrap"><button class="conversations-toggle" type="button" aria-haspopup="menu" aria-controls="conversations-menu" aria-expanded="false"></button>
           <div class="conversations-menu" id="conversations-menu" role="menu" hidden><button class="conversations-new" type="button" role="menuitem" tabindex="-1" aria-describedby="ai-notice"></button>
             <div class="conversations-recent" role="group"></div><button class="library-open-dialog" type="button" role="menuitem" tabindex="-1" aria-haspopup="dialog"></button></div></div></div>
-        <div class="host-account" data-reveal><slot name="account"></slot></div><button data-reveal class="settings-open" type="button" aria-haspopup="dialog">${icon('settings')}<span class="visually-hidden"></span></button></div>
+        <div class="host-account" data-reveal><slot name="account"></slot></div><div class="contact-launcher" data-reveal hidden><slot name="contact-launcher"></slot></div><button data-reveal class="settings-open" type="button" aria-haspopup="dialog">${icon('settings')}<span class="visually-hidden"></span></button></div>
         <div class="edge-column"><button class="motion-toggle" type="button" aria-pressed="true"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M14 3c1.1 7.6 3.4 9.9 11 11-7.6 1.1-9.9 3.4-11 11C12.9 17.4 10.6 15.1 3 14c7.6-1.1 9.9-3.4 11-11Z"/></svg></button>
           <button class="fold" type="button" aria-expanded="true" aria-controls="conversation-middle"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 11 6-5 6 5m-12 7 6-5 6 5"/></svg></button></div></header>
       <section class="conversation" id="conversation-middle" aria-labelledby="conversation-title"><header class="head"><h2 class="visually-hidden" id="conversation-title" data-copy="conversation"></h2>
@@ -782,6 +768,7 @@ export class AithemaSession extends HTMLElement {
           <section><div class="cleared-head"><h3 data-copy="clarified"></h3><button class="expand" type="button"></button></div><div class="cleared"></div></section>
           <div class="handover" role="region" aria-labelledby="handover-title" hidden><h3 id="handover-title"></h3><p class="handover__offer"><slot name="handover-offer"></slot></p>
             <div class="handover__row"><button class="handover-request" type="button" aria-describedby="handover-state"></button><div class="handover__state-slot"><p class="handover__state" id="handover-state" role="status"></p></div></div></div></div><div class="email-ask-pane"></div><button class="email-ask-fold" type="button" inert></button></div>
+        <div class="sidebar-contact" hidden><slot name="sidebar-contact"></slot></div>
         <footer class="foot"><a class="export">${icon('download')}<span data-copy="export"></span></a><button class="retry" type="button" data-copy="retry" hidden></button><small class="export-reason" id="export-reason" data-copy="deviceExportUnavailable"></small></footer></aside>
       <section class="fold-view" hidden><button class="fold-strip" type="button"><span class="fold-identity"><i class="speaker-sign" aria-hidden="true"></i><span class="fold-who"></span></span><span class="fold-text"></span><span class="fold-question" hidden></span></button>
         <section class="drafts-canvas" aria-label=""><div class="canvas-empty">${icon('concept')}<span></span></div><aithema-html-preview class="canvas-html" fill hidden></aithema-html-preview><img class="canvas-image" alt="" hidden><p class="canvas-status" role="status"></p></section></section>
@@ -856,6 +843,8 @@ export class AithemaSession extends HTMLElement {
     legal.addEventListener('slotchange', syncLegal); syncLegal();
     root.querySelector('slot[name="brand"]').addEventListener('slotchange', () => this.#watchBrand());
     this.#watchBrand();
+    for (const slot of root.querySelectorAll('slot[name="sidebar-contact"], slot[name="contact-launcher"]')) slot.addEventListener('slotchange', this.#syncContactSlots);
+    this.#syncContactSlots();
     this.#fold = new ConversationFold({ root, copy: this.#copy, canFold: () => this.#concept?.canShowCanvas() ?? false, onChange: folded => {
       if (folded) void this.#concept?.paintCanvas();
       else this.#concept?.suspendCanvas();
@@ -2741,6 +2730,15 @@ export class AithemaSession extends HTMLElement {
       - root.querySelector('.header-actions').getBoundingClientRect().width - 2 * parseFloat(style.columnGap));
     band.toggleAttribute('data-rail-row', this.ownerDocument.defaultView.innerWidth < voiceSingleRowMinWidth || available < required);
   }
+  #syncContactSlots = () => {
+    const root = this.shadowRoot;
+    const contact = root.querySelector('slot[name="sidebar-contact"]').assignedElements().length > 0;
+    const launcher = root.querySelector('slot[name="contact-launcher"]').assignedElements().length > 0;
+    root.querySelector('.sidebar-contact').hidden = !contact;
+    root.querySelector('.contact-launcher').hidden = !launcher;
+    root.querySelector('.workspace').toggleAttribute('data-contact', contact);
+    this.toggleAttribute('data-contact-launcher', launcher);
+  };
   #observePanes() {
     this.#paneObserver?.disconnect();
     const Observer = this.ownerDocument.defaultView?.ResizeObserver;

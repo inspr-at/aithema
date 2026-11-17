@@ -359,6 +359,38 @@ browserTestWeights['test/browser/start-look.test.js'] = Math.max(
 browserTestWeights['test/browser/clarify-now.test.js'] = Math.max(
   browserTestWeights['test/browser/clarify-now.test.js'], 378.094);
 
+// AIT-517: preserve measured main history and reserve contact/RC25 coverage.
+// Geometry: complete remote run ait-5e96229f4b684be182bea901 at 255f392e,
+// 264.361s file wall time minus unchanged combined contact case 39.781s:
+// ceil(224.580s *1.25)=281s. Move that case to start-look, which retains its
+// 112s historical plan plus ceil(39.781s *1.25): ceil(161.726s)=162s.
+// Email: complete run 6f0a725418-45712 at 6f0a7254 measured 342.982s;
+// relocate its unchanged 73.381s inline-offer case: 269.601s *1.25 < 338s (ceiling 338s).
+// Host surface retains its 244.435s historical plan, plus all four moved/new
+// passing cases (120.273s *1.25): <395s (ceiling 395s). Its existing AIT-261
+// axe failure matches the permitted AIT-531 baseline; never use that truncated
+// test's file duration to lower the historical host-surface reservation.
+// These diagnostic floors do not overwrite trusted rolling-main samples.
+browserTestWeights['test/browser/start2-display-geometry.test.js'] = Math.max(
+  browserTestWeights['test/browser/start2-display-geometry.test.js'], 281);
+browserTestWeights['test/browser/start-look.test.js'] = Math.max(
+  browserTestWeights['test/browser/start-look.test.js'], 162);
+browserTestWeights['test/browser/email-ask.test.js'] = Math.max(
+  browserTestWeights['test/browser/email-ask.test.js'], 338);
+browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
+  browserTestWeights['test/browser/host-surface.test.js'], 395);
+
+// AIT-517 R12: run ait-2c0ed87646cd4e3abec8ab7a at a060c81f measured
+// email-ask 70/70, 285.696125282s * 1.25 -> 358s. The first short fixture needed
+// a temporary 259s start-look floor. Its unchanged growth projection was red.
+// After reusing neutral documents and retaining all 56 cases/assertions,
+// complete run 989b524b88-7713 passed 84/84 in 87.788593125s (* 1.25 -> 110s).
+// The inherited 162s start-look floor already covers that complete workload;
+// remove only this ticket's temporary 259s addition, preserving older floors
+// and trusted main samples. PR diagnostics never replace main timing history.
+browserTestWeights['test/browser/email-ask.test.js'] = Math.max(
+  browserTestWeights['test/browser/email-ask.test.js'], 358);
+
 // AIT-423: LEAD's AIT-410 standing decision adds an eighth bin after AIT-411's
 // measured workload exceeded 7 × 405s; target, ceiling and weights stay unchanged.
 // AIT-470: the added unlock workload exceeds eight bins at the same limits.
@@ -438,27 +470,48 @@ export function packBrowserTests(files, weights = browserTestWeights, shardCount
   if (Math.max(...totals) > browserShardHeadroomTarget &&
       totals.reduce((sum, total) => sum + total, 0) <= shardCount * browserShardHeadroomTarget) {
     const fitted = Array.from({ length: shardCount }, () => []);
-    const loads = Array(shardCount).fill(0);
-    const milliseconds = file => Math.ceil(weightOf(file) * 1000 - 1e-9);
+    const capacity = browserShardHeadroomTarget * 1000;
+    const entries = sortedFiles.map(file => ({ file, size: Math.ceil(weightOf(file) * 1000 - 1e-9) }));
     let remainingNodes = 100_000;
-    function place(index) {
+    // Complete a bin around the largest remaining file. Seeding each bin this
+    // way removes equivalent bin permutations; try fullest completions first.
+    function complete(remaining, bin) {
       if (--remainingNodes < 0) return false;
-      if (index === sortedFiles.length) return true;
-      const file = sortedFiles[index], seenLoads = new Set();
-      const bins = loads.map((_, bin) => bin).sort((a, b) => loads[a] - loads[b] || a - b);
-      for (const bin of bins) {
-        if (seenLoads.has(loads[bin]) || loads[bin] + milliseconds(file) > browserShardHeadroomTarget * 1000) continue;
-        seenLoads.add(loads[bin]);
-        loads[bin] += milliseconds(file);
-        fitted[bin].push(file);
-        if (place(index + 1)) return true;
-        fitted[bin].pop();
-        loads[bin] -= milliseconds(file);
+      if (!remaining.length) return bin === shardCount;
+      const binsLeft = shardCount - bin;
+      const total = remaining.reduce((sum, entry) => sum + entry.size, 0);
+      if (!binsLeft || remaining.length < binsLeft || total > binsLeft * capacity || remaining[0].size > capacity) return false;
+      if (binsLeft === 1) { fitted[bin] = remaining.map(entry => entry.file); return true; }
+      // A completion below this fill would leave more work than the other bins
+      // can hold. Reject it before exploring its remaining assignments.
+      const minimumFill = total - (binsLeft - 1) * capacity;
+      const options = [];
+      function collect(start, size, indices) {
+        if (--remainingNodes < 0) return;
+        if (size >= minimumFill && remaining.length - indices.length >= binsLeft - 1) options.push({ size, indices: [...indices] });
+        const seenSizes = new Set();
+        for (let next = start; next < remaining.length; next++) {
+          const value = remaining[next].size;
+          if (seenSizes.has(value) || size + value > capacity) continue;
+          seenSizes.add(value);
+          indices.push(next); collect(next + 1, size + value, indices); indices.pop();
+          if (remainingNodes < 0) return;
+        }
+      }
+      collect(1, remaining[0].size, [0]);
+      if (remainingNodes < 0) return false;
+      // Stable collection order resolves equal-fill completions deterministically.
+      options.sort((a, b) => b.size - a.size);
+      for (const option of options) {
+        const selected = new Set(option.indices);
+        fitted[bin] = option.indices.map(index => remaining[index].file);
+        if (complete(remaining.filter((_, index) => !selected.has(index)), bin + 1)) return true;
         if (remainingNodes < 0) return false;
       }
+      fitted[bin] = [];
       return false;
     }
-    if (place(0)) return { shards: fitted, totals: loads.map(load => load / 1000) };
+    if (complete(entries, 0)) return { shards: fitted, totals: fitted.map(files => files.reduce((sum, file) => sum + Math.ceil(weightOf(file) * 1000 - 1e-9), 0) / 1000) };
   }
   return { shards, totals };
 }
