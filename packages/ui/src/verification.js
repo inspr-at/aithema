@@ -88,10 +88,18 @@ export class Verification {
   get delivery() { return this.#email.delivery; }
   get canCollect() { return this.#email.canCollect; }
   get email() { return this.#email; }
-  /** A2 save acknowledgement precedes C1/C2. A failed link keeps the saved tier. */
+  /** Undefined until the host capability loads; legacy hosts retain saving. */
+  get canSave() { return this.#visitorEmail === null ? undefined : this.#visitorEmail.canSave !== false; }
+  get #confirmationPath() { return `identity/${this.#identity?.status === 'guest' || !this.#identity?.address ? 'request' : 'change'}`; }
+  /** Store-backed A2 save acknowledgement precedes C1/C2; a failed link keeps that tier. */
   async saveAndConfirm(address, { delivery } = {}) {
-    if (!this.#email.notice?.version) await this.load();
-    if (!this.#alive || this.changeBlocked) return { ok: false };
+    if (this.#visitorEmail === null || this.canSave !== false && !this.#email.notice?.version) await this.load();
+    if (!this.#alive || !this.canCollect || this.changeBlocked) return { ok: false };
+    // Identity-only hosts have no visitor store or save-time credit to acknowledge.
+    if (this.canSave === false) {
+      const response = await this.#post(this.#confirmationPath, { address });
+      return { ...(response ?? { ok: false }), sent: response?.ok === true && response.body?.identity?.delivery !== 'failed' };
+    }
     this.#identityGeneration++;
     const saved = await this.#email.persist(address);
     if (!this.#alive || !saved?.ok) return saved;
@@ -99,9 +107,8 @@ export class Verification {
     await this.#creditsChanged?.();
     this.#onChange?.({ saved: true });
     if (!this.#alive || !(delivery ?? this.delivery)) return { ...saved, sent: false };
-    const command = this.#identity?.status === 'guest' || !this.#identity?.address ? 'request' : 'change';
     let link;
-    try { link = await this.#request(`identity/${command}`, { address }); } catch { /* Saved credit is retained. */ }
+    try { link = await this.#request(this.#confirmationPath, { address }); } catch { /* Saved credit is retained. */ }
     if (!this.#alive) return { ok: false };
     if (link?.body?.identity) this.set(link.body.identity);
     await this.#creditsChanged?.();
@@ -275,8 +282,7 @@ export class Verification {
       this.#ui.message = response.sent ? '' : v.deliveryFailed; this.#ui.error = !response.sent;
       this.#paint(); this.#focusForm(entry); return;
     }
-    const command = this.#identity?.status === 'guest'  || !this.#identity?.address ? 'request' : 'change';
-    await this.#post(`identity/${command}`, { address }, () => { this.#ui.editing = false; entry.input.value = ''; });
+    await this.#post(this.#confirmationPath, { address }, () => { this.#ui.editing = false; entry.input.value = ''; });
     if (this.#alive) this.#focusForm(entry);
   }
   /** Send a link for an already saved address without saving or replacing it. */

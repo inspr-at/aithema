@@ -2,6 +2,12 @@
 
 ## Host notes
 
+- AIT-543 (RC26): hosts without a visitor email store now get working in-chat offers via the identity command.
+  This is a bug fix with no new opt-in flag. Explicit `visitorEmail.canSave: false`
+  uses the lock form's request/change rule and never PUTs visitor email. EN/DE
+  copy promises additional credit only at confirmation, with identity send,
+  failure, resend and 429 behavior. Hosts with a store retain save-before-confirm.
+
 - AIT-517 adds optional `sidebar-contact` and `contact-launcher` slots. Fill them
   before mount/configure. The pinned row is outside scrolling analysis and the
   E‑Mail ask pane; empty consumes zero height. It scrolls independently with a

@@ -19,9 +19,9 @@ export const stable = (before, after, label) => {
 
 // Only this test supplies fixture values. The shipped component reads every
 // tier, price, balance, address and ask record through its normal host routes.
-export async function fixture(page, locale, { delivery = false, confirmationEnabled = delivery, address = null, confirmed = false, low = false, out = false, voice = false, motion = 'off', consentDelayMs = 0, emailOffer, initialMessages = 4, lock = false, tierAllowances, opener = false } = {}) {
+export async function fixture(page, locale, { delivery = false, confirmationEnabled = delivery, address = null, confirmed = false, low = false, out = false, voice = false, motion = 'off', consentDelayMs = 0, emailOffer, initialMessages = 4, lock = false, tierAllowances, opener = false, visitorStore = true } = {}) {
   await shadow(page, async (c, options) => {
-    const { locale, delivery, confirmationEnabled, address, confirmed, low, out, voice, motion, consentDelayMs, emailOffer, initialMessages, lock, tierAllowances, opener } = options;
+    const { locale, delivery, confirmationEnabled, address, confirmed, low, out, voice, motion, consentDelayMs, emailOffer, initialMessages, lock, tierAllowances, opener, visitorStore } = options;
     const canConfirm = delivery && confirmationEnabled;
     const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
     const { inputRevision } = await import('/packages/core/src/session.js');
@@ -30,12 +30,12 @@ export async function fixture(page, locale, { delivery = false, confirmationEnab
     const allowancesMicro = tierAllowances ?? { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 };
     window.ait164Locale = locale;
     const state = window.ait164 = { address, confirmed, spent: 3_450_000, ask: {}, after: 0, lowClaim: { after: 0, armed: true }, creditsReads: 0, visitorReads: 0, identityReads: 0, saving: false, saveFails: false, linkFails: false, requests: [], voiceEvents: null };
-    const tier = () => state.confirmed ? 'emailConfirmed' : state.address ? 'emailGiven' : 'anonymous';
+    const tier = () => state.confirmed ? 'emailConfirmed' : visitorStore && state.address ? 'emailGiven' : 'anonymous';
     const identity = () => ({ ...c.session.identity, address: state.address, status: state.confirmed ? 'verified' : state.address && canConfirm ? 'verification-pending' : 'guest',
       assessmentUnlocked: !lock || state.confirmed, conceptsUnlocked: !lock || state.confirmed, verificationRequired: lock, pollVerification: false, resendAfterMs: 0, delivery: 'sent' });
     const visitor = () => ({ address: state.address, tier: tier(), limitMicro: allowancesMicro[tier()] });
     if (low || out) state.spent = allowancesMicro[tier()] - (out ? 0 : 980_000);
-    const credits = () => { const current = tier(), limitMicro = allowancesMicro[current], next = !state.address ? allowancesMicro.emailGiven > allowancesMicro.anonymous ? 'emailGiven' : canConfirm && allowancesMicro.emailConfirmed > allowancesMicro.anonymous ? 'emailConfirmed' : null : canConfirm && !state.confirmed ? 'emailConfirmed' : null;
+    const credits = () => { const current = tier(), limitMicro = allowancesMicro[current], next = !visitorStore ? canConfirm && !state.confirmed ? 'emailConfirmed' : null : !state.address ? allowancesMicro.emailGiven > allowancesMicro.anonymous ? 'emailGiven' : canConfirm && allowancesMicro.emailConfirmed > allowancesMicro.anonymous ? 'emailConfirmed' : null : canConfirm && !state.confirmed ? 'emailConfirmed' : null;
       return { tiers: { current, next, delta: next ? allowancesMicro[next] - limitMicro : 0, canConfirm, allowancesMicro },
         exhausted: state.spent >= limitMicro, lowAtMicro: Math.max(limitMicro / 10, 5 * 100_000), lowAtMaxMicro: Math.max(allowancesMicro.emailConfirmed / 10, 5 * 100_000),
         emailOffer: state.offer ?? {}, emailAsk: state.ask, emailAskAfter: state.after, lowEmailAsk: state.lowClaim, nowMs: Date.now(), limitSlot: null,
@@ -48,11 +48,19 @@ export async function fixture(page, locale, { delivery = false, confirmationEnab
       if (path === `/api/sessions/${c.session.id}`) return Response.json({ ...c.session, identity: identity(), featureMatrix: c.session.featureMatrix });
       if (path.endsWith('/visitor/email')) {
         state.visitorReads++;
+        if (!visitorStore) { if (method === 'PUT') state.requests.push('refused-save'); return Response.json({ error: 'visitor-unavailable' }, { status: 404 }); }
         if (method === 'PUT') { state.requests.push('save'); state.noticeVersion = JSON.parse(init.body).noticeVersion; while (state.saving) await new Promise(resolve => setTimeout(resolve, 20)); if (state.saveFails || state.saveStatus) return Response.json({ error: 'unavailable' }, { status: state.saveStatus ?? 503 }); state.address = JSON.parse(init.body).address; state.confirmed = false; }
         return Response.json({ visitor: visitor(), notice: { version: 'ait-135-v1', deliveryEnabled: delivery }, privacyDocumentConfigured: true });
       }
-      if (path.endsWith('/identity')) { state.identityReads++; return Response.json({ identity: identity(), delivery, privacyDocumentConfigured: true, ...(emailOffer ? { visitorEmail: { canSave: true, canDelete: true } } : {}) }); }
-      if (/\/identity\/(request|change|resend)$/u.test(path)) { state.requests.push('link'); return Response.json({ identity: identity() }, { status: state.linkFails ? 503 : 200 }); }
+      if (path.endsWith('/identity')) { state.identityReads++; return Response.json({ identity: identity(), delivery, privacyDocumentConfigured: true, ...(emailOffer ? { visitorEmail: { canSave: visitorStore, canDelete: visitorStore } } : {}) }); }
+      if (/\/identity\/(request|change|resend)$/u.test(path)) {
+        state.requests.push('link');
+        (state.identityCommands ??= []).push({ command: path.split('/').at(-1), body: JSON.parse(init.body) });
+        while (state.linking) await new Promise(resolve => setTimeout(resolve, 20));
+        const status = state.linkStatus ?? (state.linkFails ? 503 : 200);
+        if (!visitorStore && status === 200) state.address = JSON.parse(init.body).address ?? state.address;
+        return Response.json({ identity: { ...identity(), delivery: state.linkDelivery ?? 'sent' } }, { status });
+      }
       if (path.endsWith('/email-ask')) {
         const body = JSON.parse(init.body); state.askRequests ??= []; state.askRequests.push(body);
         if (body.why === 'offer') {
@@ -104,12 +112,12 @@ export async function fixture(page, locale, { delivery = false, confirmationEnab
       c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: `u${i}`, role: 'user', content: locale === 'de' ? 'Ja.' : 'Yes.' } });
       c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: `a${i}`, role: 'assistant', content: locale === 'de' ? 'Wie soll es weitergehen?' : 'How would you like to continue?' } }); };
     if (voice) c.shadowRoot.querySelector('.voice-start').click();
-  }, { locale, delivery, confirmationEnabled, address, confirmed, low, out, voice, motion, consentDelayMs, emailOffer, initialMessages, lock, tierAllowances, opener });
-  await until(page, () => {
+  }, { locale, delivery, confirmationEnabled, address, confirmed, low, out, voice, motion, consentDelayMs, emailOffer, initialMessages, lock, tierAllowances, opener, visitorStore });
+  await until(page, visitorStore => {
     const c = document.querySelector('aithema-session'), s = window.ait164;
-    return s.creditsReads > 0 && s.visitorReads > 0 && s.identityReads > 0 &&
+    return s.creditsReads > 0 && (visitorStore ? s.visitorReads > 0 : true) && s.identityReads > 0 &&
       c.shadowRoot.querySelector('.host-credits__amount').textContent.trim() !== '';
-  });
+  }, visitorStore);
   if (voice) await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.call === 'active');
   await settle(page);
   // Capture the live dock above the fixed footer, with the sticky band still
