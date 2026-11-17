@@ -130,7 +130,11 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
         assert.equal(alignment.disabled, state === 'disabled');
         assert.equal(alignment.buttonHeight, 44);
       });
-      const after = await layoutBoxes(page, selectors); assert.deepEqual(after, before, `${locale}/${theme}/${width}/${state}: 0 px layout shift`);
+      const after = await layoutBoxes(page, selectors);
+      for (const [phase, boxes] of [['before', before], ['after', after]]) for (const [i, box] of boxes.entries()) {
+        assert.ok(box[2] > 0 && box[3] > 0, `${locale}/${theme}/${width}/${state}/${phase}/${selectors[i]}: positive layout box`);
+      }
+      assert.deepEqual(after, before, `${locale}/${theme}/${width}/${state}: 0 px layout shift`);
       const file = `audio-replay-${state}-${width}-${theme}-${locale}.png`;
       if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false });
       files.push({ file, state, width, theme, locale, viewport: true });
