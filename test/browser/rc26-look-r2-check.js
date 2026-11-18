@@ -112,7 +112,7 @@ for (const item of [10, 12, 'email'])
                 const geometry = await page.evaluate(() => {
                   const root = c.shadowRoot, n = root.querySelector('.voice-state'), short = n.querySelector('.consent-narrow');
                   const rect = n => { const b = n.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
-                  return { popup: rect(n), heading: rect(root.querySelector('.understanding .head')),
+                  return { popup: rect(n), close: rect(root.querySelector('.voice-message-close')), heading: rect(root.querySelector('.understanding .head')),
                     bubbles: [...root.querySelectorAll('.transcript-shell .turn')].map(rect), anchor: rect(root.querySelector('.voice-retry')),
                     band: rect(root.querySelector('.band')), scrollHeight: n.scrollHeight, clientHeight: n.clientHeight,
                     text: short.dataset.copy, short: rect(short), scroll: short.scrollWidth, client: short.clientWidth,
@@ -135,7 +135,11 @@ for (const item of [10, 12, 'email'])
                   assert.ok(g.short[3] <= 13, 'one visible label line');
                   assert.ok(g.short[0] >= 0 && g.short[0] + g.short[2] <= width, 'whole label inside viewport');
                 } else {
-                  positive([g.heading, ...g.bubbles, g.anchor]);
+                  positive([g.heading, ...g.bubbles, g.anchor, g.close]);
+                  assert.ok(g.close[2] >= 44 && g.close[3] >= 44, 'Close retains its full hit target');
+                  assert.ok(g.close[0] >= g.popup[0] && g.close[1] >= g.popup[1] &&
+                    g.close[0] + g.close[2] <= g.popup[0] + g.popup[2] &&
+                    g.close[1] + g.close[3] <= g.popup[1] + g.popup[3], 'whole Close box stays inside popup');
                   assert.equal(intersects(g.popup, g.heading), false, 'popup clears overview heading');
                   for (const bubble of g.bubbles) assert.equal(intersects(g.popup, bubble), false, 'popup clears every transcript bubble');
                   assert.ok(g.scrollHeight <= g.clientHeight, 'full desktop message is readable');
