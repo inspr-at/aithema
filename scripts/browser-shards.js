@@ -498,8 +498,11 @@ browserTestWeights['test/browser/question-card.test.js'] = Math.max(
 browserTestWeights['test/browser/audio-replay.test.js'] = Math.max(
   browserTestWeights['test/browser/audio-replay.test.js'], 41);
 
-// AIT-511: measured RC26 growth exceeds twelve bins; preserve both limits.
-export const browserShardCount = 13;
+// AIT-511: measured RC26 growth exceeded twelve bins; preserve both limits.
+// AIT-557 (2026-11-18): honest split reservations push the unchanged growth
+// plan to 414.210s in thirteen bins. Coordinator Round 5 adds a fourteenth
+// shard under AIT-410/AIT-419; keep the 405s target and 420s ceiling.
+export const browserShardCount = 14;
 export const browserShardBudget = 420;
 // AIT-419: LEAD decision on AIT-410 (2026-10-20), one raise only; next overshoot gets an eighth shard, not 410s.
 export const browserShardHeadroomTarget = 405;

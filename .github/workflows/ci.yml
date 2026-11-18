@@ -186,13 +186,13 @@ jobs:
   browser:
     needs: changes
     if: ${{ !cancelled() }}
-    name: browser (${{ matrix.shard }}/13)
+    name: browser (${{ matrix.shard }}/14)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
     steps:
       - name: Docs-only success
         if: github.event_name == 'pull_request' && needs.changes.result == 'success' && needs.changes.outputs.docs-only == 'true'
@@ -217,7 +217,7 @@ jobs:
         env:
           AITHEMA_EVIDENCE_DIR: ${{ runner.temp }}/evidence
       - if: ((github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != ''))
-        run: npm run test:browser -- --shard ${{ matrix.shard }}/13
+        run: npm run test:browser -- --shard ${{ matrix.shard }}/14
         env:
           AITHEMA_EVIDENCE_DIR: ${{ runner.temp }}/evidence
           BROWSER_TIMING_DIR: ${{ runner.temp }}/browser-timings
@@ -225,7 +225,7 @@ jobs:
         if: ${{ always() && ((github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != '')) }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: browser-timings-${{ matrix.shard }}-of-13
+          name: browser-timings-${{ matrix.shard }}-of-14
           path: ${{ runner.temp }}/browser-timings
           if-no-files-found: error
           retention-days: 14
@@ -233,7 +233,7 @@ jobs:
       - if: ${{ always() && ((github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != '')) }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: browser-evidence-${{ matrix.shard }}-of-13
+          name: browser-evidence-${{ matrix.shard }}-of-14
           path: ${{ runner.temp }}/evidence
           if-no-files-found: ignore
           # Evidence is predominantly PNG; avoid recompressing it in the job budget.
@@ -241,7 +241,7 @@ jobs:
           retention-days: 14
 
   # TRANSITION: retain all four required names until the ruleset switches to browser.
-  # Each alias requires all thirteen shards, except verified duplicate-main skips.
+  # Each alias requires all fourteen shards, except verified duplicate-main skips.
   browser-required:
     needs: [changes, browser]
     if: ${{ !cancelled() }}
