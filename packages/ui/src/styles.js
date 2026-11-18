@@ -501,8 +501,8 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .composer-reason[data-send-failed] .upload-retry-copy { flex:none; overflow:visible; }
 .composer-reason[data-send-failed] .upload-retry-actions { white-space:nowrap; }
 /* Inline text supplies the baseline; the warning glyph must not supply it. */
-.composer-reason[data-send-failed] .question-status, .composer-reserve-wide .question-status, .composer-reserve-phone .question-status { display:inline; font:inherit; }
-.composer-reason[data-send-failed] .question-status svg, :is(.composer-reserve-wide,.composer-reserve-phone) .question-status svg { margin-inline-end:7px; vertical-align:middle; }
+.composer-reason[data-send-failed] .question-status, .composer-reason.composer-reserve-line .question-status { display:inline; font:inherit; }
+.composer-reason[data-send-failed] .question-status svg, .composer-reason.composer-reserve-line .question-status svg { display:inline-block; margin-inline-end:7px; vertical-align:middle; }
 .composer-reason[data-send-failed] :is(.question-why,.send-failure-detail) { font:inherit; }
 .send-failure-short { display:none; }
 .send-failure-short::before { content:attr(data-text); }
