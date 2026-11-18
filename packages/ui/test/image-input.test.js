@@ -13,6 +13,7 @@ function fixture(t, copy = en, available = true, options = {}) {
   const c = document.createElement('aithema-session'), session = options.session ?? createSession({ demo: true, locale: copy === de ? 'de' : 'en' });
   session.featureMatrix = { best: Object.fromEntries(['text', 'analysis', 'uploads', 'imageInput', 'images'].map(key => [key,
     { available: key === 'imageInput' ? available : key === 'uploads' ? options.documentsAvailable ?? true : true, reason: key === 'imageInput' && !available ? options.imageReason ?? 'current processing consent required' : key === 'uploads' && options.documentsAvailable === false ? 'current processing consent required' : null }])) };
+  const configuredImageReason = options.imageReason;
   const calls = [], asks = []; let imageGranted = available, documentsGranted = options.documentsAvailable ?? true;
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
     calls.push({ url, options });
@@ -28,7 +29,7 @@ function fixture(t, copy = en, available = true, options = {}) {
     if (url.endsWith('/turns') && options.method === 'POST') { const body = JSON.parse(options.body);
       return Response.json({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content, attachments: body.attachments } }); }
     const snapshot = c.session;
-    snapshot.featureMatrix.best.imageInput = { available: imageGranted, reason: imageGranted ? null : options.imageReason ?? 'current processing consent required' };
+    snapshot.featureMatrix.best.imageInput = { available: imageGranted, reason: imageGranted ? null : configuredImageReason ?? 'current processing consent required' };
     snapshot.featureMatrix.best.uploads = { available: documentsGranted, reason: documentsGranted ? null : 'current processing consent required' };
     if (url.endsWith('/consent')) return Response.json({ consentRevision: snapshot.consentRevision, selected: imageGranted ? ['images', 'image-input'] : ['images'], features: { images: ['images'], imageInput: ['image-input'] } });
     return Response.json(snapshot);
@@ -121,7 +122,9 @@ for (const copy of [en, de]) for (const entrance of ['choice', 'combined']) for 
     assert.equal(f.root.querySelector('.composer').hasAttribute('data-image-input'), path === 'binding-switch', 'only a previously admitted image layout remains latched');
     if (path !== 'mixed') await choose(f.root, [new window.File(['fixture'], 'x.exe')]);
     const text = f.root.querySelector('.composer-reason').textContent;
-    assert.equal(text, copy === en ? 'Not attached: x.exe (file type not accepted).' : 'Nicht angehängt: x.exe (Dateityp wird nicht angenommen).');
+    assert.equal(text, path === 'mixed'
+      ? copy === en ? 'Not attached: photo.png (file type not accepted), x.exe (file type not accepted).' : 'Nicht angehängt: photo.png (Dateityp wird nicht angenommen), x.exe (Dateityp wird nicht angenommen).'
+      : copy === en ? 'Not attached: x.exe (file type not accepted).' : 'Nicht angehängt: x.exe (Dateityp wird nicht angenommen).');
     assert.equal(text.includes('PNG'), false);
     assert.equal(f.calls.some(call => call.options.method === 'POST' && call.url.endsWith('/uploads')), false);
     assert.deepEqual(f.asks, []);
@@ -232,6 +235,8 @@ for (const copy of [en, de]) test(`AIT-510 G-M3 JIT: ${copy.display.locale} docu
   assert.equal(f.calls.some(call => call.url.endsWith('/uploads') && call.options.method === 'POST'), false, 'no document bytes before consent');
   assert.equal(f.asks.length, 1);
   assert.deepEqual(f.asks[0].features, ['uploads', 'text'], 'only the eligible documents request consent');
+  assert.equal(f.root.querySelector('.composer-reason').dataset.consentFeature, 'uploads');
+  assert.equal(f.root.querySelector('.composer').hasAttribute('data-image-input'), false);
   f.grantDocuments(); for (let i = 0; i < 8; i++) await tick();
   const posts = f.calls.filter(call => call.url.endsWith('/uploads') && call.options.method === 'POST');
   assert.equal(posts.length, 1, 'the consent continuation uploads exactly once');

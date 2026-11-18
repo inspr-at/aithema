@@ -2266,7 +2266,7 @@ export class AithemaSession extends HTMLElement {
         if (!refusal) setText(action, copy.uploads.tryAgain);
         setText(discard, copy.uploads.discard);
       } else if (text.available && !this.#rail?.moved && !this.#sendFailed && this.#imageIntent) {
-        const feature = this.#imageIntent.files.some(isImageFile) ? 'imageInput' : 'uploads';
+        const feature = this.#imageInputEnabled() && this.#imageIntent.files.some(isImageFile) ? 'imageInput' : 'uploads';
         paintConsentLine(reason, { copy, feature, verdict: { available: false, reason: CONSENT_REASON },
           open: opener => this.#dialog.openConsent(feature, opener) });
       } else if (text.available && !this.#rail?.moved && !this.#sendFailed && this.#images?.hasRefusals) {
@@ -2311,9 +2311,9 @@ export class AithemaSession extends HTMLElement {
       const newConversation = root.querySelector('.purpose-new');
       newConversation.hidden = purposePause.hidden; setText(newConversation, copy.settings.newConversation);
       root.querySelector('.composer-shell').toggleAttribute('data-purpose-paused', !purposePause.hidden);
-      this.#imageLayout ||= Boolean(this.#imageIntent || this.#images?.attachments.length || this.#images?.hasRefusals);
+      this.#imageLayout ||= Boolean(this.#imageInputEnabled() && this.#imageIntent || this.#images?.attachments.length || this.#images?.hasRefusals);
       root.querySelector('.composer').toggleAttribute('data-image-input', this.#imageLayout);
-      root.querySelector('.composer').toggleAttribute('data-image-state', Boolean(this.#imageIntent || this.#images?.hasRefusals));
+      root.querySelector('.composer').toggleAttribute('data-image-state', Boolean(this.#imageInputEnabled() && this.#imageIntent || this.#images?.hasRefusals));
       this.#images?.update(copy);
       this.#paintAttach();
       const out = root.querySelector('.composer-out'), usedUp = this.#composerUsedUp;
