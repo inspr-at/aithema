@@ -274,3 +274,18 @@ else if (args[0] === 'run' && args[1] === 'download' && args[2] === '123' && arg
   assert.notEqual(local.status, 0);
   assert.match(local.stderr, /only verified canonical main push/u);
 });
+
+
+test('AIT-557: complete remote file reservations use a rounded 25% margin without creating CI samples', () => {
+  const remote = { schema: 1, lane: 'agm2', runId: 'ait-' + 'a'.repeat(24), sha,
+    observedSeconds: 80.1, complete: true };
+  const weight = { seconds: 101, evidence: 'complete remote file run', remote };
+  assert.doesNotThrow(() => assertMeasuredWeight(weight));
+  for (const changes of [{ observedSeconds: 0 }, { observedSeconds: Infinity }, { complete: false },
+    { lane: 'unknown' }, { runId: '' }, { sha: 'bad' }, { schema: 2 }]) {
+    assert.throws(() => assertMeasuredWeight({ ...weight, remote: { ...remote, ...changes } }));
+  }
+  assert.throws(() => assertMeasuredWeight({ ...weight, seconds: 100 }), /differs/u);
+  assert.throws(() => assertMeasuredWeight({ ...weight, timing: updateMeasurement(undefined,
+    [{ workload, sample: sample() }], workload).timing }), /CI/u);
+});
