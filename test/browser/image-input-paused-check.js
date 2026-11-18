@@ -44,6 +44,8 @@ export function pausedImageInputCheck() {
     const facts = [];
     for (const entrance of ['drop', 'paste']) {
       const session = storage.create({ ownerToken: testToken, demo: true });
+      // Keep the conversation visible after resume without pending user work.
+      storage.append(session.id, 'turn.final', { id: 'fixture-reply', role: 'assistant', content: 'Which screenshot should we clarify?' });
       storage.pause(session.id, true);
       const result = await page.evaluate(async ({ id, token, entrance }) => {
         await import('/packages/ui/src/session-element.js');
@@ -71,6 +73,7 @@ export function pausedImageInputCheck() {
       }, { id: session.id, token: testToken });
       const expected = `${entrance}.png: ${en.imageRefusals.paused}`;
       await page.waitForFunction(expected => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason .image-refusal')?.textContent === expected, {}, expected);
+      await page.waitForSelector('aithema-session >>> .composer-reason .image-refusal', { visible: true });
       const refusal = await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.composer-reason .image-refusal').textContent);
       assert.equal(refusal, expected);
       facts.push({ entrance, ...result, refusal });
