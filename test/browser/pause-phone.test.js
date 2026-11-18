@@ -1,3 +1,5 @@
+import { documentUploadCheck } from './document-upload-check.js';
+documentUploadCheck();
 import { imageInputCheck } from './image-input-check.js';
 imageInputCheck([390, 1440]);
 // AIT-188: Tick's binding follow-ups. Viewport evidence only, remote runner only.

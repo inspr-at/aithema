@@ -285,3 +285,31 @@ for (const copy of [en, de]) for (const reason of ['malformed', 'unsupported']) 
 for (const copy of [en, de]) test(`AIT-510 r15: ${copy.display.locale} supported-format sentence has its final full stop`, () => {
   assert.ok(copy.uploadsSupported.endsWith('.'));
 });
+
+
+const documentLimits = {
+  en: 'Up to 8 files, 20 MB each: PDF, Word, Excel, PowerPoint, text, Markdown, CSV, JSON or XML. The original file is not stored.',
+  de: 'Bis zu 8 Dateien, je höchstens 20 MB: PDF, Word, Excel, PowerPoint, Text, Markdown, CSV, JSON oder XML. Die Originaldatei wird nicht aufbewahrt.',
+};
+const documentAccept = '.pdf,.docx,.xlsx,.pptx,.txt,.md,.csv,.json,.xml';
+for (const copy of [en, de]) for (const entrance of ['choice', 'combined']) {
+  for (const imageReason of ['image normalizer not configured', 'image input not supported']) {
+    test(`AIT-556: ${copy.display.locale}/${entrance}/${imageReason} exact document help and picker`, t => {
+      const f = fixture(t, copy, false, { entrance, imageReason });
+      assert.equal(f.root.querySelector('.attach').title, documentLimits[copy.display.locale]);
+      assert.equal(f.root.querySelector('#attach-limits').textContent, documentLimits[copy.display.locale]);
+      assert.equal(f.root.querySelector('.attach-input').accept, documentAccept);
+    });
+    for (const name of ['x.heic', 'x.png', 'x.jpg', 'x.webp', 'x.gif', 'x.bmp', 'x.svg', 'x.avif', 'x.tiff']) {
+      test(`AIT-556: ${copy.display.locale}/${entrance}/${imageReason}/${name} exact main type refusal`, async t => {
+        const f = fixture(t, copy, false, { entrance, imageReason });
+        await choose(f.root, [new window.File(['fixture'], name, { type: 'image/png' })]);
+        assert.equal(f.root.querySelector('.composer-reason').textContent, copy === en
+          ? `Not attached: ${name} (file type not accepted).` : `Nicht angehängt: ${name} (Dateityp wird nicht angenommen).`);
+        assert.equal(f.root.querySelector('.image-refusals'), null);
+        assert.equal(f.calls.some(call => call.options.method === 'POST'), false);
+        assert.equal(f.asks.length, 0);
+      });
+    }
+  }
+}
