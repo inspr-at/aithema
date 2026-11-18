@@ -806,6 +806,19 @@ export async function transcriptComposerCases(t) {
   });
   assert.ok(fittingChecks >= 4, 'at least four measured size cases prove the fitting first-turn invariant');
 
+  await t.test('capture fixture contact copy follows the page locale', async () => {
+    for (const locale of ['en', 'de']) {
+      await reset(1440, 900, locale, 'light', { turns: 1 });
+      const labels = await page.$$eval('.demo-contact-open', buttons => buttons.map(button => button.getAttribute('aria-label')));
+      if (evidence) {
+        await writeFile(join(evidence, `ait511-contact-copy-${locale}.json`), JSON.stringify({ locale, labels }, null, 2));
+        await page.screenshot({ path: join(evidence, `ait511-contact-copy-${locale}.png`), captureBeyondViewport: false });
+      }
+      assert.ok(labels.length > 0, 'the demo supplies contact controls');
+      assert.deepEqual(labels, labels.map(() => locale === 'en' ? 'Contact' : 'Kontakt'), 'host contact copy follows the capture page language');
+    }
+  });
+
 }
 
 // Keep the manual remote profile entry; CI registers the parent in its measured
