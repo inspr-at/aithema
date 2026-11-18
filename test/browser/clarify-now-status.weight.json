@@ -1,0 +1,5 @@
+{
+  "seconds": 304,
+  "provisional": true,
+  "evidence": "AIT-557, 2026-11-18: complete evidence-enabled mbp2606 run de133c7fc3-24460 at head de133c7fc38ac59d1f2346abb40e787bc6f8aaf9: 8/8 pass, 4 top-level workloads, complete-file total 185.480959709s (top-level work 185.451347334s). Same moved top-level tests in trusted green merge-group CI 44318024909, head e2ce9bfb62f535a974bc1ea7370e0e1d31045568, browser shard 2/13: 242.898533946s. Provisional reservation = ceil(1.25 * max(CI work, complete lane total)) = 304s. Remote diagnostics stay outside trusted rolling CI samples."
+}

@@ -29,6 +29,12 @@ export function readBrowserTestWeights(files = discoverBrowserTests(), root = re
         typeof measurement.evidence !== 'string' || !measurement.evidence.trim()) {
       throw new Error(`Invalid browser test weight: ${weightPath}; seconds must be positive finite seconds and evidence must describe the measurement`);
     }
+    // AIT-557: the split status workload has no CI history yet. Keep its
+    // provisional reservation explicit until rolling CI samples replace it.
+    if (file === 'test/browser/clarify-now-status.test.js' && measurement.provisional === true) {
+      weights[file] = measurement.seconds;
+      continue;
+    }
     try { assertMeasuredWeight(measurement); }
     catch (error) { throw new Error(`Invalid browser test weight: ${weightPath}; ${error.message}`); }
     weights[file] = measurement.seconds;
@@ -377,6 +383,17 @@ browserTestWeights['test/browser/start-look.test.js'] = Math.max(
 // samples; reserve the expanded real-mouse matrix without changing capacity.
 browserTestWeights['test/browser/clarify-now.test.js'] = Math.max(
   browserTestWeights['test/browser/clarify-now.test.js'], 378.094);
+
+// AIT-557 (2026-11-18): split four whole status workloads out of clarify-now.
+// Green merge-group CI 44318024909, e2ce9bfb, shard 2/13: moved top-level
+// work 242.898533946s; complete mbp2606 run de133c7fc3-24460 at de133c7fc3
+// passed 8/8 with evidence in 185.480959709s (185.451347334s top-level).
+// New file's provisional weight: ceil(1.25 * max(242.898533946,
+// 185.480959709)) = 304s; remote diagnostics never become trusted CI samples.
+// Remaining baseline CI work: 483.337401097 - 242.898533946 = 240.438867151s;
+// *1.25 = 300.548583939s, below the unchanged trusted 378.094s source weight.
+// That file passed 51/51 in 211.436550292s on the same lane run. Preserve all
+// other floors, trusted samples, thirteen shards and both planning limits.
 
 // AIT-510 r10: complete upload-capacity file, remote 86de69650a-20594,
 // head 86de69650a, 29/29 PASS including disclosure/email/short-phone states.
