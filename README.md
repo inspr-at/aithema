@@ -4333,7 +4333,10 @@ At attach time, an unavailable normalizer or a text-only binding uses the
 existing document type refusal for images too. A paused image-capable composer
 keeps `imageRefusals.paused` for image selection and paste; other files use the
 generic Attach refusal during a pause. Capability reads use the unpaused
-verdict, while attachment admission still respects the pause. An enabled
+verdict, while attachment admission still respects the pause. When the outer
+`imageInput.reason` is `session paused`, server snapshots include
+`imageInput.unpaused` with the ordinary `available` and `reason` fields for
+presentation. An enabled
 Attach control describes selection even before consent, and asks only after a
 file is chosen. Image-capable composers append the supported-format help sentence
 with its final full stop and without a trailing separator, reserve that full

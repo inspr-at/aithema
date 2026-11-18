@@ -209,6 +209,9 @@
   image-capable composers keep `imageRefusals.paused` on image selection and
   paste; other files use the generic Attach refusal during a pause. Capability
   reads use the unpaused verdict; attachment admission still respects the pause.
+  Server snapshots whose outer `imageInput.reason` is `session paused` include
+  `imageInput.unpaused` with the ordinary `available` and `reason` fields for
+  presentation.
 - Image refusal feedback reserves the longest localized reason and shows it
   once. Remove targets stay outside thumbnails with filename-aware EN/DE names;
   short phones use one compact staging row around 44 px controls. Withheld-image copy `imageWithheld`
