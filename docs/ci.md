@@ -500,6 +500,14 @@ remains within its inherited **162 s** floor. Trusted rolling-main samples,
 twelve shards, the **405 s** target, **420 s** ceiling and every existing
 assertion remain unchanged. Remote shard guards qualify the actual placement.
 
+AIT-510 r18b adds mixed/sequential image-refusal and binding-switch checks
+within the existing image scenes. Complete remote run `e4d76500de-76889`
+passes pause-phone **173/173** in **184.105106500 s**;
+`ceil(184.105106500 × 1.25) = 231 s` raises its diagnostic reservation from
+**223 s to 231 s**. Start-look passes **189/189** in **118.384730167 s**,
+whose **148 s** margin fits the inherited **162 s** floor. No trusted samples,
+existing assertions, other floors, twelve shards or **405/420 s** limits change.
+
 AIT-510 r16 places the unchanged sixteen-scene no-upload feedback regression
 in the existing language/theme first-paint file. The provisional upload-file
 reservations (**57.093 s**, then **42 s** after complete 6/6 remote run

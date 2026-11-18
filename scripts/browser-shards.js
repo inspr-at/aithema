@@ -401,8 +401,11 @@ browserTestWeights['test/browser/clarify-now.test.js'] = Math.max(
 // covers the prior complete 52.212726083s file plus the 16.159237637s red case:
 // ceil((52.212726083 +16.159237637) *1.25)=86s. Remove only this round's
 // temporary upload addition now that the case leaves that file.
+// AIT-510 r18b: current-capability transition checks add 48 nested cases.
+// Complete remote run e4d76500de-76889 passes 173/173 in 184.105106500s;
+// ceil(observed *1.25)=231s. Raise only the diagnostic reservation.
 browserTestWeights['test/browser/pause-phone.test.js'] = Math.max(
-  browserTestWeights['test/browser/pause-phone.test.js'], 223);
+  browserTestWeights['test/browser/pause-phone.test.js'], 231);
 // AIT-517: preserve measured main history and reserve contact/RC25 coverage.
 // Geometry: complete remote run ait-5e96229f4b684be182bea901 at 255f392e,
 // 264.361s file wall time minus unchanged combined contact case 39.781s:
