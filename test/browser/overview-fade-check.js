@@ -59,6 +59,59 @@ export async function compactStatusMaximum(page) {
   });
 }
 
+// Reserve calculation runs on real width/font changes, including animated
+// sidebar entrance. The catalog must not force one document layout per entry.
+export async function overviewStatusLayoutBudgetCheck(t) {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-status-layout-'));
+  const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(directory, 'unused.sqlite'));
+  const browser = await browserForFile(), page = await browser.newPage();
+  t.after(async () => { await browser.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
+  await page.setViewport({ width: 1366, height: 768 });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+  await shadow(page, async c => {
+    const { createSession, inputRevision } = await import('/packages/core/src/session.js');
+    const { de: copy } = await import('/packages/ui/src/i18n/de.js');
+    const { OverviewStatusSize } = await import('/packages/ui/src/overview-status-size.js');
+    const session = createSession({ demo: true, locale: 'de' });
+    session.featureMatrix = { best: { text: { available: true }, analysis: { available: true } } };
+    session.transcript = [{ id: 'u', role: 'user', content: 'Bestellungen bearbeiten.' }];
+    Object.assign(session.understanding, { inputRevision: inputRevision(session), readinessAssessed: true, draft: false });
+    window.fetch = async (url, init = {}) => String(url).endsWith('/events') ? new Response(new ReadableStream({ start(controller) {
+      init.signal?.addEventListener('abort', () => controller.close(), { once: true });
+    } })) : Response.json(c.session);
+    const contact = document.createElement('section'); contact.slot = 'sidebar-contact'; contact.textContent = 'Kontakt'; c.append(contact);
+    c.setAttribute('motion', 'off'); c.configure({ session, copy });
+    // Explicitly invoke just the real size calculation. Its normal observer
+    // already has a settled reserve, so unrelated mount work is outside the sample.
+    window.statusLayoutBudget = new OverviewStatusSize(c.shadowRoot);
+    Object.assign(window.statusLayoutBudget, { connected: true, copy, locale: 'de' });
+  });
+  await settle(page);
+  const compact = await shadow(page, c => {
+    const slot = c.shadowRoot.querySelector('.overview-status'), box = slot.getBoundingClientRect();
+    return { display: getComputedStyle(slot).display, box: box.toJSON() };
+  });
+  positive(compact.box, 'layout budget compact slot');
+  assert.equal(compact.display, 'flex', 'layout budget exercises the compact reservation');
+  const client = await page.createCDPSession();
+  try {
+    await client.send('Performance.enable');
+    const layouts = async () => (await client.send('Performance.getMetrics')).metrics.find(metric => metric.name === 'LayoutCount').value;
+    const before = await layouts();
+    await shadow(page, () => window.statusLayoutBudget.measure());
+    const count = await layouts() - before;
+    t.diagnostic(`AIT-547 full status catalog: ${count} document layouts`);
+    // One flush to measure the variants and at most two for the reserve and
+    // rendered-text guard; this budget stays independent of catalog growth.
+    assert.ok(count <= 3, `status catalog measurement must use at most 3 document layouts, got ${count}`);
+    const maximum = await compactStatusMaximum(page);
+    const actual = await shadow(page, c => c.shadowRoot.querySelector('.overview-status').getBoundingClientRect().height);
+    assert.ok(Math.abs(actual - maximum) <= .5, 'bounded layout work still reserves the exact natural maximum');
+  } finally { await client.detach(); }
+}
+
 export async function overviewFadeCheck(t) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-overview-fade-'));
   const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(directory, 'unused.sqlite'));
