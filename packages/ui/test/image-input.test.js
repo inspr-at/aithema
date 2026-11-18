@@ -220,6 +220,10 @@ for (const copy of [en, de]) for (const path of ['picker', 'paste']) {
       f.root.querySelector('textarea').dispatchEvent(event); await tick(); await tick();
       assert.equal(event.defaultPrevented, true, 'the paused image paste is handled');
     }
+    assert.equal(f.root.querySelector('.composer-reason .image-refusal'), null, 'a full pause keeps the existing pause presentation');
+    assert.equal(f.calls.some(call => call.options.method === 'POST' && call.url.endsWith('/uploads')), false);
+    f.c.receive({ sessionId: f.c.session.id, seq: f.c.session.seq + 1, type: 'session.paused', data: { paused: false } });
+    await tick(); await tick();
     assert.equal(f.root.querySelector('.image-refusal')?.textContent, `photo.png: ${copy.imageRefusals.paused}`);
     assert.equal(f.calls.some(call => call.options.method === 'POST' && call.url.endsWith('/uploads')), false);
     assert.deepEqual(f.asks, []);
