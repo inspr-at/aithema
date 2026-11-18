@@ -71,9 +71,9 @@ export function planUploads(files, { limits: raw, uploads = [], images = true } 
   }
   const active = uploads.filter(u => !['withdrawn', 'staged-discarded', 'withheld'].includes(u.state) && !u.erased);
   const used = active.reduce((sum, u) => sum + (u.bytes ?? 0), 0), adding = fitting.reduce((sum, f) => sum + f.size, 0);
-  const images = active.filter(u => u.kind === 'image').length, addingImages = fitting.filter(isImageFile).length;
-  const blocked = !fitting.length ? null : images + addingImages > limits.maxImagesPerSession ? 'images'
-    : active.length - images + fitting.length - addingImages > limits.maxDocumentsPerSession ? 'count'
+  const imageCount = active.filter(u => u.kind === 'image').length, addingImages = fitting.filter(isImageFile).length;
+  const blocked = !fitting.length ? null : imageCount + addingImages > limits.maxImagesPerSession ? 'images'
+    : active.length - imageCount + fitting.length - addingImages > limits.maxDocumentsPerSession ? 'count'
     : used + adding > limits.maxSessionBytes ? 'session' : null;
   const batches = [];
   if (!blocked) for (const file of fitting) {
