@@ -1714,7 +1714,7 @@ for (const classicScrollbars of [false, true]) test(`the AI notice is in view wh
       assert.equal(s.background, s.pane, `${label}: GUI-27, its fill is the pane's own surface, no tint`);
       return s;
     };
-    const shot = async (page, name) => { if (evidence) await page.screenshot({ path: join(evidence, `ai-notice-${name}.png`) }); };
+    const shot = async (page, name) => { if (evidence) await page.screenshot({ path: join(evidence, `ai-notice-${classicScrollbars ? 'classic-' : ''}${name}.png`) }); };
     const settleShellLayout = page => page.evaluate(async () => {
       await document.fonts.ready;
       // Header rail fit and footer reservations update in ResizeObserver after
@@ -1859,7 +1859,7 @@ for (const classicScrollbars of [false, true]) test(`the AI notice is in view wh
               playState: a.playState, currentTime: a.currentTime, progress: a.effect?.getComputedTiming().progress })) };
         });
         t.diagnostic(`AIT-119 composer failure ${locale}: ${JSON.stringify(diagnostic)}`);
-        if (evidence) await writeFile(join(evidence, `ait119-failure-${locale}.json`), JSON.stringify({ error: error.message, before, diagnostic }, null, 2));
+        if (evidence) await writeFile(join(evidence, `ait119-failure-${classicScrollbars ? 'classic-' : ''}${locale}.json`), JSON.stringify({ error: error.message, before, diagnostic }, null, 2));
         throw error;
       }
       await page.mouse.move(0, 0);
