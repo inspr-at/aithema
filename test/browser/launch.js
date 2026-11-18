@@ -26,9 +26,26 @@ export function boundPage(page, file = basename(process.argv[1] ?? 'browser test
   };
   return page;
 }
-function boundContext(context) {
+export async function useClassicScrollbars(page) {
+  await page.evaluateOnNewDocument(() => {
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync('::-webkit-scrollbar{width:15px;height:15px} ::-webkit-scrollbar-thumb{background:#888}');
+    document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+    const attachShadow = Element.prototype.attachShadow;
+    Element.prototype.attachShadow = function (...args) {
+      const root = Reflect.apply(attachShadow, this, args);
+      root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
+      return root;
+    };
+  });
+}
+function boundContext(context, classicScrollbars) {
   const newPage = context.newPage.bind(context);
-  context.newPage = async (...args) => boundPage(await newPage(...args));
+  context.newPage = async (...args) => {
+    const page = boundPage(await newPage(...args));
+    if (classicScrollbars) await useClassicScrollbars(page);
+    return page;
+  };
 }
 
 // Puppeteer 25.13 starts closeBrowser without awaiting it on launch failure.
@@ -62,6 +79,7 @@ class TestLauncher extends ChromeLauncher {
 
 export default {
   async launch(options = {}) {
+    const { classicScrollbars = false, ...launchOptions } = options;
     const timeout = bounded(options.timeout, launchTimeout);
     const executablePath = options.executablePath ?? await browserPath();
     const root = runDirectory(process.cwd()) ?? runDirectory(tmpdir()) ?? runDirectory(options.userDataDir ?? '');
@@ -90,7 +108,7 @@ export default {
         controller.abort(new TimeoutError(`Timed out after waiting ${timeout} ms for browser startup [${basename(process.argv[1] ?? 'browser test')}]`));
       }, timeout);
       try {
-        const browser = await launcher.launch({ ...options, timeout, executablePath,
+        const browser = await launcher.launch({ ...launchOptions, timeout, executablePath,
           protocolTimeout: bounded(options.protocolTimeout, protocolTimeout),
           // Chrome has writable account paths beyond userDataDir. Do not pass
           // the real HOME or inherit a provider's environment by default.
@@ -109,10 +127,10 @@ export default {
           await browser.close();
           throw new Error('Browser profile must be inside the OPS memory guard run path');
         }
-        boundContext(browser.defaultBrowserContext());
+        boundContext(browser.defaultBrowserContext(), classicScrollbars);
         const createContext = browser.createBrowserContext.bind(browser);
         browser.createBrowserContext = async (...args) => {
-          const context = await createContext(...args); boundContext(context); return context;
+          const context = await createContext(...args); boundContext(context, classicScrollbars); return context;
         };
         return browser;
       } catch (cause) {

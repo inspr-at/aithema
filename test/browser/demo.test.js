@@ -1691,7 +1691,7 @@ async function noticeAtEntryPoints(page, state, full, label) {
   return checked;
 }
 
-test('the AI notice is in view wherever an interaction can begin, without scrolling to it: every chooser option, the ready card before and after consent, Start and Retry call and the composer, English and German, 1440 and 400 px (AIT-119)',
+for (const classicScrollbars of [false, true]) test(`the AI notice is in view wherever an interaction can begin, without scrolling to it: every chooser option, the ready card before and after consent, Start and Retry call and the composer, English and German, 1440 and 400 px (AIT-119)${classicScrollbars ? ' classic scrollbars' : ''}`,
   { timeout: 240_000 }, async t => {
     const executablePath = await browserPath(), evidence = process.env.AITHEMA_EVIDENCE_DIR;
     const directory = await mkdtemp(join(tmpdir(), 'aithema-browser-notice-'));
@@ -1725,7 +1725,7 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
     for (const [locale, languages] of [['en', ['en-GB', 'en']], ['de', ['de-AT', 'de']]]) {
       const full = `${AI_NOTICE[locale].text} ${AI_NOTICE[locale].voice}`;
       // Its own browser and profile: a fresh session, never the other language's saved one.
-      browser = await puppeteer.launch({ executablePath, headless: true, env: { PATH: process.env.PATH, HOME: homedir() },
+      browser = await puppeteer.launch({ executablePath, headless: true, classicScrollbars, env: { PATH: process.env.PATH, HOME: homedir() },
         userDataDir: join(directory, `chrome-${locale}`), timeout: waitTimeout,
         args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
       const page = await browser.newPage(); await preparePage(page, languages);
@@ -1733,6 +1733,16 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
       const problems = []; page.on('pageerror', error => problems.push(error.message));
       await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
       await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '#ai-notice', { text: full });
+      if (classicScrollbars) {
+        const gutters = await inShadow(page, c => [document.body, c.shadowRoot].map(root => {
+          const probe = document.createElement('div');
+          probe.style.cssText = 'position:fixed;width:100px;height:100px;overflow:scroll;visibility:hidden';
+          root.append(probe);
+          const gutter = probe.offsetWidth - probe.clientWidth;
+          probe.remove(); return gutter;
+        }));
+        assert.deepEqual(gutters, [15, 15], 'classic scrollbars occupy layout space in the document and shadow root');
+      }
       assert.equal(await page.evaluate(() => document.documentElement.lang), locale);
       assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.intro').dataset.mode), 'chooser');
       // As the page first paints at 1440 × 1000, nothing scrolled: the chooser's first options already show,
@@ -1835,7 +1845,9 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('ol li.turn').length >= 4);
       try {
         sameBox(before.line, await box(page, '.ai-notice'), 'notice under the pointer while a turn and reply arrive');
-        sameBox(before.composer, await box(page, '.composer'), 'composer while a turn and reply arrive');
+        const afterComposer = await box(page, '.composer');
+        sameBox(before.composer, afterComposer, 'composer while a turn and reply arrive');
+        t.diagnostic(`AIT-119 composer boxes ${locale} classic=${classicScrollbars}: ${JSON.stringify({ before: before.composer, after: afterComposer })}`);
       } catch (error) {
         // Capture only after the original strict check fails; its sampling and
         // tolerance stay unchanged while an intermittent reveal is diagnosed.
