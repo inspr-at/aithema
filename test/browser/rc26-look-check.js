@@ -258,11 +258,13 @@ for (const item of [7, 8, 9, 10, 11, 12, 13])
                 await shot('processing');
                 const copy = await page.evaluate(() => ({
                   route: c.shadowRoot.querySelector('.ready__route').textContent,
+                  routeVisible: c.shadowRoot.querySelector('.ready__route').getBoundingClientRect().height > 0,
                   notice: c.shadowRoot.querySelector('.composer-notice__wide').textContent,
                 }));
                 records.push({ label, ...copy });
                 assert.doesNotMatch(copy.notice, /plugin|declared facts|Angaben des jeweiligen/iu);
-                assert.equal(copy.route, '', 'processing is stated once on the combined ready screen');
+                assert.equal(copy.routeVisible, width < 600, 'card processing line renders only beside the abbreviated phone notice');
+                if (width < 600) assert.ok(copy.route.trim(), 'phone processing line is non-empty');
                 await page.evaluate(async () => {
                   const { [c.session.locale]: defaults } = await import(
                     '/packages/ui/src/i18n/' + c.session.locale + '.js'

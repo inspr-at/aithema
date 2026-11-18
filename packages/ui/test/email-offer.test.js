@@ -331,3 +331,27 @@ test('AIT-543 r3: an unloaded store capability resolves before showing confirmat
   assert.equal(storeMessage, en.hostSurface.email.saving);
   assert.equal(f.row.dataset.step, 'sent');
 });
+
+for (const copy of [en, de]) test(`AIT-541 r2: ${copy.display.locale} confirmation clears a rate-limited resend warning`, async t => {
+  const f = fixture(t, { address: 'saved@example.test' });
+  f.offer.setCopy(copy);
+  const row = f.root.ownerDocument.createElement('li'); f.root.append(row); f.offer.paintRow(row);
+  f.offer.verification.resend = async () => ({ ok: false, status: 429 });
+  await f.offer.save();
+  assert.equal(row.querySelector('.email-offer__message').hasAttribute('data-refused'), true);
+  assert.equal(row.querySelector('input').getAttribute('aria-invalid'), 'false');
+  f.email.identity = { status: 'verified' }; f.offer.paint();
+  assert.equal(row.querySelector('.email-offer__message-text').textContent, copy.hostSurface.verify.unlocked);
+  assert.equal(row.querySelector('.email-offer__message').hasAttribute('data-refused'), false);
+  assert.equal(row.querySelector('input').hasAttribute('aria-invalid'), false);
+});
+
+test('AIT-541 r2: service refusal warns without marking a valid address invalid', async t => {
+  const f = fixture(t), row = f.root.ownerDocument.createElement('li'); f.root.append(row); f.offer.paintRow(row);
+  row.querySelector('input').value = 'visitor@example.test';
+  f.offer.verification.saveAndConfirm = async () => ({ ok: false, status: 503 });
+  await f.offer.save();
+  assert.equal(row.querySelector('.email-offer__message').hasAttribute('data-refused'), true);
+  assert.equal(row.querySelector('input').getAttribute('aria-invalid'), 'false');
+  assert.equal(row.querySelector('.email-offer__message-text').textContent, en.hostSurface.email.failed);
+});
