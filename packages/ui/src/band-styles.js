@@ -171,6 +171,10 @@ export const bandStyles = `
 .concept-bar { padding-left:max(0px,calc(54px - var(--aithema-gutter))); }
 .concept-preview-slot:has(.concept-preview:disabled) { display:none; }
 .concept-bar:has(.concept-preview:disabled) { grid-template-columns:minmax(0,1fr); }
+/* Leave the first bubble clear of the permanent 44px fold target at x=6. */
+@media(max-width:600px) {
+  .transcript-shell > ol > .turn:first-child { margin-inline-start:max(0px,calc(52px - var(--aithema-gutter) - .6rem)); }
+}
 /* AIT-246: status and preview get independent, permanently reserved rows on phones. */
 @media(width < 600px) {
   /* Keep the fold hit area above the rail without narrowing its two rows. */

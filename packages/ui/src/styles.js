@@ -500,6 +500,10 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .composer-reason[data-send-failed]:has(.upload-discard) { padding-bottom:8px; }
 .composer-reason[data-send-failed] .upload-retry-copy { flex:none; overflow:visible; }
 .composer-reason[data-send-failed] .upload-retry-actions { white-space:nowrap; }
+/* Inline text supplies the baseline; the warning glyph must not supply it. */
+.composer-reason[data-send-failed] .question-status, .composer-reserve-wide .question-status, .composer-reserve-phone .question-status { display:inline; font:inherit; }
+.composer-reason[data-send-failed] .question-status svg, :is(.composer-reserve-wide,.composer-reserve-phone) .question-status svg { margin-inline-end:7px; vertical-align:middle; }
+.composer-reason[data-send-failed] :is(.question-why,.send-failure-detail) { font:inherit; }
 .send-failure-short { display:none; }
 .send-failure-short::before { content:attr(data-text); }
 @media(width < 600px) {
@@ -773,6 +777,27 @@ slot[name="contact-launcher"]::slotted(*) { box-sizing:border-box; width:44px; h
 @container(max-width:316px) {
   .question-failed-long { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
   .question-failed-short { display:inline; }
+}
+/* Desktop failure copy stays complete, including in a narrow overview column.
+   Reserve the longest localized/host sentence at rest, so wrapping cannot move
+   this row, its neighbours or the action when a request fails. */
+.question-status-reserve, .question-action-reserve { display:none; }
+@media(min-width:960px) {
+  .question-state, .question-state:has(.question-status:not([hidden])) {
+    height:auto; min-height:36px; grid-template-columns:minmax(0,max-content) 9px minmax(max-content,1fr); }
+  .question-status-reserve { display:flex; align-items:center; gap:7px; grid-area:1/1; min-width:0; min-height:36px; visibility:hidden; pointer-events:none; }
+  .question-status-reserve > svg { flex:none; width:14px; height:14px; }
+  .question-status-reserve > span { display:grid; min-width:0; }
+  .question-status-reserve > span > span { grid-area:1/1; white-space:normal; overflow-wrap:anywhere; }
+  .question-status-reserve > span > span::before { content:attr(data-copy); }
+  .question-action-reserve { display:block; grid-area:1/3; height:0; min-width:44px; padding-inline:9px; white-space:pre; font-weight:600; visibility:hidden; pointer-events:none; }
+  .question-action-reserve::before { content:attr(data-copy); }
+  .question-state .question-status { height:auto; min-height:36px; }
+  .question-state .question-why { white-space:normal; overflow-wrap:anywhere; overflow:visible; text-overflow:clip; }
+  .analysis-content .question-failed-long { position:static; width:auto; height:auto; overflow:visible; clip-path:none; }
+  .analysis-content .question-failed-short { display:none; }
+  .question-state .clarify-action { height:100%; }
+  .question-state:has(.question-status:not([hidden])) .clarify-action { height:calc(100% + 8px); }
 }
 /* The focused assistant reply links to the public question, without another turn. */
 .clarify-meta { position:relative; display:flex; align-items:center; gap:8px; min-width:0; max-width:100%; margin:1px 0 5px; color:var(--aithema-muted); font-size:13.5px; line-height:1.45; text-decoration:none; }

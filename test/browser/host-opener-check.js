@@ -72,16 +72,24 @@ test('AIT-505: opener EN/DE light/dark at 390/1024/1440; stable composer, persis
     await page.setViewport({width,height:900});
     await page.evaluate(theme => {document.documentElement.style.colorScheme=theme;component.setAttribute('theme',theme);},theme);
     const seed = async text => { await page.evaluate((locale,text) => seed(locale,text),locale,text); await frames(page); };
-    const shot = async state => { if(evidence && width!==1024) await page.screenshot({path:join(evidence,`ait-505-${locale}-${theme}-${width}-${state}.png`),fullPage:true}); };
-    await page.evaluate((locale,text) => seed(locale,text,'best','combined'),locale,text);await frames(page);
+    const shot = async state => { if(evidence && width!==1024) await page.screenshot({path:join(evidence,`ait-505-${locale}-${theme}-${width}-${state}.png`),fullPage:false}); };
+    const freshEntrance = async entrance => {
+      await page.goto(`http://127.0.0.1:${server.address().port}`); await page.waitForFunction(() => globalThis.ready);
+      await page.evaluate(theme => {document.documentElement.style.colorScheme=theme;component.setAttribute('theme',theme);},theme);
+      await page.evaluate((locale,text,entrance) => seed(locale,text,'best',entrance),locale,text,entrance); await frames(page);
+    };
+    await freshEntrance('combined');
+    assert.equal(await page.evaluate(() => Boolean(component.shadowRoot.querySelector('.ready__start'))),false,'combined has no Start action');
     const entranceBox = await page.evaluate(() => {const r=component.shadowRoot.querySelector('[data-id="host:opener"]').getBoundingClientRect();return {selector:'host:opener',x:r.x,y:r.y,width:r.width,height:r.height};});
     positive([entranceBox]);
     assert.equal(await page.evaluate(() => component.session.transcript.length),0,'entrance opener remains render-only');
-    await shot('entrance');
+    await shot('combined-before-input');
     // AIT-506 combined mode has no Start; exercise the legacy Start contract separately.
-    await page.evaluate((locale,text) => seed(locale,text,'best','choice'),locale,text);await frames(page);
+    await freshEntrance('choice');
+    assert.equal(await page.evaluate(() => Boolean(component.shadowRoot.querySelector('[data-host-opener]'))),false,'choice opener waits for Start');
+    await shot('choice-before-start');
     await page.click('aithema-session >>> .ready__start');await frames(page);
-    const afterStart=await rects(page);positive(afterStart);await shot('after-start');
+    const afterStart=await rects(page);positive(afterStart);await shot('choice-after-start');
     await seed(null); const empty=await rects(page); positive(empty);
     await seed(text); const shown=await rects(page); stable(empty,shown,'render-only');
     assert.equal(await page.evaluate(() => component.session.transcript.length),0);

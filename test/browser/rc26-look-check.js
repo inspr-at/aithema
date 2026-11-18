@@ -12,6 +12,8 @@ const html = fixture.replace("import '/packages/ui/src/session-element.js';", `i
 import { AudioRail } from '/packages/ui/src/audio-rail.js';
 const render = AudioRail.prototype.render;
 AudioRail.prototype.render = function () { globalThis.lookRail = this; return render.call(this); };`)
+  .replace("analysis:allowed}};mount(session);", "analysis:allowed,images:allowed}};mount(session);")
+  .replace("analysis:allowed};return Response.json(s)", "analysis:allowed,images:allowed};return Response.json(s)")
   .replace("entrance:'combined'", "entrance:new URL(location.href).searchParams.get('entrance')||'combined'");
 const settle = page => page.evaluate(async () => {
   await document.fonts.ready;
@@ -56,10 +58,12 @@ for (const item of [7,8,9,10,11,12,13]) test(`AIT-541 look ${item}: RC26 visitor
         if(entrance==='choice'){await page.evaluate(()=>grant());await settle(page);await page.click('aithema-session >>> .ready__mode[data-mode=type]');await page.click('aithema-session >>> .ready__start');await settle(page);}
         const pair=await boxes(page,['.fold','[data-host-opener]']);await shot('opener');
         records.push({label,pair});positive(pair);if(item===7)assert.equal(intersects(...pair),false,'fold never intersects the first bubble');
+        if(item===7){
         const pinned=['.fold','.band','.display-foot'];const before=await boxes(page,pinned);
-        await page.click('aithema-session >>> .fold');await settle(page);const folded=await boxes(page,pinned);
+        await page.click('aithema-session >>> .fold');await settle(page);const folded=await boxes(page,pinned);assert.equal(await page.$eval('aithema-session',c=>c.shadowRoot.querySelector('.fold').getAttribute('aria-expanded')),'false','fold really toggled');
         await page.click('aithema-session >>> .fold');await settle(page);const unfolded=await boxes(page,pinned);
         records.push({label,pair,before,folded,unfolded});stable(before,folded);stable(before,unfolded);
+        }
       } else if(item===9){
         await live();
         await page.evaluate(async()=>{const {EmailOffer}=await import('/packages/ui/src/email-offer.js');const { [c.session.locale]:copy}=await import('/packages/ui/src/i18n/'+c.session.locale+'.js');const row=document.createElement('li');c.shadowRoot.querySelector('.transcript-shell ol').append(row);globalThis.lookOffer=new EmailOffer({root:c.shadowRoot,copy,verification:{email:{canCollect:true,delivery:true,demo:true,paintNotice(){}},canSave:false,async sendIdentityLink(){return {ok:false,status:400}}},session:()=>c.session,streaming:()=>false});lookOffer.paintRow(row);row.querySelector('input').value='a(b)@example.com';});
@@ -93,8 +97,8 @@ for (const item of [7,8,9,10,11,12,13]) test(`AIT-541 look ${item}: RC26 visitor
       } else if(item===13){
         await live();const pinned=['.open-question','.question-state','.composer','.understanding .foot'];const before=await boxes(page,pinned);await shot('question-ready');
         await page.evaluate(async()=>{const native=fetch;globalThis.fetch=(url,options)=>options?.method==='POST'&&String(url).endsWith('/focus-question')?Promise.resolve(Response.json({event:{seq:c.session.seq+1,type:'question.focused',data:{...c.openQuestionItems[0],questionId:c.openQuestionItems[0].id,requestId:'look-question',chosenBy:'user',inputRevision:c.session.operations.inputRevision}}},{status:202})):native(url,options);await c.focusQuestion(c.openQuestionItems[0].id);c.receive({type:'lane.failed',data:{lane:'reaction',retryable:true,inputRevision:c.session.operations.inputRevision}});});await settle(page);await shot('question-failed');
-        const failure=await page.evaluate(()=>{const n=c.shadowRoot.querySelector('.open-question .question-why'),s=getComputedStyle(n);return {text:n.textContent,ellipsis:s.textOverflow,scroll:n.scrollWidth,client:n.clientWidth,state:n.closest('.open-question').dataset.state};});records.push({label,failure});
-        assert.equal(failure.state,'retry');stable(before,await boxes(page,pinned));if(width>=600){assert.notEqual(failure.ellipsis,'ellipsis');assert.ok(failure.scroll<=failure.client,`complete failure text ${JSON.stringify(failure)}`);}
+        const failure=await page.evaluate(()=>{const n=c.shadowRoot.querySelector('.open-question .question-why'),s=getComputedStyle(n);return {text:n.textContent,ellipsis:s.textOverflow,scroll:n.scrollWidth,client:n.clientWidth,state:n.closest('.open-question').dataset.state,fullVisible:getComputedStyle(n.querySelector('.question-failed-long')).position==='static',shortHidden:getComputedStyle(n.querySelector('.question-failed-short')).display==='none'};});records.push({label,failure});
+        assert.equal(failure.state,'retry');stable(before,await boxes(page,pinned));if(width>=600){assert.equal(failure.fullVisible,true);assert.equal(failure.shortHidden,true);assert.notEqual(failure.ellipsis,'ellipsis');assert.ok(failure.scroll<=failure.client,`complete failure text ${JSON.stringify(failure)}`);}
       }
     }catch(error){records.push({label,error:error.message});throw error;}finally{await page.close();}
   });

@@ -1557,7 +1557,7 @@ test('AIT-524 status-only hit testing, real padding and stationary rows: EN/DE l
     const dot=box({getBoundingClientRect:()=>range.getBoundingClientRect()});
     return { stable, visible, dot, state: row.dataset.state, disabled: button.getAttribute('aria-disabled'), busy: button.getAttribute('aria-busy'),
       paused: c.session.paused, dialogOpen: Boolean(root.querySelector('dialog[open]')), name: button.getAttribute('aria-label'), description: button.getAttribute('aria-describedby'), questionId: row.dataset.questionId,
-      statusHidden: status.hidden, sameNode: button === window.retry524Button, posts: window.retry524Posts,
+      reservedHeight: row.querySelector('.question-status-reserve').getBoundingClientRect().height, statusHidden: status.hidden, sameNode: button === window.retry524Button, posts: window.retry524Posts,
       rowPaint: getComputedStyle(row).backgroundColor, paint: getComputedStyle(button).backgroundColor,
       pseudo: getComputedStyle(button, '::after').content,
       cursor: [status, row.querySelector('.question-separator')].map(n => getComputedStyle(n).cursor),
@@ -1650,7 +1650,7 @@ test('AIT-524 status-only hit testing, real padding and stationary rows: EN/DE l
     const b = rest.visible.button, line = rest.stable['.question-state'];
     assert.ok(b.width >= 44 && b.height >= 44, `${context}: native button box >= 44 x 44`);
     assert.equal(rest.pseudo, 'none', 'Retry has no pseudo-element target extension');
-    assert.equal(line.height, 36); assert.equal(b.y, line.y - 4); assert.equal(b.bottom, line.bottom + 4);
+    assert.equal(line.height, Math.max(36, rest.reservedHeight), 'line exactly fits its permanent failure reserve'); assert.equal(b.y, line.y - 4); assert.equal(b.bottom, line.bottom + 4);
     assert.ok(b.x >= rest.visible.separator.right, 'inline padding stays inside column 3');
     assert.equal(overlap(b, rest.visible.status), false, 'button never overlaps status');
     for (const neighbour of rest.neighbours) {

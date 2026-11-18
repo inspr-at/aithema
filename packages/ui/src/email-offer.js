@@ -3,6 +3,7 @@ import { emailOfferEligibility, visitorMessageCount } from '../../core/src/email
 import { fill, setText } from './dom.js';
 import { formatCredits } from './display.js';
 import { icon } from './icons.js';
+import { WARNING_ICON } from './concept-view.js';
 
 /** A UI row owned by the server claim, never a canonical conversation turn. */
 export class EmailOffer {
@@ -76,12 +77,12 @@ export class EmailOffer {
           <label class="m-label" for="email-offer-input"></label>
           <div class="email-offer__row"><input class="m-in" id="email-offer-input" type="email" inputmode="email" autocomplete="email" maxlength="254" spellcheck="false" aria-describedby="email-offer-message email-offer-notice">
             <span class="email-offer__address"></span><button class="email-offer__send" type="submit"><span></span></button></div>
-          <div class="email-offer__message-slot"><p class="email-offer__message" id="email-offer-message" role="status"></p><span class="email-offer__message-reserve" aria-hidden="true"></span></div>
+          <div class="email-offer__message-slot"><p class="email-offer__message" id="email-offer-message" role="status">${WARNING_ICON}<span class="email-offer__message-text"></span></p><span class="email-offer__message-reserve" aria-hidden="true"></span></div>
           <p class="m-notice" id="email-offer-notice"><span class="m-notice-text"></span> <a class="m-pp" target="_blank" rel="noopener"></a></p>
         </form>`;
       row.querySelector('form').addEventListener('submit', event => { event.preventDefault(); void this.save(); });
       row.querySelector('.email-offer__dismiss').addEventListener('click', () => void this.dismiss());
-      row.querySelector('input').addEventListener('input', () => { this.invalid = false; this.message = ''; this.paint(); });
+      row.querySelector('input').addEventListener('input', () => { this.invalid = false; this.refused = false; this.message = ''; this.paint(); });
       row.addEventListener('keydown', event => { if (event.key === 'Escape') { event.stopPropagation(); void this.dismiss(); } });
     }
     this.paint();
@@ -99,13 +100,14 @@ export class EmailOffer {
       ? fill(this.copy.hostSurface.usedUp[next === 'emailGiven' ? 'hostGive' : 'hostConfirm'], { delta: formatCredits(delta, this.session().locale ?? 'en') }) : v.lockLead);
     const input = row.querySelector('input'), saved = Boolean(email.address);
     input.hidden = saved; input.disabled = confirmed; input.setAttribute('aria-disabled', String(Boolean(this.saving || confirmed))); input.placeholder = v.placeholder;
-    input.setAttribute('aria-invalid', String(Boolean(this.invalid)));
+    if (this.invalid || this.refused) input.setAttribute('aria-invalid', 'true'); else input.removeAttribute('aria-invalid');
     const address = row.querySelector('.email-offer__address'); address.hidden = !saved; setText(address, email.address);
     setText(row.querySelector('label'), v.label);
     const button = row.querySelector('.email-offer__send');
     button.dataset.send = v.send; button.dataset.resend = v.resend;
     setText(button.querySelector('span'), saved ? v.resend : v.send); button.disabled = confirmed; button.setAttribute('aria-disabled', String(Boolean(this.saving || confirmed)));
-    setText(row.querySelector('.email-offer__message'), confirmed ? v.unlocked : this.message || (this.step === 'sent' ? v.sent : ''));
+    row.querySelector('.email-offer__message').toggleAttribute('data-refused', Boolean(this.invalid || this.refused));
+    setText(row.querySelector('.email-offer__message-text'), confirmed ? v.unlocked : this.message || (this.step === 'sent' ? v.sent : ''));
     // Real localized state strings reserve exactly their longest wrapped height.
     // Keep them outside the live message so its announcement/text stays singular.
     const reserve = row.querySelector('.email-offer__message-reserve');
@@ -125,7 +127,7 @@ export class EmailOffer {
       this.invalid = true; this.message = this.copy.hostSurface.verify.invalid; this.paint(); return;
     }
     const resending = Boolean(this.email.address);
-    this.invalid = false; this.saving = true; this.message = '';
+    this.invalid = false; this.refused = false; this.saving = true; this.message = '';
     let response;
     try {
       if (!resending && this.verification.canSave === undefined && this.verification.load) {
@@ -139,6 +141,7 @@ export class EmailOffer {
     catch { response = { ok: false }; }
     if (!this.alive) return;
     this.saving = false;
+    this.refused = !response?.ok || !response.sent;
     if (response?.ok && response.sent) { this.step = 'sent'; this.message = ''; this.row.querySelector('input').value = ''; }
     else if (response?.ok) this.message = this.verification.canSave === false ? this.copy.hostSurface.verify.failed : this.copy.hostSurface.verify.deliveryFailed;
     else if (this.verification.canSave === false) {
@@ -171,7 +174,12 @@ export const emailOfferStyles = `
 .email-offer__dismiss { position:absolute; top:6px; right:6px; width:44px; height:44px; padding:0; font-size:22px; color:var(--aithema-muted); background:none; border:0; }
 .email-offer__message-slot, .email-offer__message-reserve { display:grid; min-width:0; }
 .email-offer__message-slot > *, .email-offer__message-reserve > * { grid-area:1/1; }
-.email-offer__message { margin:0; }
+.email-offer__message { display:flex; align-items:flex-start; gap:7px; margin:0; }
+.email-offer__message svg { flex:none; width:14px; height:14px; margin-top:calc((1.5em - 14px)/2); visibility:hidden; }
+.email-offer__message[data-refused] { color:var(--aithema-warning); }
+.email-offer__message[data-refused] svg { visibility:visible; }
+.email-offer .m-in[aria-invalid="true"] { outline:2px solid var(--aithema-warning); outline-offset:2px; }
+.email-offer__message-reserve > span { padding-inline-start:21px; }
 .email-offer__message-reserve { visibility:hidden; pointer-events:none; }
 .email-offer__dismiss { display:grid; place-items:center; }
 .email-offer__dismiss svg { width:20px; height:20px; }

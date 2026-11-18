@@ -136,7 +136,9 @@ export class AudioRail {
       const signal = this.root.querySelector('.voice-signal').getBoundingClientRect();
       const viewport = this.root.ownerDocument.documentElement.clientWidth;
       const header = (this.root.closest('.band') ?? this.root).getBoundingClientRect();
-      const minLeft = Math.max(16, header.left), maxRight = Math.min(viewport - 16, header.right);
+      const conversation = this.root.closest('.workspace')?.querySelector('.conversation')?.getBoundingClientRect();
+      const besideOverview = this.root.closest('.band') && viewport >= 960 && conversation?.width > 0;
+      const minLeft = Math.max(16, header.left), maxRight = Math.min(viewport - 16, header.right, besideOverview ? conversation.right : Infinity);
       const width = Math.min(280, Math.max(0, maxRight - minLeft));
       const anchor = (MIC_FAILURES.includes(this.errorKey) ? this.button(this.session ? 'input' : 'start')
         : this.errorKey === 'voicePlaybackBlocked' ? this.button('playback')
