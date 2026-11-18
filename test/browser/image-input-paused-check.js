@@ -44,7 +44,6 @@ export function pausedImageInputCheck() {
     const facts = [];
     for (const entrance of ['drop', 'paste']) {
       const session = storage.create({ ownerToken: testToken, demo: true });
-      storage.postTurn(session.id, 'fixture-turn', Buffer.from('Project screenshot'), 'Project screenshot');
       storage.pause(session.id, true);
       const result = await page.evaluate(async ({ id, token, entrance }) => {
         await import('/packages/ui/src/session-element.js');
