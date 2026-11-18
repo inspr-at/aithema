@@ -45,6 +45,8 @@ const geometry = async page => { const state = await shadow(page, c => {
   growth: parseFloat(getComputedStyle(r.querySelector('.workspace')).getPropertyValue('--aithema-composer-growth')),
   noticeParent: r.querySelector('.voice-notices')?.parentElement.className ?? '',
   noticeHeight,
+  noticeReservation: { height: r.querySelector('.voice-notices').getBoundingClientRect().height,
+    minHeight: r.querySelector('.voice-notices').style.minHeight },
   noCardClearance: { paddingBottom, latestSlot, latestSlotUsed,
     latestSlotTop: latest.getBoundingClientRect().top - (parseFloat(latestCSS.marginTop) || 0),
     contentOverflows,
@@ -315,6 +317,8 @@ export async function transcriptComposerCases(t) {
       const before = await geometry(page);
       assert.match(before.noticeParent, /transcript-shell/, 'voice notices belong to transcript end at every width');
       assert.equal(before.noticeHeight, 0, 'no empty voice reservation'); assert.equal(before.listPadding, 0);
+      assert.equal(before.noticeReservation.height, 0, 'empty voice container has zero height');
+      assert.equal(before.noticeReservation.minHeight, '', 'empty voice container has no inline minimum height');
       positive(before.boxes['.transcript-shell'], 'transcript'); positive(before.boxes['.turn:first-child'], 'first turn');
       // R19: hidden reservations alone do not make visible content overflow.
       // Rule 7 / D511a keeps that short content at zero; r16's latest-gap
