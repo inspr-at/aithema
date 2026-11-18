@@ -976,3 +976,6 @@ for (const change of ['shrink', 'remove']) for (const release of ['leave row', '
     }
   });
 }
+
+import { pausedImageInputCheck } from './image-input-paused-check.js';
+pausedImageInputCheck();

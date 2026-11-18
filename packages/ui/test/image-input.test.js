@@ -10,6 +10,8 @@ for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent', '
 await import('../src/session-element.js');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function fixture(t, copy = en, available = true, options = {}) {
+  // Match runtime.matrix: paused imageInput projects only available/reason;
+  // consentPurposes belongs to generated visuals, not image input.
   const c = document.createElement('aithema-session'), session = options.session ?? createSession({ demo: true, locale: copy === de ? 'de' : 'en' });
   session.featureMatrix = { best: Object.fromEntries(['text', 'analysis', 'uploads', 'imageInput', 'images'].map(key => [key,
     { available: key === 'imageInput' ? available : key === 'uploads' ? options.documentsAvailable ?? true : true, reason: key === 'imageInput' && !available ? options.imageReason ?? 'current processing consent required' : key === 'uploads' && options.documentsAvailable === false ? 'current processing consent required' : null,
