@@ -508,6 +508,19 @@ The added **41 s** changes current total work from **4738.858 s** to
 The 13-shard packer, every other weight and floor, the **405 s** target,
 **420 s** ceiling and aggregate required `browser` check remain unchanged.
 
+Wrapped-host-copy recovery extends that parent to **70 cases**, covering
+390/1024/1440 in EN/DE and both themes. Passing remote run
+`ait-603000cd11c3486788daab6f` at `9bad33e5` measured **70/70** composer
+cases in **121.182946531 s**, **285/285** replay tests in **32.364895636 s**
+and **41/41** question-card unit tests. Retain the inherited question work:
+`76.696 + 121.182946531 × 1.25 = 228.174683164 s`, rounded up to a
+**230 s** floor. Replay reserves `ceil(32.364895636 × 1.25) = 41 s`.
+These additive diagnostic floors retain the preceding 205/34 s floors and
+trusted main history. The further **32 s** changes the current plan from
+**4779.858 s** to **4811.858 s** and projected growth from **4959.858 s**
+to **4991.858 s**. All 13 shards, other allocations, the packer, aggregate
+`browser` check and 405/420 s limits remain unchanged.
+
 Each CI shard writes `browser-timings-N-of-13` artifacts (14-day retention).
 `scripts/browser-timing-reporter.js` records passing top-level `node:test`
 durations in seconds alongside the run ID, attempt, commit and workload hash.

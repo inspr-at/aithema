@@ -439,6 +439,16 @@ browserTestWeights['test/browser/question-card.test.js'] = Math.max(
 browserTestWeights['test/browser/audio-replay.test.js'] = Math.max(
   browserTestWeights['test/browser/audio-replay.test.js'], 34);
 
+// AIT-511 wrapped-host recovery: passing run ait-603000cd11c3486788daab6f
+// at 9bad33e5 measured all 70 composer cases in 121.182946531s. Retained
+// 76.696s plus a 25% parent margin is 228.174683164s: reserve 230s.
+// Replay passed 285/285 in 32.364895636s; ceil(observed * 1.25) = 41s.
+// Keep every earlier floor and trusted main sample; both limits stay unchanged.
+browserTestWeights['test/browser/question-card.test.js'] = Math.max(
+  browserTestWeights['test/browser/question-card.test.js'], 230);
+browserTestWeights['test/browser/audio-replay.test.js'] = Math.max(
+  browserTestWeights['test/browser/audio-replay.test.js'], 41);
+
 // AIT-511: measured RC26 growth exceeds twelve bins; preserve both limits.
 export const browserShardCount = 13;
 export const browserShardBudget = 420;
