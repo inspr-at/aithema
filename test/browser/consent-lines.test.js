@@ -14,7 +14,7 @@ import { en } from '../../packages/ui/src/i18n/en.js';
 import { compactStatusMaximum } from './overview-fade-check.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 
-const features = { uploads: ['models-international'], transcription: ['voice-elevenlabs'], images: ['models-international'], text: ['models-international'], html: ['drafts-anthropic'], voice: ['voice-elevenlabs'], analysis: ['models-international'] };
+const features = { imageInput: ['models-international', 'image-input'], uploads: ['models-international'], transcription: ['voice-elevenlabs'], images: ['models-international'], text: ['models-international'], html: ['drafts-anthropic'], voice: ['voice-elevenlabs'], analysis: ['models-international'] };
 const places = { html: '.concept-activity-text', voice: '.voice-state', analysis: '.notice' };
 const words = {
   de: { html: 'Entwürfe brauchen Ihre Einwilligung', voice: 'Sprache braucht Ihre Einwilligung', analysis: 'Der Überblick braucht Ihre Einwilligung', action: 'Einwilligen…' },
@@ -237,7 +237,7 @@ for (const locale of ['de', 'en']) test(`AIT-231 ${locale}: real and mock Settin
   const page = await fixture(t), passes = [];
   for (const mock of [false, true]) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390]) {
     await scene(page, locale, theme, width, ['analysis']);
-    const selected = mock ? [] : ['voice-elevenlabs', 'drafts-anthropic'];
+    const selected = mock ? [] : ['image-input', 'voice-elevenlabs', 'drafts-anthropic'];
     const mapping = mock ? Object.fromEntries(Object.keys(features).map(feature => [feature, ['mock-processing']])) : features;
     page.state.selected = selected;
     page.state.document = { contract: 'fixture-contract', ...(mock ? { mock: true } : { items: CONSENT_ITEMS }), features: mapping, selected };
@@ -931,11 +931,11 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: no generic consent i
     const featureReasons = await shadow(page, async c => {
       const locale = c.session.locale, { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       return [...c.shadowRoot.querySelectorAll('.features li')].map((n, i) => {
-        const feature = ['text', 'analysis', 'voice', 'transcription', 'images', 'html', 'uploads'][i];
+        const feature = ['text', 'analysis', 'voice', 'transcription', 'images', 'html', 'uploads', 'imageInput'][i];
         return { feature, actual: n.querySelector('span')?.textContent, expected: copy.featureConsent[feature === 'transcription' ? 'voice' : feature] };
       });
     });
-    assert.equal(featureReasons.length, 7);
+    assert.equal(featureReasons.length, 8);
     for (const { feature, actual, expected } of featureReasons) {
       assert.equal(typeof expected, 'string', feature + ': canonical feature sentence exists');
       assert.ok(expected.length > 0); assert.equal(actual, expected, feature + ': AT-only row reuses C1');

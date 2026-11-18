@@ -127,6 +127,115 @@
 - Summary and signal prompt guidance now addresses the visitor with “you” / “Sie”
   while preserving quoted evidence. No schema, event, option or export change.
 
+- New public module `@inspr/aithema-plugin-image-input` (17 modules total), with
+  pinned sharp 0.35.5 and platform-specific native/libvips dependencies. Install
+  optional binaries in production. Docker and CI run the production-only fixture
+  qualifier; see NOTICES.json for Apache-2.0/LGPL and transitive declarations.
+- PNG/JPEG/WebP/GIF first frame only; no HEIC. Per-preset
+  `imageInput: { plugin: 'image-input' }` selects the local normalizer. Each
+  reasoning lane binding separately declares
+  `imageInput: { maxImages, maxTokensPerImage, perImageMicro? }`; missing
+  capability refuses image dispatch. Demo environment:
+  `AITHEMA_OPENROUTER_IMAGE_INPUT` (model-keyed JSON). Fees enter reservations and
+  OpenRouter's per-image provider price cap.
+- New optional consent item `image-input`, feature `imageInput`, and demo contract
+  string. Existing model item stays version 1. Granting/withdrawing image input
+  preserves replies; withdrawing it erases pixels. Granting both `images` and
+  `image-input` in a host's start consent avoids any later consent line or ask.
+  Explicit host feature mappings and copy overrides keep precedence.
+- Additive `aithema-consent` values `reason: 'use'`, `intent: 'attach'` and
+  `features: ['imageInput', ...]`; file selection waits in memory for at most
+  three minutes. Reason and intent are open enums.
+- Upload states `staged-pending`, `staged-ready`, `staged-refused`, and
+  `staged-discarded` are non-input. Thirty-minute orphan expiry/removal/session
+  switch discard without cascade or model work. Sent images use withdrawal.
+  Metadata adds kind/digest/w/h/expiresAt; turn events add attachments.
+- `/turns` accepts up to four owned ready `attachments` IDs and blank text with
+  attachments; atomic send and retry receipts include the IDs. Live-call image
+  sends return `image-live-call`. Image-only purpose classification is neutral.
+  `maxImagesPerSession`/`AITHEMA_UPLOAD_MAX_IMAGES` default to eight, independently
+  of documents; byte ceilings remain shared.
+- New owner-authenticated no-store `GET /uploads/:id/image`, fixed staging tiles
+  and reserved transcript thumbnail boxes, revocable blob URLs, and normalized
+  image files in ZIP export under images/. Bytes stay outside JSON/events/logs.
+  In both entrance modes, staging grows above the bottom-anchored controls;
+  asynchronous preparation and refusals retain the reserved layout. Combined
+  image-capable composers reserve the bounded refusal feedback row while the
+  disclosure keeps its natural height.
+- Image requests retain references until dispatch, use at most four images from
+  the last two user turns, and leave draft understanding text-only. One shared
+  text-plus-image token helper serves all three admission/settlement/pricing sites.
+  The text-only Reasoning contract remains unchanged. Additive image types,
+  image-input core subpath/helpers, manifest kind and normalize operation are
+  listed in README.md.
+- New EN/DE copy: imageConsentJit, imageInputFeature, imagePreparing, imageRemove,
+  imageLiveCall, imageUnsupportedModel, imageWithheld, uploadsSupported,
+  uploadsReselect (plural), imageRefusals and their per-reason entries (including batch limits),
+  features.imageInput, featureConsent.imageInput, processingConsent.items.image-input,
+  plus native/capability refusal reasons and updated upload format/retention copy.
+  Refusals persist through typing in the bounded reason slot, below blocking
+  failures and attach-time consent. README documents every additive host surface.
+
+- Lower-level additions: storage turnReceipt/imageUpload/expireStagedUploads,
+  postTurn guard.attachments, completeUpload image results, upload-handler now
+  and cancelImages, runtime imageInputAvailability/normalizeImageUpload,
+  exportSession images, reasoningRequest imageOnly, and dispatch-only
+  createChatCompletions prepareDispatch/resolveImage/imageDispatchCurrent.
+  Unsupported image filenames stay in the non-input refusal path even for
+  direct multipart callers; the format help line lists the exact accepted types.
+  Named documents retain byte-sniffed document admission despite false image
+  MIME hints; actual image bytes always select image staging.
+
+- Extensionless files labelled with an image MIME type and excluded HEIC/AVIF
+  containers stay in the staged, non-input refusal path; they never fall through
+  to document extraction or schedule model work. HEIC remains unsupported.
+
+- Staged image states are excluded from the append-only voice callback fence;
+  attaching, preparing, refusing or discarding an image cannot reject that reply.
+
+- AIT-510 follow-up: image-only OpenRouter input omits blank text blocks. A switch
+  to a text-only model or preset replaces earlier image references with text
+  markers before estimation, reservation and dispatch, preserving text replies
+  and understanding. Device mode refuses unsent staged images without dropping
+  their files or caption. Mixed selections continue eligible document uploads when
+  image input is unavailable, with distinct model/normalizer/pause refusals and
+  existing upload-consent wording for document-only continuations.
+- Image refusal feedback reserves the longest localized reason and shows it
+  once. Remove targets stay outside thumbnails with filename-aware EN/DE names;
+  short phones use one compact staging row around 44 px controls. Withheld-image copy `imageWithheld`
+  reads “Image not sent” / “Bild nicht gesendet”; `imageRefusals.paused` is additive.
+  Enabled Attach describes selection before consent. Unknown file refusals list
+  accepted formats; image-limit copy resolves host overrides and locale fallbacks.
+  Composer growth retains transcript follow and whole-item reading alignment;
+  the combined short-phone transcript reserves eight pixels below its content.
+  Successful document uploads preserve image refusals from the same selection.
+  Retained-file retry messages keep their existing facts and action order.
+  Image-feedback measurement keeps the same width across text-consent and
+  shortcut states, including 320/340 px, preserving the composer after a grant.
+  The same mixed selection retains its image refusal across document consent;
+  only eligible document handles and bounded refusal metadata continue.
+  Successful intake clears only feedback from earlier selections. Decoder
+  failures from the current selection survive event/receipt ordering and batches.
+  The hidden feedback measurement node is mounted only for active image input;
+  hosts without it retain their existing composer DOM and geometry.
+  Repeated inactive paints skip feedback DOM writes.
+  In image-capable composers, full document-type notices and accepted formats
+  share the measured image feedback reserve and wrap without the two-line cap
+  or a trailing separator. The format sentence ends with a full stop in EN/DE.
+  Composers without image input keep the existing document refusal, without
+  image-format help, including after an image refusal or a switch to a binding
+  without image input while the reserved layout remains mounted. Combined
+  composers with document intake reserve the existing two-line feedback capacity before intake and retain it through pause/consent
+  changes. This keeps wrapped document-only refusals stable while composers
+  without uploads retain their natural feedback height.
+  Only upload notices lift the reason cap; long host image-
+  consent overrides still scroll inside their 44 px cap.
+  `imageRefusals.malformed` now follows the filename with “is not a readable
+  image.” / “ist kein lesbares Bild.”; host overrides keep precedence.
+  This also covers native `unsupported` bytes behind an accepted extension;
+  only UI wording changes, and native refusal codes remain unchanged.
+  Multiple refused names keep a keyboard-scrollable two-line area; the full
+  accepted-format sentence stays outside that area in the reserved slot.
 - AIT-515: `understanding.signals` remains `string[]` and is now newest-first by
   first-seen server sequence, with stable provider-order ties. Current finals
   hide omitted texts; rewordings are new keys, without replacement IDs or an
@@ -164,3 +273,52 @@
   `signalUnconfirmed` = `unconfirmed` / `unbestätigt`. Missing keys fall back to
   the active locale. Summary/signal prompts use direct “you” / formal “Sie”,
   avoid provenance prose and preserve quoted evidence.
+
+- AIT-511/AIT-513: the transcript uses the remaining height and voice recovery
+  notices appear as interactive transcript end content at every width. A voice
+  binding reserves no empty notice row. Without a visible question card, an
+  active desktop call retains its existing 108 px recovery region inside the
+  transcript. Beside a card, only visible recovery content takes room; call
+  start leaves the reply and its controls in place. Image visuals retain their 44 px bar;
+  unbound visuals reserve none. Short transcripts align at the top without a
+  visible question card, and beside their question when a card is present. Explicit
+  follow keeps otherwise-fitting short content at scroll zero even when hidden end
+  reservations overflow; overflowing content retains the original Latest slot.
+  Reply-failure rows retain their full wrapped text height, and follow includes
+  their Retry. Transcript scrolling remains contained and suppresses native boundary rebound. A visible
+  header voice message uses free room above short top-aligned conversations;
+  the pane frame stays fixed. Notice growth clears obsolete retained space,
+  and a deliberate transcript wheel gesture releases retained notice space.
+- The composer grows upward with its draft, capped by 40% of the visual viewport
+  and the reply/card budget; short phone viewports allow at most three lines.
+  Short desktop viewports reduce outer spacing in both composer states; longer
+  used-up copy scrolls in its body, keyboard-focusable only while overflowing.
+  Attach, Send and the bottom edge stay fixed. Failed sends and answer-chip
+  sends retain a separate draft and its size; accepted typed/device sends reset
+  the matching draft. Discarded pending combined drafts refit immediately; CSS-only
+  call/card transitions refresh the stored notice height before later changes.
+  Wrapped recovery notices align their final text baseline with replay controls.
+  A next draft typed during a pending reply reserves its
+  future question-card budget without resizing when that reply arrives.
+  Follow mode re-pins; a resting transcript pointer wins
+  and Latest exposes the occluded tail. Latest keeps its existing end-control
+  slot without a question card and floats beside a visible card. Combined entrance
+  shares this owner
+  before and after input without treating an opener/draft as visitor input.
+  Combined disclosure/status slots retain their intrinsic reservations and the
+  top-anchored notice grows downward; Send and mic stay pinned. The card margin is counted once outside the
+  combined reading pane. Combined desktop retains the same fixed-footer clearance
+  before and after entrance. At desktop heights up to 700 px it yields spare
+  outer grid gaps, starts the field at 44 px and retains the full footer row
+  plus a 4 px gutter. Intrinsic notice, feedback and status rows stay readable
+  within the shared reply/card budget.
+- Additive measured CSS outputs on the workspace:
+  `--aithema-composer-height` and `--aithema-composer-growth`. Added visitor content
+  counts as growth; responsive viewport/keyboard/stage modes reset the empty
+  baseline. Effective form changes re-pin following readers even if the field
+  stays the same size. Hosts keep their
+  existing height/theme/copy overrides. No new options, copy keys, events or
+  package exports. Phone dock subtraction, card margin, notice end reservation
+  and pointer slack remain distinct padding/clearance owners. A trailing phone
+  conversation margin reserves only visitor growth to keep the stacked overview
+  frame fixed.

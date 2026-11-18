@@ -42,11 +42,11 @@ const unchanged = (before, after, label) => {
 };
 
 export async function fixture(page, locale, { address = null, spent = 3_450_000, reserved = 0, delivery = false, privacy = true, handover = false, demo = false, confirmed = false, voiceRunning = false, voiceAdmissionFailure = false, waitingCall = false, creditScope = null, dailyCap = false,
-  allowancesMicro = { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 } } = {}) {
+  readingOverflow = false, allowancesMicro = { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 } } = {}) {
   // Touch viewport changes reload the demo; wait for its owner session seed.
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
   await shadow(page, async (c, options) => {
-    const { locale, address, spent, reserved, delivery, privacy, handover, demo, confirmed, voiceRunning, voiceAdmissionFailure, waitingCall, creditScope, dailyCap, allowancesMicro } = options;
+    const { locale, address, spent, reserved, delivery, privacy, handover, demo, confirmed, voiceRunning, voiceAdmissionFailure, waitingCall, creditScope, dailyCap, readingOverflow, allowancesMicro } = options;
     const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
     const { inputRevision } = await import('/packages/core/src/session.js');
     window.a2OriginalFetch ??= window.fetch.bind(window);
@@ -90,7 +90,7 @@ export async function fixture(page, locale, { address = null, spent = 3_450_000,
     delete session.voiceLifecycle;
     if (waitingCall) session.voiceLifecycle = { callId: 'fixture-waiting-call', providerSessionId: 'fixture-waiting-provider', state: 'waiting' };
     session.settings = { ...session.settings, origin: 'chosen', voice: 'off', visuals: 'off' };
-    session.transcript = [{ id: 'visitor-fixture-turn', role: 'user', content: locale === 'de' ? 'Ich möchte meine Anforderungen besprechen.' : 'I would like to discuss my requirements.' }];
+    session.transcript = [{ id: 'visitor-fixture-turn', role: 'user', content: (locale === 'de' ? 'Ich möchte meine Anforderungen besprechen. ' : 'I would like to discuss my requirements. ').repeat(readingOverflow ? 8 : 1).trim() }];
     const question = locale === 'de' ? 'Welche Anforderungen möchten Sie besprechen?' : 'Which requirements would you like to discuss?';
     session.transcript.push({ id: 'visitor-fixture-question', role: 'assistant', content: question, inputRevision: inputRevision(session),
       question_short: question, options: [{ text: locale === 'de' ? 'Ziele' : 'Goals', likely: true }, { text: locale === 'de' ? 'Ressourcen' : 'Resources' }] });
@@ -112,7 +112,7 @@ export async function fixture(page, locale, { address = null, spent = 3_450_000,
     }
     c.configure({ session, copy, voiceClient, host: { credits: true, verification: { delivery, privacyDocumentConfigured: privacy }, handover } });
     if (voiceRunning) c.shadowRoot.querySelector('.voice-start').click();
-  }, { locale, address, spent, reserved, delivery, privacy, handover, demo, confirmed, voiceRunning, voiceAdmissionFailure, waitingCall, creditScope, dailyCap, allowancesMicro });
+  }, { locale, address, spent, reserved, delivery, privacy, handover, demo, confirmed, voiceRunning, voiceAdmissionFailure, waitingCall, creditScope, dailyCap, readingOverflow, allowancesMicro });
   await until(page, () => window.a2.creditsReads > 0);
   await settle(page);
 }
@@ -1020,7 +1020,9 @@ export async function replyRowsMatrix(t) {
         AudioRail.prototype.render = function () { window.ait410Rail = this; return render.call(this); };
       }
     });
-    await fixture(page, locale, { voiceAdmissionFailure: true });
+    // AIT-511: genuine earlier input supplies overflow before the first row;
+    // three phone control rows must still fit together for the mid-call capture.
+    await fixture(page, locale, { voiceAdmissionFailure: true, readingOverflow: width === 390 });
     await shadow(page, c => {
       window.a2.denyVoice = false; window.a2.replays = [];
       window.ait410Rail.client.replayReply = async reply => { window.a2.replays.push(reply); return { kind: 'text', text: reply.text }; };
@@ -1030,7 +1032,7 @@ export async function replyRowsMatrix(t) {
     const original = await boxes(page, ['.turn:not(.user)']);
     for (let i = 2; i <= 3; i++) await shadow(page, (c, { i, width }) => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: {
       id: `ait410-reply-${i}`, role: 'assistant',
-      content: width === 390 ? `Reply ${i}` : `${(c.session.transcript.find(t => t.role === 'assistant').content + ' ').repeat(8)}${i}`,
+      content: width === 390 ? `Reply ${i}` : `${(c.session.transcript.find(t => t.role === 'assistant').content + ' ').repeat(40)}${i}`,
     } }), { i, width });
     await settle(page);
     // Compare size only: following the growing transcript legitimately scrolls it.
@@ -1182,7 +1184,16 @@ export async function replyRowsMatrix(t) {
       assert.ok(capture.rows.every(row => row.visible && row.height === 44), 'all three complete control rows clear the band, transcript clip and dock');
       captures.push({ name: '390-light-de-three-replies-mid-call', ...capture });
       await shot('390-light-de-three-replies-mid-call');
-      await shadow(page, (c, top) => { c.shadowRoot.querySelector('.transcript-shell').scrollTop = top; }, scrollTop);
+      await shadow(page, async (c, top) => {
+        const shell = c.shadowRoot.querySelector('.transcript-shell');
+        if (shell.scrollTop === top) return;
+        // The scroll listener owns follow mode. Finish the native restoration
+        // event before a call-state change can render against its old value.
+        await new Promise(resolve => {
+          shell.addEventListener('scroll', resolve, { once: true });
+          shell.scrollTop = top;
+        });
+      }, scrollTop);
       await settle(page);
     }
     await click(page, '.voice-close');

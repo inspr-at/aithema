@@ -1,3 +1,5 @@
+import { imageInputCheck } from './image-input-check.js';
+imageInputCheck([390, 1440]);
 // AIT-188: Tick's binding follow-ups. Viewport evidence only, remote runner only.
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
@@ -556,7 +558,6 @@ test('AIT-188 notice option a: last scroll item follows and preserves scrolled-u
     for (const position of ['following', 'scrolled-up', 'near-bottom']) {
       const following = position === 'following';
       await shadow(page, (c, following) => { const s = c.shadowRoot.querySelector('.transcript-shell'); s.scrollTop = following ? s.scrollHeight : 400; s.dispatchEvent(new Event('scroll')); }, following);
-      if (following) { const box = await boxes(page, ['.transcript-shell']); await page.mouse.move(box[0][0] + 60, box[0][1] + box[0][3] - 60); }
       await frame(page); const before = await noticeMetrics(page);
       await page.evaluate(() => globalThis.tickRail.notices.recovered({ userUnconfirmed: true, deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: document.querySelector('aithema-session').session.transcript.at(-1).content }));
       await frame(page); const shown = await noticeMetrics(page);

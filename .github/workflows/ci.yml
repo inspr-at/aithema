@@ -186,13 +186,13 @@ jobs:
   browser:
     needs: changes
     if: ${{ !cancelled() }}
-    name: browser (${{ matrix.shard }}/12)
+    name: browser (${{ matrix.shard }}/13)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
     steps:
       - name: Docs-only success
         if: github.event_name == 'pull_request' && needs.changes.result == 'success' && needs.changes.outputs.docs-only == 'true'
@@ -217,7 +217,7 @@ jobs:
         env:
           AITHEMA_EVIDENCE_DIR: ${{ runner.temp }}/evidence
       - if: ((github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != ''))
-        run: npm run test:browser -- --shard ${{ matrix.shard }}/12
+        run: npm run test:browser -- --shard ${{ matrix.shard }}/13
         env:
           AITHEMA_EVIDENCE_DIR: ${{ runner.temp }}/evidence
           BROWSER_TIMING_DIR: ${{ runner.temp }}/browser-timings
@@ -225,7 +225,7 @@ jobs:
         if: ${{ always() && ((github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != '')) }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: browser-timings-${{ matrix.shard }}-of-12
+          name: browser-timings-${{ matrix.shard }}-of-13
           path: ${{ runner.temp }}/browser-timings
           if-no-files-found: error
           retention-days: 14
@@ -233,7 +233,7 @@ jobs:
       - if: ${{ always() && ((github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != '')) }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: browser-evidence-${{ matrix.shard }}-of-12
+          name: browser-evidence-${{ matrix.shard }}-of-13
           path: ${{ runner.temp }}/evidence
           if-no-files-found: ignore
           # Evidence is predominantly PNG; avoid recompressing it in the job budget.
@@ -241,7 +241,7 @@ jobs:
           retention-days: 14
 
   # TRANSITION: retain all four required names until the ruleset switches to browser.
-  # Each alias requires all twelve shards, except verified duplicate-main skips.
+  # Each alias requires all thirteen shards, except verified duplicate-main skips.
   browser-required:
     needs: [changes, browser]
     if: ${{ !cancelled() }}
@@ -363,3 +363,14 @@ jobs:
           path: ${{ runner.temp }}/preview-security.json
           if-no-files-found: error
           retention-days: 14
+
+  image-input-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container: node:24-bookworm-slim
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install production dependencies including native image binaries
+        run: npm ci --omit=dev --no-audit --no-fund
+      - name: Normalize a fixture in the Docker base
+        run: node scripts/qualify-image-input.js

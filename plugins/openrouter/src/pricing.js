@@ -1,3 +1,4 @@
+import { reasoningInputBound, imageInputFee } from '@inspr/aithema-core/image-input';
 const valid = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 &&
   Number.isFinite(perMillion(value));
 
@@ -38,8 +39,12 @@ export function providerMaxPrice(price) {
 }
 
 // A conservative token bound, independent of the configured prompt price.
-export const requestInputTokens = body => new TextEncoder().encode(JSON.stringify(body.messages)).byteLength;
-export const requestCeilingMicro = (body, price) => tokenCeilingMicro(requestInputTokens(body), body.max_tokens, price);
+export const requestInputTokens = (body, imageInput) => reasoningInputBound(body.messages, imageInput);
+export const requestCeilingMicro = (body, price, imageInput) => {
+  const ceiling = tokenCeilingMicro(requestInputTokens(body, imageInput), body.max_tokens, price) + imageInputFee(body, imageInput);
+  if (!Number.isSafeInteger(ceiling)) throw new TypeError('Image request ceiling is too large');
+  return ceiling;
+};
 
 export function tokenCeilingMicro(inputTokens, outputTokens, price) {
   if (!Number.isSafeInteger(inputTokens) || inputTokens < 0) throw new TypeError('Invalid input token ceiling');

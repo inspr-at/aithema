@@ -378,6 +378,34 @@ browserTestWeights['test/browser/start-look.test.js'] = Math.max(
 browserTestWeights['test/browser/clarify-now.test.js'] = Math.max(
   browserTestWeights['test/browser/clarify-now.test.js'], 378.094);
 
+// AIT-510 r10: complete upload-capacity file, remote 86de69650a-20594,
+// head 86de69650a, 29/29 PASS including disclosure/email/short-phone states.
+// File duration (including hooks/teardown) 63.774576042s; ceil(*1.25)=80s.
+// Raises the prior 71s diagnostic floor; trusted rolling-main samples unchanged.
+// AIT-510 r13: de881507d5-19436 passed 29/29 at de881507d5, with the
+// expanded refusal/mixed-pick/whole-item matrix in 68.097062459s.
+// ceil(*1.25)=86s raises the r10 floor, retaining twelve shards and all targets.
+// AIT-510 r14: all unchanged image bodies now share existing viewport work:
+// width1024 in start-look; width390/1440 in pause-phone. Complete remote run
+// 36ac30f0d1-40209 passes 247 tests: upload 5 in 21.832980542s, start-look 149
+// in 116.812526542s, pause-phone 93 in 174.989791333s. ceil(*1.25)=28/147/219s,
+// covered by the inherited 36.093/162/220s plans. Remove only this ticket's
+// temporary source/destination additions; keep every trusted sample and floor.
+// Main's full growth plan 4820.039s and unchanged bounded packing now apply.
+// AIT-510 r15: complete final-product run e0bd97b085-82450 passes all
+// 125 pause-phone tests in 177.878909750s, including 32 new refusal/cap checks.
+// ceil(observed *1.25)=223s raises only the PR diagnostic floor from 220s.
+// Keep twelve shards, 405/420s targets and all trusted timing history.
+// AIT-510 r16: preserve all inherited floors by placing the unchanged new
+// no-upload first-paint regression in language-first-paint. Its 108.958s plan
+// covers the prior complete 52.212726083s file plus the 16.159237637s red case:
+// ceil((52.212726083 +16.159237637) *1.25)=86s. Remove only this round's
+// temporary upload addition now that the case leaves that file.
+// AIT-510 r18b: current-capability transition checks add 48 nested cases.
+// Complete remote run e4d76500de-76889 passes 173/173 in 184.105106500s;
+// ceil(observed *1.25)=231s. Raise only the diagnostic reservation.
+browserTestWeights['test/browser/pause-phone.test.js'] = Math.max(
+  browserTestWeights['test/browser/pause-phone.test.js'], 231);
 // AIT-517: preserve measured main history and reserve contact/RC25 coverage.
 // Geometry: complete remote run ait-5e96229f4b684be182bea901 at 255f392e,
 // 264.361s file wall time minus unchanged combined contact case 39.781s:
@@ -413,7 +441,44 @@ browserTestWeights['test/browser/email-ask.test.js'] = Math.max(
 // AIT-423: LEAD's AIT-410 standing decision adds an eighth bin after AIT-411's
 // measured workload exceeded 7 × 405s; target, ceiling and weights stay unchanged.
 // AIT-470: the added unlock workload exceeds eight bins at the same limits.
-export const browserShardCount = 12;
+// AIT-511/AIT-513: remote ait-ef3cef024a49482b9133c2ab at 1181fa49
+// passed the complete targeted file (80/80), including all 38 transcript/
+// composer cases and the full look palettes in 75.746301907s. Retain the
+// existing 76.696s allocation plus that parent with 25% margin:
+// 171.378877384s, rounded up to a 175s diagnostic floor. The named helper
+// import participates in the workload hash. Trusted main history is intact.
+browserTestWeights['test/browser/question-card.test.js'] = Math.max(
+  browserTestWeights['test/browser/question-card.test.js'], 175);
+// AIT-511 replay completion: remote run 79085e5f4f-70434 at 79085e5f
+// passed the complete 225-test replay matrix, including phone completion,
+// in 18.299866083s. ceil(observed * 1.25) = 23s. Keep this diagnostic floor
+// outside trusted main timing history; no inherited weight or limit is lowered.
+browserTestWeights['test/browser/audio-replay.test.js'] = Math.max(
+  browserTestWeights['test/browser/audio-replay.test.js'], 23);
+
+// AIT-511 gate3 follow-up: passing remote run ait-637551601f06402fb64580b1
+// at 7ffcf2ae measured the expanded 58-case composer parent in 99.462152878s.
+// Retain 76.696s of inherited question work plus 25% of that parent:
+// 201.023691098s, rounded up to a 205s diagnostic floor. Its complete 285-test
+// replay matrix took 26.965136774s; ceil(1.25 * observed) = 34s. Keep both
+// older floors and trusted timing history; no weight or limit is lowered.
+browserTestWeights['test/browser/question-card.test.js'] = Math.max(
+  browserTestWeights['test/browser/question-card.test.js'], 205);
+browserTestWeights['test/browser/audio-replay.test.js'] = Math.max(
+  browserTestWeights['test/browser/audio-replay.test.js'], 34);
+
+// AIT-511 wrapped-host recovery: passing run ait-603000cd11c3486788daab6f
+// at 9bad33e5 measured all 70 composer cases in 121.182946531s. Retained
+// 76.696s plus a 25% parent margin is 228.174683164s: reserve 230s.
+// Replay passed 285/285 in 32.364895636s; ceil(observed * 1.25) = 41s.
+// Keep every earlier floor and trusted main sample; both limits stay unchanged.
+browserTestWeights['test/browser/question-card.test.js'] = Math.max(
+  browserTestWeights['test/browser/question-card.test.js'], 230);
+browserTestWeights['test/browser/audio-replay.test.js'] = Math.max(
+  browserTestWeights['test/browser/audio-replay.test.js'], 41);
+
+// AIT-511: measured RC26 growth exceeds twelve bins; preserve both limits.
+export const browserShardCount = 13;
 export const browserShardBudget = 420;
 // AIT-419: LEAD decision on AIT-410 (2026-10-20), one raise only; next overshoot gets an eighth shard, not 410s.
 export const browserShardHeadroomTarget = 405;

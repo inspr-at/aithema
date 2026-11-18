@@ -457,11 +457,11 @@ test('AIT-117: a German processing-consent page contains START German copy and n
     assert.equal(await page.$eval('#consent-info', node => node.textContent), 'Sie können Einwilligungen hier jederzeit widerrufen. Bereits erfolgte Übermittlungen werden dadurch nicht rückgängig gemacht.');
     assert.equal(await page.$eval('#consent-title', node => node.textContent), de.host.processingTitle);
     for (const item of consent.items) {
-      const expected = item.id === 'drafts-anthropic' ? de.processingConsent.items[item.id] : START_GERMAN_CONSENT.items[item.id];
+      const expected = ['drafts-anthropic', 'image-input'].includes(item.id) ? de.processingConsent.items[item.id] : START_GERMAN_CONSENT.items[item.id];
       assert.equal(item.title, expected.title);
       assert.equal(item.text, `${expected.recipients} ${expected.text}`);
     }
-    assert.deepEqual(consent.items.map(item => [item.id, item.checked]), [['models-international', false], ['voice-elevenlabs', true], ['drafts-anthropic', false]]);
+    assert.deepEqual(consent.items.map(item => [item.id, item.checked]), [['models-international', false], ['image-input', false], ['voice-elevenlabs', true], ['drafts-anthropic', false]]);
     for (const english of [CONSENT_INTRO, CONSENT_WITHDRAWAL, ...CONSENT_ITEMS.flatMap(item => [item.title, item.recipients, item.text])]) {
       assert.equal(consent.visible.includes(english), false, english);
     }
@@ -1412,16 +1412,16 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
     assert.equal(await page.evaluate(() => document.documentElement.lang), 'de');
 
-    // Before consent, Attach stays reachable and says the server's reason in German.
+    // Before consent, enabled Attach describes selection; the selected files trigger consent.
     const attach = () => inShadow(page, c => { const a = c.shadowRoot.querySelector('.attach');
       return { label: a.querySelector('.attach__label').textContent, disabled: a.getAttribute('aria-disabled'), title: a.title,
         described: a.getAttribute('aria-describedby').split(' ').map(id => c.shadowRoot.getElementById(id).textContent) }; });
     // Its own description first, then the AI notice (AIT-119).
-    assert.deepEqual(await attach(), { label: 'Dateien anhängen', disabled: 'true', title: de.uploads.unavailable.replace('{reason}', de.featureConsent.uploads),
-      described: [de.uploads.unavailable.replace('{reason}', de.featureConsent.uploads), `${AI_NOTICE.de.text} ${AI_NOTICE.de.voice}`] });
+    assert.deepEqual(await attach(), { label: 'Dateien anhängen', disabled: 'false', title: de.uploads.limits.replace('{files}', '8').replace('{size}', '20 MB'),
+      described: [de.uploads.limits.replace('{files}', '8').replace('{size}', '20 MB'), `${AI_NOTICE.de.text} ${AI_NOTICE.de.voice}`] });
     await mockConsent(page); await waitForShadow(page, '.composer textarea', { enabled: true });
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.attach').getAttribute('aria-disabled') === 'false');
-    assert.equal((await attach()).title, 'Bis zu 8 Dateien, je höchstens 20 MB: PDF, Word, Excel, PowerPoint, Text, Markdown, CSV, JSON oder XML. Die Originaldatei wird nicht aufbewahrt.');
+    assert.equal((await attach()).title, 'Bis zu 8 Dateien, je höchstens 20 MB: PDF, Word, Excel, PowerPoint, Text, Markdown, CSV, JSON, XML, PNG, JPEG, WebP oder GIF. Originaldokumente werden nicht aufbewahrt; normalisierte Bilder bleiben bis zum Zurückziehen oder Löschen gespeichert.');
 
     await sendTurn(page, 'Wir sind eine Bäckerei und wollen eine Vorbestell-App. Betrieb: gehostet; Daten: öffentlich; Systeme: API; Reichweite: international');
     await waitForShadow(page, 'aside .notice[data-current]'); await revealed(page);
@@ -1485,6 +1485,8 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     await page.mouse.move(0, 0); await shot(page, 'de-light-1440-accepted');
 
     // A refused type is named in plain words before anything is sent.
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.composer').hasAttribute('data-image-input')), false,
+      'the demo generates images but has no image-input normalizer');
     const posts = () => uploadRequests.filter(([method, , upload]) => method === 'POST' && upload).length, requestsBefore = posts();
     await inShadow(page, c => c.shadowRoot.querySelector('.attach').focus());
     const refusal = await uploadChooser(page);

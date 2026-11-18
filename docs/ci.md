@@ -2,7 +2,7 @@
 
 Aithema runs on the organization's hosted runners. The organization is on GitHub
 Enterprise (about 500 concurrent hosted jobs), and Aithema uses about 2 % of its
-CI hours (measured baseline AEON-1407, 2026-10-15). All twelve browser shards run
+CI hours (measured baseline AEON-1407, 2026-10-15). All thirteen browser shards run
 at once on full runs. Per-PR cancellation and the docs-only light path stay
 because they save runner minutes.
 
@@ -27,11 +27,11 @@ Detection errors fail the changes job and run all heavy checks. The heavy jobs
 use `!cancelled()` so a failed dependency cannot silently skip required checks;
 only successful PR detection with an explicit `true` output can skip heavy steps.
 
-Twelve worker shards report `browser (1/12)` through `browser (12/12)`. The ruleset
+Thirteen worker shards report `browser (1/13)` through `browser (13/13)`. The ruleset
 keeps its existing `browser (1/4)` through `browser (4/4)` required checks; each
 is a summary that requires every worker shard to succeed on PR and merge-group runs.
 A failed, cancelled, skipped or missing shard fails those summaries. All four aliases deliberately
-retain their dependency on the entire matrix, so each requires all twelve workers.
+retain their dependency on the entire matrix, so each requires all thirteen workers.
 PR and merge-group events use the same jobs. Both aliases and the parallel `browser`
 aggregate retain `!cancelled()` and the same unconditional result gate. The sole skip
 exception is a verified first-attempt duplicate main push, described below.
@@ -81,7 +81,7 @@ exception: they accept skipped workers only on the first push attempt to main,
 after successful change detection provides a nonempty verified `duplicate-of`.
 Failures, cancellations and missing results always fail the result gate. PRs,
 merge groups, reruns and other refs never accept skipped workers. Required names and
-existing job caps stay unchanged. The lookup, npm cache warmer, twelve cheap
+existing job caps stay unchanged. The lookup, npm cache warmer, thirteen cheap
 browser workers and six aggregate jobs execute. The previous five-aggregate-only
 60/150 runner-second estimate no longer applies; no new runtime claim is made.
 The warmer preserves main-scoped npm caches with a script-free install only
@@ -300,7 +300,7 @@ Every `test/browser/<name>.test.js` owns a sibling `<name>.weight.json`.
 The `seconds` value is the sum of **measured per-test rolling p95** durations,
 with a **25% safety margin while a workload has fewer than five samples**.
 At five or more samples the planner uses the measured sum directly. Packing remains
-deterministic LPT across **twelve** bins, followed by whole-file moves/swaps
+deterministic LPT across **thirteen** bins, followed by whole-file moves/swaps
 that reduce the maximum load, then squared load, without worsening LPT's
 makespan bound. Equal candidates keep stable iteration order. If local
 refinement still exceeds 405 s, a deterministic whole-file placement search
@@ -339,6 +339,29 @@ projection reserve AIT-506's additional 180 s for start-journey plus at least
 below 405 s, with complete file coverage; the 420 s hard ceiling stays unchanged.
 The projection never overwrites measured `.weight.json` history.
 
+AIT-511/AIT-513 register the transcript/composer parent in `question-card.test.js`
+through a named helper import, retaining shard attribution and workload hashing.
+Remote run `ait-ef3cef024a49482b9133c2ab` at `1181fa49` passed the complete
+80-test file, including all 38 transcript/composer cases and the full look
+palettes. That parent measured 75.746301907 s. The temporary 175 s file floor
+retains its existing 76.696 s allocation and adds that parent with 25% margin
+(171.378877384 s, rounded up). This supersedes the earlier 125 s floor from
+the smaller capture matrix. This remote observation is a conservative planning
+floor, outside trusted rolling-main history. The twelve bins, 405 s target,
+420 s ceiling and all other floors stay unchanged.
+
+AIT-510 retains twelve shards, the 405 s target and 420 s ceiling. The complete
+expanded `upload-capacity.test.js` passed 29/29 in remote run
+`86de69650a-20594`, head `86de69650a`, including disclosure, inline email,
+document-notice persistence and short-phone image states in both entrances.
+Its measured file duration, including hooks and teardown, was 63.774576042 s;
+`ceil(63.774576042 × 1.25) = 80` raises the prior 71 s diagnostic floor.
+Remote evidence does not enter trusted rolling-main `.weight.json` history.
+AIT-510 r13's expanded refusal, mixed-selection and whole-item visibility matrix
+passed 29/29 in remote run `de881507d5-19436` at head `de881507d5`.
+The complete file took 68.097062459 s, so `ceil(68.097062459 × 1.25) = 86`
+raises the diagnostic floor from 80 to 86 s. Twelve shards, the 405 s target,
+the 420 s ceiling and trusted rolling-main weights remain unchanged.
 AIT-515 keeps its 40-scene signal matrix in the existing understanding-failure
 file. Complete remote run `b86c217e10-4534` at `b86c217e10` measured
 106.018906167 s of file work, including 200 signal screenshots. Its 33 tests
@@ -429,7 +452,171 @@ only a log tail. Bounded whole-suite batches keep the same committed head and
 serial test execution; the operator file retains its existing isolated force-exit
 run. This reporter does not change CI selection or reporting.
 
-Each CI shard writes `browser-timings-N-of-12` artifacts (14-day retention).
+The AIT-511/AIT-513 merge with AIT-517 retained both diagnostic allocations.
+At merge `c665e5fe`, the twelve-bin plan was **4738.343 s** total, with bins
+`395.000 / 392.483 / 397.822 / 395.290 / 391.561 / 401.443 / 392.797 / 392.504 / 390.784 / 393.546 / 396.130 / 398.983` s.
+Its maximum was **401.443 s**, within both unchanged limits. With the unchanged
+AIT-532 growth projection, the total was **4918.343 s**, exceeding the
+**4860 s** aggregate capacity by **58.343 s**. Its projected bins were
+`403.423 / 407.485 / 414.187 / 420.504 / 404.163 / 414.210 / 409.822 / 412.533 / 403.452 / 405.279 / 411.247 / 412.038` s.
+No whole-file placement could fit that aggregate into twelve 405 s bins.
+The growth guard therefore remained blocking until the thirteenth-shard
+capacity decision below superseded that plan; no floor, assertion, target or
+ceiling was lowered.
+
+AIT-511's completed-replay matrix now includes the retained recovery sentence
+at 390/1024/1440, EN/DE and both themes. Remote run `79085e5f4f-70434` at
+`79085e5f` passed the complete replay file **225/225** in **18.299866083 s**;
+the recovery file also passed **77/77**. Its 25% planning margin requires
+`ceil(18.299866083 × 1.25) = 23 s`, retained as a diagnostic floor outside
+trusted main history. All inherited allocations remain intact. The resulting
+current twelve-bin plan totals **4738.858 s**, maximum **401.755 s**; the
+unchanged growth projection totals **4918.858 s**, maximum **420.504 s**.
+The growth workload exceeds **12 × 405 = 4860 s** by **58.858 s**. Rebalancing
+whole files cannot remove that aggregate deficit. The thirteenth-shard
+capacity decision below resolves it with both 405/420 s limits unchanged.
+
+### AIT-511 thirteenth-shard capacity
+
+Coordinator r18 applies LEAD's standing capacity rule: another shard when
+measured growth exceeds the target. Keep the same 35 files, every measured
+weight and diagnostic floor, the packer, the **405 s target**, the **420 s
+ceiling** and the existing job timeouts. Only the worker count changes from
+12 to 13 in PR/merge-group CI and nightly. The single aggregate `browser`
+check, its dependency on the entire matrix and its result gate are unchanged;
+this change does not modify branch protection or required-check settings.
+
+| Plan | Total work (s), before and after | Twelve-bin maximum (s) | Thirteen-bin maximum (s) |
+| --- | ---: | ---: | ---: |
+| Current measured work | 4738.858 | 401.755 | 395.000 |
+| AIT-506/AIT-524 growth projection | 4918.858 | 420.504 | 395.000 |
+
+Twelve target bins hold **4860 s**: the growth plan exceeds this by
+**58.858 s**. Thirteen hold **5265 s**, leaving **346.142 s** of aggregate
+projected growth capacity and **10.000 s** below target in the largest bin.
+The unchanged packer derives the following exact plans (seconds rounded to
+three decimals):
+
+- Current: `395.000 / 378.094 / 358.000 / 360.038 / 357.242 / 358.423 / 356.575 / 364.210 / 362.983 / 364.247 / 358.452 / 364.952 / 360.642`.
+- Growth: `395.000 / 385.000 / 378.094 / 372.389 / 372.301 / 370.000 / 384.290 / 378.508 / 376.247 / 376.590 / 377.326 / 378.113 / 375.000`.
+
+The shard guard pins the new count and checks exactly-once coverage and
+both limits for both plans; nightly coverage is also checked. Timing import
+retains all supported historical counts, admits complete 13-shard artifacts,
+and rejects missing, duplicate, out-of-range, mixed or expired input before
+writing any weight.
+
+AIT-511 gate3 adds eight deterministic reply-failure follow cases and direct
+sentence-box checks for all six replay states. Passing remote run
+`ait-637551601f06402fb64580b1` at `7ffcf2ae` retained **58/58** composer
+cases in **99.462152878 s**, **285/285** replay tests in **26.965136774 s**
+and **41/41** question-card unit tests. The inherited question allocation plus
+25% of the expanded parent is `76.696 + 99.462152878 × 1.25 = 201.023691098 s`;
+reserve **205 s**, retaining the older 175 s floor. Replay reserves
+`ceil(26.965136774 × 1.25) = 34 s`, retaining its older 23 s floor.
+These remote diagnostic floors remain outside trusted rolling-main history.
+The added **41 s** changes current total work from **4738.858 s** to
+**4779.858 s**, and projected growth from **4918.858 s** to **4959.858 s**.
+The 13-shard packer, every other weight and floor, the **405 s** target,
+**420 s** ceiling and aggregate required `browser` check remain unchanged.
+
+Wrapped-host-copy recovery extends that parent to **70 cases**, covering
+390/1024/1440 in EN/DE and both themes. Passing remote run
+`ait-603000cd11c3486788daab6f` at `9bad33e5` measured **70/70** composer
+cases in **121.182946531 s**, **285/285** replay tests in **32.364895636 s**
+and **41/41** question-card unit tests. Retain the inherited question work:
+`76.696 + 121.182946531 × 1.25 = 228.174683164 s`, rounded up to a
+**230 s** floor. Replay reserves `ceil(32.364895636 × 1.25) = 41 s`.
+These additive diagnostic floors retain the preceding 205/34 s floors and
+trusted main history. The further **32 s** changes the current plan from
+**4779.858 s** to **4811.858 s** and projected growth from **4959.858 s**
+to **4991.858 s**. All 13 shards, other allocations, the packer, aggregate
+`browser` check and 405/420 s limits remain unchanged.
+
+AIT-510 r14 retains all AIT-515/AIT-517 reservations and timing history.
+Main's upload reservation is 36.093 s, so retaining the temporary 86 s
+image-matrix floor gives `4820.039 + (86 - 36.093) = 4869.946 s` in the
+growth projection, 9.946 s above `12 × 405 = 4860 s`. This corrects the
+merge's stale 71 s assumption. No limit or trusted sample changes.
+Complete remote run `15065fafa0-71174` at `15065faf` passes upload **29/29**
+in **71.807831958 s** and start-look **141/141** in **107.323856625 s**.
+The unchanged eight 1024-width image scenes move into start-look through
+`image-input-check.js`; upload retains all sixteen 390/1440 scenes. The
+combined workload remains 170 tests, with every assertion and capture.
+The temporary source-file floor stays 86 s until a complete after-run
+qualifies both files and the unchanged twelve-bin 405/420 s guards.
+The first split passes **170/170** in `d2bcff8bea-80681`: upload **21/21**
+in **63.136940125 s**, start-look **149/149** in **117.521293250 s**. Its
+79 s source ceiling removes only 7 s, leaving the growth projection 2.946 s
+over capacity. Therefore the unchanged eight 1440 scenes move to start-look
+too; upload keeps all eight phone scenes, and start-look all sixteen tablet/
+desktop scenes. Keep all floors pending the complete second measurement.
+The complete second run `11ef9fc891-90483` at `11ef9fc8` passes upload
+**13/13** in **39.959277667 s** and start-look **157/157** in
+**142.167312875 s**: the same **170/170** combined tests. Reserve
+`ceil(39.959277667 × 1.25) = 50 s` and
+`ceil(142.167312875 × 1.25) = 178 s`. Only AIT-510's temporary 86 s
+source-file addition is replaced; every trusted sample remains, and the
+inherited destination floor can only increase. The final growth projection
+is `4820.039 + (50 - 36.093) + (178 - 162) = 4849.946 s`, leaving
+10.054 s below aggregate capacity. Actual whole-file placement still must
+pass the unchanged twelve-shard 405 s headroom and 420 s hard guards.
+Remote guard at `aaacadfa` fails the existing growth check, with all other
+42 checks passing. Aggregate fit alone is insufficient: host-surface (395 s)
+and the growth journey (385 s) can use only the 10.025/4.364/2.332 s files.
+Their combined unused capacity is at least
+`2 × 405 - 395 - 385 - 10.025 - 4.364 - 2.332 = 13.279 s`, already above
+the aggregate 10.054 s spare. The bounded algorithm and its node limit remain
+unchanged. Move the same sixteen 390/1440 scenes into pause-phone, which
+already covers both widths and reserves 220 s; leave eight 1024 scenes in
+start-look and the five document/retry cases in upload. Complete measurement
+of all three files must qualify this placement before removing additions.
+The complete three-file run `36ac30f0d1-40209` at `36ac30f0` passes
+**247/247**: upload **5/5**, **21.832980542 s**; start-look **149/149**,
+**116.812526542 s**; pause-phone **93/93**, **174.989791333 s**. The
+ceilings with 25% margin are **28 / 147 / 219 s**, already covered by main's
+unchanged **36.093 / 162 / 220 s** reservations. Remove only AIT-510's
+temporary source/destination additions, retaining every inherited floor,
+trusted sample, all 24 image scenes and all 247 combined tests. Growth work
+returns to **4820.039 s**; no assertion, budget, node limit or packer changes.
+The original 86 s observation remains above as historical workload evidence.
+
+AIT-510 r15 adds document-only refusal and host-overridden image-consent cap
+checks to the existing image matrix without removing any lifecycle assertion.
+Complete remote run `e0bd97b085-82450` at `e0bd97b0` passes pause-phone
+**125/125** in **177.878909750 s**. Its 25% margin requires
+`ceil(177.878909750 × 1.25) = 223 s`, raising only that PR diagnostic
+reservation from **220 s to 223 s**. The same complete run passes start-look
+**165/165** in **118.062741042 s**; `ceil(118.062741042 × 1.25) = 148 s`
+remains within its inherited **162 s** floor. Trusted rolling-main samples,
+twelve shards, the **405 s** target, **420 s** ceiling and every existing
+assertion remain unchanged. Remote shard guards qualify the actual placement.
+
+AIT-510 r18b adds mixed/sequential image-refusal and binding-switch checks
+within the existing image scenes. Complete remote run `e4d76500de-76889`
+passes pause-phone **173/173** in **184.105106500 s**;
+`ceil(184.105106500 × 1.25) = 231 s` raises its diagnostic reservation from
+**223 s to 231 s**. Start-look passes **189/189** in **118.384730167 s**,
+whose **148 s** margin fits the inherited **162 s** floor. No trusted samples,
+existing assertions, other floors, twelve shards or **405/420 s** limits change.
+
+AIT-510 r16 places the unchanged sixteen-scene no-upload feedback regression
+in the existing language/theme first-paint file. The provisional upload-file
+reservations (**57.093 s**, then **42 s** after complete 6/6 remote run
+`edca77de21-96753` measured **32.980476125 s**) exceeded the growth projection.
+The new location retains its inherited **108.958 s** plan. Complete remote run
+`bbd14f0000-97452` measured its existing case at **52.212726083 s**; red run
+`ait-dbb1325f89ae45a8b9b8da52` measured the new case at **16.159237637 s**.
+The conservative combined projection is
+`ceil((52.212726083 + 16.159237637) × 1.25) = 86 s`, within that reserve.
+Remove only this round's temporary upload addition when the new case leaves
+that file; its inherited **36.093 s** plan remains. Every assertion, other
+floor, trusted sample, twelve shards and **405/420 s** limits remain unchanged.
+
+The merged AIT-511/AIT-513 plan retains the thirteen-shard capacity decision
+and all AIT-510 measured reservations above; earlier twelve-shard observations
+remain historical. Each CI shard writes `browser-timings-N-of-13` artifacts
+(14-day retention).
 `scripts/browser-timing-reporter.js` records passing top-level `node:test`
 durations in seconds alongside the run ID, attempt, commit and workload hash.
 Nested subtests are excluded because their parent's duration already includes
@@ -445,12 +632,12 @@ npm run update:browser-timings -- --run RUN_ID --run ANOTHER_RUN_ID
 npm run test:browser-shards
 ```
 
-The importer accepts complete historical six/seven/eight/nine-shard and current twelve-shard runs;
+The importer accepts complete historical six/seven/eight/nine/twelve-shard and current thirteen-shard runs;
 it rejects mixed counts, missing indices, duplicates, and expired artifacts.
-CI screenshots use `browser-evidence-N-of-12`; the full nightly matrix uses
-`full-browser-evidence-N-of-12`. CI creates its evidence directory before tests;
+CI screenshots use `browser-evidence-N-of-13`; the full nightly matrix uses
+`full-browser-evidence-N-of-13`. CI creates its evidence directory before tests;
 individual evidence writers also create their destination for isolated runs.
-All twelve workers run concurrently, so this adds
+All thirteen workers run concurrently, so this adds
 runner minutes while keeping wall-clock time comparable.
 
 Nightly selects the full Cartesian matrix with `AITHEMA_FULL_MATRIX=1`.
@@ -458,9 +645,9 @@ It retains GitHub Actions' `CI=true`, including the CI timing budgets in
 fixtures such as `scoped-consent-edges.js`. An evidence directory alone keeps
 PR width rotation when `CI` is set; local manual evidence retains its existing
 full-matrix path. GitHub Actions never enables the manual axe audit. Nightly
-retains twelve shards and a 25-minute job timeout; successful complete jobs must
+retains thirteen shards and a 25-minute job timeout; successful complete jobs must
 finish within 17:30 (70%) before claiming measured headroom. Small timing
-artifacts are `full-browser-timings-N-of-12`, separate from viewport screenshots.
+artifacts are `full-browser-timings-N-of-13`, separate from viewport screenshots.
 
 The script downloads only the small timing artifacts through the selected `gh`
 account, pinned to `inspr-at/aithema`. Both automatic selection and explicit

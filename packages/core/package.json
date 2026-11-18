@@ -7,6 +7,7 @@
     "./understanding": "./src/understanding.js",
     "./readiness": "./src/readiness.js",
     "./live-voice": "./src/live-voice.js",
+    "./image-input": "./src/image-input.js",
     "./extractor": "./src/extractor.js",
     "./extractor-process": "./src/extractor-process.js",
     "./extractor-zip": "./src/extractor-zip.js",

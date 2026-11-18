@@ -1,4 +1,4 @@
-import { processingScope, MOCK_PROCESSING_SCOPE } from '@inspr/aithema-core';
+import { processingScope, imageInputScope, MOCK_PROCESSING_SCOPE } from '@inspr/aithema-core';
 import { manifest as voiceManifest } from '@inspr/aithema-plugin-elevenlabs/manifest';
 import { manifest as grokManifest } from '@inspr/aithema-plugin-grok-voice/manifest';
 import { modelProvider } from './model-provider.js';
@@ -6,11 +6,14 @@ import { modelProvider } from './model-provider.js';
 // Reasoning/voice copy is ported verbatim from START consentCopy.en. The separate
 // drafts item follows its optional images item; no retention guarantee is inferred.
 export const CONSENT_VALIDITY_MS = 365 * 24 * 60 * 60 * 1000;
-export const CONSENT_COPY_VERSION = 'consent-page-2026-10-12-drafts-1';
+export const CONSENT_COPY_VERSION = 'consent-page-2026-11-15-image-input-1';
 export const CONSENT_ITEMS = [
   { id: 'models-international', version: 1, title: 'AI models, international',
     recipients: 'OpenRouter, Inc. and the model provider you select: OpenAI, Anthropic or xAI. Processing can take place outside Europe, including in the United States.',
     text: 'Your messages, text read from uploaded files, the conversation history and the resulting assessment are sent to generate answers and assessments. Processing without retention is not guaranteed.' },
+  { id: 'image-input', version: 1, title: 'Image input',
+    recipients: 'OpenRouter, Inc. and the selected model provider. Processing can take place outside Europe, including in the United States.',
+    text: 'Selected images and screenshots, the conversation and assessment are sent to read images and answer questions about them. Normalized images are retained with the conversation until withdrawn or erased. Processing without retention is not guaranteed.' },
   voiceManifest.presentation.translations.find(item => item.locale === 'en').consentItem,
   { id: 'drafts-anthropic', version: 1, title: 'AI drafts (Anthropic)',
     recipients: 'OpenRouter, Inc. and Anthropic PBC, United States.',
@@ -56,13 +59,13 @@ export function createProcessingConsent({ storage, bindings, voiceConfigured = f
     ? binding.model === 'grok-voice' ? ['start'] : binding.model === 'grok-voice-tts' ? ['speak'] : ['stream']
     : binding.plugin === 'elevenlabs' ? ['start'] : binding.plugin === 'claude-html' ? ['generate', 'edit'] : ['stream', 'structured']);
   const allowed = coveredBindings.filter(binding => !voiceBinding || binding.plugin !== 'elevenlabs').flatMap(binding => operations(binding)
-    .map(operation => processingScope(binding, operation)));
+    .flatMap(operation => [processingScope(binding, operation), ...(binding.imageInput ? [imageInputScope(binding, operation)] : [])]));
   const modelProviders = [...new Set(bindings.filter(b => b.plugin === 'openrouter').map(b => modelProvider(b.model)))];
   // The configured processing contract is stable even while voice is unavailable.
   // Its exact dispatch scope comes from the atomically published runtime binding.
   const configuredItems = [...CONSENT_ITEMS, ...(grokConfigured || coveredBindings.some(b => b.legal?.purpose === 'voice-xai')
     ? [grokManifest.presentation.translations.find(item => item.locale === 'en').consentItem] : [])];
-  const items = configuredItems.filter(item => (item.id === 'voice-elevenlabs' && voiceConfigured) || (item.id === 'voice-xai' && grokConfigured) || coveredBindings.some(binding => binding.legal?.purpose === item.id &&
+  const items = configuredItems.filter(item => item.id === 'image-input' && coveredBindings.some(binding => binding.imageInput) || (item.id === 'voice-elevenlabs' && voiceConfigured) || (item.id === 'voice-xai' && grokConfigured) || coveredBindings.some(binding => binding.legal?.purpose === item.id &&
     (item.id !== 'drafts-anthropic' || binding.plugin === 'claude-html')));
   const contract = [CONSENT_COPY_VERSION, items.map(item => `${item.id}:${item.version}`).join(','), modelProviders.join(',')].join('|');
   const validDecision = decision => decision?.contract === contract && Array.isArray(decision.items) &&
@@ -79,7 +82,7 @@ export function createProcessingConsent({ storage, bindings, voiceConfigured = f
     const grants = row && !session.tombstone && (!session.consentWithdrawn || acceptingGrant) && row.revision === (consentRevision ?? session.consentRevision) ? JSON.parse(row.grants) : {};
     const selected = items.filter(item => { const grant = grants[item.id]; return grant?.contract === contract && grant.version === item.version &&
       grant.at <= at && at - grant.at < CONSENT_VALIDITY_MS; }).map(item => item.id);
-    return { contract, items, optional: items.filter(item => ['drafts-anthropic', 'voice-xai'].includes(item.id)).map(item => item.id),
+    return { contract, items, optional: items.filter(item => ['drafts-anthropic', 'voice-xai', 'image-input'].includes(item.id)).map(item => item.id),
       intro: CONSENT_INTRO, withdrawal: CONSENT_WITHDRAWAL, selected };
   };
   return { describe,
@@ -87,8 +90,23 @@ export function createProcessingConsent({ storage, bindings, voiceConfigured = f
       if (!validDecision(decision)) return false;
       // Separate draft and Grok voice items may change without the conversation's D5
       // cascade. Expired or withdrawn grants cannot authorize preservation.
-      const conversation = selected => selected.filter(id => !['drafts-anthropic', 'voice-xai'].includes(id)).sort();
-      const before = conversation(describe(sessionId).selected), after = conversation(decision.items);
+      const conversation = selected => selected.filter(id => !['drafts-anthropic', 'voice-xai', 'image-input'].includes(id)).sort();
+      let selected = describe(sessionId).selected;
+      // The prior disclosure's unchanged base items preserve replies on this
+      // optional-item upgrade, but never authorize image processing themselves.
+      if (!selected.length) {
+        const session = storage.get(sessionId), row = db.prepare('SELECT * FROM processing_consents WHERE session_id=?').get(sessionId);
+        if (row && row.revision === session.consentRevision && !session.consentWithdrawn && !session.tombstone) {
+          const at = now(), previous = JSON.parse(row.grants);
+          selected = items.filter(item => {
+            const grant = previous[item.id];
+            return grant?.contract?.startsWith('consent-page-2026-10-12-drafts-1|') &&
+              grant.contract.split('|').at(-1) === modelProviders.join(',') && grant.version === item.version &&
+              grant.at <= at && at - grant.at < CONSENT_VALIDITY_MS;
+          }).map(item => item.id);
+        }
+      }
+      const before = conversation(selected), after = conversation(decision.items);
       return before.length > 0 && JSON.stringify(before) === JSON.stringify(after);
     },
     grant({ sessionId, consentRevision, decision }) {
@@ -96,8 +114,8 @@ export function createProcessingConsent({ storage, bindings, voiceConfigured = f
       storage.transaction(() => {
         const session = storage.get(sessionId);
         if (session.tombstone || consentRevision !== session.consentRevision + 1) throw new Error('Consent revision changed');
-        const at = now(), grants = Object.fromEntries(decision.items.map(id => [id, { at, version: 1, contract,
-          ...(id === 'models-international' ? { providers: modelProviders } : {}) }]));
+        const at = now(), grants = Object.fromEntries(decision.items.map(id => [id, { at, version: items.find(item => item.id === id).version, contract,
+          ...(['models-international', 'image-input'].includes(id) ? { providers: modelProviders } : {}) }]));
         db.prepare(`INSERT INTO processing_consents VALUES (?,?,?) ON CONFLICT(session_id) DO UPDATE SET
           revision=excluded.revision,grants=excluded.grants`).run(sessionId, consentRevision, JSON.stringify(grants));
         db.prepare('INSERT INTO processing_consent_events(session_id,revision,at,items,copy_version) VALUES (?,?,?,?,?)')

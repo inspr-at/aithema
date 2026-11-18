@@ -111,6 +111,22 @@ test('AIT-188 L2c: composer ellipsis stays attached to the preceding word in DE/
 });
 
 
+test('AIT-513: used-up copy gets a keyboard scroll target only while it overflows', async t => {
+  const window = new Window(); t.after(() => window.happyDOM.close());
+  const root = window.document.createElement('div');
+  root.innerHTML = `<div class="workspace"><div class="band"></div>
+    <div class="transcript-shell"><ol></ol></div><div class="composer-dock"><p class="composer-out__body">Used-up copy</p></div>
+    <footer class="display-foot"><div class="display-foot__row"><span>Connected</span></div></footer></div>`;
+  const body = root.querySelector('.composer-out__body'); let contentHeight = 40;
+  Object.defineProperties(body, { clientHeight: { get: () => 40 }, scrollHeight: { get: () => contentHeight } });
+  const viewport = new PhoneComposerViewport(root); t.after(() => viewport.destroy());
+  assert.equal(body.hasAttribute('tabindex'), false, 'fitting copy preserves the existing AIT-411 DOM');
+  contentHeight = 80; viewport.paint();
+  assert.equal(body.getAttribute('tabindex'), '0', 'overflowing copy is reachable with Tab for keyboard scrolling');
+  contentHeight = 40; viewport.paint();
+  assert.equal(body.hasAttribute('tabindex'), false, 'fitting again restores the original DOM');
+});
+
 test('AIT-298: same-width footer text mutations keep the fit cache; changed zone width refits', async t => {
   const window = new Window();
   t.after(() => window.happyDOM.close());
@@ -267,4 +283,28 @@ test('AIT-299 r2: five compact timer ticks perform zero layout reads; a new digi
   assert.equal(counts.reads, 0, 'width-equivalent timer mutations do not trigger a viewport paint');
   f.label.textContent = '1234:05'; await new Promise(resolve => setImmediate(resolve));
   assert.ok(f.counts().probeReads > 0, 'a changed timer width still invalidates natural geometry');
+});
+
+for (const boundary of ['call state', 'card visibility']) test(`AIT-511: CSS-only ${boundary} refreshes the notice reservation`, async t => {
+  const window = new Window(); t.after(() => window.happyDOM.close());
+  const root = window.document.createElement('div');
+  root.innerHTML = `<div class="workspace"><div class="band"></div><div class="audio-rail" data-call="active"></div>
+    <div class="transcript-shell"><ol></ol><div class="voice-notices"><div>Recovery notice</div></div></div>
+    <div class="composer-dock"><div class="qcard" hidden></div></div>
+    <footer class="display-foot"><div class="display-foot__row"></div></footer></div>`;
+  const rail = root.querySelector('.audio-rail'), card = root.querySelector('.qcard'), notices = root.querySelector('.voice-notices');
+  let contentHeight = 44;
+  notices.getBoundingClientRect = () => ({ width: 300, height: Math.max(parseFloat(notices.style.minHeight) || 0,
+    rail.dataset.call === 'active' && card.hidden ? 108 : contentHeight) });
+  const viewport = new PhoneComposerViewport(root, { followsTranscript: () => false });
+  t.after(() => viewport.destroy());
+  assert.equal(viewport.noticeHeight, 108);
+  if (boundary === 'call state') rail.dataset.call = 'idle';
+  else card.hidden = false;
+  if (boundary === 'call state') viewport.paint();
+  else await new Promise(resolve => setImmediate(resolve));
+  assert.equal(viewport.noticeHeight, 44, 'CSS region changes refresh the stored height without notice DOM changes');
+  contentHeight = 24; notices.firstElementChild.textContent = 'Short notice';
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(parseFloat(notices.style.minHeight), 44, 'later shrink holds the real previous region, never a stale 108px region');
 });
