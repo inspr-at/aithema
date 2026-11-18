@@ -2636,3 +2636,14 @@ hosts with the complete port retain their existing visitor-email behavior.
 
 All state rows reserve their geometry. Host copy uses German grouping (`1.000`)
 and NBSP before `Credits`; copy is inserted as text, never HTML.
+
+
+### Attachment help copy (AIT-556)
+
+`copy.uploads.limits` retains the documents-only Attach title and accessible
+description. The additive `copy.uploads.limitsWithImages` supplies AIT-510's
+formats and retention help when the current binding supports image input, or
+requires consent for it. Both accept `{files}` and `{size}`. A host override
+of `uploads.limits` also wins for image-capable composers unless the host supplies
+an explicit `uploads.limitsWithImages` override. Picker types and type refusals
+follow the current binding, including after a settings change.

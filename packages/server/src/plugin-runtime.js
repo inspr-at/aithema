@@ -793,7 +793,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
           // Paused reloads and acknowledged takebacks need the ordinary stage
           // and composer verdicts. This is presentation only: admission and
           // the outer verdict stay paused.
-          if ((visual(feature) || feature === 'analysis' || feature === 'text') && result.reason === 'session paused') {
+          if ((visual(feature) || feature === 'analysis' || feature === 'text' || feature === 'imageInput') && result.reason === 'session paused') {
             const unpaused = await boundedEvaluate({ ...session, paused: false }, preset, feature);
             matrix[preset][feature].unpaused = { ...(unpaused.reason ? featureUnavailable(unpaused.reason) : { available: true, reason: null }),
               ...(visual(feature) ? { consentPurposes: matrix[preset][feature].consentPurposes } : {}) };

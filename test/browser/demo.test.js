@@ -1421,7 +1421,7 @@ test('document uploads: a text file and a PDF through the real file picker, pend
       described: [de.uploads.limits.replace('{files}', '8').replace('{size}', '20 MB'), `${AI_NOTICE.de.text} ${AI_NOTICE.de.voice}`] });
     await mockConsent(page); await waitForShadow(page, '.composer textarea', { enabled: true });
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.attach').getAttribute('aria-disabled') === 'false');
-    assert.equal((await attach()).title, 'Bis zu 8 Dateien, je höchstens 20 MB: PDF, Word, Excel, PowerPoint, Text, Markdown, CSV, JSON, XML, PNG, JPEG, WebP oder GIF. Originaldokumente werden nicht aufbewahrt; normalisierte Bilder bleiben bis zum Zurückziehen oder Löschen gespeichert.');
+    assert.equal((await attach()).title, 'Bis zu 8 Dateien, je höchstens 20 MB: PDF, Word, Excel, PowerPoint, Text, Markdown, CSV, JSON oder XML. Die Originaldatei wird nicht aufbewahrt.');
 
     await sendTurn(page, 'Wir sind eine Bäckerei und wollen eine Vorbestell-App. Betrieb: gehostet; Daten: öffentlich; Systeme: API; Reichweite: international');
     await waitForShadow(page, 'aside .notice[data-current]'); await revealed(page);

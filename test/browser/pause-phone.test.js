@@ -1,3 +1,5 @@
+import { documentUploadCheck } from './document-upload-check.js';
+documentUploadCheck();
 import { imageInputCheck } from './image-input-check.js';
 imageInputCheck([390, 1440]);
 // AIT-188: Tick's binding follow-ups. Viewport evidence only, remote runner only.
@@ -974,3 +976,6 @@ for (const change of ['shrink', 'remove']) for (const release of ['leave row', '
     }
   });
 }
+
+import { pausedImageInputCheck } from './image-input-paused-check.js';
+pausedImageInputCheck();

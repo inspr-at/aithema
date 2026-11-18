@@ -10,7 +10,9 @@ import { resolveCopy } from './copy-resolve.js';
 export const UPLOAD_LIMITS = Object.freeze({ maxBytes: 20 * 1024 * 1024, maxRequestBytes: 21 * 1024 * 1024,
   maxFilesPerRequest: 8, maxDocumentsPerSession: 8, maxImagesPerSession: 8, maxSessionBytes: 160 * 1024 * 1024 });
 // Extensions the server sniffs and extracts; a file without one is left to the server's sniffing.
-export const UPLOAD_EXTENSIONS = Object.freeze(['pdf', 'docx', 'xlsx', 'pptx', 'txt', 'md', 'csv', 'json', 'xml', 'png', 'jpg', 'jpeg', 'webp', 'gif']);
+export const DOCUMENT_UPLOAD_EXTENSIONS = Object.freeze(['pdf', 'docx', 'xlsx', 'pptx', 'txt', 'md', 'csv', 'json', 'xml']);
+export const DOCUMENT_UPLOAD_ACCEPT = DOCUMENT_UPLOAD_EXTENSIONS.map(extension => `.${extension}`).join(',');
+export const UPLOAD_EXTENSIONS = Object.freeze([...DOCUMENT_UPLOAD_EXTENSIONS, 'png', 'jpg', 'jpeg', 'webp', 'gif']);
 export const UPLOAD_ACCEPT = UPLOAD_EXTENSIONS.map(extension => `.${extension}`).join(',');
 // Multipart framing, byte for byte as the browser writes it (HTML multipart/form-data encoding):
 // the clientEventId field, then one part per file, then the closing delimiter. The browser picks
@@ -57,21 +59,21 @@ export const uploadsPossible = limits => fileCeiling(uploadLimits(limits)) > 0;
  * as few requests as the per-request ceilings allow; a batch that would overfill the conversation
  * (count or total size) is refused as a whole, since only the person can choose which files matter.
  */
-export function planUploads(files, { limits: raw, uploads = [] } = {}) {
+export function planUploads(files, { limits: raw, uploads = [], images = true } = {}) {
   const limits = uploadLimits(raw), refused = [], fitting = [], possible = uploadsPossible(limits);
   for (const file of files) {
     // The whole request one file would need on its own (form, its part's headers and its bytes) is checked
     // against the ceilings before batching: an empty file still carries headers that may not fit.
     const type = extension(file.name), limit = fileCeiling(limits, file);
-    if (type && !UPLOAD_EXTENSIONS.includes(type)) refused.push({ name: file.name, reason: 'type' });
+    if (type && !(images ? UPLOAD_EXTENSIONS : DOCUMENT_UPLOAD_EXTENSIONS).includes(type)) refused.push({ name: file.name, reason: 'type' });
     else if (!possible || file.size > room(limits, filePartBytes(file))) refused.push({ name: file.name, reason: 'size', limit });
     else fitting.push(file);
   }
   const active = uploads.filter(u => !['withdrawn', 'staged-discarded', 'withheld'].includes(u.state) && !u.erased);
   const used = active.reduce((sum, u) => sum + (u.bytes ?? 0), 0), adding = fitting.reduce((sum, f) => sum + f.size, 0);
-  const images = active.filter(u => u.kind === 'image').length, addingImages = fitting.filter(isImageFile).length;
-  const blocked = !fitting.length ? null : images + addingImages > limits.maxImagesPerSession ? 'images'
-    : active.length - images + fitting.length - addingImages > limits.maxDocumentsPerSession ? 'count'
+  const imageCount = active.filter(u => u.kind === 'image').length, addingImages = fitting.filter(isImageFile).length;
+  const blocked = !fitting.length ? null : imageCount + addingImages > limits.maxImagesPerSession ? 'images'
+    : active.length - imageCount + fitting.length - addingImages > limits.maxDocumentsPerSession ? 'count'
     : used + adding > limits.maxSessionBytes ? 'session' : null;
   const batches = [];
   if (!blocked) for (const file of fitting) {
@@ -87,9 +89,9 @@ export function formatBytes(bytes, locale = 'en') {
   const [value, unit] = bytes < 1024 ? [bytes, 'B'] : bytes < 1024 ** 2 ? [bytes / 1024, 'KB'] : [bytes / 1024 ** 2, 'MB'];
   return `${new Intl.NumberFormat(locale, { maximumFractionDigits: unit === 'B' || value >= 10 ? 0 : 1 }).format(value)} ${unit}`;
 }
-export function limitsText(copy, limits, locale) {
+export function limitsText(copy, limits, locale, images = false) {
   if (!uploadsPossible(limits)) return copy.uploads.impossible;
-  return fill(copy.uploads.limits, { files: limits.maxDocumentsPerSession, size: formatBytes(fileCeiling(limits), locale) });
+  return fill(images ? resolveCopy(copy, 'uploads.limitsWithImages', 'uploads.limits', locale) : copy.uploads.limits, { files: limits.maxDocumentsPerSession, size: formatBytes(fileCeiling(limits), locale) });
 }
 export function dropText(copy, limits, locale) {
   if (!uploadsPossible(limits)) return copy.uploads.impossible;

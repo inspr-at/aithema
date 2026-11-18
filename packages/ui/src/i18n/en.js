@@ -539,7 +539,8 @@ export const en = {
   },
   uploads: {
     attach: 'Attach files',
-    limits: 'Up to {files} files, {size} each: PDF, Word, Excel, PowerPoint, text, Markdown, CSV, JSON, XML, PNG, JPEG, WebP or GIF. Original documents are not stored; normalized images are kept until withdrawn or erased.',
+    limits: 'Up to {files} files, {size} each: PDF, Word, Excel, PowerPoint, text, Markdown, CSV, JSON or XML. The original file is not stored.',
+    limitsWithImages: 'Up to {files} files, {size} each: PDF, Word, Excel, PowerPoint, text, Markdown, CSV, JSON, XML, PNG, JPEG, WebP or GIF. Original documents are not stored; normalized images are kept until withdrawn or erased.',
     dropActive: 'Release to attach', dropLimits: 'Up to {files} files, {size} each', unavailable: 'Files cannot be attached: {reason}',
     uploading: { one: 'Uploading 1 file…', other: 'Uploading {count} files…' },
     received: { one: 'File received. Reading it…', other: '{count} files received. Reading them…' },
