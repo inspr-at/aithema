@@ -1,31 +1,5 @@
 {
-  "seconds": 35.11,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 42947874534-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
-  "timing": {
-    "schema": 1,
-    "window": 20,
-    "workload": "a4b09579b3ff4e208a79aaa7599d02e6cb0bfba2e67f9cd60d51152d568d609d",
-    "samples": [
-      {
-        "runId": "42947874534",
-        "attempt": 1,
-        "sha": "0c4c4b1af999e4a3163e3676123e99140120bb89",
-        "observedAt": "2026-11-11T02:43:02.190Z",
-        "tests": [
-          {
-            "name": "AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained focus and one retry",
-            "seconds": 28.08771601
-          }
-        ]
-      }
-    ]
-  },
-  "diagnostic": {
-    "seconds": 378.094,
-    "evidence": "AIT-524 matrix shard-budget reservation. CI 43727987124 attempt 1, SHA 0e2e784f33f101295800e6fe8bad992b3f6e9353 (PR merge ref), browser-timings-8-of-9/batch-0.jsonl: clarify-now completed successfully, 17/17 tests, 13 top-level workloads, 302.474510797s summed work, 302.620380580s whole file. Shard later cancelled at the 10-minute job limit; no complete shard summary. Round summed work upward to milliseconds (302.475s), then apply the repo 25% warmup margin and round upward to milliseconds: 378.094s. Effective diagnostic floor in scripts/browser-shards.js; PR timing is excluded from trusted rolling-main samples.",
-    "runId": "43727987124",
-    "attempt": 1,
-    "sha": "0e2e784f33f101295800e6fe8bad992b3f6e9353",
-    "workload": "811ef37378b8a715f15b9cdd7c06ea091a2111db732c97d56843b3cf9deb0a60"
-  }
+  "seconds": 301,
+  "provisional": true,
+  "evidence": "AIT-557 Round 3, 2026-11-18: remaining top-level work in trusted green merge-group Linux CI run 44318024909, head e2ce9bfb62f535a974bc1ea7370e0e1d31045568, browser shard 2/13: 483.337401097s pre-split minus 242.898533946s moved = 240.438867151s. Complete evidence-enabled mbp2606 run de133c7fc3-24460, head de133c7fc38ac59d1f2346abb40e787bc6f8aaf9: 51/51 pass, complete-file total 211.436550292s. Provisional reservation = ceil(1.25 * max(240.438867151, 211.436550292)) = 301s. Replaces the pre-split 378.094s reservation and obsolete workload-hash samples; moved work is covered separately by the 304s status reservation. Both provisional reservations will be replaced by measured rolling-main timings in a coordinator-filed follow-up, as in AIT-477. Remote diagnostics stay outside trusted rolling CI samples."
 }
