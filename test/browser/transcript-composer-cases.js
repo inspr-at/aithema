@@ -259,13 +259,13 @@ export async function transcriptComposerCases(t) {
   }
   // A wrapped host failure can overflow a flex-shrunk paragraph even when
   // that paragraph's minimum box fits. Its complete text and Retry are content.
-  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) {
-    await t.test(`wrapped reply-failure follow reveals Retry ${locale}/${theme}/390x844`, async () => {
-      await reset(390, 844, locale, theme, { turns: 1 });
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const [width, height] of [[390, 844], [1024, 600], [1440, 900]]) {
+    await t.test(`wrapped reply-failure follow reveals Retry ${locale}/${theme}/${width}x${height}`, async () => {
+      await reset(width, height, locale, theme, { turns: 1 });
       await shadow(page, async c => {
         const { [c.session.locale]: copy } = await import(`/packages/ui/src/i18n/${c.session.locale}.js`);
         const { inputRevision } = await import('/packages/core/src/session.js');
-        c.configure({ copy: { ...copy, replyFailed: Array(4).fill(copy.replyFailed).join(' ') }, session: c.session });
+        c.configure({ copy: { ...copy, replyFailed: Array(8).fill(copy.replyFailed).join(' ') }, session: c.session });
         const failure = { lane: 'reaction', inputRevision: inputRevision(c.session), reason: 'fixture', retryable: true };
         c.receive({ type: 'lane.failed', data: failure });
         c.receive({ type: 'lane.status', data: { inputRevision: failure.inputRevision, running: [],
@@ -288,7 +288,7 @@ export async function transcriptComposerCases(t) {
           minimum: parseFloat(getComputedStyle(r.querySelector('.reaction-failure')).minHeight) };
       });
       await shadow(page, c => { c.shadowRoot.querySelector('.transcript-shell').scrollTop = 0; });
-      const before = await sample(), stem = `ait511-wrapped-failure-${locale}-${theme}-390x844`;
+      const before = await sample(), stem = `ait511-wrapped-failure-${locale}-${theme}-${width}x${height}`;
       if (evidence) await page.screenshot({ path: join(evidence, `${stem}-before.png`), captureBeyondViewport: false });
       await shadow(page, c => c.shadowRoot.querySelector('.transcript-latest').click());
       await settleEvidenceFrame(page);
