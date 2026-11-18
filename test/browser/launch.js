@@ -109,6 +109,9 @@ export default {
       }, timeout);
       try {
         const browser = await launcher.launch({ ...launchOptions, timeout, executablePath,
+          // Headless Puppeteer hides scrollbars unless its default flag is removed.
+          ignoreDefaultArgs: classicScrollbars && options.ignoreDefaultArgs !== true
+            ? [...(options.ignoreDefaultArgs || []), '--hide-scrollbars'] : options.ignoreDefaultArgs,
           protocolTimeout: bounded(options.protocolTimeout, protocolTimeout),
           // Chrome has writable account paths beyond userDataDir. Do not pass
           // the real HOME or inherit a provider's environment by default.
