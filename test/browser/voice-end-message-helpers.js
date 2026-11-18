@@ -105,7 +105,7 @@ export async function checkVoiceEndMessages(t) {
         assert.ok(shown.close.y - shown.retry.y - shown.retry.height >= 0, 'close and Retry targets do not overlap');
         assert.equal(shown.closeLabel, locale === 'en' ? 'Close message' : 'Meldung schließen');
         assert.ok(Math.abs(shown.message.y - shown.retry.y - shown.retry.height - 8) <= .5, 'message under Retry');
-        const left = Math.max(16, shown.header.x), right = Math.min(width - 16, shown.header.x + shown.header.width, shown.header.x + shown.header.width);
+        const left = Math.max(16, shown.header.x), right = Math.min(width - 16, shown.header.x + shown.header.width);
         const anchoredLeft = Math.max(left, Math.min(shown.retry.x + shown.retry.width / 2 - shown.message.width / 2, right - shown.message.width));
         assert.ok(Math.abs(shown.message.x - anchoredLeft) <= .5, 'message centred on Retry or clamped inside the header');
       }
