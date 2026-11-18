@@ -699,6 +699,9 @@ field, mic, Send and both rows stationary through state changes. The default
 remains `entrance: 'choice'`, including
 its mode selection and Start button. Combined mode keeps the processing-preset
 chooser and omits the ready card's mode, microphone and speaker rows and Start.
+At 600 px and wider, the full composer notice states where processing happens,
+so the combined ready card leaves out its route line. Phones retain the card's
+processing line beside the abbreviated notice.
 The combined transcript reserves the sticky-header inset inside its scrolling
 pane, so focusing an inline email offer keeps its controls in place. Saved
 addresses stay on one line beside Resend, with visual ellipsis when needed;
@@ -720,7 +723,8 @@ so the ready card reads “Status: Consent needed” / “Status: Einwilligung n
 Call authorization remains distinct from processing consent: German
 `copy.voiceReasonsNarrow.{permission,sessionRevoked}` and
 `copy.reasons.{call-authorization-lost,session-revoked}` retain their existing
-“Freigabe” wording. Compact German voice labels retain the 22-character bound.
+“Freigabe” wording. Compact German call-end labels include “weiter per Text”
+and fit on one line at 320 px.
 Host copy still wins.
 Configured host openers use the shared render-only `host:opener` row before input;
 canonical persistence takes over that same row. The welcome stays above the

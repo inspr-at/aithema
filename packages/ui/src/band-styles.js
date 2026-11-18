@@ -56,6 +56,25 @@ export const bandStyles = `
   .audio-rail[data-call-reconciling] .voice-state { max-width:100%; } }
 .audio-rail[data-message] .voice-state { width:var(--voice-message-width,min(280px,calc(100vw - 32px))); top:var(--voice-message-top,calc(100% + 8px)); max-width:none;
   left:var(--voice-message-left,0px); right:auto; white-space:normal; overflow-wrap:normal; word-break:normal; hyphens:manual; }
+/* Two full lines and the 44px Close target fit below Retry with a 2px gap.
+   Keep the frame and both column budgets unchanged in every journey state. */
+@media(min-width:960px) and (min-height:701px) {
+  .band .audio-rail[data-message][data-retry-message] .voice-state {
+    padding:3px 44px 3px 8px; font-size:12px; line-height:1.25; min-height:44px;
+  }
+  .band .audio-rail[data-message][data-retry-message] :is(.voice-state, .voice-message-close) {
+    top:calc(var(--voice-message-top,calc(100% + 8px)) - 6px);
+  }
+}
+/* Compact desktop keeps the question/reply budget. Retry-related copy replaces
+   the idle waveform inside its existing rail space, above both columns. */
+@media(min-width:960px) and (max-height:700px) {
+  .band .audio-rail[data-message][data-retry-message] .voice-state {
+    top:0; left:0; width:100%; padding:3px 44px 3px 8px; font-size:12px; line-height:1.35;
+  }
+  .audio-rail[data-message][data-retry-message] .voice-message-close { top:0; left:calc(100% - 44px); }
+  .audio-rail[data-message][data-retry-message] .voice-wave { visibility:hidden; }
+}
 /* Reuse the consent variants without adding short copy to polite announcements. */
 .voice-state .consent-narrow { display:none; }
 .voice-countdown { display:inline-block; width:2ch; text-align:center; font-variant-numeric:tabular-nums; }
@@ -171,6 +190,10 @@ export const bandStyles = `
 .concept-bar { padding-left:max(0px,calc(54px - var(--aithema-gutter))); }
 .concept-preview-slot:has(.concept-preview:disabled) { display:none; }
 .concept-bar:has(.concept-preview:disabled) { grid-template-columns:minmax(0,1fr); }
+/* Leave the first bubble clear of the permanent 44px fold target at x=6. */
+@media(max-width:600px) {
+  .transcript-shell > ol > .turn:first-child { margin-inline-start:max(0px,calc(52px - var(--aithema-gutter) - .6rem)); }
+}
 /* AIT-246: status and preview get independent, permanently reserved rows on phones. */
 @media(width < 600px) {
   /* Keep the fold hit area above the rail without narrowing its two rows. */

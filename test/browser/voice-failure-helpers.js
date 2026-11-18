@@ -68,7 +68,7 @@ export async function checkVoiceFailures(t) {
         return { boxes: ['.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.voice-signal'].map(s => rect(root.querySelector(s))),
           inkFill, pause: { disabled: pause.disabled, background: css.backgroundColor, border: css.borderColor, color: getComputedStyle(pause.querySelector('svg')).color,
             cursor: css.cursor, glyph: pause.getAttribute('aria-pressed') },
-          callout: rect(status), anchor: rect(anchor), header: rect(root.querySelector('.band')), position: getComputedStyle(status).position,
+          callout: rect(status), anchor: rect(anchor), header: rect(root.querySelector('.band')), conversation: rect(root.querySelector('.conversation')), position: getComputedStyle(status).position,
           narrow: getComputedStyle(status.querySelector('.consent-narrow')).display,
           focus: root.activeElement?.className ?? null, accessibleName: status.getAttribute('aria-label'), text: status.textContent,
           providerLimit: rail.copy.voiceReasonsNarrow.providerLimit, label: rail.error ?? (rail.startupPhase === 'cooldown' ? rail.copy.voiceCooldown.replace('{s}', rail.countdown) : rail.copy.voiceStates[rail.root.dataset.state]),
@@ -107,10 +107,11 @@ export async function checkVoiceFailures(t) {
         expect(result.accessibleName === result.label && !result.calloutFocusable, { ...meta, assert: 'full accessible name and callout takes no focus', actual: result });
         if (width >= 600) {
           const desired = (result.anchor.left + result.anchor.right - result.callout.width) / 2;
-          const left = Math.max(16, result.header.left), right = Math.min(width - 16, result.header.right);
+          const left = Math.max(16, result.header.left), right = Math.min(width - 16, result.header.right, ['voiceConnectFailed', 'voiceConnectionFailed', 'voiceTimeLimit', 'voiceDeadline', 'voiceConflict', 'start429'].includes(state) ? Infinity : result.conversation.right);
           const clamped = Math.max(left, Math.min(desired, right - result.callout.width));
-          expect(Math.abs(result.callout.left - clamped) <= 4 && Math.abs(result.callout.top - result.anchor.bottom - 8) <= 1,
-            { ...meta, assert: 'anchor centre ±4 px (or clamped), top +8 ±1 px', actual: result.callout, anchor: result.anchor, expectedLeft: clamped });
+          const gap = width >= 960 && ['voiceConnectFailed', 'voiceConnectionFailed', 'voiceTimeLimit', 'voiceDeadline', 'voiceConflict', 'start429'].includes(state) ? 2 : 8;
+          expect(Math.abs(result.callout.left - clamped) <= 4 && Math.abs(result.callout.top - result.anchor.bottom - gap) <= 1,
+            { ...meta, assert: `anchor centre ±4 px (or clamped), top +${gap} ±1 px`, actual: result.callout, anchor: result.anchor, expectedLeft: clamped });
           expect(result.callout.left >= left && result.callout.right <= right, { ...meta, assert: 'callout inside viewport and header', actual: result.callout });
         } else expect(result.narrow !== 'none' && result.callout.width > result.anchor.width && result.callout.top === result.boxes[4].top + 44,
           { ...meta, assert: 'phone narrow status below controls, no floating callout', actual: result });
@@ -150,7 +151,7 @@ export async function checkVoiceFailures(t) {
         rail.errorKey = 'voicePlaybackBlocked'; rail.playbackBlocked = true;
         rail.root.style.transform = `translateX(${offset}px)`; rail.render(); return window.ait361Read();
       }, offset);
-      const left = Math.max(16, result.header.left), right = Math.min(width - 16, result.header.right);
+      const left = Math.max(16, result.header.left), right = Math.min(width - 16, result.header.right, result.conversation.right);
       expect(result.callout.left >= left && result.callout.right <= right && Math.abs(result.callout.top - result.anchor.bottom - 8) <= 1,
         { provider, width, theme, locale, state: 'clamped', offset, assert: 'explicit left/right clamp stays inside viewport and header', actual: result.callout });
       await page.evaluate(() => { window.ait361Rail.root.style.transform = ''; window.ait361Rail.session = null; window.ait361Rail.render(); });

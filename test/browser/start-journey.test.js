@@ -428,3 +428,7 @@ import './rc25-look-check.js';
 
 test('AIT-542: host cancellation settles within one frame with pinned controls and a retained draft',
   { timeout: 180_000 }, consentCancelCheck);
+
+import "./rc26-look-check.js";
+
+import "./rc26-look-r2-check.js";

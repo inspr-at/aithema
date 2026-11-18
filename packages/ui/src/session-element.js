@@ -579,7 +579,7 @@ export class AithemaSession extends HTMLElement {
     reconcile(root.querySelector('.questions'), questions.length ? textKeys(questions) : [[NONE, null]], value => {
       const row = node('li', value === null ? 'none-yet' : 'open-question');
       if (value !== null) {
-        row.innerHTML = '<span class="question-text"></span><span class="question-state"><span class="question-status"></span><span class="question-separator" aria-hidden="true"><span>·</span></span><button class="clarify-action" type="button"><span class="clarify-content"><span class="clarify-icon"></span><span class="clarify-label"></span></span></button></span>';
+        row.innerHTML = '<span class="question-text"></span><span class="question-state"><span class="question-status-reserve" aria-hidden="true" inert></span><span class="question-action-reserve" aria-hidden="true" inert></span><span class="question-status"></span><span class="question-separator" aria-hidden="true"><span>·</span></span><button class="clarify-action" type="button"><span class="clarify-content"><span class="clarify-icon"></span><span class="clarify-label"></span></span></button></span>';
         row.querySelector('button').addEventListener('click', e => {
           const button = e.currentTarget;
           if (button.getAttribute('aria-disabled') === 'true') return;
@@ -599,6 +599,21 @@ export class AithemaSession extends HTMLElement {
       row.dataset.questionId = item?.id ?? '';
       row.id = `open-${item?.id ?? questions.indexOf(question)}`;
       const text = row.querySelector('.question-text'); text.id = `${row.id}-text`; setText(text, question);
+      // All states reserve the same wrapped copy and action width before input.
+      // Pseudo text keeps these measuring strings out of live textContent too.
+      const reserve = row.querySelector('.question-status-reserve');
+      const candidates = [primaryFailed, acceptedFailed, copy.paused, copy.consent];
+      const measureKey = JSON.stringify(candidates);
+      if (reserve.dataset.measureKey !== measureKey) {
+        reserve.dataset.measureKey = measureKey;
+        reserve.innerHTML = WARNING_ICON;
+        const texts = node('span');
+        for (const words of candidates.filter(Boolean)) {
+          const text = node('span'); text.dataset.copy = words; texts.append(text);
+        }
+        reserve.append(texts);
+      }
+      row.querySelector('.question-action-reserve').dataset.copy = [copy.retry, copy.asking, copy.review, this.#copy.resume].filter(Boolean).join('\n');
       const own = focus?.question === question;
       const state = own ? focus.state : terminal ? 'none' : this.#clarifyAsked.has(question) ? 'asked' : this.#clarifyBusy() ? 'disabled' : item ? 'rest' : 'none';
       row.dataset.state = state;
@@ -3181,7 +3196,9 @@ export class AithemaSession extends HTMLElement {
       button.addEventListener('click', () => { if (action === 'change') this.openSettings(button); else this.#requestConsent('ready'); });
       return button;
     }, (button, action) => setText(button, action === 'change' ? r.change : copy.settings.reviewConsent));
-    setText(section.querySelector('.ready__route'), copy.chooser.summary[this.#session.processingPreset ?? 'best'] ?? '');
+    // Keep processing readable on phones; the full combined notice owns it on wider screens.
+    const route = section.querySelector('.ready__route');
+    setText(route, copy.chooser.summary[this.#session.processingPreset ?? 'best'] ?? '');
     const offered = this.#voiceChoice();
     for (const choice of section.querySelectorAll('.ready__mode')) {
       choice.setAttribute('aria-pressed', String(choice.dataset.mode === mode));

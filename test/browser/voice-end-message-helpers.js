@@ -1,3 +1,4 @@
+import { reasonSeparator } from '../../packages/ui/src/reason-separator.js';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -63,7 +64,7 @@ export async function checkVoiceEndMessages(t) {
         const visible = n => n && !n.hidden && getComputedStyle(n).display !== 'none' && getComputedStyle(n).visibility !== 'hidden';
         return { controls: Object.fromEntries(['.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.voice-signal'].map(s => [s, rect(root.querySelector(s))])),
           close: visible(close) ? rect(close) : null, closeLabel: close?.getAttribute('aria-label'), outsideLive: close?.parentElement === status.parentElement && !status.contains(close),
-          header: rect(root.querySelector('.band')), composer: rect(root.querySelector('textarea')), message: rect(status), retry: rect(rail.button('retry')), narrow: status.querySelector('.consent-narrow')?.dataset.copy,
+          header: rect(root.querySelector('.band')), composer: rect(root.querySelector('textarea')), conversation: rect(root.querySelector('.conversation')), message: rect(status), retry: rect(rail.button('retry')), narrow: status.querySelector('.consent-narrow')?.dataset.copy,
           narrowVisible: visible(status.querySelector('.consent-narrow')), label: status.getAttribute('aria-label'), errorKey: rail.errorKey,
           color: getComputedStyle(status).color, neutralColor,
           messagePresent: rail.root.hasAttribute('data-message') };
@@ -99,15 +100,15 @@ export async function checkVoiceEndMessages(t) {
       const shown = await page.evaluate(() => window.readEnds()); unchanged(before.controls, shown.controls); box(shown.message); box(shown.retry);
       assert.equal(shown.label, locale === 'en' ? 'The call reached its maximum length. Start a new call or continue typing.' : 'Der Anruf hat seine maximale Dauer erreicht. Starten Sie einen neuen Anruf oder schreiben Sie weiter.');
       assert.equal(shown.outsideLive, true); assert.equal(shown.color, shown.neutralColor, 'time-limit uses neutral ink');
-      if (width < 600) { assert.equal(shown.close, null); assert.equal(shown.narrowVisible, true); assert.equal(shown.narrow, locale === 'en' ? 'Time limit reached' : 'Zeitlimit erreicht'); }
+      if (width < 600) { assert.equal(shown.close, null); assert.equal(shown.narrowVisible, true); assert.equal(shown.narrow, locale === 'en' ? `Call time up${reasonSeparator}continue by text` : `Anrufzeit abgelaufen${reasonSeparator}weiter per Text`); }
       else {
         box(shown.close); assert.ok(shown.close.width >= 44 && shown.close.height >= 44);
         assert.ok(shown.close.y - shown.retry.y - shown.retry.height >= 0, 'close and Retry targets do not overlap');
         assert.equal(shown.closeLabel, locale === 'en' ? 'Close message' : 'Meldung schließen');
-        assert.ok(Math.abs(shown.message.y - shown.retry.y - shown.retry.height - 8) <= .5, 'message under Retry');
+        assert.ok(Math.abs(shown.message.y - shown.retry.y - shown.retry.height - 2) <= .5, 'message under Retry with room for the full Close target');
         const left = Math.max(16, shown.header.x), right = Math.min(width - 16, shown.header.x + shown.header.width);
         const anchoredLeft = Math.max(left, Math.min(shown.retry.x + shown.retry.width / 2 - shown.message.width / 2, right - shown.message.width));
-        assert.ok(Math.abs(shown.message.x - anchoredLeft) <= .5, 'message centred on Retry or clamped inside header');
+        assert.ok(Math.abs(shown.message.x - anchoredLeft) <= .5, 'message centred on Retry or clamped inside the header');
       }
       await page.evaluate(() => { window.endRail.errorKey = 'voiceConnectFailed'; window.endRail.render(); });
       const connection = await page.evaluate(() => window.readEnds()); unchanged(before.controls, connection.controls);
