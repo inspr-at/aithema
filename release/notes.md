@@ -279,9 +279,12 @@ entsprechender Host-Aktivierung.
   Named documents retain byte-sniffed document admission despite false image
   MIME hints; actual image bytes always select image staging.
 
-- Extensionless files labelled with an image MIME type and excluded HEIC/AVIF
-  containers stay in the staged, non-input refusal path; they never fall through
-  to document extraction or schedule model work. HEIC remains unsupported.
+- On image-capable hosts, extensionless files labelled with an image MIME type
+  and excluded HEIC/AVIF containers stay in the staged, non-input refusal path;
+  they never fall through to document extraction or schedule model work. On
+  document-only hosts, server-classified images instead refuse the whole upload
+  POST before staging, including eligible documents in that POST; planned
+  (AIT-559). HEIC remains unsupported.
 
 - Staged image states are excluded from the append-only voice callback fence;
   attaching, preparing, refusing or discarding an image cannot reject that reply.
@@ -290,8 +293,11 @@ entsprechender Host-Aktivierung.
   to a text-only model or preset replaces earlier image references with text
   markers before estimation, reservation and dispatch, preserving text replies
   and understanding. Device mode refuses unsent staged images without dropping
-  their files or caption. Mixed selections continue eligible document uploads when
-  the current binding cannot take images. These composers use the existing
+  their files or caption. Mixed selections continue eligible document uploads,
+  except when an extensionless image or a file typed `image/*` is classified as
+  an image by the server: on document-only hosts this refuses the whole upload
+  POST, including eligible documents in that POST; planned (AIT-559).
+  These composers use the existing
   document type refusal for every non-document file, including PNG, JPEG and
   HEIC, with no image-format help or image-retention wording. Existing document
   upload-consent wording remains. Image-capable composers retain distinct
@@ -629,6 +635,9 @@ and duplicate-push policy remain. The release PR's browser CI must be fully gree
 
 ## Known limitations
 
+- On document-only hosts, an extensionless image or a file typed `image/*` that
+  the server classifies as an image refuses the whole upload POST, including
+  eligible documents in that POST; planned (AIT-559).
 - On hosts without a visitor email store, low-credit/turn-5 email asks still
   offer a save that cannot succeed; planned (AIT-549). The in-chat offer fix
   does not cover these older asks.
