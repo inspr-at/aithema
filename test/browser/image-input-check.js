@@ -471,6 +471,60 @@ export function imageInputCheck(widths) {
           for (const edge of ['x', 'y', 'w', 'h', 'bottom']) assert.equal(r[edge], before[selector][edge], `${selector}.${edge}: document-only refusal has zero frame shift`);
         }
       });
+      for (const path of ['mixed', 'sequential', 'binding-switch']) await t.test(`AIT-510 r18: ${path} keeps latched layout without advertising unavailable image formats`, async () => {
+        await inShadow(page, async (c, path) => {
+          window.imageUnavailableReason = path === 'binding-switch' ? null : 'image input not supported';
+          window.imageGranted = true;
+          const session = c.session;
+          session.featureMatrix.best.imageInput = { available: path === 'binding-switch', reason: window.imageUnavailableReason };
+          const { [session.locale]: copy } = await import(`/packages/ui/src/i18n/${session.locale}.js`);
+          c.configure({ entrance: window.imageEntrance, session, copy, sessionToken: 'fixture', voiceClient: {},
+            ...(window.imageEntrance === 'combined' ? { host: { credits: true, verification: { delivery: true, privacyDocumentConfigured: true } } } : {}) });
+        }, path);
+        await startTyping(page);
+        if (path === 'binding-switch') {
+          await inShadow(page, c => {
+            window.imageUnavailableReason = 'image input not supported';
+            c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'settings.changed',
+              data: { processingPreset: 'best', settings: { ...c.session.settings, model: 'text-only', revision: (c.session.settings.revision ?? 0) + 1 } } });
+          });
+          await page.waitForFunction(() => document.querySelector('aithema-session').session.featureMatrix.best.imageInput.reason === 'image input not supported');
+        } else {
+          await inShadow(page, (c, path) => {
+            const transfer = new DataTransfer();
+            transfer.items.add(new File([window.imageFixturePNG], 'photo.png', { type: 'image/png' }));
+            if (path === 'mixed') transfer.items.add(new File(['fixture'], 'x.exe'));
+            c.shadowRoot.querySelector('.conversation').dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: transfer }));
+          }, path);
+          await waitForShadow(page, '.image-refusals');
+          // Let mixed document planning settle before dismissing the image feedback.
+          await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer').hasAttribute('aria-busy'));
+          await inShadow(page, c => c.shadowRoot.querySelector('.image-refusals button').click());
+        }
+        assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.composer').hasAttribute('data-image-input')), true, 'reserved layout remains latched');
+        const before = await boxes();
+        // Repeat the document pick for mixed input too: compare positive frame boxes
+        // within the already reserved image layout, before and after planning.
+        await inShadow(page, c => {
+          const transfer = new DataTransfer(); transfer.items.add(new File(['fixture'], 'x.exe'));
+          c.shadowRoot.querySelector('.conversation').dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: transfer }));
+        });
+        await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason').textContent.includes('x.exe'));
+        const notice = await inShadow(page, c => {
+          const el = c.shadowRoot.querySelector('.composer-reason'), r = el.getBoundingClientRect();
+          return { text: el.textContent, width: r.width, height: r.height, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight };
+        });
+        const after = await boxes();
+        await shot(`latched-${path}-document-notice`);
+        if (evidence) await writeFile(join(evidence, `${prefix}-latched-${path}-document-notice.json`), JSON.stringify({ before, after, notice }, null, 2));
+        assert.equal(notice.text, locale === 'en' ? 'Not attached: x.exe (file type not accepted).' : 'Nicht angehängt: x.exe (Dateityp wird nicht angenommen).');
+        assert.equal(notice.text.includes('PNG'), false, 'no unavailable image formats');
+        assert.ok(notice.width > 0 && notice.height > 0 && notice.scrollHeight <= notice.clientHeight, 'complete positive refusal box');
+        for (const [selector, r] of Object.entries(after)) {
+          assert.ok(before[selector].w > 0 && before[selector].h > 0 && r.w > 0 && r.h > 0, `${selector}: positive latched-layout boxes`);
+          for (const edge of ['x', 'y', 'w', 'h', 'bottom']) assert.equal(r[edge], before[selector][edge], `${selector}.${edge}: latched refusal has zero frame shift`);
+        }
+      });
       await t.test('AIT-510 r15: long host-overridden image consent keeps its scrolling cap', async () => {
         await inShadow(page, async c => {
           window.imageGranted = false; window.imageFixtureConsent = true; window.imageUnavailableReason = null;

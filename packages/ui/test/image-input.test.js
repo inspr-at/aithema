@@ -95,6 +95,40 @@ for (const copy of [en, de]) for (const documentRefusal of [false, true]) {
   });
 }
 
+for (const copy of [en, de]) for (const entrance of ['choice', 'combined']) for (const path of ['mixed', 'sequential', 'binding-switch']) {
+  test(`AIT-510 M1-double-prime: ${copy.display.locale} ${entrance} ${path} never advertises unavailable image formats`, async t => {
+    const f = fixture(t, copy, path === 'binding-switch', { entrance, imageReason: 'image input not supported' });
+    if (path === 'binding-switch') {
+      const fetch = globalThis.fetch;
+      t.mock.method(globalThis, 'fetch', async (...args) => {
+        const response = await fetch(...args);
+        if (String(args[0]).endsWith(`/api/sessions/${f.c.session.id}`)) {
+          const snapshot = await response.json();
+          snapshot.featureMatrix.best.imageInput = { available: false, reason: 'image input not supported' };
+          return Response.json(snapshot);
+        }
+        return response;
+      });
+      f.c.receive({ sessionId: f.c.session.id, seq: f.c.session.seq + 1, type: 'settings.changed',
+        data: { processingPreset: 'best', settings: { ...f.c.session.settings, model: 'text-only', revision: 1 } } });
+      await tick(); await tick();
+      assert.equal(f.c.session.featureMatrix.best.imageInput.reason, 'image input not supported');
+    } else {
+      await choose(f.root, [new window.File(['pixels'], 'photo.png', { type: 'image/png' }),
+        ...(path === 'mixed' ? [new window.File(['fixture'], 'x.exe')] : [])]);
+      assert.ok(f.root.querySelector('.image-refusals'));
+      f.root.querySelector('.image-refusals button').click();
+    }
+    assert.equal(f.root.querySelector('.composer').hasAttribute('data-image-input'), true, 'reserved layout remains latched');
+    if (path !== 'mixed') await choose(f.root, [new window.File(['fixture'], 'x.exe')]);
+    const text = f.root.querySelector('.composer-reason').textContent;
+    assert.equal(text, copy === en ? 'Not attached: x.exe (file type not accepted).' : 'Nicht angehängt: x.exe (Dateityp wird nicht angenommen).');
+    assert.equal(text.includes('PNG'), false);
+    assert.equal(f.calls.some(call => call.options.method === 'POST' && call.url.endsWith('/uploads')), false);
+    assert.deepEqual(f.asks, []);
+  });
+}
+
 test('AIT-510: staging and decoding do not clear a reply in flight; pending images cannot send', async t => {
   const { inputRevision } = await import('@inspr/aithema-core');
   const f = fixture(t);
