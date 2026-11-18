@@ -279,12 +279,15 @@ entsprechender Host-Aktivierung.
   Named documents retain byte-sniffed document admission despite false image
   MIME hints; actual image bytes always select image staging.
 
-- On image-capable hosts, extensionless files labelled with an image MIME type
-  and excluded HEIC/AVIF containers stay in the staged, non-input refusal path;
-  they never fall through to document extraction or schedule model work. On
-  document-only hosts, server-classified images instead refuse the whole upload
-  POST before staging, including eligible documents in that POST; planned
-  (AIT-559). HEIC remains unsupported.
+- When image input is available for the session, unsupported server-classified
+  images, including excluded HEIC/AVIF containers, stay in the staged, non-input
+  refusal path; they never fall through to document extraction or schedule model
+  work. When it is unavailable (including document-only hosts, a text-only binding,
+  pending image consent, or an unavailable normalizer), server-classified images
+  refuse the whole upload POST before staging: eligible documents in that POST
+  are not attached, and later batches of the same selection are not sent; planned
+  (AIT-559). If image consent is pending and the client recognises no images in
+  the selection, the visitor is not offered image consent. HEIC remains unsupported.
 
 - Staged image states are excluded from the append-only voice callback fence;
   attaching, preparing, refusing or discarding an image cannot reject that reply.
@@ -294,10 +297,14 @@ entsprechender Host-Aktivierung.
   markers before estimation, reservation and dispatch, preserving text replies
   and understanding. Device mode refuses unsent staged images without dropping
   their files or caption. Mixed selections continue eligible document uploads,
-  except when an extensionless image or a file typed `image/*` is classified as
-  an image by the server: on document-only hosts this refuses the whole upload
-  POST, including eligible documents in that POST; planned (AIT-559).
-  These composers use the existing
+  except when image input is unavailable for the session (including document-only
+  hosts, a text-only binding, pending image consent, or an unavailable normalizer)
+  and a POST contains server-classified images. This refuses the whole upload POST
+  before staging: eligible documents in that POST are not attached, and later
+  batches of the same selection are not sent; planned (AIT-559). If image consent
+  is pending and the client recognises no images in the selection, the visitor is
+  not offered image consent. Composers whose current binding cannot take images
+  keep RC25's document-only selection rules. These composers use the existing
   document type refusal for every non-document file, including PNG, JPEG and
   HEIC, with no image-format help or image-retention wording. Existing document
   upload-consent wording remains. Image-capable composers retain distinct
@@ -635,9 +642,12 @@ and duplicate-push policy remain. The release PR's browser CI must be fully gree
 
 ## Known limitations
 
-- On document-only hosts, an extensionless image or a file typed `image/*` that
-  the server classifies as an image refuses the whole upload POST, including
-  eligible documents in that POST; planned (AIT-559).
+- When image input is unavailable for the session (including document-only hosts,
+  a text-only binding, pending image consent, or an unavailable normalizer),
+  server-classified images refuse the whole upload POST before staging: eligible
+  documents in that POST are not attached, and later batches of the same selection
+  are not sent; planned (AIT-559). If image consent is pending and the client
+  recognises no images in the selection, the visitor is not offered image consent.
 - On hosts without a visitor email store, low-credit/turn-5 email asks still
   offer a save that cannot succeed; planned (AIT-549). The in-chat offer fix
   does not cover these older asks.
