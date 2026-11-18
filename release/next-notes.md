@@ -216,8 +216,9 @@
   share the measured image feedback reserve and wrap without the two-line cap
   or a trailing separator. The format sentence ends with a full stop in EN/DE.
   Composers without image input keep the existing document refusal, without
-  image-format help. Combined composers with document intake reserve the existing
-  two-line feedback capacity before intake and retain it through pause/consent
+  image-format help, including after an image refusal or a switch to a binding
+  without image input while the reserved layout remains mounted. Combined
+  composers with document intake reserve the existing two-line feedback capacity before intake and retain it through pause/consent
   changes. This keeps wrapped document-only refusals stable while composers
   without uploads retain their natural feedback height.
   Only upload notices lift the reason cap; long host image-

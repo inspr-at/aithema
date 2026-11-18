@@ -4266,7 +4266,9 @@ Attach control describes selection even before consent, and asks only after a
 file is chosen. Image-capable composers append the supported-format help sentence
 with its final full stop and without a trailing separator, reserve that full
 localized notice, and show it without the two-line cap. Composers without image
-input keep the existing document refusal without image-format help. Combined
+input keep the existing document refusal without image-format help. This also
+holds after an image refusal or a switch to a binding without image input,
+even when the reserved image layout remains mounted. Combined
 composers with document intake reserve the existing two-line feedback capacity
 before intake, so a wrapped document-only refusal keeps the controls fixed.
 That session reserve survives pause and consent changes; combined composers
