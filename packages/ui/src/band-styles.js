@@ -58,8 +58,17 @@ export const bandStyles = `
   left:var(--voice-message-left,0px); right:auto; white-space:normal; overflow-wrap:normal; word-break:normal; hyphens:manual; }
 /* A permanent reading gap below desktop call controls leaves room for a
    call-end message without covering either column or moving their content. */
-@media(min-width:960px) {
-  .workspace:has(> .band > .audio-rail) { row-gap:60px; }
+@media(min-width:960px) and (min-height:701px) {
+  .workspace[data-stage="live"]:has(> .band > .audio-rail) { row-gap:60px; }
+}
+/* Compact desktop keeps the question/reply budget. Ended-call copy replaces
+   the idle waveform inside its existing rail space, above both columns. */
+@media(min-width:960px) and (max-height:700px) {
+  .band .audio-rail[data-message][data-call-ended] .voice-state {
+    top:0; left:0; width:100%; padding:3px 44px 3px 8px; font-size:12px; line-height:1.35;
+  }
+  .audio-rail[data-message][data-call-ended] .voice-message-close { top:0; left:calc(100% - 44px); }
+  .audio-rail[data-message][data-call-ended] .voice-wave { visibility:hidden; }
 }
 /* Reuse the consent variants without adding short copy to polite announcements. */
 .voice-state .consent-narrow { display:none; }

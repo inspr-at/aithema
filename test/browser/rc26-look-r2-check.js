@@ -58,10 +58,11 @@ for (const item of [10, 12, 'email'])
     if (evidence) await mkdir(join(evidence, 'look', 'r2'), { recursive: true });
     for (const [locale, theme] of [['en', 'light'], ['de', 'dark']])
       for (const width of item === 12 ? [320, 390, 1024, 1280, 1440] : [390, 1440])
-        await t.test(`${locale}/${theme}/${width}`, async () => {
-          const page = await browser.newPage(), label = `item-${item}-${locale}-${theme}-${width}-combined`;
+      for (const height of item === 12 && width >= 960 ? [640, 1000] : [1000])
+        await t.test(`${locale}/${theme}/${width}x${height}`, async () => {
+          const page = await browser.newPage(), label = `item-${item}-${locale}-${theme}-${width}-combined${height === 1000 ? '' : '-compact'}`;
           try {
-            await page.setViewport({ width, height: 1000 });
+            await page.setViewport({ width, height });
             await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
             await page.setRequestInterception(true);
             page.on('request', r => { void (new URL(r.url()).pathname === '/look-r2' ? r.respond({ status: 200, contentType: 'text/html', body: html }) : r.continue()); });
@@ -112,6 +113,7 @@ for (const item of [10, 12, 'email'])
                   const rect = n => { const b = n.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
                   return { popup: rect(n), heading: rect(root.querySelector('.understanding .head')),
                     bubbles: [...root.querySelectorAll('.transcript-shell .turn')].map(rect), anchor: rect(root.querySelector('.voice-retry')),
+                    band: rect(root.querySelector('.band')), scrollHeight: n.scrollHeight, clientHeight: n.clientHeight,
                     text: short.dataset.copy, short: rect(short), scroll: short.scrollWidth, client: short.clientWidth,
                     ellipsis: getComputedStyle(short).textOverflow };
                 });
@@ -135,7 +137,9 @@ for (const item of [10, 12, 'email'])
                   positive([g.heading, ...g.bubbles, g.anchor]);
                   assert.equal(intersects(g.popup, g.heading), false, 'popup clears overview heading');
                   for (const bubble of g.bubbles) assert.equal(intersects(g.popup, bubble), false, 'popup clears every transcript bubble');
-                  assert.ok(g.popup[0] <= g.anchor[0] + g.anchor[2] / 2 && g.popup[0] + g.popup[2] >= g.anchor[0] + g.anchor[2] / 2, 'popup stays under its call control');
+                  assert.ok(g.scrollHeight <= g.clientHeight, 'full desktop message is readable');
+                  if (height > 700) assert.ok(g.popup[0] <= g.anchor[0] + g.anchor[2] / 2 && g.popup[0] + g.popup[2] >= g.anchor[0] + g.anchor[2] / 2, 'popup stays under its call control');
+                  else assert.ok(g.popup[1] + g.popup[3] <= g.band[1] + g.band[3], 'compact message fits inside existing rail height');
                 }
               }
             } else {
