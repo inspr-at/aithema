@@ -1485,11 +1485,13 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     await page.mouse.move(0, 0); await shot(page, 'de-light-1440-accepted');
 
     // A refused type is named in plain words before anything is sent.
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.composer').hasAttribute('data-image-input')), false,
+      'the demo generates images but has no image-input normalizer');
     const posts = () => uploadRequests.filter(([method, , upload]) => method === 'POST' && upload).length, requestsBefore = posts();
     await inShadow(page, c => c.shadowRoot.querySelector('.attach').focus());
     const refusal = await uploadChooser(page);
     await refusal.accept([paths.refused]);
-    await waitForShadow(page, '.composer-reason', { text: `Nicht angehängt: skript.sh (Dateityp wird nicht angenommen). ${de.uploadsSupported}` });
+    await waitForShadow(page, '.composer-reason', { text: 'Nicht angehängt: skript.sh (Dateityp wird nicht angenommen).' });
     assert.equal(posts(), requestsBefore, 'nothing sent for a refused file');
     await shot(page, 'de-light-1440-refused');
 
