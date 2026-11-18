@@ -240,10 +240,13 @@ test('AIT-511: current measured workloads fit thirteen bins without changing eit
 
 test('AIT-511: thirteen bins retain 405s headroom with AIT-506 and AIT-524 measured growth', t => {
   const files = discoverBrowserTests();
+  // AIT-524's measured reservation at 48956966; never lower an existing weight.
+  // AIT-557 preserves that reservation across the split and covers the moved CI work.
+  assert.ok(browserTestWeights['test/browser/clarify-now.test.js']
+    + browserTestWeights['test/browser/clarify-now-status.test.js'] >= 378.094);
+  assert.ok(browserTestWeights['test/browser/clarify-now-status.test.js'] >= 242.898533946 * 1.25);
   const weights = { ...browserTestWeights,
     'test/browser/start-journey.test.js': browserTestWeights['test/browser/start-journey.test.js'] + 180,
-    // AIT-524's measured reservation at 48956966; never lower an existing weight.
-    'test/browser/clarify-now.test.js': Math.max(browserTestWeights['test/browser/clarify-now.test.js'], 378.094),
   };
   const packing = packBrowserTests(files, weights, browserShardCount);
   retainPlan('growth', packing);
