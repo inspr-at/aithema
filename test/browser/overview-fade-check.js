@@ -92,10 +92,10 @@ export async function overviewStatusLayoutBudgetCheck(t, classicScrollbars = fal
     Object.assign(window.statusLayoutBudget, { connected: true, copy, locale: 'de' });
   });
   if (classicScrollbars) await shadow(page, c => {
-    // macOS renders scrollbar-width:thin as overlay even with the launcher's
-    // classic WebKit widths. Exercise an actual pane gutter in this stress case.
+    // Native scrollbar width/color styles override WebKit widths on macOS.
+    // Exercise an actual pane gutter in this stress case.
     const style = document.createElement('style');
-    style.textContent = '.analysis-content { scrollbar-width:auto; overflow-y:scroll; }';
+    style.textContent = '.analysis-content { scrollbar-width:auto; scrollbar-color:auto; overflow-y:scroll; }';
     c.shadowRoot.append(style);
   });
   await settle(page);
@@ -135,11 +135,12 @@ export async function overviewStatusLayoutBudgetCheck(t, classicScrollbars = fal
       }
       await new Promise(resolve => requestAnimationFrame(resolve));
       samples.push(boxes()); size.disconnect();
-      return { samples, measurements, gutters: [innerWidth - document.documentElement.clientWidth,
+      return { samples, measurements, paneScrollbar: { width: getComputedStyle(r.querySelector('.analysis-content')).scrollbarWidth,
+        color: getComputedStyle(r.querySelector('.analysis-content')).scrollbarColor, overflow: getComputedStyle(r.querySelector('.analysis-content')).overflowY }, gutters: [innerWidth - document.documentElement.clientWidth,
         r.querySelector('.analysis-content').offsetWidth - r.querySelector('.analysis-content').clientWidth] };
     });
     assert.equal(frames.measurements, 8, 'full measurement notifications coalesce to one per frame');
-    t.diagnostic(`AIT-547 scrollbar gutters classic=${classicScrollbars}: ${JSON.stringify(frames.gutters)}`);
+    t.diagnostic(`AIT-547 scrollbar gutters classic=${classicScrollbars}: ${JSON.stringify(frames.gutters)}, pane=${JSON.stringify(frames.paneScrollbar)}`);
     if (classicScrollbars) assert.ok(frames.gutters.every(width => width > 0), 'classic test has real document and pane scrollbar gutters');
     for (const [i, sample] of frames.samples.entries()) for (const [selector, box] of Object.entries(sample)) {
       positive(box, `frame ${i}/${selector}`);
