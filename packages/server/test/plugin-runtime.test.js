@@ -52,13 +52,13 @@ for (const reason of [null, 'budget denied', 'current processing consent require
 });
 for (const reason of [null, 'image input not supported', 'image normalizer unavailable']) test(`AIT-556: paused matrix retains unpaused image input verdict (${reason ?? 'available'})`, async t => {
   const h = setup(t), normalizer = createImageInput();
+  if (reason === 'image normalizer unavailable') t.mock.method(normalizer, 'health', async () => ({ available: false }));
   h.registry.register(normalizer);
   for (const config of Object.values(h.presets)) {
     config.plugins.push('image-input');
     config.imageInput = { plugin: 'image-input' };
   }
   if (reason !== 'image input not supported') h.b.imageInput = { maxImages: 4, maxTokensPerImage: 1600 };
-  if (reason === 'image normalizer unavailable') t.mock.method(normalizer, 'health', async () => ({ available: false }));
   const before = (await h.runtime.matrix(h.session)).best.imageInput;
   assert.deepEqual(before, { available: reason === null, reason });
   const session = { ...h.session, paused: true };
