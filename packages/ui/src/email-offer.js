@@ -100,7 +100,7 @@ export class EmailOffer {
       ? fill(this.copy.hostSurface.usedUp[next === 'emailGiven' ? 'hostGive' : 'hostConfirm'], { delta: formatCredits(delta, this.session().locale ?? 'en') }) : v.lockLead);
     const input = row.querySelector('input'), saved = Boolean(email.address);
     input.hidden = saved; input.disabled = confirmed; input.setAttribute('aria-disabled', String(Boolean(this.saving || confirmed))); input.placeholder = v.placeholder;
-    if (this.invalid || this.refused) input.setAttribute('aria-invalid', 'true'); else input.removeAttribute('aria-invalid');
+    if (this.invalid || this.refused) input.setAttribute('aria-invalid', String(Boolean(this.invalid))); else input.removeAttribute('aria-invalid');
     const address = row.querySelector('.email-offer__address'); address.hidden = !saved; setText(address, email.address);
     setText(row.querySelector('label'), v.label);
     const button = row.querySelector('.email-offer__send');
