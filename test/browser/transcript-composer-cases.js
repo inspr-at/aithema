@@ -14,6 +14,7 @@ const frame = ['.band', '.understanding', '.understanding > .foot', '.display-fo
 const geometry = async page => { const state = await shadow(page, c => {
   const r = c.shadowRoot, box = selector => r.querySelector(selector).getBoundingClientRect().toJSON();
   const input = r.querySelector('textarea'), shell = r.querySelector('.transcript-shell');
+  const notices = r.querySelector('.voice-notices');
   const list = shell.querySelector('ol'), latest = shell.querySelector('.transcript-latest');
   const shellCSS = getComputedStyle(shell), latestCSS = getComputedStyle(latest);
   const paddingTop = parseFloat(shellCSS.paddingTop), paddingBottom = parseFloat(shellCSS.paddingBottom);
@@ -45,8 +46,8 @@ const geometry = async page => { const state = await shadow(page, c => {
   growth: parseFloat(getComputedStyle(r.querySelector('.workspace')).getPropertyValue('--aithema-composer-growth')),
   noticeParent: r.querySelector('.voice-notices')?.parentElement.className ?? '',
   noticeHeight,
-  noticeReservation: { height: r.querySelector('.voice-notices').getBoundingClientRect().height,
-    minHeight: r.querySelector('.voice-notices').style.minHeight },
+  noticeReservation: notices && { height: notices.getBoundingClientRect().height,
+    minHeight: notices.style.minHeight },
   noCardClearance: { paddingBottom, latestSlot, latestSlotUsed,
     latestSlotTop: latest.getBoundingClientRect().top - (parseFloat(latestCSS.marginTop) || 0),
     contentOverflows,
