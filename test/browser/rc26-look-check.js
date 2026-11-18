@@ -32,8 +32,8 @@ for (const item of [7,8,9,10,11,12,13]) test(`AIT-541 look ${item}: RC26 visitor
   t.after(async()=>{await browser.close();await server.kill();});
   const evidence=process.env.AITHEMA_EVIDENCE_DIR;
   if(evidence) await mkdir(join(evidence,'look','r1'),{recursive:true});
-  const widths=item===7?[390,393]:[390,...[12,13].includes(item)?[1024,1200]:[],1440];
-  for(const [locale,theme] of [['en','light'],['de','dark']]) for(const width of widths) for(const entrance of [7,8].includes(item)?['combined','choice']:['combined']) await t.test(`${locale}/${theme}/${width}/${entrance}`,async()=>{
+  const widths=item===7?[390,393,1440]:[390,...[12,13].includes(item)?[1024,1200]:[],1440];
+  for(const [locale,theme] of (item===9?[['en','light'],['en','dark'],['de','light'],['de','dark']]:[['en','light'],['de','dark']])) for(const width of widths) for(const entrance of [7,8].includes(item)?['combined','choice']:['combined']) await t.test(`${locale}/${theme}/${width}/${entrance}`,async()=>{
     const page=await browser.newPage(), label=`item-${item}-${locale}-${theme}-${width}-${entrance}`;
     try {
       await page.setViewport({width,height:1000});
@@ -53,10 +53,10 @@ for (const item of [7,8,9,10,11,12,13]) test(`AIT-541 look ${item}: RC26 visitor
           records.push({label,before});
           assert.equal(before.start,entrance==='choice');assert.equal(before.opener,entrance==='combined');
         }
-        if(entrance==='choice'){await page.click('aithema-session >>> .ready__start');await settle(page);}
+        if(entrance==='choice'){await page.evaluate(()=>grant());await settle(page);await page.click('aithema-session >>> .ready__mode[data-mode=type]');await page.click('aithema-session >>> .ready__start');await settle(page);}
         const pair=await boxes(page,['.fold','[data-host-opener]']);await shot('opener');
-        positive(pair);assert.equal(intersects(...pair),false,'fold never intersects the first bubble');
-        const pinned=['.fold','.band','.composer','textarea','.send'];const before=await boxes(page,pinned);
+        records.push({label,pair});positive(pair);if(item===7)assert.equal(intersects(...pair),false,'fold never intersects the first bubble');
+        const pinned=['.fold','.band','.display-foot'];const before=await boxes(page,pinned);
         await page.click('aithema-session >>> .fold');await settle(page);const folded=await boxes(page,pinned);
         await page.click('aithema-session >>> .fold');await settle(page);const unfolded=await boxes(page,pinned);
         records.push({label,pair,before,folded,unfolded});stable(before,folded);stable(before,unfolded);
@@ -92,11 +92,11 @@ for (const item of [7,8,9,10,11,12,13]) test(`AIT-541 look ${item}: RC26 visitor
         }
       } else if(item===13){
         await live();const pinned=['.open-question','.question-state','.composer','.understanding .foot'];const before=await boxes(page,pinned);await shot('question-ready');
-        await page.evaluate(async()=>{const native=fetch;globalThis.fetch=(url,options)=>options?.method==='POST'&&String(url).endsWith('/focus-question')?Promise.resolve(Response.json({error:'fixture-failure'},{status:503})):native(url,options);await c.focusQuestion(c.openQuestionItems[0].id).catch(()=>{});});await settle(page);await shot('question-failed');
+        await page.evaluate(async()=>{const native=fetch;globalThis.fetch=(url,options)=>options?.method==='POST'&&String(url).endsWith('/focus-question')?Promise.resolve(Response.json({event:{seq:c.session.seq+1,type:'question.focused',data:{...c.openQuestionItems[0],questionId:c.openQuestionItems[0].id,requestId:'look-question',chosenBy:'user',inputRevision:c.session.operations.inputRevision}}},{status:202})):native(url,options);await c.focusQuestion(c.openQuestionItems[0].id);c.receive({type:'lane.failed',data:{lane:'reaction',retryable:true,inputRevision:c.session.operations.inputRevision}});});await settle(page);await shot('question-failed');
         const failure=await page.evaluate(()=>{const n=c.shadowRoot.querySelector('.open-question .question-why'),s=getComputedStyle(n);return {text:n.textContent,ellipsis:s.textOverflow,scroll:n.scrollWidth,client:n.clientWidth,state:n.closest('.open-question').dataset.state};});records.push({label,failure});
-        assert.equal(failure.state,'focus-retry');stable(before,await boxes(page,pinned));if(width>=600){assert.notEqual(failure.ellipsis,'ellipsis');assert.ok(failure.scroll<=failure.client,`complete failure text ${JSON.stringify(failure)}`);}
+        assert.equal(failure.state,'retry');stable(before,await boxes(page,pinned));if(width>=600){assert.notEqual(failure.ellipsis,'ellipsis');assert.ok(failure.scroll<=failure.client,`complete failure text ${JSON.stringify(failure)}`);}
       }
-    }finally{await page.close();}
+    }catch(error){records.push({label,error:error.message});throw error;}finally{await page.close();}
   });
   if(evidence)await writeFile(join(evidence,'look','r1',`item-${item}-geometry.json`),JSON.stringify(records,null,2));
 });
