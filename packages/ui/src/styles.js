@@ -784,7 +784,7 @@ slot[name="contact-launcher"]::slotted(*) { box-sizing:border-box; width:44px; h
 .question-status-reserve, .question-action-reserve { display:none; }
 @media(min-width:960px) {
   .question-state, .question-state:has(.question-status:not([hidden])) {
-    height:auto; min-height:36px; grid-template-columns:minmax(0,max-content) 9px minmax(max-content,1fr); }
+    position:relative; height:auto; min-height:36px; grid-template-columns:minmax(0,max-content) 9px minmax(max-content,1fr); }
   .question-status-reserve { display:flex; align-items:center; gap:7px; grid-area:1/1; min-width:0; min-height:36px; visibility:hidden; pointer-events:none; }
   .question-status-reserve > svg { flex:none; width:14px; height:14px; }
   .question-status-reserve > span { display:grid; min-width:0; }
@@ -796,7 +796,7 @@ slot[name="contact-launcher"]::slotted(*) { box-sizing:border-box; width:44px; h
   .question-state .question-why { white-space:normal; overflow-wrap:anywhere; overflow:visible; text-overflow:clip; }
   .analysis-content .question-failed-long { position:static; width:auto; height:auto; overflow:visible; clip-path:none; }
   .analysis-content .question-failed-short { display:none; }
-  .question-state .clarify-action { height:100%; }
+  .question-state .clarify-action { position:absolute; height:100%; }
   .question-state:has(.question-status:not([hidden])) .clarify-action { height:calc(100% + 8px); }
 }
 /* The focused assistant reply links to the public question, without another turn. */
