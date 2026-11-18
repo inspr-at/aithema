@@ -296,7 +296,12 @@ entsprechender Host-Aktivierung.
   HEIC, with no image-format help or image-retention wording. Existing document
   upload-consent wording remains. Image-capable composers retain distinct
   admission refusals; while paused, images are refused with “Images cannot be
-  attached while the conversation is paused.”
+  attached while the conversation is paused.” Selection and paste retain
+  `imageRefusals.paused`; other files use the generic Attach refusal during a
+  pause. Capability reads use the unpaused verdict, while attachment admission
+  still respects the pause. Server snapshots whose outer `imageInput.reason`
+  is `session paused` include `imageInput.unpaused` with the ordinary
+  `available` and `reason` fields for presentation.
 - Image refusal feedback reserves the longest localized reason and shows it
   once. Remove targets stay outside thumbnails with filename-aware EN/DE names;
   short phones use one compact staging row around 44 px controls. Withheld-image copy `imageWithheld`
@@ -313,8 +318,9 @@ entsprechender Host-Aktivierung.
   Retained-file retry messages keep their existing facts and action order.
   Image-feedback measurement keeps the same width across text-consent and
   shortcut states, including 320/340 px, preserving the composer after a grant.
-  The same mixed selection retains its image refusal across document consent;
-  only eligible document handles and bounded refusal metadata continue.
+  On document-only bindings, the same mixed selection retains its document
+  type refusal across document consent; only eligible document handles and
+  bounded refusal metadata continue.
   Successful intake clears only feedback from earlier selections. Decoder
   failures from the current selection survive event/receipt ordering and batches.
   The hidden feedback measurement node is mounted only for active image input;
@@ -442,6 +448,7 @@ entsprechender Host-Aktivierung.
 | Each reasoning binding `imageInput: {maxImages, maxTokensPerImage, perImageMicro?}` | Absent refuses image dispatch. Both selected reaction and understanding bindings require explicit capability and an image-capable adapter: `maxImages` 1–4, positive safe-integer token ceiling; optional nonnegative microdollar fee defaults to 0. No capability or price inferred from model names. |
 | `AITHEMA_OPENROUTER_IMAGE_INPUT` | Unset means no demo capability declarations; model-keyed JSON declares the bindings above. |
 | Upload limit `maxImagesPerSession` / `AITHEMA_UPLOAD_MAX_IMAGES` | 8, independent of eight documents; hosts may lower the ceiling. Existing defaults: 20 MiB/file, 21 MiB/request including framing, 8 files/request and 160 MiB/session shared source-byte maximum. Up to 4 images per sent turn, or a lower binding maximum. |
+| Snapshot `featureMatrix.<preset>.imageInput.unpaused` | Present when the outer reason is `session paused`; contains the ordinary `{available, reason}` verdict for capability presentation. The outer verdict and attachment admission remain paused. Absent otherwise. |
 | Consent feature `imageInput`, item `image-input` | Optional, item version 1. Exact binding/operation scope must be covered separately from text; `models-international` stays version 1. Explicit host feature mappings win. |
 | Image upload metadata and states | `kind: 'image'`, `digest`, `w`, `h`, `expiresAt`; `staged-pending`, `staged-ready`, `staged-refused`, `staged-discarded` are non-input. Orphans expire after 30 minutes; sent images use source withdrawal. Bytes never enter snapshots/events/logs. |
 | `/turns` body and turn receipts | Optional `attachments: string[]`, at most 4 unique owned ready IDs; blank text permitted with attachments. Atomic retry receipts bind both text and IDs. Live-call image sends refuse with `image-live-call`; lower binding counts use `image-input-limit`. Existing text-only statuses stay intact. |
