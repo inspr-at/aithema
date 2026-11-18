@@ -80,7 +80,7 @@ for (const locale of ['de', 'en']) test(`draft consent uses matching ${locale} c
 test('consent renders contract items, uses only matching translations and current server grants', async t => {
   const unknown = { id: 'future', version: 1, title: '<b>Future</b>', recipients: 'Other recipient', text: 'Other purpose and consequence.' };
   const updated = { ...CONSENT_ITEMS[0], version: 2, title: 'New legal title' };
-  const p = await page(t, { items: [CONSENT_ITEMS[0], updated, unknown, CONSENT_ITEMS[1]], selected: ['voice-elevenlabs'] });
+  const p = await page(t, { items: [CONSENT_ITEMS[0], updated, unknown, CONSENT_ITEMS.find(item => item.id === 'voice-elevenlabs')], selected: ['voice-elevenlabs'] });
   const rows = [...p.document.querySelectorAll('.consent-item')];
   assert.deepEqual(rows.map(r => r.querySelector('span').textContent), [de.processingConsent.items[CONSENT_ITEMS[0].id].title, updated.title, unknown.title, voiceManifest.presentation.translations.find(entry => entry.locale === 'de').consentItem.title]);
   assert.equal(rows[0].querySelector('p').textContent, de.processingConsent.items[CONSENT_ITEMS[0].id].recipients);
@@ -110,7 +110,7 @@ test('English consent renders every item and keeps unversioned and duplicate-id 
     assert.deepEqual([...rows[index].querySelectorAll('p')].map(p => p.textContent), [expected.recipients, expected.text]);
   }
   assert.deepEqual([...p.document.querySelectorAll('input')].map(b => b.value), items.map(i => i.id));
-  assert.deepEqual([...p.document.querySelectorAll('input')].map(b => b.checked), [false, true, false, false, false]);
+  assert.deepEqual([...p.document.querySelectorAll('input')].map(b => b.checked), [false, false, true, false, false, false]);
   assert.equal(p.document.querySelector('b'), null);
 });
 

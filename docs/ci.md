@@ -339,6 +339,18 @@ projection reserve AIT-506's additional 180 s for start-journey plus at least
 below 405 s, with complete file coverage; the 420 s hard ceiling stays unchanged.
 The projection never overwrites measured `.weight.json` history.
 
+AIT-510 retains twelve shards, the 405 s target and 420 s ceiling. The complete
+expanded `upload-capacity.test.js` passed 29/29 in remote run
+`86de69650a-20594`, head `86de69650a`, including disclosure, inline email,
+document-notice persistence and short-phone image states in both entrances.
+Its measured file duration, including hooks and teardown, was 63.774576042 s;
+`ceil(63.774576042 × 1.25) = 80` raises the prior 71 s diagnostic floor.
+Remote evidence does not enter trusted rolling-main `.weight.json` history.
+AIT-510 r13's expanded refusal, mixed-selection and whole-item visibility matrix
+passed 29/29 in remote run `de881507d5-19436` at head `de881507d5`.
+The complete file took 68.097062459 s, so `ceil(68.097062459 × 1.25) = 86`
+raises the diagnostic floor from 80 to 86 s. Twelve shards, the 405 s target,
+the 420 s ceiling and trusted rolling-main weights remain unchanged.
 AIT-515 keeps its 40-scene signal matrix in the existing understanding-failure
 file. Complete remote run `b86c217e10-4534` at `b86c217e10` measured
 106.018906167 s of file work, including 200 signal screenshots. Its 33 tests
@@ -428,6 +440,86 @@ reporter. It retains every nested failure and complete file summaries in
 only a log tail. Bounded whole-suite batches keep the same committed head and
 serial test execution; the operator file retains its existing isolated force-exit
 run. This reporter does not change CI selection or reporting.
+
+AIT-510 r14 retains all AIT-515/AIT-517 reservations and timing history.
+Main's upload reservation is 36.093 s, so retaining the temporary 86 s
+image-matrix floor gives `4820.039 + (86 - 36.093) = 4869.946 s` in the
+growth projection, 9.946 s above `12 × 405 = 4860 s`. This corrects the
+merge's stale 71 s assumption. No limit or trusted sample changes.
+Complete remote run `15065fafa0-71174` at `15065faf` passes upload **29/29**
+in **71.807831958 s** and start-look **141/141** in **107.323856625 s**.
+The unchanged eight 1024-width image scenes move into start-look through
+`image-input-check.js`; upload retains all sixteen 390/1440 scenes. The
+combined workload remains 170 tests, with every assertion and capture.
+The temporary source-file floor stays 86 s until a complete after-run
+qualifies both files and the unchanged twelve-bin 405/420 s guards.
+The first split passes **170/170** in `d2bcff8bea-80681`: upload **21/21**
+in **63.136940125 s**, start-look **149/149** in **117.521293250 s**. Its
+79 s source ceiling removes only 7 s, leaving the growth projection 2.946 s
+over capacity. Therefore the unchanged eight 1440 scenes move to start-look
+too; upload keeps all eight phone scenes, and start-look all sixteen tablet/
+desktop scenes. Keep all floors pending the complete second measurement.
+The complete second run `11ef9fc891-90483` at `11ef9fc8` passes upload
+**13/13** in **39.959277667 s** and start-look **157/157** in
+**142.167312875 s**: the same **170/170** combined tests. Reserve
+`ceil(39.959277667 × 1.25) = 50 s` and
+`ceil(142.167312875 × 1.25) = 178 s`. Only AIT-510's temporary 86 s
+source-file addition is replaced; every trusted sample remains, and the
+inherited destination floor can only increase. The final growth projection
+is `4820.039 + (50 - 36.093) + (178 - 162) = 4849.946 s`, leaving
+10.054 s below aggregate capacity. Actual whole-file placement still must
+pass the unchanged twelve-shard 405 s headroom and 420 s hard guards.
+Remote guard at `aaacadfa` fails the existing growth check, with all other
+42 checks passing. Aggregate fit alone is insufficient: host-surface (395 s)
+and the growth journey (385 s) can use only the 10.025/4.364/2.332 s files.
+Their combined unused capacity is at least
+`2 × 405 - 395 - 385 - 10.025 - 4.364 - 2.332 = 13.279 s`, already above
+the aggregate 10.054 s spare. The bounded algorithm and its node limit remain
+unchanged. Move the same sixteen 390/1440 scenes into pause-phone, which
+already covers both widths and reserves 220 s; leave eight 1024 scenes in
+start-look and the five document/retry cases in upload. Complete measurement
+of all three files must qualify this placement before removing additions.
+The complete three-file run `36ac30f0d1-40209` at `36ac30f0` passes
+**247/247**: upload **5/5**, **21.832980542 s**; start-look **149/149**,
+**116.812526542 s**; pause-phone **93/93**, **174.989791333 s**. The
+ceilings with 25% margin are **28 / 147 / 219 s**, already covered by main's
+unchanged **36.093 / 162 / 220 s** reservations. Remove only AIT-510's
+temporary source/destination additions, retaining every inherited floor,
+trusted sample, all 24 image scenes and all 247 combined tests. Growth work
+returns to **4820.039 s**; no assertion, budget, node limit or packer changes.
+The original 86 s observation remains above as historical workload evidence.
+
+AIT-510 r15 adds document-only refusal and host-overridden image-consent cap
+checks to the existing image matrix without removing any lifecycle assertion.
+Complete remote run `e0bd97b085-82450` at `e0bd97b0` passes pause-phone
+**125/125** in **177.878909750 s**. Its 25% margin requires
+`ceil(177.878909750 × 1.25) = 223 s`, raising only that PR diagnostic
+reservation from **220 s to 223 s**. The same complete run passes start-look
+**165/165** in **118.062741042 s**; `ceil(118.062741042 × 1.25) = 148 s`
+remains within its inherited **162 s** floor. Trusted rolling-main samples,
+twelve shards, the **405 s** target, **420 s** ceiling and every existing
+assertion remain unchanged. Remote shard guards qualify the actual placement.
+
+AIT-510 r18b adds mixed/sequential image-refusal and binding-switch checks
+within the existing image scenes. Complete remote run `e4d76500de-76889`
+passes pause-phone **173/173** in **184.105106500 s**;
+`ceil(184.105106500 × 1.25) = 231 s` raises its diagnostic reservation from
+**223 s to 231 s**. Start-look passes **189/189** in **118.384730167 s**,
+whose **148 s** margin fits the inherited **162 s** floor. No trusted samples,
+existing assertions, other floors, twelve shards or **405/420 s** limits change.
+
+AIT-510 r16 places the unchanged sixteen-scene no-upload feedback regression
+in the existing language/theme first-paint file. The provisional upload-file
+reservations (**57.093 s**, then **42 s** after complete 6/6 remote run
+`edca77de21-96753` measured **32.980476125 s**) exceeded the growth projection.
+The new location retains its inherited **108.958 s** plan. Complete remote run
+`bbd14f0000-97452` measured its existing case at **52.212726083 s**; red run
+`ait-dbb1325f89ae45a8b9b8da52` measured the new case at **16.159237637 s**.
+The conservative combined projection is
+`ceil((52.212726083 + 16.159237637) × 1.25) = 86 s`, within that reserve.
+Remove only this round's temporary upload addition when the new case leaves
+that file; its inherited **36.093 s** plan remains. Every assertion, other
+floor, trusted sample, twelve shards and **405/420 s** limits remain unchanged.
 
 Each CI shard writes `browser-timings-N-of-12` artifacts (14-day retention).
 `scripts/browser-timing-reporter.js` records passing top-level `node:test`

@@ -1,3 +1,4 @@
+import { stagedImage, imageReferences, reasoningInputBound, imageInputScope, imageInputFee, validateImageInput } from '@inspr/aithema-core/image-input';
 import { providerProcessingFacts } from './provider-processing.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { PluginRegistry, createMockReasoning, createBinding, PluginError, isCancelledZeroReport, PROCESSING_PRESETS, FEATURES,
@@ -272,7 +273,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     return added.length > 0 && added.every(turn => ['user', 'assistant'].includes(turn.role) && !turn.erased && !turn.withdrawn) &&
       current.inputRevision === session.inputRevision + added.filter(turn => turn.role === 'user').length &&
       hash(transcriptBytes(current.transcript.slice(0, session.transcript.length))) === hash(transcriptBytes(session.transcript)) &&
-      hash(current.uploads) === hash(session.uploads);
+      hash(current.uploads.filter(upload => !stagedImage(upload))) === hash(session.uploads.filter(upload => !stagedImage(upload)));
   };
   const voiceUnchanged = (session, allowPaused = false) => {
     const current = storage.get(session.id);
@@ -316,6 +317,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     if (!PROCESSING_PRESETS.includes(preset)) return { reason: 'unknown preset' };
     if (preset === 'device') return { reason: feature === 'text' ? 'device browser only' : 'unavailable on device' };
     if (feature === 'uploads') return evaluateUploads(session, preset, options);
+    if (feature === 'imageInput') return evaluateImageInput(session, preset, options);
     const config = presets[preset], [lane, kind, defaultOperation] = map[feature];
     const operation = visual(feature) ? options.operation ?? defaultOperation : defaultOperation;
     if (visual(feature) && !['generate', 'edit'].includes(operation)) return { reason: 'operation unsupported' };
@@ -426,6 +428,32 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       }
     }
     return { binding, plugin, operation, coverage, scope };
+  }
+  async function evaluateImageInput(session, preset, options = {}) {
+    const config = presets[preset], normalizer = config?.imageInput;
+    const plugin = normalizer && config.plugins?.includes(normalizer.plugin) && registry.get(normalizer.plugin);
+    if (!plugin?.manifest?.kinds?.includes('image-input') || typeof plugin.normalize !== 'function') return { reason: 'image normalizer not configured' };
+    if (plugin.manifest.placement !== 'server' || plugin.manifest.models.some(model => model.processingLocations.some(location => location !== 'host') ||
+      model.cost.inputMicro !== 0 || model.cost.outputMicro !== 0)) return { reason: 'image normalizer must be local and free' };
+    const scopes = []; let maxImages = 4;
+    for (const [feature, lane, operation] of [['text', 'reaction', 'stream'], ['analysis', 'understanding', 'structured']]) {
+      const raw = selectedBinding(session, preset, lane).raw;
+      if (!raw && lane === 'understanding') continue;
+      try { validateImageInput(raw?.imageInput); maxImages = Math.min(maxImages, raw.imageInput.maxImages); } catch { return { reason: 'image input not supported' }; }
+      const result = await evaluate(session, preset, feature, { ...options, existingCall: true });
+      if (result.reason) return result;
+      if (result.plugin.imageInput !== true) return { reason: 'image input not supported' };
+      const scope = imageInputScope(result.binding, operation);
+      if (!consent?.coverage) return { reason: 'consent port unavailable' };
+      try {
+        const reason = consentReason(await coverageFor(session, scope, options), scope, now(), session.consentRevision);
+        if (reason) return { reason };
+      } catch { return { reason: 'consent port unavailable' }; }
+      scopes.push(scope);
+    }
+    try { if (!(await plugin.health(options))?.available) return { reason: 'image normalizer unavailable' }; }
+    catch { return { reason: 'image normalizer unavailable' }; }
+    return { plugin, scopes, maxImages };
   }
   async function evaluateUploads(session, preset, options = {}) {
     const config = presets[preset], bindings = config?.extractors;
@@ -696,6 +724,17 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     async uploadAvailability(session, options = {}) {
       return boundedEvaluate(session, session.processingPreset ?? 'best', 'uploads', options);
     },
+    async imageInputAvailability(session, options = {}) {
+      return boundedEvaluate(session, session.processingPreset ?? 'best', 'imageInput', options);
+    },
+    async normalizeImageUpload({ session, uploadId, bytes, metadata, options = {} }) {
+      const result = await runtime.imageInputAvailability(session, options);
+      if (result.reason) throw new PluginError('not-admitted', result.reason);
+      const current = storage.get(session.id);
+      if (current.tombstone || current.consentWithdrawn || current.consentRevision !== session.consentRevision ||
+        !current.uploads.some(upload => upload.id === uploadId && upload.state === 'staged-pending')) throw new PluginError('not-admitted');
+      return result.plugin.normalize(bytes, metadata, options);
+    },
     async extractUpload({ session, uploadId, bytes, metadata, options = {} }) {
       const current = () => {
         const latest = storage.get(session.id);
@@ -874,6 +913,13 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     scopes(session, { feature: only, delivered: coverageOnly = false } = {}) {
       const preset = session.processingPreset ?? 'best';
       const result = [], kind = visualKind(session);
+      if ((!only || only === 'imageInput') && preset !== 'device') {
+        for (const [lane, operation] of [['reaction', 'stream'], ['understanding', 'structured']]) {
+          const binding = selectedBinding(session, preset, lane).raw;
+          if (binding?.imageInput && binding.legal) result.push(imageInputScope(binding, operation));
+        }
+        if (only === 'imageInput') return result;
+      }
       const artifacts = (session.concepts ?? []).filter(artifact => !artifact.erased && !artifact.withdrawn && !artifact.archived);
       const deliveredKinds = new Set(artifacts.map(artifact => artifact.mediaType === 'text/html' ? 'html' : 'images'));
       const entries = [['text', 'stream'], ['analysis', 'structured'], ['voice', 'start'], [kind, 'generate'], [kind, 'edit']]
@@ -1128,6 +1174,23 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       if (!invocationCurrent()) throw new PluginError('not-admitted', 'Session changed during admission');
       if (lane === 'concept' && (!session.conceptIntent?.visualIntent || !session.conceptIntent.pending ||
         storage.get(session.id).conceptIntent?.pending?.id !== session.conceptIntent.pending.id)) throw new PluginError('not-admitted', 'Visual intent required');
+      if (lane !== 'concept') {
+        const capability = selectedBinding(session, session.processingPreset ?? 'best', lane).raw?.imageInput;
+        const images = imageReferences(request);
+        // A new text-only selection keeps earlier image turns as text context.
+        // Do this before availability estimates, reservation and dispatch.
+        const maxImages = capability?.maxImages ?? 0;
+        if (images.length > maxImages) {
+          const kept = new Set(maxImages ? images.slice(-maxImages) : []);
+          request.messages = request.messages.map(message => {
+            if (!message.images?.length) return message;
+            const images = message.images.filter(image => kept.has(image));
+            const markers = message.images.filter(image => !kept.has(image)).map(image => `[image: ${JSON.stringify(session.uploads.find(upload => upload.id === image.uploadId)?.filename ?? '')}, sent earlier]`);
+            const { images: prior, ...plain } = message;
+            return { ...plain, content: [plain.content, ...markers].filter(Boolean).join('\n'), ...(images.length ? { images } : {}) };
+          });
+        }
+      }
       const selected = visualKind(session), html = lane === 'concept' && selected === 'html';
       if (lane === 'concept' && options.visualKind && options.visualKind !== selected) throw new PluginError('not-admitted', 'Visual kind changed');
       const result = await boundedEvaluate(purposeAssessment && session.pauseReason === 'purpose' ? { ...session, paused: false } : session, session.processingPreset ?? 'best', lane === 'concept' ? selected : lane === 'reaction' ? 'text' : 'analysis', { ...options, operation, costRequest: request });
@@ -1136,12 +1199,22 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       options.signal?.throwIfAborted();
       if (!invocationCurrent()) throw new PluginError('not-admitted', 'Session changed during admission');
       const { binding, plugin } = result;
+      const references = imageReferences(request);
+      let imageScope;
+      if (references.length) {
+        if (plugin.imageInput !== true) throw new PluginError('not-admitted', 'image input not supported');
+        reasoningInputBound(request, binding.imageInput);
+        imageScope = imageInputScope(binding, operation);
+        const reason = consentReason(await coverageFor(session, imageScope, options), imageScope, now(), session.consentRevision);
+        if (reason) throw new PluginError('not-admitted', reason);
+      }
       // A byte bound plus message framing conservatively bounds chat input tokens;
       // reasoning tokens share the requested max_tokens output ceiling.
-      const promptBytes = new TextEncoder().encode(JSON.stringify(lane === 'concept' ? { prompt: request.prompt, feedback: request.feedback,
-        references: request.references?.map(r => ({ mediaType: r.mediaType, role: r.role, size: r.bytes.length })) }
-        : { system: request.system, messages: request.messages, schema: request.schema, providerOptions: request.providerOptions,
-          adapterOptions: plugin.providerOptions?.(operation === 'stream') })).byteLength;
+      const promptBytes = lane === 'concept' ? new TextEncoder().encode(JSON.stringify({ prompt: request.prompt, feedback: request.feedback,
+        references: request.references?.map(r => ({ mediaType: r.mediaType, role: r.role, size: r.bytes.length })) })).byteLength
+        : reasoningInputBound({ system: request.system, messages: request.messages, schema: request.schema,
+          providerOptions: request.providerOptions, adapterOptions: plugin.providerOptions?.(operation === 'stream') }, binding.imageInput);
+      const imageFee = imageInputFee(request, binding.imageInput);
       const rates = lane === 'concept' && !html ? binding.imageCost : binding.rates;
       // Image inputs have separate units; the host's bound includes decoded image
       // tokenization. Account qualification is responsible for this conservative cap.
@@ -1151,8 +1224,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const ceiling = html ? (plugin.estimateCost ? plugin.estimateCost(request, operation) : binding.maxMicro)
         : lane === 'concept' ? rates.maxInputTokens * rates.inputMicro + rates.maxOutputTokens * rates.outputMicro
         : plugin.estimateCost ? plugin.estimateCost(request, operation)
-        : (promptBytes + 256 + (request.messages?.length ?? 0) * 64) * rates.inputMicro + binding.maxTokens * rates.outputMicro;
-      const tokenCeiling = lane === 'concept' ? ceiling : (promptBytes + 256 + (request.messages?.length ?? 0) * 64) * rates.inputMicro + binding.maxTokens * rates.outputMicro;
+        : (promptBytes + 256 + (request.messages?.length ?? 0) * 64) * rates.inputMicro + binding.maxTokens * rates.outputMicro + imageFee;
+      const tokenCeiling = lane === 'concept' ? ceiling : (promptBytes + 256 + (request.messages?.length ?? 0) * 64) * rates.inputMicro + binding.maxTokens * rates.outputMicro + imageFee;
       if (![ceiling, tokenCeiling].every(Number.isSafeInteger) || Math.max(ceiling, tokenCeiling) > binding.maxMicro) throw new PluginError('not-admitted', 'Request exceeds binding cost ceiling');
       if (operation !== result.operation) throw new PluginError('not-admitted');
       const { attemptId } = await admitBudget(session, { sessionId: session.id, lane, maxMicro: html || plugin.estimateCost ? ceiling : binding.maxMicro,
@@ -1208,6 +1281,10 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
             catch { return refuse('consent port unavailable'); }
             assertDispatchOpen();
             if (!dispatchCurrent() || scope.signal.aborted) return refuse('Session changed before dispatch');
+            if (imageScope) {
+              const imageCoverage = await untilCancelled(coverageFor(session, imageScope, { ...options, signal: scope.signal }), scope.signal);
+              if (!dispatchCurrent() || scope.signal.aborted || consentReason(imageCoverage, imageScope, now(), session.consentRevision)) return refuse('image input consent required');
+            }
             const reason = consentReason(coverage, result.scope, now(), session.consentRevision);
             if (reason) return refuse(reason);
             consumeOrRefuse();
@@ -1218,6 +1295,18 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       return { plugin, releaseCredits: () => { if (lane === 'reaction') budget.releaseReplyCredits(attemptId); }, consentScope: result.scope ? structuredClone(result.scope) : null,
         ...(lane === 'concept' ? { visuals: described.visuals?.id ?? null } : { producer, engine: { preset: described.preset, model: described.model?.id ?? null,
         label: described.model?.label ?? null, effort: binding.effort } }), options: { ...options, attempt, report,
+          ...(references.length ? { imageDispatchCurrent() {
+            return dispatchCurrent() && storage.get(session.id).consentRevision === session.consentRevision && references.every(reference => {
+              const image = storage.imageUpload(session.id, reference.uploadId);
+              return image?.state === 'sent' && image.digest === reference.digest;
+            });
+          }, resolveImage(reference) {
+            if (!dispatchCurrent() || options.signal?.aborted || !references.some(allowed => hash(allowed) === hash(reference))) throw new PluginError('not-admitted', 'image reference changed');
+            const image = storage.imageUpload(session.id, reference.uploadId);
+            if (!image || image.state !== 'sent' || image.digest !== reference.digest || image.w !== reference.w || image.h !== reference.h ||
+              image.mediaType !== reference.mediaType || createHash('sha256').update(image.imageBytes).digest('hex') !== reference.digest) throw new PluginError('not-admitted', 'image reference unavailable');
+            return image.imageBytes;
+          } } : {}),
           ...(lane === 'concept' && !html ? { imageCost: binding.imageCost } : {}) }, finish({ failed = false, error } = {}) {
         try {
           if (!reported) {

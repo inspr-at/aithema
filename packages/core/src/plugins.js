@@ -1,9 +1,10 @@
+import { validateImageInput } from './image-input.js';
 import { isCanonicalMockReasoning } from './reasoning.js';
 import { assertVoicePorts } from './live-voice.js';
 // Public technical metadata only. Legal qualification and account evidence are host-private (D4).
-export const PLUGIN_KINDS = Object.freeze(['reasoning', 'stt', 'tts', 'live-voice', 'ui-generation', 'extractor', 'exporter']);
+export const PLUGIN_KINDS = Object.freeze(['reasoning', 'stt', 'tts', 'live-voice', 'ui-generation', 'extractor', 'image-input', 'exporter']);
 export const KIND_OPERATIONS = Object.freeze({ reasoning: ['stream', 'structured'], stt: ['transcribe'], tts: ['speak'],
-  'live-voice': ['start'], 'ui-generation': ['generate', 'edit'], extractor: ['extract'], exporter: ['export'] });
+  'live-voice': ['start'], 'ui-generation': ['generate', 'edit'], extractor: ['extract'], 'image-input': ['normalize'], exporter: ['export'] });
 const string = { type: 'string', minLength: 1, maxLength: 512 };
 const list = items => ({ type: 'array', items, minItems: 1, uniqueItems: true });
 const object = (properties, required = Object.keys(properties)) => ({ type: 'object', properties, required, additionalProperties: false });
@@ -132,13 +133,14 @@ export class PluginRegistry {
 }
 /** Private effective selection; callers must never serialize it into a session or public manifest. */
 export function createBinding(value) {
-  const allowed = ['plugin', 'model', 'effort', 'endpoint', 'routing', 'accountRef', 'secretRef', 'maxMicro', 'maxTokens', 'maxInputTokens', 'rates', 'legal'];
+  const allowed = ['plugin', 'model', 'effort', 'endpoint', 'routing', 'accountRef', 'secretRef', 'maxMicro', 'maxTokens', 'maxInputTokens', 'imageInput', 'rates', 'legal'];
   if (!value || typeof value !== 'object' || Object.keys(value).some(k => !allowed.includes(k)) ||
     !['plugin', 'model', 'effort', 'endpoint', 'accountRef', 'secretRef'].every(k => typeof value[k] === 'string' && value[k].length > 0) ||
     !Number.isSafeInteger(value.maxMicro) || value.maxMicro < 0 || !Number.isSafeInteger(value.maxTokens) || value.maxTokens < 1 ||
     value.maxInputTokens !== undefined && (!Number.isSafeInteger(value.maxInputTokens) || value.maxInputTokens < 1) ||
     (value.routing !== undefined && (!value.routing || typeof value.routing !== 'object' || Array.isArray(value.routing))) ||
     !value.rates || !['inputMicro', 'outputMicro'].every(k => Number.isSafeInteger(value.rates[k]) && value.rates[k] >= 0)) throw new TypeError('Invalid private binding');
+  if (value.imageInput !== undefined) validateImageInput(value.imageInput);
   const url = new URL(value.endpoint);
   if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new TypeError('Invalid binding endpoint');
   return deepFreeze(structuredClone(value));

@@ -177,6 +177,7 @@ test('resource caps and required summaries stay fixed while AIT-532 adds browser
     'browser-required': ['browser (${{ matrix.shard }}/4)', 1, [1, 2, 3, 4]],
     'browser-aggregate': ['browser', 1, undefined],
     unit: ['unit (${{ matrix.shard }}/3)', 10, [1, 2, 3]], 'preview-security': ['preview-security', 6, undefined],
+    'image-input-production': ['image-input-production', 10, undefined],
   });
   assert.equal(ci.jobs.test.steps.find(step => step.name === 'Boot standalone host from candidate tarballs')['timeout-minutes'], 2);
 });

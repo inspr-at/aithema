@@ -132,7 +132,7 @@ export async function collectPurposeReply(request, invoke, { onRejected = () => 
     let value;
     try { value = JSON.parse(unfenceReply(raw)); } catch { /* Fail closed without exposing wire text. */ }
     const unsafe = unsafeReplyOutput(raw, policy, request.hiddenGuidance);
-    offTopic ||= value?.scope === 'off' || unsafe;
+    offTopic ||= !request.imageOnly && value?.scope === 'off' || unsafe;
     // Scope and optional card metadata must never discard usable conversation.
     // Project known option fields before normalization, but check ALL original
     // visible strings above, including choices that normalization would drop.
@@ -146,15 +146,15 @@ export async function collectPurposeReply(request, invoke, { onRejected = () => 
       diagnostic({ kind: 'missing-scope', reason: 'missing-scope', attemptCount: attempt + 1 });
     }
     const scope = purposeReplySchema.properties.scope.enum.includes(value?.scope) ? value.scope : 'unclear';
-    const reply = { ...base, scope };
-    if (offTopic) { reply.content = purposeRedirect(request); reply.scope = 'off'; }
+    const reply = { ...base, scope: request.imageOnly && scope === 'off' ? 'unclear' : scope };
+    if (offTopic) { reply.content = purposeRedirect(request); reply.scope = request.imageOnly ? 'unclear' : 'off'; }
     if (reply.scope !== 'in') { reply.question_short = null; reply.options = []; }
     const guarded = guardDirection(reply);
     return promptSchemaOnly ? markFallback(guarded, 'prompt-only-retry', schemaRetryReason, attempt + 1) : guarded;
   }
   const reply = { content: offTopic ? purposeRedirect(request)
     : request.locale === 'de' ? 'Woran arbeiten Sie gerade?' : 'What are you working on?',
-    question_short: null, options: [], scope: offTopic ? 'off' : 'unclear' };
+    question_short: null, options: [], scope: offTopic && !request.imageOnly ? 'off' : 'unclear' };
   diagnostic({ kind: 'fallback', reason: lastReason, attemptCount: 2 });
   return markFallback(offTopic ? guardDirection(reply) : reply, 'neutral', lastReason, 2);
 }

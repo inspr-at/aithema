@@ -4120,6 +4120,193 @@ an admission override. Host privacy links use the existing legal slot with
 `data-aithema-privacy` or `rel="privacy-policy"`. Credit copy uses impersonal
 German, German digit grouping and a nonbreaking space before `Credits`.
 
+### Image and screenshot input (AIT-510; host notes)
+
+PNG, JPEG, WebP and GIF (first frame only) can be attached as model input with
+`@inspr/aithema-plugin-image-input`. HEIC/HEIF, AVIF, SVG, TIFF and BMP are not
+accepted. Image MIME hints and excluded HEIC/AVIF container headers stay in the
+non-input staged refusal path even without a recognized filename extension.
+For a recognized document filename, a false image MIME hint cannot replace the
+document path; sniffed image bytes still select image staging.
+The plugin owns its pinned native `sharp` dependency; the core and server
+packages do not acquire a native dependency. Production installations must
+include optional platform binaries. Qualify `npm ci --omit=dev` with
+`scripts/qualify-image-input.js`; the Docker base and dedicated CI job run this
+smoke check.
+The release contains **17 public modules**, including this plugin.
+
+```js
+import { createImageInput } from '@inspr/aithema-plugin-image-input';
+registry.register(createImageInput());
+// Add the normalizer to each offered server preset:
+presets.best.plugins.push('image-input');
+presets.best.imageInput = { plugin: 'image-input' };
+// Set this separately on BOTH selected reasoning lane bindings, using current
+// catalog/route evidence and a conservative model-specific token ceiling:
+// binding.imageInput = { maxImages: 4, maxTokensPerImage: 1600, perImageMicro: 0 };
+// The numeric example is a configuration shape, not a qualified model quote.
+```
+
+A text-only route remains text-only. Each selected reaction and understanding
+binding must declare `imageInput: { maxImages, maxTokensPerImage,
+perImageMicro? }`, with `maxImages` in 1–4, a positive safe-integer token bound,
+and an optional nonnegative safe-integer microdollar fee. The adapter must also
+explicitly implement the image request contract. The demo accepts a model-keyed
+JSON object through `AITHEMA_OPENROUTER_IMAGE_INPUT`; it infers no capability or
+price from a model name or wildcard manifest. Both token costs and per-image
+fees enter the reservation. OpenRouter additionally receives
+`provider.max_price.image` in USD per image, including zero for a route declared
+without a separate image fee. No-fallback routing and existing token price caps
+remain in force. Provider responses and logs do not expose image bytes.
+
+Image input has a separate optional consent item, **`image-input`**, and feature
+key **`imageInput`**, labelled “Image input” / “Bildeingabe”. A host's consent
+port must cover the exact `imageInputScope(binding, operation)` in addition to
+its text processing scope. This purpose sends images, messages, conversation
+history and assessment to the same binding's recipients and processors.
+`models-international` remains version 1; image consent never follows from a
+file-text grant. The demo writes each consent item's declared version and lists
+image input among optional items whose changes preserve the conversation.
+
+A host can grant **both `images` (visual generation) and `image-input` (reading
+images) in its own start consent**, before the first attach or concept request.
+Its `/consent` document maps `features.images` and `features.imageInput` to the
+appropriate item IDs and lists those IDs in `selected`; its authoritative
+coverage port must confirm the corresponding scopes. When both are granted up
+front, no consent line or just-in-time ask appears for either feature. Existing
+host copy and explicit feature mappings keep precedence. For attach-time consent,
+`aithema-consent` additionally emits `reason: 'use'`, `intent: 'attach'`, and
+`features` containing `imageInput` (and any missing base upload/text purposes).
+These enums are open for future values. Files are held only in browser memory
+until consent, for at most three minutes; expiry asks for reselection. Paste uses
+only the paste event, without requesting clipboard-read permission. Dragged URLs
+are ignored and pasted text retains its normal single insertion.
+
+The additive upload contract includes `kind: 'image'`, `staged-pending`,
+`staged-ready`, `staged-refused` and `staged-discarded`. These are **not conversation
+input**: they do not advance `inputRevision`, clear understanding, supersede a
+reply, schedule a lane, or invoke the withdrawal cascade. `expiresAt` is thirty
+minutes after staging. Removing an unsent image, expiry, and a session switch
+discard it and erase its bytes. The normalization queue shares the isolated
+extraction slot, with waiting documents ahead of images. Processing checks
+compressed and decoded size, limits input to 40 MP and 16,384 px per edge,
+auto-orients, removes metadata, and emits JPEG or alpha-preserving PNG at most
+1,568 px on its long edge and 1.15 MP. Children have a ten-second deadline,
+64 MiB JS heap and a monitored 384 MiB RSS ceiling, and are reaped before release.
+
+`POST /api/sessions/:id/turns` additionally accepts `attachments: string[]`
+(up to four unique, owned, ready image upload IDs). Blank content is accepted
+only with attachments. Sending atomically binds those staged images to the user
+turn and marks them `sent`; request receipts bind text **and** attachments.
+A binding with a lower image limit refuses a larger attachment set with
+`image-input-limit`. Live-call image sends are refused with `image-live-call`;
+images can be sent in text mode. An image-only turn is neutral for purpose classification. Only sent
+images use the source-withdrawal cascade. `maxImagesPerSession` defaults to 8,
+separate from the eight-document quota, while source-byte limits remain shared.
+Hosts can lower it through upload limits or `AITHEMA_UPLOAD_MAX_IMAGES`.
+
+Owner-authenticated `GET /api/sessions/:id/uploads/:uploadId/image` returns only
+normalized ready/sent pixels, with `Cache-Control: no-store` and a current
+image-consent check. Clients fetch with the owner header into revocable blob
+URLs. Fixed staging tiles hold previews, filenames and preparing states; refusals
+appear once in the reason slot, with space measured from every localized
+refusal sentence. Remove controls sit beside the preview with a 44 px target
+and a filename in their accessible name. Withheld images display the sentence
+“Image not sent” / “Bild nicht gesendet” without a thumbnail-sized text box.
+Sent thumbnails are
+inside their user turn, with boxes reserved from stored `w` and `h`. Upload
+staging grows above the bottom-anchored controls in both entrance modes;
+combined image-capable composers reserve the bounded refusal feedback row while
+keeping the disclosure at its natural height;
+asynchronous preparation and refusals retain the reserved layout. Upload
+metadata adds `digest`, `w`, `h`, and `expiresAt`; turn data adds `attachments`.
+Normalized image bytes stay out of snapshots, receipts, journal and host events.
+ZIP exports include sent images under `images/` and their metadata in
+`uploads.json`; the existing export manifest hashes the exact image files.
+Withdrawal of optional image consent erases pixels and replaces later prompt
+references with `[image withheld]`, while already delivered replies remain.
+Full consent withdrawal and source erasure erase retained pixels too.
+
+`Reasoning` retains its text-only public type. `ImageReasoningRequest`,
+`ImageReasoning`, `ImageReference`, `ImageInputCapability`, `ImageOperationOptions`
+and `ImageInput` are additive types in `@inspr/aithema-core/plugin-contract`.
+Image-capable messages carry `images` references
+`{ uploadId, digest, w, h, mediaType }` through admission. Only the dispatched
+OpenRouter adapter converts resolved owner-bound bytes to `image_url` data URLs.
+Image-only requests omit blank text content blocks. After a model or preset
+switch to a binding without image input, earlier images become
+`[image: "filename", sent earlier]` text markers before cost admission; text
+replies and final understanding can continue without resending their pixels.
+Device mode refuses unsent staged images while retaining the files and caption;
+remove them or switch back to a model that accepts images before sending.
+At most four images from the last two user turns are resent; draft understanding
+stays text-only, and older images have text markers. Third-party text-only
+plugins never receive wire content-part arrays. `@inspr/aithema-core/image-input`
+also exports `IMAGE_INPUT_MEDIA_TYPES`, `stagedImage`, `imageReferences`,
+`validateImageInput`, `reasoningInputBound`, `imageInputFee`, and `imageInputScope`
+(the same helpers are available from the core root). The plugin manifest kind
+`image-input` and operation `normalize` are additive.
+
+New copy keys are `imageConsentJit`, `imageInputFeature`, `imagePreparing`,
+`imageRemove`, `imageLiveCall`, `imageUnsupportedModel`, `imageWithheld`,
+`uploadsSupported`, plural `uploadsReselect`, `imageRefusals` (unsupported, size,
+limit, empty, malformed, dimensions, deadline, cancelled, unavailable, session,
+model, live-call, batch and paused), `features.imageInput`, `featureConsent.imageInput`, and
+`processingConsent.items.image-input`. Upload limits now describe the accepted
+image formats and normalized-image retention. Refusals are bounded structured
+records, retained through typing until dismissed, a successful attach, or a
+successful send. The reason slot ranks pause/unavailability, send failure,
+attach-time consent, refusals, upload notices, then the shortcut hint. German UI
+copy is impersonal; host overrides remain authoritative. Mixed image/document
+selections refuse unavailable images while continuing with eligible documents.
+Document-only continuations use the existing upload-consent wording and editor.
+Paused conversations and unavailable normalizers have their own refusal copy;
+only a missing model capability uses the unsupported-model wording. An enabled
+Attach control describes selection even before consent, and asks only after a
+file is chosen. Image-capable composers append the supported-format help sentence
+with its final full stop and without a trailing separator, reserve that full
+localized notice, and show it without the two-line cap. Composers without image
+input keep the existing document refusal without image-format help. This also
+holds after an image refusal or a switch to a binding without image input,
+even when the reserved image layout remains mounted. Combined
+composers with document intake reserve the existing two-line feedback capacity
+before intake, so a wrapped document-only refusal keeps the controls fixed.
+That session reserve survives pause and consent changes; combined composers
+without uploads retain their natural feedback height. The expanded
+notice cap applies only to upload notices; long host-overridden image-consent
+copy remains scrollable inside its 44 px cap. Malformed image copy
+(`imageRefusals.malformed`) follows the file name: “is not a readable image.” / “ist kein lesbares Bild.”; host overrides
+still win. Supported extensions with unrecognized bytes reuse this sentence;
+the native refusal code remains unchanged. Multiple refused filenames retain
+their existing two-line scroll area with keyboard focus; accepted formats wrap
+in full below it, so selection size cannot grow the reserved composer slot.
+Retained-file retry messages preserve their refusal facts and retry action order.
+A successful document in a mixed pick keeps that pick's image refusal visible,
+including when the document waits for consent before uploading. Failures from
+the current selection also stay visible across upload acknowledgements; a later
+successful attachment clears older feedback.
+The reserved image-feedback width stays stable when consent becomes a shortcut.
+Its hidden measurement node is mounted only while image input is active, so
+hosts without image input retain the existing composer DOM and geometry.
+Repeated inactive paints skip feedback DOM writes.
+
+The additive lower-level server APIs are `SQLiteStorage.turnReceipt`,
+`imageUpload` (normalized bytes in `imageBytes`), and `expireStagedUploads`;
+`postTurn` accepts `guard.attachments`, and `completeUpload` accepts a
+`staged-ready` result containing bytes/mediaType/w/h (the store computes its
+digest), or `staged-refused` with a reason. `createUploadHandlers` accepts an
+injected `now` clock; its `cancelImages` stops only image normalization. The
+runtime exposes `imageInputAvailability` and `normalizeImageUpload`.
+`exportSession` accepts an additive `images` option containing normalized upload
+records with `imageBytes`; callers must supply only current owner-authorized
+records. `reasoningRequest` adds the `imageOnly` classification flag.
+`createChatCompletions` adds `prepareDispatch(body, options)`, invoked after
+admission for byte resolution; synchronous `prepareBody` still supplies
+estimation. `ImageOperationOptions.resolveImage` and optional
+`imageDispatchCurrent` are in-process authority callbacks, never browser input.
+
+Staged-image changes also preserve an admitted voice callback when append-only
+voice finals arrive; only conversation input remains in that comparison.
 ### In-chat email offer (AIT-507, opt-in)
 
 Set `host.emailOffer = { afterMessages: 2 }` on the server host to replace the

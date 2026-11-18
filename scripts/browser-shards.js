@@ -378,6 +378,34 @@ browserTestWeights['test/browser/start-look.test.js'] = Math.max(
 browserTestWeights['test/browser/clarify-now.test.js'] = Math.max(
   browserTestWeights['test/browser/clarify-now.test.js'], 378.094);
 
+// AIT-510 r10: complete upload-capacity file, remote 86de69650a-20594,
+// head 86de69650a, 29/29 PASS including disclosure/email/short-phone states.
+// File duration (including hooks/teardown) 63.774576042s; ceil(*1.25)=80s.
+// Raises the prior 71s diagnostic floor; trusted rolling-main samples unchanged.
+// AIT-510 r13: de881507d5-19436 passed 29/29 at de881507d5, with the
+// expanded refusal/mixed-pick/whole-item matrix in 68.097062459s.
+// ceil(*1.25)=86s raises the r10 floor, retaining twelve shards and all targets.
+// AIT-510 r14: all unchanged image bodies now share existing viewport work:
+// width1024 in start-look; width390/1440 in pause-phone. Complete remote run
+// 36ac30f0d1-40209 passes 247 tests: upload 5 in 21.832980542s, start-look 149
+// in 116.812526542s, pause-phone 93 in 174.989791333s. ceil(*1.25)=28/147/219s,
+// covered by the inherited 36.093/162/220s plans. Remove only this ticket's
+// temporary source/destination additions; keep every trusted sample and floor.
+// Main's full growth plan 4820.039s and unchanged bounded packing now apply.
+// AIT-510 r15: complete final-product run e0bd97b085-82450 passes all
+// 125 pause-phone tests in 177.878909750s, including 32 new refusal/cap checks.
+// ceil(observed *1.25)=223s raises only the PR diagnostic floor from 220s.
+// Keep twelve shards, 405/420s targets and all trusted timing history.
+// AIT-510 r16: preserve all inherited floors by placing the unchanged new
+// no-upload first-paint regression in language-first-paint. Its 108.958s plan
+// covers the prior complete 52.212726083s file plus the 16.159237637s red case:
+// ceil((52.212726083 +16.159237637) *1.25)=86s. Remove only this round's
+// temporary upload addition now that the case leaves that file.
+// AIT-510 r18b: current-capability transition checks add 48 nested cases.
+// Complete remote run e4d76500de-76889 passes 173/173 in 184.105106500s;
+// ceil(observed *1.25)=231s. Raise only the diagnostic reservation.
+browserTestWeights['test/browser/pause-phone.test.js'] = Math.max(
+  browserTestWeights['test/browser/pause-phone.test.js'], 231);
 // AIT-517: preserve measured main history and reserve contact/RC25 coverage.
 // Geometry: complete remote run ait-5e96229f4b684be182bea901 at 255f392e,
 // 264.361s file wall time minus unchanged combined contact case 39.781s:

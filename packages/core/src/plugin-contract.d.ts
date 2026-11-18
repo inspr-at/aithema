@@ -34,6 +34,23 @@ export interface Reasoning {
   structured(request: { system: string; messages: { role: string; content: string }[]; schema: object }, options: OperationOptions): Promise<unknown>;
   health(options: Pick<OperationOptions, 'signal' | 'deadlineAt' | 'now'>): Promise<Health>;
 }
+export interface ImageInputCapability { maxImages: number; maxTokensPerImage: number; perImageMicro?: number }
+export interface ImageReference { uploadId: string; digest: string; w: number; h: number; mediaType: 'image/jpeg' | 'image/png' }
+/** Additive reference request for explicitly image-capable bindings; Reasoning remains text-only. */
+export interface ImageReasoningRequest { system: string; messages: { role: string; content: string; images?: ImageReference[] }[]; schema?: object }
+export interface ImageOperationOptions extends OperationOptions {
+  resolveImage(reference: ImageReference): Uint8Array | Promise<Uint8Array>;
+  imageDispatchCurrent?(): boolean;
+}
+export interface ImageReasoning {
+  imageInput: true;
+  stream(request: ImageReasoningRequest, options: ImageOperationOptions): AsyncIterable<string>;
+  structured(request: ImageReasoningRequest & { schema: object }, options: ImageOperationOptions): Promise<unknown>;
+}
+export interface ImageInput {
+  normalize(bytes: Uint8Array, metadata: { filename?: string; mediaType?: string }, options?: Partial<Pick<OperationOptions, 'signal' | 'deadlineAt' | 'now'>>): Promise<
+    { status: 'staged-ready'; bytes: Uint8Array; digest: string; w: number; h: number; mediaType: 'image/jpeg' | 'image/png' } | { status: 'staged-refused'; reason: string }>;
+}
 export interface STT extends Partial<AudioFormatPort> {
   transcribe(request: { audio: Uint8Array; format: string; language: string }, options: OperationOptions): Promise<{ text: string }>;
   stream?(request: { audio: AsyncIterable<Uint8Array>; format: string }, options: OperationOptions): AsyncIterable<{ text: string; final: boolean }>;
@@ -214,6 +231,7 @@ export interface VoicePorts {
 export interface PrivateBinding {
   plugin: string; model: string; effort: string; endpoint: string; routing?: object;
   accountRef: string; secretRef: string; maxMicro: number; maxTokens: number;
+  imageInput?: ImageInputCapability;
   rates: { inputMicro: number; outputMicro: number; inputUSD?: number; outputUSD?: number };
   legal: { purpose: string; recipient: string; processors: string[]; dataCategories: string[];
     consentVersion: string;

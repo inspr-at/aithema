@@ -1,3 +1,5 @@
+import { imageInputCheck } from './image-input-check.js';
+imageInputCheck([390, 1440]);
 // AIT-188: Tick's binding follow-ups. Viewport evidence only, remote runner only.
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';

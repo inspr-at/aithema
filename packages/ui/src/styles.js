@@ -492,6 +492,8 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
   /* Reclaim only gaps: Attach and Send keep their normal positions. */
   .composer-actions:has(.composer-reason[data-consent-feature="text"]) { gap:0; }
   .composer-actions:has(.composer-reason[data-send-failed]) { gap:0; }
+  /* Image feedback keeps its measured width when consent becomes a shortcut. */
+  .composer[data-image-input] .composer-actions { gap:0; }
   .composer-reason[data-send-failed] { letter-spacing:-.03em; }
   .composer-reason[data-send-failed] .consent-action { letter-spacing:inherit; }
   /* Keep the 12px DE label on one line with the wider Linux baseline font. */
@@ -863,4 +865,59 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 :host([data-aithema-erased]) .fold-strip > .erased-end { line-height:1.2; flex-direction:row; align-items:center; justify-content:space-between; gap:8px; padding:0; font-size:12px; }
 :host([data-aithema-erased]) .fold-strip .erased-end__new { flex:none; padding-inline:8px; }
 :host([data-aithema-erased]) .intro__card > .erased-end { align-self:center; justify-self:center; }
+
+/* Image preparation changes content inside fixed tiles, never their footprint. */
+.composer[data-image-input] { align-content:end; }
+.composer[data-image-input] .composer-actions { align-items:flex-end; }
+.staged-images { display:flex; grid-column:1/-1; gap:8px; height:88px; max-width:100%; overflow-x:auto; overflow-y:hidden; scrollbar-width:none; }
+.staged-images[hidden] { display:none; }
+.staged-image { position:relative; flex:0 0 156px; height:88px; display:grid; grid-template-columns:minmax(0,1fr) 44px; grid-template-rows:48px 40px; border-radius:8px;
+  background:color-mix(in srgb,var(--aithema-ink) 8%,var(--aithema-paper)); border:1px solid var(--aithema-line); overflow:hidden; }
+.staged-image__preview { display:block; min-height:0; grid-column:1; grid-row:1; }
+.staged-image__status { grid-column:1/-1; grid-row:2; display:block; font-size:11px; line-height:13px; padding:2px 5px; overflow:auto; overflow-wrap:anywhere; }
+.staged-image[data-state="staged-refused"] .staged-image__status { color:var(--aithema-warning); }
+.staged-image__remove { grid-column:2; grid-row:1; align-self:start; width:44px; height:44px; min-height:44px; padding:0; font-size:22px;
+  color:var(--aithema-ink); background:color-mix(in srgb,var(--aithema-paper) 85%,transparent); }
+.image-thumbnail { display:block; width:100%; height:100%; object-fit:contain; }
+.turn-images { display:flex; flex-wrap:wrap; gap:8px; grid-column:2; }
+.turn-image { display:block; flex:none; overflow:hidden; border-radius:6px; background:color-mix(in srgb,var(--aithema-ink) 8%,var(--aithema-paper)); }
+.turn-image[data-withheld] { background:none; border-radius:0; overflow:visible; overflow-wrap:normal; word-break:normal; }
+/* Measure every real localized reason at the live width before any decoder result.
+   The name has one line; the reason below it is never truncated. */
+.composer[data-image-input] .composer-feedback,
+.composer[data-image-input] .composer-feedback:has(.composer-reason[data-shortcut]) { position:relative; flex:1; }
+.image-feedback-reserve { display:none; visibility:hidden; pointer-events:none; font-size:.72rem; line-height:1.3; }
+.composer[data-image-input] .image-feedback-reserve { display:grid; }
+.image-feedback-reserve > * { grid-area:1/1; }
+.image-feedback-document-reserve { overflow-wrap:anywhere; }
+/* Keep arbitrary refusal batches in their established two-line scroll area;
+   accepted formats have their own fully wrapped row and never scroll away. */
+.upload-notice-facts { display:block; min-height:2.6em; max-height:2.6em; overflow:auto; overscroll-behavior:contain; overflow-wrap:anywhere; }
+.upload-notice-formats { display:block; overflow-wrap:anywhere; }
+.composer-reason[data-upload-notice] { display:block; overflow:visible; }
+.composer[data-image-input] .composer-reason[data-upload-notice] { max-height:none; }
+.composer[data-image-input] .composer-reason[data-consent-feature="imageInput"] { overflow-y:auto; }
+.image-refusals, .image-refusals-reserve__row { display:flex; align-items:flex-start; gap:5px; min-height:44px; font-size:.72rem; line-height:1.3; }
+.image-refusals { position:absolute; inset:0; overflow:auto; color:var(--aithema-warning); }
+.image-refusals__icon { flex:none; width:14px; height:14px; margin-top:2px; }
+.image-refusals__icon svg { width:14px; height:14px; }
+.image-refusals__list { flex:1; min-width:0; }
+.image-refusal { display:block; overflow-wrap:anywhere; }
+.image-refusal__name { display:block; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; min-height:1.3em; }
+.image-refusals__dismiss { flex:none; display:inline-flex; align-items:center; min-height:44px; padding:0 4px; color:inherit; font:inherit; }
+.composer-reason:has(.image-refusals) { transition:none; position:absolute; inset:0; width:auto; height:auto; max-height:none; overflow:visible; }
+@media(max-width:600px) {
+  /* Reserve the short phone reason slot with the declared input capability. */
+  .workspace[data-phone-short] .composer[data-image-input] { padding-top:calc(var(--image-feedback-height,60px) + 10px); }
+  .workspace[data-phone-short] .composer[data-image-input] .composer-feedback { position:absolute; top:4px; left:6px; right:6px; height:var(--image-feedback-height,60px); margin:0; }
+  .workspace[data-phone-short] .composer[data-image-input] .composer-reason { position:static; width:auto; height:auto; max-height:none; clip-path:none; overflow:auto; }
+  .workspace[data-phone-short] .composer[data-image-input] .composer-reason:has(.image-refusals) { transition:none; position:absolute; inset:0; overflow:visible; }
+  /* A selected thumbnail shares one row with its 44px control on short phones. */
+  .workspace[data-phone-short] .turn-image:not([data-withheld]) { max-width:44px; max-height:44px; }
+  .workspace[data-phone-short] .staged-images { height:46px; }
+  .workspace[data-phone-short] .staged-image { flex-basis:220px; height:46px; grid-template-columns:44px minmax(0,1fr) 44px; grid-template-rows:44px; }
+  .workspace[data-phone-short] .staged-image__status { grid-column:2; grid-row:1; align-self:center; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; }
+  .workspace[data-phone-short] .staged-image__remove { grid-column:3; }
+  .workspace[data-phone-short] .composer[data-image-input] .composer-reason[data-shortcut] { visibility:hidden; }
+}
 `;

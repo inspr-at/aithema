@@ -3,7 +3,7 @@ ARG NODE_IMAGE=node:24-bookworm-slim
 FROM ${NODE_IMAGE}
 WORKDIR /app
 COPY --chown=root:root . .
-RUN npm ci --omit=dev && chmod -R a-w /app && mkdir -p /data && chown node:node /data
+RUN npm ci --omit=dev && node scripts/qualify-image-input.js && chmod -R a-w /app && mkdir -p /data && chown node:node /data
 USER node
 ENV AITHEMA_DB=/data/session.sqlite AITHEMA_LISTEN_HOST=0.0.0.0 PORT=3000
 VOLUME ["/data"]
