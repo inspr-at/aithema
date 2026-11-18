@@ -363,3 +363,14 @@ jobs:
           path: ${{ runner.temp }}/preview-security.json
           if-no-files-found: error
           retention-days: 14
+
+  image-input-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container: node:24-bookworm-slim
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install production dependencies including native image binaries
+        run: npm ci --omit=dev --no-audit --no-fund
+      - name: Normalize a fixture in the Docker base
+        run: node scripts/qualify-image-input.js

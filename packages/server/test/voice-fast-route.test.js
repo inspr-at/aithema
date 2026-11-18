@@ -198,3 +198,23 @@ test('AIT-397: legacy host bindings require the same fast route', async t => {
   assert.ok(h.errors.some(message => /Voice configuration error:.*reaction/u.test(message)));
   await assert.rejects(h.runtime.checkVoice(h.session), /fast reaction binding/u);
 });
+
+for (const state of ['staged-pending', 'staged-ready', 'staged-refused', 'staged-discarded']) {
+  test(`AIT-510: ${state} does not reject a voice callback across append-only finals`, async t => {
+    t.mock.timers.enable({ apis: ['Date'], now: 1_800_000_000_000 });
+    const h = fixture(t, composedManifest);
+    const entry = await h.runtime.admit({ session: h.session, lane: 'reaction', operation: 'stream',
+      request: { system: '', messages: [{ role: 'user', content: 'Fixture callback' }] }, options: { voiceReply: true } });
+    try {
+      const image = h.storage.postUploads(h.session.id, 'stage-image', 'stage-image', [{ filename: 'fixture.png', mediaType: 'image/png',
+        kind: 'image', bytes: Buffer.from('fixture'), deadlineAt: Date.now() + 25000 }]).events[0].data;
+      if (state === 'staged-ready') h.storage.completeUpload(h.session.id, image.id, { status: state, bytes: Buffer.from('normalized'), mediaType: 'image/png', w: 1, h: 1 });
+      if (state === 'staged-refused') h.storage.completeUpload(h.session.id, image.id, { status: state, reason: 'malformed' });
+      if (state === 'staged-discarded') h.storage.withdrawUpload(h.session.id, image.id);
+      h.storage.append(h.session.id, 'turn.final', { id: 'voice-final', role: 'user', content: 'An append-only voice final', at: new Date().toISOString() });
+      await entry.options.attempt.consume();
+      assert.equal(h.storage.get(h.session.id).uploads[0].state, state);
+      entry.options.report({ attemptId: entry.options.attempt.attemptId, outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } });
+    } finally { entry.finish({ failed: true }); }
+  });
+}

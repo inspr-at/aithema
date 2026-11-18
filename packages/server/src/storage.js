@@ -1,3 +1,4 @@
+import { stagedImage } from '@inspr/aithema-core/image-input';
 import { DatabaseSync } from 'node:sqlite';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
@@ -575,7 +576,7 @@ export class SQLiteStorage {
       const session = this.get(id); this.#check(session);
       if (inputRevision(session) !== revision || session.pauseReason === 'purpose') return [];
       const person = session.transcript.findLast(turn => turn.role === 'user' && !turn.erased && !turn.withdrawn);
-      const documents = (session.uploads ?? []).filter(upload => !upload.erased && !upload.withdrawn).map(upload => upload.id);
+      const documents = (session.uploads ?? []).filter(upload => !upload.erased && !upload.withdrawn && !stagedImage(upload)).map(upload => upload.id);
       const key = JSON.stringify(['text', person?.id ?? null, documents]);
       this.db.prepare('INSERT INTO safeguard_inputs(session_id,input_key,revision,off_topic,analysis_off,assessment_revision) VALUES (?,?,?,?,?,?) ON CONFLICT(session_id,input_key) DO UPDATE SET revision=excluded.revision,assessment_revision=excluded.assessment_revision,analysis_off=excluded.analysis_off,off_topic=MAX(safeguard_inputs.off_topic,excluded.off_topic)')
         .run(id, key, revision, Number(offTopic), Number(offTopic), revision ?? null);
@@ -641,12 +642,13 @@ export class SQLiteStorage {
       return { contentRef, hash: hash(bytes), ...retained };
     }
     if (type === 'upload.state') {
+      if (data.state === 'staged-discarded') return { id: data.id, kind: 'image', state: 'staged-discarded', at: data.at, erased: true };
       if (data.state === 'withdrawn') return { id: data.id, state: 'withdrawn', at: data.at, erased: true, withdrawn: true };
-      if (data.contentRef) return Object.fromEntries(['id', 'state', 'at', 'reason', 'contentRef', 'hash'].filter(k => data[k] !== undefined).map(k => [k, data[k]]));
-      const bytes = JSON.stringify(Object.fromEntries(['filename', 'mediaType', 'bytes', 'text', 'truncated', 'extractor', 'deadlineAt'].filter(k => data[k] !== undefined).map(k => [k, data[k]])));
+      if (data.contentRef) return Object.fromEntries(['id', 'kind', 'state', 'at', 'reason', 'contentRef', 'hash'].filter(k => data[k] !== undefined).map(k => [k, data[k]]));
+      const bytes = JSON.stringify(Object.fromEntries(['filename', 'mediaType', 'bytes', 'text', 'truncated', 'extractor', 'deadlineAt', 'kind', 'digest', 'w', 'h', 'turnId', 'expiresAt'].filter(k => data[k] !== undefined).map(k => [k, data[k]])));
       const contentRef = `${id}:upload:${data.id}:${seq}`;
       this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id, 'upload', bytes, hash(bytes), data.at);
-      return { id: data.id, state: data.state, at: data.at, ...(data.reason ? { reason: data.reason } : {}), contentRef, hash: hash(bytes) };
+      return { id: data.id, ...(data.kind ? { kind: data.kind } : {}), state: data.state, at: data.at, ...(data.reason ? { reason: data.reason } : {}), contentRef, hash: hash(bytes) };
     }
     if (type === 'concept.feedback') {
       if (data.contentRef) return { artifactId: data.artifactId, archived: data.archived, contentRef: data.contentRef, hash: data.hash };
@@ -682,7 +684,7 @@ export class SQLiteStorage {
     const { scope, ...visibleData } = data;
     data = visibleData;
     const bytes = JSON.stringify(['turn.final', 'turn.corrected'].includes(type)
-      ? { content: data.content, ...(data.role === 'assistant' ? { ...origin, ...(data.engine ? { engine: data.engine } : {}),
+      ? { content: data.content, ...(data.attachments?.length ? { attachments: data.attachments } : {}), ...(data.role === 'assistant' ? { ...origin, ...(data.engine ? { engine: data.engine } : {}),
         ...('question_short' in data || 'options' in data ? parseReply(data) : {}) } : {}) }
       : { ...data, ...origin }), digest = hash(bytes);
     this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id,
@@ -783,6 +785,14 @@ export class SQLiteStorage {
       return { event: this.#append(session, decision.type, { ...decision.data, requestId: randomUUID() }) };
     });
   }
+  turnReceipt(id, clientId, bytes, guard = {}) {
+    const session = this.get(id); this.#check(session, { ...guard, revision: undefined });
+    const receipt = this.db.prepare('SELECT bytes,result FROM receipts WHERE session_id=? AND client_id=?').get(id, clientId);
+    if (!receipt) return null;
+    if (Buffer.from(receipt.bytes).toString() !== hash(bytes)) throw new ConflictError('Client event id has different bytes');
+    const { events, ...stored } = JSON.parse(receipt.result);
+    return { ...this.#hydrateEvent(stored), ...(events ? { events: events.map(saved => this.#hydrateEvent(saved)) } : {}) };
+  }
   #appendOpener(session, opener = {}) {
     const text = opener[session.locale];
     if (session.transcript.length || session.tombstone || session.consentWithdrawn || !text) return null;
@@ -809,11 +819,16 @@ export class SQLiteStorage {
         this.read(id, guard.initialLocaleSeq).every(event => event.type === 'session.locale-changed');
       this.#check(session, localeOnly ? { ...guard, revision: undefined } : guard);
       if (session.transcript.some(turn => turn.id === clientId)) throw new ConflictError('Turn id already exists');
+      const attachments = guard.attachments ?? [];
+      if (!Array.isArray(attachments) || attachments.length > 4 || new Set(attachments).size !== attachments.length ||
+        attachments.some(uploadId => typeof uploadId !== 'string' || !session.uploads.some(upload => upload.id === uploadId &&
+          upload.kind === 'image' && upload.state === 'staged-ready' && !upload.erased && upload.expiresAt > this.now()))) throw new ConflictError('Image attachments not ready');
+      if (attachments.length && this.voiceCalls(id).some(call => !call.terminal)) throw new ConflictError('Images require text mode');
       // Synchronous host preflight follows replay/revision checks and precedes persistence.
       beforeSave();
       const openerEvent = this.#appendOpener(session, guard.opener);
       if (openerEvent) session = this.get(id);
-      const event = this.#append(session, 'turn.final', { id: clientId, role: 'user', content,
+      const event = this.#append(session, 'turn.final', { id: clientId, role: 'user', content, ...(attachments.length ? { attachments } : {}),
         ...(guard.voiceCallId ? { voiceCallId: guard.voiceCallId, voiceProviderId: guard.voiceProviderId } : {}),
         at: new Date(this.now()).toISOString() });
       const events = [...(openerEvent ? [openerEvent] : []), event];
@@ -827,7 +842,8 @@ export class SQLiteStorage {
     const data = this.#hydrateData(id, metadata);
     // Keep the event's original transition when replaying. Turning every erased
     // pending/accepted event into another withdrawal would invent revisions.
-    return data.erased || data.withdrawn ? { id: data.id, state: historical ? metadata.state : 'withdrawn', erased: true, withdrawn: true } : data;
+    if (metadata.state === 'staged-discarded') return { id: metadata.id, kind: 'image', state: 'staged-discarded', erased: true };
+    return data.erased || data.withdrawn ? { id: data.id, ...(metadata.kind ? { kind: metadata.kind } : {}), state: historical ? metadata.state : 'withdrawn', erased: true, withdrawn: true } : data;
   }
   uploadReceipt(id, clientId, digest, guard = {}) {
     const session = this.get(id); this.#check(session, { ...guard, revision: undefined });
@@ -842,12 +858,14 @@ export class SQLiteStorage {
     return this.transaction(() => {
       const replay = this.uploadReceipt(id, clientId, digest, guard); if (replay) return replay;
       const session = this.get(id); this.#check(session, guard);
-      const current = session.uploads.filter(u => u.state !== 'withdrawn');
-      if (!files.length || files.length > limits.maxFilesPerRequest || current.length + files.length > limits.maxDocumentsPerSession ||
+      const current = session.uploads.filter(u => !u.erased && !u.withdrawn && !['withdrawn', 'staged-discarded', 'withheld'].includes(u.state));
+      const addingImages = files.filter(file => file.kind === 'image').length, images = current.filter(u => u.kind === 'image').length;
+      if (!files.length || files.length > limits.maxFilesPerRequest || current.length - images + files.length - addingImages > limits.maxDocumentsPerSession || images + addingImages > limits.maxImagesPerSession ||
         current.reduce((n, u) => n + u.bytes, 0) + files.reduce((n, f) => n + f.bytes.length, 0) > limits.maxSessionBytes ||
         files.some(f => f.bytes.length > limits.maxBytes)) throw new RangeError('Upload limit');
       const events = files.map(file => {
-        const uploadId = randomUUID(), event = this.#append(this.get(id), 'upload.state', { id: uploadId, state: 'pending',
+        const uploadId = randomUUID(), event = this.#append(this.get(id), 'upload.state', { id: uploadId, state: file.kind === 'image' ? 'staged-pending' : 'pending',
+          ...(file.kind === 'image' ? { kind: 'image', expiresAt: this.now() + 30 * 60 * 1000 } : {}),
           filename: file.filename, mediaType: file.mediaType, bytes: file.bytes.length, deadlineAt: file.deadlineAt, at: new Date(this.now()).toISOString() });
         this.db.prepare('INSERT INTO uploads VALUES (?,?,?,?,?,NULL)').run(uploadId, id, file.bytes, file.bytes.length, event.data.contentRef);
         return event;
@@ -868,13 +886,18 @@ export class SQLiteStorage {
     return this.#invalidationTransaction(() => {
       const session = this.get(id); this.#check(session, guard);
       const upload = session.uploads.find(u => u.id === uploadId);
-      if (!upload || upload.state !== 'pending') return null;
-      // D505c(a): terminal documents are first visitor input, just like text.
-      if (['accepted', 'unreadable'].includes(result.status)) this.#appendOpener(session, guard.opener);
+      if (!upload || !['pending', 'staged-pending'].includes(upload.state)) return null;
+      const image = upload.kind === 'image';
+      if (image && !['staged-ready', 'staged-refused'].includes(result.status)) throw new TypeError('Invalid image normalization result');
+      if (image && result.status === 'staged-ready' && (!(result.bytes instanceof Uint8Array) || !result.bytes.length || result.bytes.length > 8 * 1024 * 1024 ||
+        !['image/png', 'image/jpeg'].includes(result.mediaType) || ![result.w, result.h].every(n => Number.isSafeInteger(n) && n > 0 && n <= 1568) ||
+        result.w * result.h > 1150000)) throw new TypeError('Invalid normalized image');
+      if (!image && ['accepted', 'unreadable'].includes(result.status)) this.#appendOpener(session, guard.opener);
       const event = this.#append(this.get(id), 'upload.state', { ...upload, contentRef: undefined, hash: undefined,
         state: result.status, reason: result.reason, text: result.status === 'accepted' ? result.text : undefined,
-        truncated: result.truncated, extractor: result.extractor });
-      this.db.prepare('UPDATE uploads SET bytes=NULL,content_ref=? WHERE session_id=? AND id=?').run(event.data.contentRef, id, uploadId);
+        truncated: result.truncated, extractor: result.extractor,
+        ...(image && result.status === 'staged-ready' ? { digest: hash(result.bytes), w: result.w, h: result.h, mediaType: result.mediaType } : {}) });
+      this.db.prepare('UPDATE uploads SET bytes=?,content_ref=? WHERE session_id=? AND id=?').run(image && result.status === 'staged-ready' ? result.bytes : null, event.data.contentRef, id, uploadId);
       return event;
     });
   }
@@ -891,9 +914,20 @@ export class SQLiteStorage {
       this.db.prepare('UPDATE uploads SET bytes=NULL,tombstone=? WHERE session_id=? AND id=?').run(at, id, uploadId);
       this.db.prepare("UPDATE content SET bytes=NULL,tombstone=? WHERE session_id=? AND kind='upload' AND id LIKE ?")
         .run(at, id, `${id}:upload:${uploadId}:%`);
+      if (stagedImage(upload)) return this.#append(this.get(id), 'upload.state', { id: uploadId, kind: 'image', state: 'staged-discarded', erased: true, at });
       this.#invalidate(id);
       return this.#append(this.get(id), 'upload.state', { id: uploadId, state: 'withdrawn', at });
     });
+  }
+  expireStagedUploads(id, at = this.now()) {
+    const uploads = this.get(id).uploads.filter(upload => stagedImage(upload) && !upload.erased && upload.expiresAt <= at);
+    return uploads.map(upload => this.withdrawUpload(id, upload.id));
+  }
+  imageUpload(id, uploadId) {
+    const upload = this.get(id).uploads.find(upload => upload.id === uploadId && upload.kind === 'image' && !upload.erased &&
+      ['staged-ready', 'sent'].includes(upload.state) && (upload.state === 'sent' || upload.expiresAt > this.now()));
+    const bytes = upload && this.uploadBytes(id, uploadId);
+    return bytes ? { ...upload, imageBytes: bytes } : null;
   }
   saveVoiceCall(id, record, { paused, guard = {} } = {}) {
     return this.transaction(() => {
@@ -1045,6 +1079,13 @@ export class SQLiteStorage {
   }
   #invalidate(id, turnId, all = false, concepts = true) {
     const at = new Date(this.now()).toISOString(), target = this.get(id).transcript.find(t => t.id === turnId && t.role === 'user');
+    if (all || target?.attachments?.length) {
+      const attached = new Set(target?.attachments ?? []);
+      for (const upload of this.get(id).uploads.filter(u => u.kind === 'image' && (all || attached.has(u.id)))) {
+        this.db.prepare('UPDATE uploads SET bytes=NULL,tombstone=? WHERE session_id=? AND id=?').run(at, id, upload.id);
+        this.db.prepare("UPDATE content SET bytes=NULL,tombstone=? WHERE session_id=? AND kind='upload' AND id LIKE ?").run(at, id, `${id}:upload:${upload.id}:%`);
+      }
+    }
     const hostState = this.hostState(id);
     if (hostState?.identity?.roleWithdrawalRevision !== undefined) {
       hostState.identity.role = null;
@@ -1150,6 +1191,11 @@ export class SQLiteStorage {
       // Forget cross-conversation pause on withdrawal. Keep this live conversation's
       // deadline so granting consent again cannot restart its hour.
       if (!granted) this.#deleteOwnerCreditGuard(id);
+      if (!granted || removed?.includes('imageInput')) {
+        for (const upload of session.uploads.filter(u => u.kind === 'image' && !u.erased)) {
+          this.db.prepare('UPDATE uploads SET bytes=NULL WHERE session_id=? AND id=?').run(id, upload.id);
+        }
+      }
       const event = this.#append(session, 'consent.revised', { granted, at: new Date(this.now()).toISOString(),
         ...(Array.isArray(changed) ? { changed: [...changed] } : {}),
         ...(Array.isArray(removed) ? { removed: [...removed] } : {}),

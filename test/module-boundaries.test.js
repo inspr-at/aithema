@@ -4,10 +4,33 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { checkBoundaries, importSpecifiers, parseSource, renderLayerTable, renderExceptionTable } from '../scripts/check-boundaries.mjs';
 import { checkCiEnv, ciEnvReads, renderCiEnvTable } from '../scripts/check-ci-env.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const declarations = JSON.parse(readFileSync(new URL('../scripts/ci-env-declarations.json', import.meta.url), 'utf8'));
+const execute = promisify(execFile);
+
+for (const entry of ['consent-line.js', 'copy-resolve.js', 'i18n/en.js', 'i18n/de.js', 'uploads.js']) {
+  test(`AIT-510: consent copy initializes from the ${entry} entry point`, async () => {
+    // Fresh processes expose import-order cycles that a populated module cache hides.
+    const source = `
+      import assert from 'node:assert/strict';
+      await import(${JSON.stringify(new URL('../packages/ui/src/', import.meta.url).href)} + ${JSON.stringify(entry)});
+      const { en } = await import('./packages/ui/src/i18n/en.js');
+      const { de } = await import('./packages/ui/src/i18n/de.js');
+      const { reasonSeparator, featureConsentText } = await import('./packages/ui/src/consent-line.js');
+      assert.equal(reasonSeparator, '\\u00a0· ');
+      assert.equal(en.layout.openQuestion, 'Open question' + reasonSeparator + 'Unfold');
+      assert.equal(de.layout.openQuestion, 'Offene Frage' + reasonSeparator + 'Ausklappen');
+      assert.equal(featureConsentText(en, 'imageInput'), en.imageConsentJit);
+      assert.equal(featureConsentText({ display: { locale: 'de' } }, 'imageInput'), de.imageConsentJit);
+      assert.equal(featureConsentText({ ...en, imageConsentJit: 'Host consent' }, 'imageInput'), 'Host consent');
+    `;
+    await execute(process.execPath, ['--input-type=module', '-e', source], { cwd: root, timeout: 10000 });
+  });
+}
 
 test('AIT-202: packages and plugins obey declared layers and public exports', () => {
   assert.deepEqual(checkBoundaries(root), []);

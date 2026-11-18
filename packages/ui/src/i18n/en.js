@@ -1,4 +1,4 @@
-import { reasonSeparator } from '../consent-line.js';
+import { reasonSeparator } from '../reason-separator.js';
 import { AI_NOTICE } from '../../../core/src/ai-notice.js';
 
 export const en = {
@@ -167,7 +167,7 @@ export const en = {
   fakeVoiceGreeting: 'Hello. Tell me what you would like to improve.', fakeVoiceReply: 'I understand. Which part should we clarify first?',
   fakeVoiceStatement: 'We want to improve our public API.', fakeVoiceHeard: 'I understand.',
   processing: 'Processing', presets: { best: 'Best models', eu: 'In the EU', device: 'On my device', custom: 'Custom' },
-  features: { text: 'Text', analysis: 'Analysis', voice: 'Voice', transcription: 'Transcription', images: 'Images', html: 'Clickable drafts', uploads: 'File uploads' },
+  features: { text: 'Text', analysis: 'Analysis', voice: 'Voice', transcription: 'Transcription', images: 'Images', html: 'Clickable drafts', uploads: 'File uploads', imageInput: 'Image input' },
   engine: { model: 'Model', voice: 'Voice', visuals: 'Visuals', off: 'Off', localModel: 'Local model', notConnected: 'not connected' },
   settings: {
     operatorLogin: 'Sign in as operator with {provider}',
@@ -512,9 +512,34 @@ export const en = {
     },
   },
   // Document uploads (AIT-100 B2), from START src/lib/i18n.ts problem.attach/dropActive/rejected* and v2.attach*.
+  imageConsentJit: "Images need consent to be read.",
+  imageInputFeature: "Image input",
+  imagePreparing: "Preparing…",
+  imageRemove: "Remove {name}",
+  imageLiveCall: "Images can be sent in text mode.",
+  imageUnsupportedModel: "This assistant can't read images.",
+  imageWithheld: "Image not sent",
+  uploadsSupported: "Supported: PDF, Word, Excel, PowerPoint, text, and PNG, JPEG, WebP or GIF images.",
+  uploadsReselect: {"one": "Please choose the file again.", "other": "Please choose the files again."},
+  imageRefusals: {
+    "paused": "Images cannot be attached while the conversation is paused.",
+    "batch": "Up to four images can be sent together.",
+    "unsupported": "File type not accepted. Use PNG, JPEG, WebP or GIF.",
+    "size": "Image too large for this upload.",
+    "limit": "No more images fit in this conversation.",
+    "empty": "The image is empty.",
+    "malformed": "is not a readable image.",
+    "dimensions": "The image dimensions are too large.",
+    "deadline": "Preparing the image took too long.",
+    "cancelled": "Preparing the image was cancelled.",
+    "unavailable": "Images cannot be prepared right now.",
+    "session": "The images exceed this conversation's total file size.",
+    "model": "This assistant can't read images.",
+    "live-call": "Images can be sent in text mode.",
+  },
   uploads: {
     attach: 'Attach files',
-    limits: 'Up to {files} files, {size} each: PDF, Word, Excel, PowerPoint, text, Markdown, CSV, JSON or XML. The original file is not stored.',
+    limits: 'Up to {files} files, {size} each: PDF, Word, Excel, PowerPoint, text, Markdown, CSV, JSON, XML, PNG, JPEG, WebP or GIF. Original documents are not stored; normalized images are kept until withdrawn or erased.',
     dropActive: 'Release to attach', dropLimits: 'Up to {files} files, {size} each', unavailable: 'Files cannot be attached: {reason}',
     uploading: { one: 'Uploading 1 file…', other: 'Uploading {count} files…' },
     received: { one: 'File received. Reading it…', other: '{count} files received. Reading them…' },
@@ -541,6 +566,11 @@ export const en = {
   // Server feature verdicts are stable machine reasons; show them in the page language.
   reconcilingLong: "The call's costs aren't confirmed yet. Your text is kept.",
   reasons: {
+    "image input not supported": "This assistant can't read images.",
+    "image normalizer not configured": "Image preparation not configured",
+    "image normalizer unavailable": "Images cannot be prepared right now.",
+    "image normalizer must be local and free": "Image preparation unavailable",
+
     'session paused': 'Conversation paused', 'current processing consent required': 'Processing consent required',
     'consent port unavailable': 'Consent check unavailable', 'not configured': 'Not configured',
     'unavailable on device': 'Not available on this device', 'plugin not registered': 'Provider not installed',
@@ -632,7 +662,7 @@ export const en = {
   },
   // START src/lib/consent-items.ts:16,18 ids; src/lib/i18n.ts consentCopy.en.
   // Item copy matches the demo server; introductory terms belong to each host.
-  featureConsent: { text: 'Messages need your consent', uploads: 'Files need your consent', images: 'Images need your consent', html: 'Drafts need your consent', voice: 'Voice needs your consent', analysis: 'The overview needs your consent',
+  featureConsent: { imageInput: "Images need consent to be read.", text: 'Messages need your consent', uploads: 'Files need your consent', images: 'Images need your consent', html: 'Drafts need your consent', voice: 'Voice needs your consent', analysis: 'The overview needs your consent',
     textActionReason: 'messages need your consent',
     actionNarrow: 'Review', textReview: 'Review consent',
     textNarrow: 'Consent needed',
@@ -641,6 +671,9 @@ export const en = {
     intro: 'Choose which processing you allow. Items with different recipients or purposes are listed separately. Items you don\'t select are not allowed.',
     withdrawal: 'You can withdraw consent here at any time. Withdrawal does not undo transfers that have already taken place.',
     items: {
+      'image-input': { version: 1, title: "Image input",
+        recipients: "OpenRouter, Inc. and the selected model provider. Processing can take place outside Europe, including in the United States.",
+        text: "Selected images and screenshots, the conversation and assessment are sent to read images and answer questions about them. Normalized images are retained with the conversation until withdrawn or erased. Processing without retention is not guaranteed." },
       'drafts-anthropic': {
         version: 1,
         title: 'AI drafts (Anthropic)',

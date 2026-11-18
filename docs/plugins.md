@@ -24,6 +24,7 @@ addition to its kind's operations. These are the actual kind IDs:
 | `live-voice` | `LiveVoice.start` → `VoiceSession` | Voice agent with native or delegated reasoning; separate server and browser entrypoints. |
 | `ui-generation` | `UIGeneration.generate`, `edit` or `HTMLGeneration.generate`, `edit` | Visual choices select `images` or `html`; HTML declares `text/html`. |
 | `extractor` | `Extractor.extract` | Bounded document extraction, never an implicit reasoning route. |
+| `image-input` | `ImageInput.normalize` | Local, free raster normalization selected by the preset's `imageInput` configuration; image reasoning requires separate binding capability and consent. |
 | `exporter` | `Exporter.export` | Export bytes and media type; admission requires host integration. |
 
 “Model”, “image”, “HTML” and “concept” describe product roles, not extra manifest
@@ -92,6 +93,19 @@ export interface Reasoning {
   health(options: Pick<OperationOptions, 'signal' | 'deadlineAt' | 'now'>): Promise<Health>;
 }
 ```
+
+Image input is additive: `Reasoning` remains text-only. `ImageInputCapability`
+declares a binding's `maxImages`, `maxTokensPerImage` and optional
+`perImageMicro`. `ImageReference` carries `uploadId`, `digest`, `w`, `h` and a
+normalized JPEG/PNG `mediaType`; it contains no pixels.
+`ImageReasoningRequest` adds optional image references to messages, and
+`ImageReasoning` declares `imageInput: true` for its stream/structured methods.
+`ImageOperationOptions` extends the authority envelope with `resolveImage` and
+optional `imageDispatchCurrent`; bytes are resolved only after admission.
+`ImageInput.normalize` is the separate local normalizer operation, returning
+bounded normalized pixels/metadata or a staged refusal. See the
+[image host contract](../README.md#image-and-screenshot-input-ait-510-host-notes)
+for consent, per-binding costs, staging, native installation and formats.
 
 Honor `signal` and the absolute `deadlineAt` for the entire operation, including
 response-body reads. Pass the same optional `now` clock that produced the
@@ -411,6 +425,12 @@ in their linked source modules.
 - `HTMLGeneration`
 - `HTMLProblem`
 - `Health`
+- `ImageInput`
+- `ImageInputCapability`
+- `ImageOperationOptions`
+- `ImageReasoning`
+- `ImageReasoningRequest`
+- `ImageReference`
 - `LaneBindings`
 - `LiveVoice`
 - `LiveVoiceDeclaration`

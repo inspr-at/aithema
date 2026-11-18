@@ -37,11 +37,19 @@ export const combinedEntranceStyles = `
 .workspace[data-entrance="combined"] .composer-shell { display:grid; }
 .workspace[data-entrance="combined"] .composer { display:grid; grid-template-columns:minmax(0,1fr) 44px 44px;
   grid-template-areas:"message mic send" "feedback feedback feedback" "status status status" "notice notice notice"; gap:8px; }
+/* Staging grows above the controls without changing the disclosure flow. */
+.workspace[data-entrance="combined"] .composer:has(.staged-images:not([hidden])) {
+  grid-template-areas:"images images images" "message mic send" "feedback feedback feedback" "status status status" "notice notice notice"; }
+.workspace[data-entrance="combined"] .staged-images { grid-area:images; }
 .workspace[data-entrance="combined"] textarea { grid-area:message; height:var(--composer-field-height,4.5rem); min-height:4.5rem; padding:.25rem 0; }
 .workspace[data-entrance="combined"] .composer-actions { display:contents; }
 .workspace[data-entrance="combined"] .attach { display:none; }
 .workspace[data-entrance="combined"] .send { grid-area:send; align-self:end; }
 .workspace[data-entrance="combined"] .composer-feedback { grid-area:feedback; margin:0; font-size:.72rem; }
+/* Reserve wrapped document refusals only where document intake is configured. */
+.workspace[data-entrance="combined"] .composer[data-document-input] .composer-feedback { min-height:2.6em; }
+/* Image refusals reserve the longest real localized reason before intake. */
+.workspace[data-entrance="combined"] .composer[data-image-input] .composer-feedback { min-height:44px; }
 .workspace[data-entrance="combined"] .composer-feedback .composer-reason { font-size:inherit; }
 .workspace[data-entrance="combined"] .composer-feedback .composer-reason[data-shortcut] { position:static; visibility:visible; width:auto; }
 .composer-notice-slot { grid-area:notice; position:relative; min-width:0; }
@@ -100,9 +108,12 @@ export const combinedEntranceStyles = `
   .composer-notice__phone { display:inline; }
   .workspace[data-entrance="combined"][data-phone-short] .composer { grid-template-columns:minmax(0,1fr) 44px 44px;
     grid-template-areas:"message mic send" "feedback feedback feedback" "status status status" "notice notice notice"; }
+  .workspace[data-entrance="combined"][data-phone-short] .composer:has(.staged-images:not([hidden])) {
+    grid-template-areas:"images images images" "message mic send" "feedback feedback feedback" "status status status" "notice notice notice"; }
+  .workspace[data-entrance="combined"][data-phone-short] .composer[data-image-input] .composer-feedback { grid-area:auto; }
   .workspace[data-entrance="combined"][data-phone-short] .concept-bar[data-no-drafts] { display:none; }
   .workspace[data-entrance="combined"][data-phone-short] .conversation { height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,250px) - 26px); }
-  .workspace[data-entrance="combined"][data-phone-short] .transcript-shell { padding-bottom:2px; }
+  .workspace[data-entrance="combined"][data-phone-short] .transcript-shell { padding-bottom:8px; }
   .workspace[data-entrance="combined"][data-phone-short] .transcript-shell > .voice-notices { margin-top:0; }
   .workspace[data-entrance="combined"][data-phone-short] .turn.user { padding-block:0; min-height:44px; }
   .workspace[data-entrance="combined"][data-phone-short] .transcript-latest { position:absolute; right:0; bottom:0; margin:0; }

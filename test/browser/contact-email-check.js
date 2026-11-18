@@ -7,6 +7,37 @@ import { startChild } from '../helpers.js';
 import { shadow, until, boxes } from './start2-display-helpers.js';
 import { fixture, settle, stable, click } from './email-ask-fixture.js';
 
+export async function noUploadsFeedbackCheck(t) {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-no-upload-feedback-'));
+  const demo = await startChild(new URL('../fixtures/email-offer-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
+  const browser = await browserForFile(), page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, rects = [];
+  t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
+  await page.evaluateOnNewDocument(() => { const OriginalDate = Date; window.Date = class extends OriginalDate { constructor(...args) { super(...(args.length ? args : [100_000])); } static now() { return 100_000; } }; });
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.session);
+  if (evidence) await mkdir(evidence, { recursive: true });
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const [width, height] of [[390, 844], [1024, 1000], [1440, 1000], [390, 568]]) {
+    const label = `${locale}-${theme}-${width}x${height}`;
+    await page.setViewport({ width, height });
+    await fixture(page, locale, { opener: true, emailOffer: { afterMessages: 2 } });
+    await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme); await settle(page);
+    assert.equal(await shadow(page, c => c.session.featureMatrix.best.uploads), undefined, `${label}: uploads are not configured`);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.composer').hasAttribute('data-image-input')), false, `${label}: no image layout`);
+    const actual = (await boxes(page, ['.composer-feedback']))[0];
+    if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, `ait-510-r16-${label}-combined-without-uploads.png`) });
+    // Main's combined feedback rule has no minimum. Its grid-item initial
+    // value is auto; override only this property to compare the real boxes.
+    await shadow(page, c => { c.shadowRoot.querySelector('.composer-feedback').style.minHeight = 'auto'; });
+    await settle(page);
+    const main = (await boxes(page, ['.composer-feedback']))[0];
+    for (const box of [actual, main]) assert.ok(box[2] > 0 && box[3] > 0, `${label}: positive feedback geometry ${box}`);
+    const shift = Math.max(...actual.map((n, i) => Math.abs(n - main[i])));
+    rects.push({ label, actual, main, shift });
+    await shadow(page, c => { c.shadowRoot.querySelector('.composer-feedback').style.removeProperty('min-height'); });
+  }
+  if (evidence) await writeFile(join(evidence, 'ait-510-r16-no-upload-feedback-rects.json'), JSON.stringify(rects, null, 2));
+  assert.deepEqual(rects.filter(row => row.shift !== 0), [], 'AIT-510 r16: combined composers without uploads retain main feedback boxes exactly');
+}
+
 export async function combinedOfferCheck(t) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-combined-offer-address-'));
   const demo = await startChild(new URL('../fixtures/email-offer-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });

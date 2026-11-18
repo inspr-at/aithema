@@ -225,7 +225,7 @@ test('a failed withdrawal says so and keeps the chip', async t => {
 test('attaching sends one multipart request with the owner header, announces it and shows the chip from the acknowledgement', async t => {
   const { c, root, calls } = setup(t);
   assert.equal(root.querySelector('.attach').getAttribute('aria-disabled'), 'false');
-  assert.equal(root.querySelector('.attach').title, 'Up to 8 files, 20 MB each: PDF, Word, Excel, PowerPoint, text, Markdown, CSV, JSON or XML. The original file is not stored.');
+  assert.equal(root.querySelector('.attach').title, 'Up to 8 files, 20 MB each: PDF, Word, Excel, PowerPoint, text, Markdown, CSV, JSON, XML, PNG, JPEG, WebP or GIF. Original documents are not stored; normalized images are kept until withdrawn or erased.');
   assert.equal(root.querySelector('#attach-limits').textContent, root.querySelector('.attach').title);
   await choose(root, [file('brief.pdf', 1200), file('notes.md', 30)]);
   const post = calls.find(call => call.options.method === 'POST');
@@ -244,13 +244,14 @@ test('client-side refusals in plain words before sending, with the host limits; 
   assert.equal(root.querySelector('.composer-reason').textContent, 'Nicht angehängt: angebot.pdf (zu groß, höchstens 100 B pro Datei), skript.sh (Dateityp wird nicht angenommen).');
   const posts = calls.filter(call => call.options.method === 'POST');
   assert.equal(posts.length, 1); assert.deepEqual(posts[0].options.body.getAll('files').map(f => f.name), ['liste.csv']);
-  assert.equal(root.querySelector('.attach').title, 'Bis zu 8 Dateien, je höchstens 100 B: PDF, Word, Excel, PowerPoint, Text, Markdown, CSV, JSON oder XML. Die Originaldatei wird nicht aufbewahrt.');
+  assert.equal(root.querySelector('.attach').title, 'Bis zu 8 Dateien, je höchstens 100 B: PDF, Word, Excel, PowerPoint, Text, Markdown, CSV, JSON, XML, PNG, JPEG, WebP oder GIF. Originaldokumente werden nicht aufbewahrt; normalisierte Bilder bleiben bis zum Zurückziehen oder Löschen gespeichert.');
   // Typing clears the refusal; a choice that fits nothing sends nothing.
   root.querySelector('textarea').dispatchEvent(new window.Event('input'));
   assert.match(root.querySelector('.composer-reason').textContent, /^(?:Strg|⌘) \+ Enter zum Senden$/u);
   await choose(root, [file('bild.png')]);
   assert.equal(calls.filter(call => call.options.method === 'POST').length, 1);
-  assert.equal(root.querySelector('.composer-reason').textContent, 'Nicht angehängt: bild.png (Dateityp wird nicht angenommen).');
+  assert.equal(root.querySelector('.composer-reason').textContent, 'bild.png: Bilder können gerade nicht vorbereitet werden.Verwerfen');
+  assert.ok(root.querySelector('.image-refusals'), 'AIT-510 reports the host capability, since PNG is now a supported image format');
 });
 
 test('server refusals say what happened: limits and an unavailable feature', async t => {

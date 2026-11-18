@@ -1,3 +1,4 @@
+import { stagedImage } from '@inspr/aithema-core/image-input';
 import { emailOfferPolicy } from '../../core/src/email-offer.js';
 import { normalizeOpener, resolveOpener } from './host-opener.js';
 import { consentSaveEndsConversation } from '../../core/src/settings.js';
@@ -251,7 +252,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       status(id);
     } }) : null;
   const uploadHandlers = createUploadHandlers({ storage, runtime: pluginRuntime, ownership, readBody, publish: broadcast, signal: stop.signal,
-    ...uploads, opener, onInput(id, { pending = false } = {}) { lanes.supersede(id); if (!pending) schedule(id); },
+    ...uploads, now, opener, onInput(id, { pending = false } = {}) { lanes.supersede(id); if (!pending) schedule(id); },
     async onWithdraw(id, event) {
       await Promise.all([invalidate(id, event, 'upload-withdrawn'), conceptHandlers.lane.supersede(id)]); schedule(id);
     } });
@@ -315,7 +316,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     const purposes = (source, feature) => [...new Set(pluginRuntime.scopes(source, { feature, delivered: true })
       .map(scope => ids.has(scope.purpose) ? scope.purpose : scope.purpose === 'mock-conversation' ? 'mock-processing' : scope.purpose)
       .filter(id => ids.has(id)))];
-    const features = Object.fromEntries(FEATURES.map(feature => [feature, purposes(session, feature)]));
+    const features = Object.fromEntries(FEATURES.map(feature => [feature, document.features?.[feature] ?? purposes(session, feature)]));
     const unavailableFeatures = [];
     const delivered = (session.concepts ?? []).filter(item => !item.archived && !item.erased && !item.withdrawn);
     // Bound full publication gates while sharing identical binding evaluations.
@@ -597,15 +598,32 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         try { body = JSON.parse(Buffer.from(bytes).toString('utf8')); }
         catch (error) { if (bytes.length > REQUEST_LIMIT) throw new RangeError('Request limit'); throw error; }
         if (!body || typeof body.clientEventId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(body.clientEventId) ||
-          typeof body.content !== 'string' || !body.content.trim() || body.content.length > 8000) return json({ error: 'invalid-turn' }, 400);
+          typeof body.content !== 'string' || (!body.content.trim() && !body.attachments?.length) || body.content.length > 8000 ||
+          body.attachments !== undefined && (!Array.isArray(body.attachments) || body.attachments.length > 4 || new Set(body.attachments).size !== body.attachments.length ||
+            body.attachments.some(id => typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(id)))) return json({ error: 'invalid-turn' }, 400);
         const decodedBytes = Buffer.byteLength(body.content) + Buffer.byteLength(JSON.stringify({ ...body, content: '' }));
         if (decodedBytes > REQUEST_LIMIT) throw new RangeError('Request limit');
+        if (body.attachments?.length) {
+          const replay = storage.turnReceipt(id, body.clientEventId, bytes, { ownerToken });
+          if (replay) {
+            const { events, ...event } = replay;
+            return json(Object.keys(opener).length ? { ...event, event, events: events ?? [event] } : event);
+          }
+          if (body.voiceCallId !== undefined || voiceHandlers?.active(id)) return json({ error: 'image-live-call' }, 409);
+          const imageSession = storage.get(id);
+          const availability = await pluginRuntime.imageInputAvailability(imageSession, { signal: request.signal, deadlineAt: now() + deadlineMs, now });
+          storage.authorize(id, ownerToken);
+          if (storage.get(id).consentRevision !== imageSession.consentRevision) return json({ error: 'image-input-unavailable', reason: 'current processing consent required' }, 403);
+          if (availability.maxImages < body.attachments.length) return json({ error: 'image-input-limit' }, 409);
+          if (availability.reason) return json({ error: 'image-input-unavailable', reason: availability.reason }, 403);
+          if (voiceHandlers?.active(id)) return json({ error: 'image-live-call' }, 409);
+        }
         pluginRuntime.conversationLimits.assertOpen(id);
         const voiceContext = body.voiceCallId === undefined ? {} : voiceHandlers?.typedContext(id, ownerToken, body.voiceCallId, body.providerSessionId);
         if (body.voiceCallId !== undefined && !voiceContext) return json({ error: 'voice-unavailable' }, 403);
         let initialBalance;
         const { event, events, replayed } = storage.postTurn(id, body.clientEventId, bytes, body.content,
-          { ...guard, ...voiceContext, opener, revision: body.inputRevision ?? guard.revision,
+          { ...guard, ...voiceContext, opener, ...(body.attachments ? { attachments: body.attachments } : {}), revision: body.inputRevision ?? guard.revision,
             ...(body.inputRevision === undefined && authorized.transcript.length === 0 ? { initialLocaleSeq: authorized.seq } : {}) },
           () => {
             try { initialBalance = hostHandlers.initialCreditBalance(id, ownerToken); }
@@ -682,7 +700,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         const current = storage.get(id), featureMatrix = await pluginRuntime.matrix(current);
         const features = FEATURES.filter(feature => isConsentReason(featureMatrix[current.processingPreset]?.[feature]?.reason));
         return json({ processingPreset: current.processingPreset, settings: current.settings, engine: pluginRuntime.describe(current),
-          event: change.event, unchanged: !change.event, featureMatrix, consent: { required: features.some(feature => feature !== 'html'), features } });
+          event: change.event, unchanged: !change.event, featureMatrix, consent: { required: features.some(feature => !['html', 'imageInput'].includes(feature)), features } });
       }
       if (action === 'consent' && request.method === 'POST') {
         const body = JSON.parse(Buffer.from(await readBody(request)).toString('utf8'));
@@ -747,6 +765,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           }
           const event = storage.reviseConsent(id, body.granted, { ownerToken, revision: inputRevision(current), consentRevision: current.consentRevision }, { conversationUnchanged, changed, removed });
           if (event.data.conversationUnchanged) {
+            if (event.data.removed?.includes('imageInput')) await uploadHandlers.cancelImages(id);
             broadcast(id, event); await conceptHandlers.lane.invalidate(id);
           } else await invalidate(id, event, 'consent-revised');
           if (body.granted) { schedule(id); conceptHandlers.schedule(id); }
@@ -782,7 +801,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
             reason: current.consentWithdrawn ? 'consent-withdrawn' : 'publication-not-allowed' });
           else artifacts.push(storage.conceptArtifact(id, artifactId));
         }
-        return new Response(exportSession(current, artifacts, withheld, { exportedAt: new Date(now()).toISOString() }), {
+        return new Response(exportSession(current, artifacts, withheld, { exportedAt: new Date(now()).toISOString(),
+          images: current.uploads.filter(upload => upload.kind === 'image' && upload.state === 'sent').map(upload => storage.imageUpload(id, upload.id)).filter(Boolean) }), {
         headers: { 'content-type': 'application/zip', 'content-disposition': 'attachment; filename="aithema-session.zip"', 'cache-control': 'no-store' },
       });
       }
@@ -848,7 +868,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
               const event = storage.expire(id, turn.id); await invalidate(id, event, 'turn-expired'); schedule(id);
               conceptHandlers.ended(id);
             }
-            for (const upload of storage.get(id).uploads.filter(u => u.state !== 'withdrawn' && Date.parse(u.at) < before)) {
+            for (const event of storage.expireStagedUploads(id, now())) { broadcast(id, event); await uploadHandlers.cancelUpload(id, event.data.id); }
+            for (const upload of storage.get(id).uploads.filter(u => !stagedImage(u) && u.state !== 'withdrawn' && Date.parse(u.at) < before)) {
               const event = storage.withdrawUpload(id, upload.id);
               await Promise.all([uploadHandlers.cancelUpload(id, upload.id), invalidate(id, event, 'upload-expired'), conceptHandlers.lane.supersede(id)]);
               schedule(id); conceptHandlers.ended(id);
@@ -916,7 +937,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           throw Object.assign(new Error('voice-call-active'), { status: 409 });
         }
         if ([...jobs.values()].some(job => job.id === id) || pluginRuntime.budget.hasPendingDispatch(id) ||
-          hostHandlers.retentionActive(id) || host?.pendingDispatchForSession?.(id) || current.conceptIntent?.pending || current.uploads.some(upload => upload.state === 'pending')) {
+          hostHandlers.retentionActive(id) || host?.pendingDispatchForSession?.(id) || current.conceptIntent?.pending || current.uploads.some(upload => ['pending', 'staged-pending'].includes(upload.state))) {
           throw Object.assign(new Error('pending-dispatch'), { status: 409 });
         }
       }

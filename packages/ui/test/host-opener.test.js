@@ -154,3 +154,39 @@ test('AIT-505 M3: document-first persistence retains the opener row after Start 
   assert.equal(c.shadowRoot.querySelector('[data-id="host:opener"]'), row);
   assert.equal(c.shadowRoot.querySelectorAll('[data-id="host:opener"]').length, 1);
 });
+
+test('AIT-510 G-M2: device continuation retains earlier-image markers within canonical turns only', async t => {
+  const c = document.createElement('aithema-session'), source = session(), requests = [];
+  source.processingPreset = 'device'; source.featureMatrix.device = source.featureMatrix.best;
+  source.transcript.push({ id: 'earlier-image', role: 'user', content: '', attachments: ['screen'] });
+  source.uploads.push({ id: 'screen', kind: 'image', state: 'sent', filename: 'screen.png', digest: 'fixture', w: 2, h: 1, mediaType: 'image/png' });
+  const deviceReasoning = { id: 'fixture-device', model: 'fixture-model', async connect() {}, async *stream(request) {
+    requests.push(request); yield JSON.stringify({ content: 'Text continuation.', question_short: null, options: [] });
+  } };
+  c.configure({ copy: en, session: source, deviceReasoning }); t.after(() => c.remove());
+  c.shadowRoot.querySelector('textarea').value = 'Continue locally.';
+  c.shadowRoot.querySelector('form.composer').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick();
+  assert.equal(requests.length, 1);
+  assert.deepEqual(requests[0].messages, [{ role: 'user', content: '[image: "screen.png", sent earlier]' }, { role: 'user', content: 'Continue locally.' }]);
+  assert.equal(requests[0].documentMessageIndex, null);
+  assert.equal(c.session.transcript.at(-1).content, 'Text continuation.');
+});
+
+test('AIT-510 G-M2: switching to device mode refuses a staged image without dropping it or the caption', async t => {
+  const c = document.createElement('aithema-session'), source = session(), requests = [];
+  source.processingPreset = 'device'; source.featureMatrix.device = source.featureMatrix.best;
+  source.transcript.push({ id: 'earlier', role: 'user', content: 'Earlier details.' });
+  source.uploads.push({ id: 'staged-screen', kind: 'image', state: 'staged-ready', filename: 'screen.png', digest: 'fixture', w: 2, h: 1, mediaType: 'image/png' });
+  const deviceReasoning = { id: 'fixture-device', model: 'fixture-model', async connect() {}, async *stream(request) {
+    requests.push(request); yield JSON.stringify({ content: 'Text reply.', question_short: null, options: [] });
+  } };
+  c.configure({ copy: en, session: source, deviceReasoning }); t.after(() => c.remove());
+  const revision = inputRevision(c.session);
+  c.shadowRoot.querySelector('textarea').value = 'Keep this caption.';
+  c.shadowRoot.querySelector('form.composer').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick();
+  assert.equal(requests.length, 0, 'a text-only device receives no partial attachment send');
+  assert.equal(c.shadowRoot.querySelector('textarea').value, 'Keep this caption.');
+  assert.equal(c.session.uploads[0].state, 'staged-ready');
+  assert.equal(inputRevision(c.session), revision);
+  assert.match(c.shadowRoot.querySelector('.image-refusals').textContent, new RegExp(en.imageRefusals.model, 'u'));
+});

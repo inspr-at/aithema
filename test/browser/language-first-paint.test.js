@@ -7,6 +7,9 @@ import { browserForFile } from './shared-browser.js';
 import { startChild } from '../helpers.js';
 import { icon } from '../../packages/ui/src/icons.js';
 import { evidenceCommit } from './start2-display-helpers.js';
+import { noUploadsFeedbackCheck } from './contact-email-check.js';
+
+test('AIT-510 r16: combined without uploads keeps main feedback geometry', { timeout: 120_000 }, noUploadsFeedbackCheck);
 
 // The production font stack is deliberately unchanged. Evidence uses reduced
 // motion and viewport captures, including the held first header frame.
