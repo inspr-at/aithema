@@ -109,8 +109,9 @@ export async function checkVoiceFailures(t) {
           const desired = (result.anchor.left + result.anchor.right - result.callout.width) / 2;
           const left = Math.max(16, result.header.left), right = Math.min(width - 16, result.header.right, ['voiceConnectFailed', 'voiceConnectionFailed', 'voiceTimeLimit', 'voiceDeadline', 'voiceConflict', 'start429'].includes(state) ? Infinity : result.conversation.right);
           const clamped = Math.max(left, Math.min(desired, right - result.callout.width));
-          expect(Math.abs(result.callout.left - clamped) <= 4 && Math.abs(result.callout.top - result.anchor.bottom - 8) <= 1,
-            { ...meta, assert: 'anchor centre ±4 px (or clamped), top +8 ±1 px', actual: result.callout, anchor: result.anchor, expectedLeft: clamped });
+          const gap = width >= 960 && ['voiceConnectFailed', 'voiceConnectionFailed', 'voiceTimeLimit', 'voiceDeadline', 'voiceConflict', 'start429'].includes(state) ? 2 : 8;
+          expect(Math.abs(result.callout.left - clamped) <= 4 && Math.abs(result.callout.top - result.anchor.bottom - gap) <= 1,
+            { ...meta, assert: `anchor centre ±4 px (or clamped), top +${gap} ±1 px`, actual: result.callout, anchor: result.anchor, expectedLeft: clamped });
           expect(result.callout.left >= left && result.callout.right <= right, { ...meta, assert: 'callout inside viewport and header', actual: result.callout });
         } else expect(result.narrow !== 'none' && result.callout.width > result.anchor.width && result.callout.top === result.boxes[4].top + 44,
           { ...meta, assert: 'phone narrow status below controls, no floating callout', actual: result });

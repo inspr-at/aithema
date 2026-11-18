@@ -56,11 +56,14 @@ export const bandStyles = `
   .audio-rail[data-call-reconciling] .voice-state { max-width:100%; } }
 .audio-rail[data-message] .voice-state { width:var(--voice-message-width,min(280px,calc(100vw - 32px))); top:var(--voice-message-top,calc(100% + 8px)); max-width:none;
   left:var(--voice-message-left,0px); right:auto; white-space:normal; overflow-wrap:normal; word-break:normal; hyphens:manual; }
-/* Two full lines fit below Retry in the existing header/transcript gap.
+/* Two full lines and the 44px Close target fit below Retry with a 2px gap.
    Keep the frame and both column budgets unchanged in every journey state. */
 @media(min-width:960px) and (min-height:701px) {
   .band .audio-rail[data-message][data-retry-message] .voice-state {
-    padding:3px 44px 3px 8px; font-size:12px; line-height:1.25; min-height:0;
+    padding:3px 44px 3px 8px; font-size:12px; line-height:1.25; min-height:44px;
+  }
+  .band .audio-rail[data-message][data-retry-message] :is(.voice-state, .voice-message-close) {
+    top:calc(var(--voice-message-top,calc(100% + 8px)) - 6px);
   }
 }
 /* Compact desktop keeps the question/reply budget. Retry-related copy replaces

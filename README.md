@@ -723,7 +723,8 @@ so the ready card reads “Status: Consent needed” / “Status: Einwilligung n
 Call authorization remains distinct from processing consent: German
 `copy.voiceReasonsNarrow.{permission,sessionRevoked}` and
 `copy.reasons.{call-authorization-lost,session-revoked}` retain their existing
-“Freigabe” wording. Compact German voice labels retain the 22-character bound.
+“Freigabe” wording. Compact German call-end labels include “weiter per Text”
+and fit on one line at 320 px.
 Host copy still wins.
 Configured host openers use the shared render-only `host:opener` row before input;
 canonical persistence takes over that same row. The welcome stays above the
