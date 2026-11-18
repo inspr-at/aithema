@@ -76,6 +76,20 @@ export function plannedSeconds(samples) {
 }
 
 export function assertMeasuredWeight(measurement) {
+  // Split workloads may start with a complete Linux lane measurement. Keep it
+  // diagnostic: only the CI updater can create a trusted rolling-main series.
+  if (measurement?.remote) {
+    const remote = measurement.remote;
+    if (measurement.timing) throw new Error('Remote measurements must stay outside CI timing samples');
+    if (remote.schema !== 1 || remote.lane !== 'agm2' || !/^ait-[a-f\d]{24}$/u.test(remote.runId ?? '') ||
+        !/^[a-f\d]{40}$/u.test(remote.sha ?? '') || !positive(remote.observedSeconds) || remote.complete !== true) {
+      throw new Error('Invalid complete remote file measurement');
+    }
+    if (measurement.seconds !== Math.ceil(remote.observedSeconds * timingWarmupMargin)) {
+      throw new Error('Browser weight differs from measured remote file work with warmup margin');
+    }
+    return;
+  }
   const timing = measurement?.timing;
   if (timing?.schema !== 1 || timing.window !== timingWindow || !/^[a-f\d]{64}$/u.test(timing.workload ?? '')) {
     throw new Error('Missing rolling p95 CI timing samples; run scripts/update-browser-timings.js');
