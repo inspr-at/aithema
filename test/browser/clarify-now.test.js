@@ -1767,3 +1767,5 @@ test('AIT-547 pinned contact: opaque heading and first signal above the fade, st
 
 test('AIT-547 status measurement: bounded layout work for the complete catalog',
   { timeout: 60_000 }, overviewStatusLayoutBudgetCheck);
+test('AIT-547 status measurement: isolated full remeasurement with classic scrollbars',
+  { timeout: 60_000 }, t => overviewStatusLayoutBudgetCheck(t, true));

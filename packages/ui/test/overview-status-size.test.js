@@ -27,9 +27,11 @@ function harness(copy) {
     return probe;
   };
   const size = new OverviewStatusSize(root);
-  size.view = { getComputedStyle: () => ({ display: 'flex', fontFamily: 'test', fontSize: '13px', lineHeight: '18px', columnGap: '8px' }) };
+  let frame;
+  const flush = () => { const callback = frame; frame = null; callback?.(); };
+  size.view = { requestAnimationFrame: callback => { frame = callback; return 1; }, cancelAnimationFrame: () => { frame = null; }, getComputedStyle: () => ({ display: 'flex', fontFamily: 'test', fontSize: '13px', lineHeight: '18px', columnGap: '8px' }) };
   size.connected = true;
-  return { size, slot, text, pane, measured, copy };
+  return { size, slot, text, pane, measured, copy, flush };
 }
 
 for (const shipped of [en, de]) test(`AIT-547 ${shipped.display.locale}: reserve includes every resolved availability reason and host override`, () => {
@@ -37,7 +39,7 @@ for (const shipped of [en, de]) test(`AIT-547 ${shipped.display.locale}: reserve
   copy.reasons['host-specific'] = 'A host supplied availability reason';
   copy.reasons['document text not covered by reasoning scope'] = 'A host supplied document processing explanation '.repeat(4);
   const h = harness(copy);
-  h.size.render(copy, copy.display.locale);
+  h.size.render(copy, copy.display.locale); h.flush();
   for (const reason of Object.keys(copy.reasons)) {
     if (reason === 'delegated' || reason === 'current processing consent required') continue;
     assert.ok(h.measured.includes(reasonText(copy, reason, 'analysis')), `missing candidate: ${reason}`);
@@ -47,13 +49,13 @@ for (const shipped of [en, de]) test(`AIT-547 ${shipped.display.locale}: reserve
 
 test('AIT-547: unexpected rendered copy grows the reserve without changing the candidate signature', () => {
   const h = harness(en);
-  h.size.render(en, 'en');
+  h.size.render(en, 'en'); h.flush();
   const before = parseFloat(h.pane.style.getPropertyValue('--overview-status-height'));
   h.text.textContent = 'An unforeseen provider explanation '.repeat(20);
-  h.size.render(en, 'en');
+  h.size.render(en, 'en'); h.flush();
   assert.ok(parseFloat(h.pane.style.getPropertyValue('--overview-status-height')) >= h.text.textContent.length, 'runtime guard fits all rendered text');
   assert.ok(parseFloat(h.pane.style.getPropertyValue('--overview-status-height')) > before);
-  h.text.textContent = 'Current'; h.size.render(en, 'en');
+  h.text.textContent = 'Current'; h.size.render(en, 'en'); h.flush();
   assert.ok(parseFloat(h.pane.style.getPropertyValue('--overview-status-height')) >= 'An unforeseen provider explanation '.repeat(20).length, 'state changes cannot shrink the reserve');
 });
 
@@ -83,4 +85,36 @@ for (const copy of [en, de]) test(`AIT-547 ${copy.display.locale}: every render 
       assert.ok(candidates.some(candidate => candidate.rawReason === reason && candidate.text === resolved), `${reason} resolved candidate`);
     }
   }
+});
+
+test('AIT-547: catalog writes precede reads in an isolated holder and triggers coalesce per frame', () => {
+  const h = harness(en), clone = h.slot.cloneNode.bind(h.slot);
+  const candidates = overviewStatusCandidates(en, 'en');
+  let reads = 0;
+  h.slot.cloneNode = (...args) => {
+    const probe = clone(...args), bounds = probe.getBoundingClientRect.bind(probe);
+    probe.getBoundingClientRect = () => {
+      reads++;
+      const holder = probe.parentElement;
+      assert.equal(holder.children.length, candidates.length, 'every candidate is built before the first read');
+      assert.equal(holder.parentElement.className, 'analysis-stack', 'holder is outside the reading grid');
+      assert.equal(holder.style.position, 'absolute');
+      assert.equal(holder.style.contain, 'strict');
+      assert.equal(holder.style.width, '297px');
+      assert.equal(holder.style.height, '0px');
+      assert.equal(holder.style.visibility, 'hidden');
+      assert.equal(holder.style.pointerEvents, 'none');
+      assert.equal(holder.getAttribute('aria-hidden'), 'true');
+      return bounds();
+    };
+    return probe;
+  };
+  h.size.render(en, 'en');
+  for (let i = 0; i < 10; i++) { h.size.refresh(); h.size.fontsChanged(); }
+  assert.equal(reads, 0, 'triggers wait for their shared frame');
+  h.flush();
+  assert.equal(reads, candidates.length, 'one full measurement per frame');
+  assert.equal(h.pane.parentElement.children.length, 1, 'holder removed after all reads');
+  h.size.fontsChanged(); h.size.disconnect(); h.flush();
+  assert.equal(reads, candidates.length, 'disconnect cancels pending measurement');
 });

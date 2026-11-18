@@ -61,10 +61,10 @@ export async function compactStatusMaximum(page) {
 
 // Reserve calculation runs on real width/font changes, including animated
 // sidebar entrance. The catalog must not force one document layout per entry.
-export async function overviewStatusLayoutBudgetCheck(t) {
+export async function overviewStatusLayoutBudgetCheck(t, classicScrollbars = false) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-status-layout-'));
   const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(directory, 'unused.sqlite'));
-  const browser = await browserForFile(), page = await browser.newPage();
+  const browser = await browserForFile({ classicScrollbars }), page = await browser.newPage();
   t.after(async () => { await browser.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
   await page.setViewport({ width: 1366, height: 768 });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
@@ -109,6 +109,33 @@ export async function overviewStatusLayoutBudgetCheck(t) {
     const maximum = await compactStatusMaximum(page);
     const actual = await shadow(page, c => c.shadowRoot.querySelector('.overview-status').getBoundingClientRect().height);
     assert.ok(Math.abs(actual - maximum) <= .5, 'bounded layout work still reserves the exact natural maximum');
+    const frames = await shadow(page, async c => {
+      const r = c.shadowRoot, size = window.statusLayoutBudget;
+      const boxes = () => Object.fromEntries(['.composer-shell', '.overview-status', '.analysis-content', '.analysis-stack'].map(selector =>
+        [selector, r.querySelector(selector).getBoundingClientRect().toJSON()]));
+      const samples = [boxes()], measure = size.measure.bind(size);
+      let measurements = 0;
+      size.measure = () => { measurements++; measure(); samples.push(boxes()); };
+      // Force full catalog recomputation in consecutive animation frames, with
+      // bursts of identical notifications. Sample before and after each pass.
+      for (let i = 0; i < 8; i++) {
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        samples.push(boxes());
+        for (let trigger = 0; trigger < 10; trigger++) size.fontsChanged();
+      }
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      samples.push(boxes()); size.disconnect();
+      return { samples, measurements, gutters: [innerWidth - document.documentElement.clientWidth,
+        r.querySelector('.analysis-content').offsetWidth - r.querySelector('.analysis-content').clientWidth] };
+    });
+    assert.equal(frames.measurements, 8, 'full measurement notifications coalesce to one per frame');
+    if (classicScrollbars) assert.ok(frames.gutters.every(width => width > 0), 'classic test has real document and pane scrollbar gutters');
+    for (const [i, sample] of frames.samples.entries()) for (const [selector, box] of Object.entries(sample)) {
+      positive(box, `frame ${i}/${selector}`);
+      for (const axis of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(box[axis] - frames.samples[0][selector][axis]) <= .5,
+        `frame ${i}/${selector}.${axis} stays constant during full remeasurement`);
+    }
+    t.diagnostic(`AIT-547 isolated remeasurement classic=${classicScrollbars}: ${frames.samples.length} stable samples, ${frames.measurements} measurements`);
   } finally { await client.detach(); }
 }
 

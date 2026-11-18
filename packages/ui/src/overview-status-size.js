@@ -8,8 +8,12 @@ export class OverviewStatusSize {
     this.root = root; this.view = root.ownerDocument.defaultView;
     this.slot = root.querySelector('.overview-status');
     this.pane = root.querySelector('.analysis-content');
-    this.refresh = () => this.measure();
-    this.fontsChanged = () => { this.signature = null; this.measure(); };
+    this.refresh = () => this.schedule();
+    this.fontsChanged = () => { this.signature = null; this.schedule(); };
+  }
+  schedule() {
+    if (!this.connected || this.frame != null) return;
+    this.frame = this.view.requestAnimationFrame(() => { this.frame = null; this.measure(); });
   }
   connect() {
     if (this.connected) return;
@@ -25,11 +29,11 @@ export class OverviewStatusSize {
     const fonts = this.root.ownerDocument.fonts;
     fonts?.addEventListener?.('loadingdone', this.fontsChanged);
     fonts?.ready?.then(() => { if (this.connected) this.fontsChanged(); });
-    this.measure();
+    this.schedule();
   }
   render(copy, locale) {
     if (this.copy !== copy || this.locale !== locale) this.signature = null;
-    this.copy = copy; this.locale = locale; this.measure();
+    this.copy = copy; this.locale = locale; this.schedule();
   }
   measure() {
     if (!this.copy || !this.connected) return;
@@ -43,26 +47,37 @@ export class OverviewStatusSize {
     this.signature = signature;
     const copy = this.copy, locale = this.locale;
     const variants = overviewStatusCandidates(copy, locale);
-    const probe = this.slot.cloneNode(false), text = this.root.ownerDocument.createElement('span');
-    text.className = 'notice-text'; probe.removeAttribute('role'); probe.removeAttribute('aria-label');
-    probe.setAttribute('aria-hidden', 'true'); probe.inert = true;
-    Object.assign(probe.style, { position: 'fixed', left: '-10000px', top: '0', width: `${box.width}px`,
-      height: 'auto', minHeight: '0', margin: '0', overflow: 'visible', visibility: 'hidden' });
-    probe.append(text); this.slot.after(probe);
+    // Keep the probes under the same query container, but outside the reading
+    // grid and its scroller. Strict containment prevents their contents from
+    // contributing to any live track size or scrollable overflow.
+    const holder = this.root.ownerDocument.createElement('div');
+    holder.setAttribute('aria-hidden', 'true'); holder.inert = true;
+    Object.assign(holder.style, { position: 'absolute', left: '0', top: '0', width: `${box.width}px`,
+      height: '0', contain: 'strict', overflow: 'hidden', visibility: 'hidden', pointerEvents: 'none',
+      overflowWrap: style.overflowWrap });
+    // Write the entire catalog before reading any geometry. Alternating writes
+    // and reads forced one document layout for every variant.
+    const probes = variants.map(variant => {
+      const probe = this.slot.cloneNode(false), text = this.root.ownerDocument.createElement('span');
+      text.className = 'notice-text'; probe.removeAttribute('role'); probe.removeAttribute('aria-label');
+      probe.setAttribute('aria-hidden', 'true'); probe.inert = true;
+      Object.assign(probe.style, { position: 'absolute', left: '0', top: '0', width: '100%',
+        height: 'auto', minHeight: '0', margin: '0', overflow: 'visible' });
+      probe.append(text);
+      paintConsentLine(text, { copy, feature: 'analysis', separator: '', text: variant.text,
+        verdict: { available: !variant.consent, reason: 'current processing consent required' }, open: () => {} });
+      for (const node of probe.querySelectorAll('[id]')) node.removeAttribute('id');
+      if (variant.retry) {
+        const retry = this.root.ownerDocument.createElement('button'); retry.className = 'overview-retry';
+        retry.type = 'button'; retry.textContent = copy.understandingRetry; probe.append(retry);
+      }
+      holder.append(probe); return probe;
+    });
+    this.root.querySelector('.analysis-stack').append(holder);
     let height = 0;
     try {
-      for (const variant of variants) {
-        probe.replaceChildren(text);
-        paintConsentLine(text, { copy, feature: 'analysis', separator: '', text: variant.text,
-          verdict: { available: !variant.consent, reason: 'current processing consent required' }, open: () => {} });
-        for (const node of probe.querySelectorAll('[id]')) node.removeAttribute('id');
-        if (variant.retry) {
-          const retry = this.root.ownerDocument.createElement('button'); retry.className = 'overview-retry';
-          retry.type = 'button'; retry.textContent = copy.understandingRetry; probe.append(retry);
-        }
-        height = Math.max(height, probe.getBoundingClientRect().height);
-      }
-    } finally { probe.remove(); }
+      for (const probe of probes) height = Math.max(height, probe.getBoundingClientRect().height);
+    } finally { holder.remove(); }
     if (height > 0) this.pane.style.setProperty('--overview-status-height', `${height}px`);
     this.growToRendered();
   }
@@ -76,6 +91,8 @@ export class OverviewStatusSize {
   }
   disconnect() {
     this.connected = false; this.observer?.disconnect();
+    if (this.frame != null) this.view.cancelAnimationFrame(this.frame);
+    this.frame = null;
     this.view?.removeEventListener('resize', this.refresh);
     this.root.ownerDocument.fonts?.removeEventListener?.('loadingdone', this.fontsChanged);
   }
