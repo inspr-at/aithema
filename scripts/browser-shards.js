@@ -29,9 +29,10 @@ export function readBrowserTestWeights(files = discoverBrowserTests(), root = re
         typeof measurement.evidence !== 'string' || !measurement.evidence.trim()) {
       throw new Error(`Invalid browser test weight: ${weightPath}; seconds must be positive finite seconds and evidence must describe the measurement`);
     }
-    // AIT-557: the split status workload has no CI history yet. Keep its
-    // provisional reservation explicit until rolling CI samples replace it.
-    if (file === 'test/browser/clarify-now-status.test.js' && measurement.provisional === true) {
+    // AIT-557: both split workloads need matching CI history. Keep these
+    // file-specific provisional reservations until rolling-main timings replace them.
+    if ((file === 'test/browser/clarify-now.test.js' ||
+         file === 'test/browser/clarify-now-status.test.js') && measurement.provisional === true) {
       weights[file] = measurement.seconds;
       continue;
     }
@@ -381,9 +382,6 @@ browserTestWeights['test/browser/start-look.test.js'] = Math.max(
 // browser-timings-8-of-9/batch-0.jsonl; full provenance is in the sibling
 // weight's diagnostic evidence. Keep PR observations outside trusted main
 // samples; reserve the expanded real-mouse matrix without changing capacity.
-browserTestWeights['test/browser/clarify-now.test.js'] = Math.max(
-  browserTestWeights['test/browser/clarify-now.test.js'], 378.094);
-
 // AIT-557 (2026-11-18): split four whole status workloads out of clarify-now.
 // Green merge-group CI 44318024909, e2ce9bfb, shard 2/13: moved top-level
 // work 242.898533946s; complete mbp2606 run de133c7fc3-24460 at de133c7fc3
@@ -391,9 +389,15 @@ browserTestWeights['test/browser/clarify-now.test.js'] = Math.max(
 // New file's provisional weight: ceil(1.25 * max(242.898533946,
 // 185.480959709)) = 304s; remote diagnostics never become trusted CI samples.
 // Remaining baseline CI work: 483.337401097 - 242.898533946 = 240.438867151s;
-// *1.25 = 300.548583939s, below the unchanged trusted 378.094s source weight.
-// That file passed 51/51 in 211.436550292s on the same lane run. Preserve all
-// other floors, trusted samples, thirteen shards and both planning limits.
+// That file passed 51/51 in 211.436550292s on the same lane run.
+// AIT-557 Round 3 (2026-11-18): the old 378.094s source reservation and its
+// trusted samples describe the pre-split workload hash. Retaining that floor
+// double-counts moved work now covered by the 304s status reservation. Replace
+// only that source reservation with ceil(1.25 * max(240.438867151 CI work,
+// 211.436550292 complete lane seconds)) = 301s, explicitly provisional.
+// Both provisional reservations will be replaced by measured rolling-main
+// timings in a coordinator-filed follow-up, as in AIT-477. Preserve every
+// other floor, trusted sample, thirteen shards and both planning limits.
 
 // AIT-510 r10: complete upload-capacity file, remote 86de69650a-20594,
 // head 86de69650a, 29/29 PASS including disclosure/email/short-phone states.
