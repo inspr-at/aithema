@@ -73,6 +73,13 @@ export async function overviewStatusLayoutBudgetCheck(t, classicScrollbars = fal
   // This compact fixture fits the viewport. Reserve a real document gutter
   // explicitly so classic mode exercises both outer and pane scrollbars.
   if (classicScrollbars) await page.addStyleTag({ content: 'html { overflow-y:scroll; }' });
+  if (classicScrollbars) await shadow(page, c => {
+    // macOS renders scrollbar-width:thin as overlay even with the launcher's
+    // classic WebKit widths. Exercise an actual pane gutter in this stress case.
+    const style = document.createElement('style');
+    style.textContent = '.analysis-content { scrollbar-width:auto; overflow-y:scroll; }';
+    c.shadowRoot.append(style);
+  });
   await shadow(page, async c => {
     const { createSession, inputRevision } = await import('/packages/core/src/session.js');
     const { de: copy } = await import('/packages/ui/src/i18n/de.js');
