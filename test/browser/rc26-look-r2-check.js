@@ -1,3 +1,4 @@
+import { reasonSeparator } from '../../packages/ui/src/reason-separator.js';
 // RC25 findings 7–13, promoted to RC26. Each entrance gets a fresh document.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -126,8 +127,8 @@ for (const item of [10, 12, 'email'])
                 stable(before, after); stable(before, cleared); positive([g.popup]);
                 if (width < 600) {
                   const expected = locale === 'de'
-                    ? reason === 'idle' ? 'Nach Stille beendet · weiter per Text' : 'Anrufzeit abgelaufen · weiter per Text'
-                    : reason === 'idle' ? 'Ended after silence · continue by text' : 'Call time up · continue by text';
+                    ? reason === 'idle' ? `Nach Stille beendet${reasonSeparator}weiter per Text` : `Anrufzeit abgelaufen${reasonSeparator}weiter per Text`
+                    : reason === 'idle' ? `Ended after silence${reasonSeparator}continue by text` : `Call time up${reasonSeparator}continue by text`;
                   assert.equal(g.text, expected);
                   assert.ok(g.scroll <= g.client, 'complete narrow label without clipping');
                   assert.notEqual(g.ellipsis, 'ellipsis');

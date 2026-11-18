@@ -1,3 +1,4 @@
+import { reasonSeparator } from '../src/reason-separator.js';
 import { BINDING_REASON_CODES } from '../../../test/fixtures/german-server-texts.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -1301,8 +1302,8 @@ for (const copy of [de, en]) test(`AIT-302: every ${copy.display.locale} header 
   for (const short of [...Object.values(copy.voiceStatesNarrow), ...Object.entries(copy.voiceMessagesNarrow).filter(([key]) => !['voiceIdleEnded', 'voiceTimeLimit'].includes(key)).map(([, text]) => text), ...Object.values(copy.voiceReasonsNarrow)]) {
     assert.ok(short && [...short].length <= 22, `bounded localized short form: ${short}`);
   }
-  assert.equal(copy.voiceMessagesNarrow.voiceIdleEnded, copy === de ? 'Nach Stille beendet · weiter per Text' : 'Ended after silence · continue by text');
-  assert.equal(copy.voiceMessagesNarrow.voiceTimeLimit, copy === de ? 'Anrufzeit abgelaufen · weiter per Text' : 'Call time up · continue by text');
+  assert.equal(copy.voiceMessagesNarrow.voiceIdleEnded, copy === de ? `Nach Stille beendet${reasonSeparator}weiter per Text` : `Ended after silence${reasonSeparator}continue by text`);
+  assert.equal(copy.voiceMessagesNarrow.voiceTimeLimit, copy === de ? `Anrufzeit abgelaufen${reasonSeparator}weiter per Text` : `Call time up${reasonSeparator}continue by text`);
   const { rail, root } = fixture(t), status = root.querySelector('.voice-state');
   rail.copy = copy;
   for (const sample of voiceStatusCases(copy)) {

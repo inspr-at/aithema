@@ -1,3 +1,4 @@
+import { reasonSeparator } from '../../packages/ui/src/reason-separator.js';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -99,7 +100,7 @@ export async function checkVoiceEndMessages(t) {
       const shown = await page.evaluate(() => window.readEnds()); unchanged(before.controls, shown.controls); box(shown.message); box(shown.retry);
       assert.equal(shown.label, locale === 'en' ? 'The call reached its maximum length. Start a new call or continue typing.' : 'Der Anruf hat seine maximale Dauer erreicht. Starten Sie einen neuen Anruf oder schreiben Sie weiter.');
       assert.equal(shown.outsideLive, true); assert.equal(shown.color, shown.neutralColor, 'time-limit uses neutral ink');
-      if (width < 600) { assert.equal(shown.close, null); assert.equal(shown.narrowVisible, true); assert.equal(shown.narrow, locale === 'en' ? 'Call time up · continue by text' : 'Anrufzeit abgelaufen · weiter per Text'); }
+      if (width < 600) { assert.equal(shown.close, null); assert.equal(shown.narrowVisible, true); assert.equal(shown.narrow, locale === 'en' ? `Call time up${reasonSeparator}continue by text` : `Anrufzeit abgelaufen${reasonSeparator}weiter per Text`); }
       else {
         box(shown.close); assert.ok(shown.close.width >= 44 && shown.close.height >= 44);
         assert.ok(shown.close.y - shown.retry.y - shown.retry.height >= 0, 'close and Retry targets do not overlap');
