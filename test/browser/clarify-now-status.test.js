@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { browserForFile } from './shared-browser.js';
-import { shadow, until } from './start2-display-helpers.js';
+import { shadow, until, evidenceCommit } from './start2-display-helpers.js';
 import { startChild } from '../helpers.js';
 import { settle } from './clarify-now-helpers.js';
 
