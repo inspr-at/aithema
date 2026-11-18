@@ -396,7 +396,9 @@ svg { display:block; flex:none; }
      short conversation. The dock is in grid flow (phone subtracts --phone-dock). */
   padding:calc(8px + var(--aithema-slack-top,0px) + var(--transcript-message-inset,0px)) .75rem calc(8px + var(--aithema-slack-bottom,0px)) .6rem;
   display:flex; flex-direction:column; }
-.transcript-shell > ol, .transcript-shell > .voice-notices { flex:none; }
+/* End content keeps its intrinsic height: wrapped recovery text and Retry
+   must not extend below the box used to decide whether the content fits. */
+.transcript-shell > ol, .transcript-shell > .voice-notices, .transcript-shell > .reaction-failure { flex:none; }
 /* Latest owns its original end-control slot when no question is shown.
    The card-specific rule cancels only that slot to keep reply/card clearance. */
 .transcript-shell > .transcript-latest { order:1; flex:none; align-self:center; height:44px; margin:.6rem auto 0; }

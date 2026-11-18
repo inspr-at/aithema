@@ -1665,8 +1665,9 @@ existing 108 px recovery region inside the transcript, keeping recovery changes
 stable. Beside a card, only visible recovery content takes room, so starting a
 call leaves the reply and its controls in place. Without a visible question card, short transcripts start at the top;
 explicit follow keeps fitting visible content at scroll zero even when hidden
-notice/Latest reservations extend the native scroll end. With a card, the latest
-reply stays beside its question. Unbound visuals reserve
+notice/Latest reservations extend the native scroll end. Visible reply-failure
+messages and Retry also count as content, including wrapped host copy.
+With a card, the latest reply stays beside its question. Unbound visuals reserve
 no concept bar; configured image visuals keep their 44 px row. The transcript keeps
 scroll gestures in its pane and suppresses boundary rebound.
 

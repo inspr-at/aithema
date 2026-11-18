@@ -167,8 +167,9 @@
   unbound visuals reserve none. Short transcripts align at the top without a
   visible question card, and beside their question when a card is present. Explicit
   follow keeps otherwise-fitting short content at scroll zero even when hidden end
-  reservations overflow; overflowing content retains the original Latest slot. Transcript
-  scrolling remains contained and suppresses native boundary rebound. A visible
+  reservations overflow; overflowing content retains the original Latest slot.
+  Reply-failure rows retain their full wrapped text height, and follow includes
+  their Retry. Transcript scrolling remains contained and suppresses native boundary rebound. A visible
   header voice message uses free room above short top-aligned conversations;
   the pane frame stays fixed. Notice growth clears obsolete retained space,
   and a deliberate transcript wheel gesture releases retained notice space.
