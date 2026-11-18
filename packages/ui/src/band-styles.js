@@ -56,6 +56,11 @@ export const bandStyles = `
   .audio-rail[data-call-reconciling] .voice-state { max-width:100%; } }
 .audio-rail[data-message] .voice-state { width:var(--voice-message-width,min(280px,calc(100vw - 32px))); top:var(--voice-message-top,calc(100% + 8px)); max-width:none;
   left:var(--voice-message-left,0px); right:auto; white-space:normal; overflow-wrap:normal; word-break:normal; hyphens:manual; }
+/* A permanent reading gap below desktop call controls leaves room for a
+   call-end message without covering either column or moving their content. */
+@media(min-width:960px) {
+  .workspace:has(> .band > .audio-rail) { row-gap:60px; }
+}
 /* Reuse the consent variants without adding short copy to polite announcements. */
 .voice-state .consent-narrow { display:none; }
 .voice-countdown { display:inline-block; width:2ch; text-align:center; font-variant-numeric:tabular-nums; }

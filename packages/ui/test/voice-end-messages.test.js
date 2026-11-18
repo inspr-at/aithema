@@ -75,7 +75,7 @@ for (const copy of [en, de]) test(`AIT-502: ${copy === en ? 'EN' : 'DE'} approve
   const { rail } = fixture(t, { copy });
   assert.equal(copy.voiceConnectFailed, copy === en ? "The call couldn't connect. Select Retry call, or continue typing." : 'Der Anruf konnte nicht aufgebaut werden. Wählen Sie „Erneut anrufen“ oder schreiben Sie weiter.');
   assert.equal(copy.voiceTimeLimit, copy === en ? 'The call reached its maximum length. Start a new call or continue typing.' : 'Der Anruf hat seine maximale Dauer erreicht. Starten Sie einen neuen Anruf oder schreiben Sie weiter.');
-  for (const [key, narrow] of [['voiceConnectFailed', copy === en ? "Couldn't connect" : 'Keine Verbindung'], ['voiceTimeLimit', copy === en ? 'Time up; keep typing' : 'Zeit um; weitertippen']]) {
+  for (const [key, narrow] of [['voiceConnectFailed', copy === en ? "Couldn't connect" : 'Keine Verbindung'], ['voiceTimeLimit', copy === en ? 'Call time up · continue by text' : 'Anrufzeit abgelaufen · weiter per Text']]) {
     rail.state = 'failed'; rail.errorKey = key; rail.render();
     assert.equal(label(rail), copy[key]); assert.equal(rail.root.querySelector('.consent-narrow').dataset.copy, narrow);
   }

@@ -3196,10 +3196,9 @@ export class AithemaSession extends HTMLElement {
       button.addEventListener('click', () => { if (action === 'change') this.openSettings(button); else this.#requestConsent('ready'); });
       return button;
     }, (button, action) => setText(button, action === 'change' ? r.change : copy.settings.reviewConsent));
-    // Combined mode already states processing beside the composer.
+    // Keep processing readable on phones; the full combined notice owns it on wider screens.
     const route = section.querySelector('.ready__route');
-    route.hidden = this.#combined;
-    setText(route, this.#combined ? '' : copy.chooser.summary[this.#session.processingPreset ?? 'best'] ?? '');
+    setText(route, copy.chooser.summary[this.#session.processingPreset ?? 'best'] ?? '');
     const offered = this.#voiceChoice();
     for (const choice of section.querySelectorAll('.ready__mode')) {
       choice.setAttribute('aria-pressed', String(choice.dataset.mode === mode));

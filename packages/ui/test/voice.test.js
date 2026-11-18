@@ -1294,13 +1294,15 @@ test('AIT-235: an already saved typed echo removes its hypothesis without duplic
   await emit(partial); assert.equal(root.querySelectorAll('.turn').length, 2);
 });
 
-for (const copy of [de, en]) test(`AIT-302: every ${copy.display.locale} header status has a <=22 character narrow form; wide and AT keep the full sentence`, async t => {
+for (const copy of [de, en]) test(`AIT-302: every ${copy.display.locale} header status has a bounded narrow form; wide and AT keep the full sentence`, async t => {
   const { voiceStatusCases, voiceMessageKeys, approvedNarrowForm, applyCreditStatusCase } = await import('../../../test/voice-status-cases.js');
   assert.deepEqual(Object.keys(copy.voiceStatesNarrow).sort(), Object.keys(copy.voiceStates).sort());
   assert.deepEqual(Object.keys(copy.voiceMessagesNarrow).sort(), [...voiceMessageKeys].sort());
-  for (const short of [...Object.values(copy.voiceStatesNarrow), ...Object.values(copy.voiceMessagesNarrow), ...Object.values(copy.voiceReasonsNarrow)]) {
+  for (const short of [...Object.values(copy.voiceStatesNarrow), ...Object.entries(copy.voiceMessagesNarrow).filter(([key]) => !['voiceIdleEnded', 'voiceTimeLimit'].includes(key)).map(([, text]) => text), ...Object.values(copy.voiceReasonsNarrow)]) {
     assert.ok(short && [...short].length <= 22, `bounded localized short form: ${short}`);
   }
+  assert.equal(copy.voiceMessagesNarrow.voiceIdleEnded, copy === de ? 'Nach Stille beendet · weiter per Text' : 'Ended after silence · continue by text');
+  assert.equal(copy.voiceMessagesNarrow.voiceTimeLimit, copy === de ? 'Anrufzeit abgelaufen · weiter per Text' : 'Call time up · continue by text');
   const { rail, root } = fixture(t), status = root.querySelector('.voice-state');
   rail.copy = copy;
   for (const sample of voiceStatusCases(copy)) {

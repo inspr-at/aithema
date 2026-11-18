@@ -93,6 +93,16 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"] .composer { row-gap:0; }
   .workspace[data-entrance="combined"] textarea { min-height:44px; height:var(--composer-field-height,44px); }
 }
+@media(min-width:600px) {
+  .workspace[data-entrance="combined"] .ready__route { display:none; }
+}
+@media(width < 600px) {
+  .composer-notice { position:static; max-height:none; }
+  .composer-notice-reserve { display:none; }
+  .composer-notice__wide, .composer-reserve-wide { display:none; }
+  .composer-reserve-phone { display:block; }
+  .composer-notice__phone { display:inline; }
+}
 @media(max-width:600px) {
   .workspace[data-entrance="combined"] { height:auto; padding-bottom:calc(var(--phone-dock,250px) + var(--phone-footer,57px) + 24px); }
   .workspace[data-entrance="combined"] .conversation { height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,250px) - 32px); min-height:0; }
@@ -101,11 +111,6 @@ export const combinedEntranceStyles = `
   /* A new offer can use the full conversation reading area. The rail above
      it stays in the same scroller and can scroll away; the input stays pinned. */
   .workspace[data-entrance="combined"] .conversation-scroll:has(.email-offer) .concept-thread { flex:0 0 100%; }
-  .composer-notice { position:static; max-height:none; }
-  .composer-notice-reserve { display:none; }
-  .composer-notice__wide, .composer-reserve-wide { display:none; }
-  .composer-reserve-phone { display:block; }
-  .composer-notice__phone { display:inline; }
   .workspace[data-entrance="combined"][data-phone-short] .composer { grid-template-columns:minmax(0,1fr) 44px 44px;
     grid-template-areas:"message mic send" "feedback feedback feedback" "status status status" "notice notice notice"; }
   .workspace[data-entrance="combined"][data-phone-short] .composer:has(.staged-images:not([hidden])) {
