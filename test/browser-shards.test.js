@@ -39,10 +39,10 @@ test('the actual CI matrix runs every manifest shard exactly once', () => {
   assertBrowserShardCoverage(discoverBrowserTests(), ciShards);
 });
 
-test('AIT-511: nightly includes all thirteen browser shards exactly once', () => {
+test('AIT-557: nightly includes all fourteen browser shards exactly once', () => {
   const workflow = readFileSync(new URL('../.github/workflows/nightly.yml', import.meta.url), 'utf8');
   const indices = JSON.parse(/shard: (\[[^\n]+\])/u.exec(workflow)[1]);
-  assert.deepEqual(indices, Array.from({ length: 13 }, (_, index) => index + 1));
+  assert.deepEqual(indices, Array.from({ length: 14 }, (_, index) => index + 1));
   assertBrowserShardCoverage(discoverBrowserTests(), indices.map(index => selectBrowserTests(['--shard', `${index}/${browserShards.length}`]).files));
 });
 
@@ -226,19 +226,19 @@ test('current measured packing keeps every shard at or below the 405s headroom t
   assertBrowserShardHeadroom();
 });
 
-test('AIT-511: current measured workloads fit thirteen bins without changing either limit', t => {
-  assert.equal(browserShardCount, 13);
+test('AIT-557: current measured workloads fit fourteen bins without changing either limit', t => {
+  assert.equal(browserShardCount, 14);
   const files = discoverBrowserTests();
   const packing = packBrowserTests(files);
   retainPlan('current', packing);
-  assert.equal(packing.shards.length, 13);
+  assert.equal(packing.shards.length, 14);
   assertBrowserShardCoverage(files, packing.shards);
   assertBrowserShardBudget(packing.totals);
-  t.diagnostic(`Current thirteen-bin seconds: ${packing.totals.map(total => total.toFixed(3)).join(', ')}`);
+  t.diagnostic(`Current fourteen-bin seconds: ${packing.totals.map(total => total.toFixed(3)).join(', ')}`);
   assertBrowserShardHeadroom(packing);
 });
 
-test('AIT-511: thirteen bins retain 405s headroom with AIT-506 and AIT-524 measured growth', t => {
+test('AIT-557: fourteen bins retain 405s headroom with AIT-506 and AIT-524 measured growth', t => {
   const files = discoverBrowserTests();
   // AIT-524's measured reservation at 48956966; never lower an existing weight.
   // AIT-557 preserves that reservation across the split and covers the moved CI work.
@@ -250,10 +250,10 @@ test('AIT-511: thirteen bins retain 405s headroom with AIT-506 and AIT-524 measu
   };
   const packing = packBrowserTests(files, weights, browserShardCount);
   retainPlan('growth', packing);
-  assert.equal(packing.shards.length, 13);
+  assert.equal(packing.shards.length, 14);
   assertBrowserShardCoverage(files, packing.shards, weights);
   assertBrowserShardBudget(packing.totals);
-  t.diagnostic(`Growth thirteen-bin seconds: ${packing.totals.map(total => total.toFixed(3)).join(', ')}`);
+  t.diagnostic(`Growth fourteen-bin seconds: ${packing.totals.map(total => total.toFixed(3)).join(', ')}`);
   assertBrowserShardHeadroom(packing, weights);
 });
 
