@@ -200,7 +200,7 @@ test('AIT-186 F5: voice-failure popover has readable words and measured viewport
     for (const [name, box] of Object.entries({ popup: view.popup, bubble: view.bubble }))
       assert.ok(box.width > 0 && box.height > 0, `${label}: ${name} has a positive box: ${JSON.stringify(box)}`);
     for (const box of before) assert.ok(box[2] > 0 && box[3] > 0, `${label}: baseline rail/frame has a positive box`);
-    if (width >= 600) assert.equal(view.popoverWidth, Math.min(280, width - 32), `${label}: popover width`);
+    if (width >= 600) assert.equal(view.popoverWidth, Math.min(width >= 960 ? 480 : 280, width - 32), `${label}: popover width`);
     else assert.ok(view.lines <= 2, `${label}: narrow failure is at most two lines`);
     if (width >= 600) assert.ok(view.left >= 16 && view.right <= width - 16, `${label}: inset 16 px: ${JSON.stringify(view)}`);
     else assert.ok(view.left >= 0 && view.right <= width, `${label}: narrow status stays in viewport`);
