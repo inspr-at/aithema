@@ -4309,19 +4309,31 @@ also exports `IMAGE_INPUT_MEDIA_TYPES`, `stagedImage`, `imageReferences`,
 
 New copy keys are `imageConsentJit`, `imageInputFeature`, `imagePreparing`,
 `imageRemove`, `imageLiveCall`, `imageUnsupportedModel`, `imageWithheld`,
-`uploadsSupported`, plural `uploadsReselect`, `imageRefusals` (unsupported, size,
+`uploadsSupported`, `uploads.limitsWithImages`, plural `uploadsReselect`, `imageRefusals` (unsupported, size,
 limit, empty, malformed, dimensions, deadline, cancelled, unavailable, session,
 model, live-call, batch and paused), `features.imageInput`, `featureConsent.imageInput`, and
-`processingConsent.items.image-input`. Upload limits now describe the accepted
-image formats and normalized-image retention. Refusals are bounded structured
+`processingConsent.items.image-input`.
+
+`copy.uploads.limits` retains the documents-only Attach title and accessible
+description. The additive `copy.uploads.limitsWithImages` supplies AIT-510's
+formats and retention help when the current binding supports image input, or
+requires consent for it. Both accept `{files}` and `{size}`. A host override
+of `uploads.limits` also wins for image-capable composers unless the host supplies
+an explicit `uploads.limitsWithImages` override. Picker types and type refusals
+follow the current binding, including after a settings change.
+
+Refusals are bounded structured
 records, retained through typing until dismissed, a successful attach, or a
 successful send. The reason slot ranks pause/unavailability, send failure,
 attach-time consent, refusals, upload notices, then the shortcut hint. German UI
 copy is impersonal; host overrides remain authoritative. Mixed image/document
 selections refuse unavailable images while continuing with eligible documents.
 Document-only continuations use the existing upload-consent wording and editor.
-Paused conversations and unavailable normalizers have their own refusal copy;
-only a missing model capability uses the unsupported-model wording. An enabled
+At attach time, an unavailable normalizer or a text-only binding uses the
+existing document type refusal for images too. A paused image-capable composer
+keeps `imageRefusals.paused` for image selection and paste; other files use the
+generic Attach refusal during a pause. Capability reads use the unpaused
+verdict, while attachment admission still respects the pause. An enabled
 Attach control describes selection even before consent, and asks only after a
 file is chosen. Image-capable composers append the supported-format help sentence
 with its final full stop and without a trailing separator, reserve that full

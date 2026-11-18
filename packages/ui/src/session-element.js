@@ -3545,9 +3545,10 @@ export class AithemaSession extends HTMLElement {
     if (this.#uploading) return copy.uploads.busy;
     return uploadsPossible(this.#limits) ? '' : copy.uploads.impossible;
   }
-  // Read the current binding at each use; consent can admit image selection.
+  // Read the current binding at each use; pauses hold admission, not capability.
+  // Consent can admit image selection before the grant.
   #imageInputEnabled() {
-    const image = this.#feature('imageInput', true);
+    const image = this.#feature('imageInput', true, { ignorePause: true });
     return image.available || isConsentReason(image.rawReason ?? image.reason);
   }
   // Unavailable (consent, preset, extractors, pause) stays focusable and says why when pressed.
@@ -3597,8 +3598,17 @@ export class AithemaSession extends HTMLElement {
     // A successful receipt clears older feedback, including across consent.
     // Decoder events from this selection may already have arrived.
     refusalVersion ??= this.#images.refusalVersion;
-    const needsImages = this.#imageInputEnabled() && files.some(isImageFile);
+    let needsImages = this.#imageInputEnabled() && files.some(isImageFile);
     const image = this.#feature('imageInput', true), documents = this.#feature('uploads', true);
+    if (needsImages && !image.available && !isConsentReason(image.rawReason ?? image.reason)) {
+      const rawReason = image.rawReason ?? image.reason;
+      const reason = this.#session.paused || this.#session.pauseReason === 'purpose' || rawReason === 'session paused' || rawReason === 'paused' ? 'paused'
+        : rawReason === 'image input not supported' ? 'model' : 'unavailable';
+      this.#images.refuse(files.filter(isImageFile).map(file => ({ name: file.name, reason })));
+      files = files.filter(file => !isImageFile(file)); needsImages = false;
+      this.#render('composer');
+      if (!files.length) return;
+    }
     if (needsImages && !image.available && isConsentReason(image.rawReason ?? image.reason) || files.some(file => !this.#imageInputEnabled() || !isImageFile(file)) && !documents.available && isConsentReason(documents.rawReason ?? documents.reason)) {
       this.#imageIntent = { files, id: this.#session.id, refusalVersion }; clearTimeout(this.#imageIntentTimer);
       this.#imageIntentTimer = setTimeout(() => { this.#imageIntent = null; this.#uploadNotice = plural(resolveCopy(this.#copy, 'uploadsReselect', undefined, this.#session.locale), files.length); this.#render('composer'); }, 180000);

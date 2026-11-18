@@ -10,6 +10,10 @@ const limits = {
   en: 'Up to 8 files, 20 MB each: PDF, Word, Excel, PowerPoint, text, Markdown, CSV, JSON or XML. The original file is not stored.',
   de: 'Bis zu 8 Dateien, je höchstens 20 MB: PDF, Word, Excel, PowerPoint, Text, Markdown, CSV, JSON oder XML. Die Originaldatei wird nicht aufbewahrt.',
 };
+const limitsWithImages = {
+  en: 'Up to 8 files, 20 MB each: PDF, Word, Excel, PowerPoint, text, Markdown, CSV, JSON, XML, PNG, JPEG, WebP or GIF. Original documents are not stored; normalized images are kept until withdrawn or erased.',
+  de: 'Bis zu 8 Dateien, je höchstens 20 MB: PDF, Word, Excel, PowerPoint, Text, Markdown, CSV, JSON, XML, PNG, JPEG, WebP oder GIF. Originaldokumente werden nicht aufbewahrt; normalisierte Bilder bleiben bis zum Zurückziehen oder Löschen gespeichert.',
+};
 const accept = '.pdf,.docx,.xlsx,.pptx,.txt,.md,.csv,.json,.xml';
 export function documentUploadCheck() {
   for (const entrance of ['choice', 'combined']) for (const width of [390, 1440]) for (const locale of ['en', 'de']) {
@@ -102,6 +106,10 @@ export function documentUploadCheck() {
           assert.equal(f.retention, image);
           assert.equal(f.title, f.description);
           if (!image) assert.equal(f.title, limits[locale]);
+          if (image) {
+            assert.equal(f.title, limitsWithImages[locale]);
+            assert.equal(f.description, limitsWithImages[locale]);
+          }
         }
         await shot('binding-restored');
       });

@@ -172,9 +172,14 @@
   imageLiveCall, imageUnsupportedModel, imageWithheld, uploadsSupported,
   uploadsReselect (plural), imageRefusals and their per-reason entries (including batch limits),
   features.imageInput, featureConsent.imageInput, processingConsent.items.image-input,
-  plus native/capability refusal reasons and updated upload format/retention copy.
+  plus native/capability refusal reasons. `uploads.limits` is restored to the
+  existing documents-only text; the additive `uploads.limitsWithImages` supplies
+  format/retention help for image-capable or image-consent-pending composers.
+  An explicit host `limitsWithImages` override wins, followed by a host `limits`
+  override, then the bundled image help. Both keys accept `{files}` and `{size}`.
   Refusals persist through typing in the bounded reason slot, below blocking
-  failures and attach-time consent. README documents every additive host surface.
+  failures and attach-time consent. README documents the additive host surfaces
+  and attachment-help override precedence.
 
 - Lower-level additions: storage turnReceipt/imageUpload/expireStagedUploads,
   postTurn guard.attachments, completeUpload image results, upload-handler now
@@ -198,8 +203,12 @@
   markers before estimation, reservation and dispatch, preserving text replies
   and understanding. Device mode refuses unsent staged images without dropping
   their files or caption. Mixed selections continue eligible document uploads when
-  image input is unavailable, with distinct model/normalizer/pause refusals and
-  existing upload-consent wording for document-only continuations.
+  image input is unavailable. At attach time, unavailable normalizers and
+  text-only bindings use the existing document type refusal for images, with
+  existing upload-consent wording for document-only continuations. Paused
+  image-capable composers keep `imageRefusals.paused` on image selection and
+  paste; other files use the generic Attach refusal during a pause. Capability
+  reads use the unpaused verdict; attachment admission still respects the pause.
 - Image refusal feedback reserves the longest localized reason and shows it
   once. Remove targets stay outside thumbnails with filename-aware EN/DE names;
   short phones use one compact staging row around 44 px controls. Withheld-image copy `imageWithheld`
@@ -212,7 +221,8 @@
   Retained-file retry messages keep their existing facts and action order.
   Image-feedback measurement keeps the same width across text-consent and
   shortcut states, including 320/340 px, preserving the composer after a grant.
-  The same mixed selection retains its image refusal across document consent;
+  On document-only bindings, the same mixed selection retains its document type
+  refusal across document consent;
   only eligible document handles and bounded refusal metadata continue.
   Successful intake clears only feedback from earlier selections. Decoder
   failures from the current selection survive event/receipt ordering and batches.
