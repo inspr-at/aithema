@@ -2,6 +2,13 @@
 
 ## Host notes
 
+- AIT-547: short desktop overviews with pinned contact content reserve the
+  natural height of the longest resolved status for the current width, font
+  and language. This keeps status text and actions readable without moving
+  the summary between states, and recovers room for the first collapsed signal.
+  Scrolling fades clear heading rows and their controls. Separate verification
+  entrances retain their natural height.
+
 - AIT-543 (RC26): hosts without a visitor email store now get working in-chat offers via the identity command.
   This is a bug fix with no new opt-in flag. Explicit `visitorEmail.canSave: false`
   uses the lock form's request/change rule and never PUTs visitor email. EN/DE

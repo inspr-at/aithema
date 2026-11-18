@@ -51,6 +51,8 @@ import { createReveal } from './reveal.js';
 import { mountVersionDetails, renderHostVersion } from './version-display.js';
 import { QuestionCard, questionCardMarkup, questionCardStyles } from './question-card.js';
 import { SummaryView } from './summary-view.js';
+import { OverviewStatusSize } from './overview-status-size.js';
+import { overviewStatusText, featureReasonText } from './overview-status-copy.js';
 import { emailAskStyles } from './email-ask-styles.js';
 import { buildPaimosPayload, paimosImportUrl } from './paimos-import.js';
 
@@ -121,7 +123,7 @@ export class AithemaSession extends HTMLElement {
   #localeChanging = Promise.resolve(); #copyLocale;
   #paneObserver; #scrollTimers = new Map();
   #savedTimer; #saved = false; #savedAnnouncement = false; #savedAnnouncedAt = -Infinity; #sendFailed = false;
-  #summaryView; #summaryExpanded = false;
+  #overviewStatusSize; #summaryView; #summaryExpanded = false;
   #questionCard; #disposeVersion; #footerMedia; #footerListener; #brandObserver;
   #uploadAt = new Map(); #uploading = false; #uploadNotice = ''; #reading = ''; #limits = UPLOAD_LIMITS; #limitsLoad = null; #dragDepth = 0;
   #images; #imageLayout = false; #imageIntent = null; #imageIntentTimer;
@@ -172,7 +174,7 @@ export class AithemaSession extends HTMLElement {
     this.#signalState = this.#session?.id === session.id ? this.#signals?.state : undefined;
     this.#signals?.destroy(); this.#signalLiveSeq = null;
     if (session.id !== this.#session?.id) this.#summaryExpanded = false;
-    this.#summaryView?.disconnect();
+    this.#overviewStatusSize?.disconnect(); this.#summaryView?.disconnect();
     this.#consentRequestId = null;
     const returningStart = this.#session ? null : this.#readStartIntent(session.id, options.entrance === 'combined');
     if (this.#session) this.#clearStartIntent();
@@ -260,7 +262,7 @@ export class AithemaSession extends HTMLElement {
     this.#watchPage(true); this.#offerResume(); this.#host?.connect(); this.#placeOrb();
     this.#phoneViewport?.connect(); this.#popups?.connect(); this.#motionMedia?.addEventListener?.('change', this.#motionListener);
     this.#rail?.connect(); this.#reveal?.connect();
-    this.#questionCard?.connect(); this.#summaryView?.connect();
+    this.#questionCard?.connect(); this.#overviewStatusSize?.connect(); this.#summaryView?.connect();
     this.#observePanes(); this.#syncReconciling();
     if (this.#laneStatusPending !== null) this.#awaitLaneStatus();
     this.#render('composer');
@@ -268,7 +270,7 @@ export class AithemaSession extends HTMLElement {
   disconnectedCallback() {
     this.#signals?.suspend();
     this.#consentRequestId = null;
-    this.#summaryView?.disconnect();
+    this.#overviewStatusSize?.disconnect(); this.#summaryView?.disconnect();
     this.ownerDocument.removeEventListener('pointermove', this.#movePointer);
     this.#navigation = null;
     clearTimeout(this.#startIntentTimer); this.#startIntent = null; this.#checkingStartRestore = null;
@@ -817,6 +819,7 @@ export class AithemaSession extends HTMLElement {
     const textReplyDialog = root.querySelector('.voice-reply-dialog');
     textReplyDialog?.querySelector('.voice-reply-close').addEventListener('click', () => textReplyDialog.close());
     this.#signals = new SignalList(root.querySelector('.signals-section'), { state: this.#signalState, anchor: update => this.#anchored(update) });
+    this.#overviewStatusSize = new OverviewStatusSize(root); this.#overviewStatusSize.connect();
     this.#summaryView = new SummaryView({ root, expanded: this.#summaryExpanded,
       onChange: expanded => { this.#summaryExpanded = expanded; }, anchor: update => this.#anchored(update) });
     this.#summaryView.connect();
@@ -1643,7 +1646,7 @@ export class AithemaSession extends HTMLElement {
   #enterErased(id, via) {
     if (id !== this.#session.id || this.#erased) return;
     this.#clearStartIntent();
-    this.#summaryExpanded = false; this.#summaryView?.freeze();
+    this.#summaryExpanded = false; this.#overviewStatusSize?.disconnect(); this.#summaryView?.freeze();
     const root = this.shadowRoot, workspace = root.querySelector('.workspace');
     this.#signals.clear();
     const remembered = this.#erasedIds.get(id);
@@ -1826,25 +1829,25 @@ export class AithemaSession extends HTMLElement {
   }
   #hasLiveCall() { return Boolean(this.#rail?.session || this.#rail?.waitingCall || this.#rail?.state === 'connecting'); }
   #feature(feature, visitor = false, { ignorePause = false } = {}) {
-    if (this.#erased) return { available: false, reason: this.#copy.conversationUnavailable, rawReason: 'session-erased' };
+    if (this.#erased) return { available: false, reason: featureReasonText(this.#copy, 'erased'), rawReason: 'session-erased' };
     const preset = this.#session.processingPreset ?? 'best';
     if (this.#host?.usedUp && preset !== 'device') return { available: false,
-      reason: this.#copy.voiceStates[this.#host.endReason === 'one-hour' ? 'timeExpired' : 'usedUp'], rawReason: 'host-limit' };
+      reason: featureReasonText(this.#copy, this.#host.endReason === 'one-hour' ? 'timeExpired' : 'usedUp'), rawReason: 'host-limit' };
     // Held voice commands need the server verdict too: a local pause must not hide
     // a budget or consent refusal behind the explicit take-back exception.
     const continuation = visitor && feature === 'voice' && (this.#rail?.moved || this.#rail?.waitingCall);
-    if (!ignorePause && this.#session.pauseReason === 'purpose') return { available: false, reason: this.#copy.paused };
-    if (!ignorePause && this.#session.paused && !continuation) return { available: false, reason: this.#copy.paused };
+    if (!ignorePause && this.#session.pauseReason === 'purpose') return { available: false, reason: featureReasonText(this.#copy, 'paused') };
+    if (!ignorePause && this.#session.paused && !continuation) return { available: false, reason: featureReasonText(this.#copy, 'paused') };
     if (this.#session.consentWithdrawn || this.#session.tombstone) return { available: false,
-      reason: visitor ? reasonText(this.#copy, CONSENT_REASON, feature) : this.#copy.consentRequired };
+      reason: visitor ? reasonText(this.#copy, CONSENT_REASON, feature) : featureReasonText(this.#copy, 'consent') };
     const matrix = this.#session.featureMatrix?.[preset] ?? (preset === 'device' ? deviceFeatures() : {});
-    let value = matrix[feature] ?? { available: false, reason: this.#copy.notConfigured };
+    let value = matrix[feature] ?? { available: false, reason: featureReasonText(this.#copy, 'notConfigured') };
     if (ignorePause && value.reason === 'session paused' && value.unpaused) value = value.unpaused;
     if (!this.#hasLiveCall() && this.#postCallMatrix === this.#session.featureMatrix && value.reason === 'budget denied') {
       value = { ...value, reason: 'budget reconciling' };
     }
     // Shown verdicts speak the page language; decisions keep the server's machine reasons.
-    const reason = value.reason === 'budget denied' && this.#hasLiveCall() ? this.#copy.voiceBudgetDenied : reasonText(this.#copy, value.reason, feature);
+    const reason = value.reason === 'budget denied' && this.#hasLiveCall() ? featureReasonText(this.#copy, 'voiceBudgetDenied') : reasonText(this.#copy, value.reason, feature);
     return visitor ? { ...value, rawReason: value.reason, reason } : value;
   }
   // The visitor's consent position for the acknowledged choice, from the server verdicts.
@@ -2675,16 +2678,11 @@ export class AithemaSession extends HTMLElement {
       (stale || !u.draft);
     const idleOverview = hasPersonTurn && u.readinessAssessed && stale &&
       !consentMissing && (analysis.available || cached) && !updatingOverview && !failedOverview && !this.#failure;
-    const overviewText = !hasPersonTurn ? copy.empty
-      : updatingOverview && u.readinessAssessed ? copy.stale
-      : preparing ? copy.preparingOverview
-      : failedOverview ? `${copy.understandingFailed}${replyFailed ? '.' : ''}`
-      : this.#failure && !replyFailed && !reconciling ? resolveCopy(copy, 'reasoningFailed', null, this.#session.locale)
-      : !analysis.available && !cached && this.#session.pauseReason !== 'purpose' && !reconciling ? analysis.reason
-      : !u.readinessAssessed && replyFailed && missingReply && this.#session.pauseReason !== 'purpose' ? copy.overviewPendingReply
-      : !u.readinessAssessed ? copy.noProjectDetails
-      : stale && this.#session.pauseReason !== 'purpose' ? resolveCopy(copy, 'staleIdle', null, this.#session.locale)
-      : u.draft ? copy.draft : resolveCopy(copy, 'overviewCurrent', 'final', this.#session.locale);
+    const overviewText = overviewStatusText(copy, this.#session.locale, {
+      hasPersonTurn, updatingOverview, readinessAssessed: u.readinessAssessed, preparing, failedOverview,
+      replyFailed, failure: this.#failure, reconciling, analysis, cached,
+      purposePaused: this.#session.pauseReason === 'purpose', missingReply, stale, draft: u.draft,
+    });
     const notice = root.querySelector('.notice'), overviewRetry = root.querySelector('.overview-retry');
     notice.setAttribute('aria-label', resolveCopy(copy, 'overviewStatusLabel', null, this.#session.locale));
     // One named status slot keeps every overview state in the same place.
@@ -2707,6 +2705,7 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.retry').inert = Boolean(this.#host?.usedUp);
     setText(root.querySelector('.summary-text'), summary ? u.summary : '');
     this.#signals.update(this.#session, copy, { live: this.#signalLiveSeq === this.#session.seq, available: !locked && (analysis.available || cached) && u.readinessAssessed });
+    this.#overviewStatusSize.render(copy, this.#session.locale);
     this.#summaryView.render(copy, this.#session.locale);
     const items = readinessListItems(u.constraints, u.questionHistory, u.openQuestions, copy.constraints, this.#session.preset);
     const cleared = newlyClearedFirst(this.#open, this.#cleared, items.cleared);
@@ -2812,8 +2811,19 @@ export class AithemaSession extends HTMLElement {
       if (more) more.hidden = text.scrollHeight <= text.clientHeight;
     }
     for (const pane of this.shadowRoot.querySelectorAll(PANES)) {
-      pane.toggleAttribute('data-top', pane.scrollTop > 4);
-      pane.toggleAttribute('data-bottom', pane.scrollTop + pane.clientHeight < pane.scrollHeight - 4);
+      let top = pane.scrollTop > 4, bottom = pane.scrollTop + pane.clientHeight < pane.scrollHeight - 4;
+      // A pinned contact can put a heading at the reading boundary. Fade body
+      // content only: a partly visible heading or action must retain its ink.
+      if (pane.matches('.analysis-content') && pane.closest('.workspace').hasAttribute('data-contact') && (top || bottom)) {
+        const bounds = pane.getBoundingClientRect();
+        const headings = [...pane.querySelectorAll('.summary-heading, .signals-heading, .signals-toggle, .questions-heading, section > h3')]
+          .map(node => node.getBoundingClientRect()).filter(box => box.width > 0 && box.height > 0);
+        const intersects = (start, end) => headings.some(box => box.top < end && box.bottom > start);
+        if (top && intersects(bounds.top, bounds.top + 26)) top = false;
+        if (bottom && intersects(bounds.bottom - 44, bounds.bottom)) bottom = false;
+      }
+      pane.toggleAttribute('data-top', top);
+      pane.toggleAttribute('data-bottom', bottom);
     }
   }
   // Measure the actual brand and reserved actions, so host copy/account changes

@@ -11,6 +11,7 @@ import { comparePhoneConsentBase } from '../consent-base-comparison.js';
 import { CONSENT_ITEMS } from '../../demo/processing-consent.js';
 import { shadow, until, boxes, evidenceCommit } from './start2-display-helpers.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
+import { compactStatusMaximum } from './overview-fade-check.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 
 const features = { imageInput: ['models-international', 'image-input'], uploads: ['models-international'], transcription: ['voice-elevenlabs'], images: ['models-international'], text: ['models-international'], html: ['drafts-anthropic'], voice: ['voice-elevenlabs'], analysis: ['models-international'] };
@@ -733,8 +734,9 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: composer consent act
 
 test('AIT-290 RC24: named constant overview status slot DE/EN 1440/1024/390', async t => {
   const page = await fixture(t);
-  for (const locale of ['de', 'en']) for (const width of [1440, 1024, 390]) {
+  for (const locale of ['de', 'en']) for (const [width, height] of [[1440, 900], [1024, 900], [390, 844], [1440, 1100]]) {
     await scene(page, locale, 'light', width, []);
+    await page.setViewport({ width, height });
     await shadow(page, async c => {
       const { inputRevision } = await import('/packages/core/src/session.js');
       const session = structuredClone(c.session);
@@ -758,30 +760,37 @@ test('AIT-290 RC24: named constant overview status slot DE/EN 1440/1024/390', as
     await page.mouse.move(-10, -10); await frame(page);
     const overviewBefore = await boxes(page, overviewSelectors);
     for (const [i, box] of overviewBefore.entries()) assert.ok(box[2] > 0 && box[3] > 0, `positive ${overviewSelectors[i]} baseline`);
-    const overview = await shadow(page, c => {
+    const maximum = await compactStatusMaximum(page);
+    const overview = await shadow(page, (c, maximum) => {
       const r = c.shadowRoot, section = r.querySelector('.summary'), heading = r.getElementById(section.getAttribute('aria-labelledby'));
       const summary = r.querySelector('.summary-text').getBoundingClientRect();
       const divider = r.querySelector('.readiness').getBoundingClientRect();
       const notice = r.querySelector('.notice'), status = notice.getBoundingClientRect();
       const contentStyle = getComputedStyle(r.querySelector('.analysis-content'));
       const statusFont = parseFloat(getComputedStyle(notice).fontSize);
+      const pane = r.querySelector('.analysis-stack').getBoundingClientRect();
+      const contact = r.querySelector('.workspace').hasAttribute('data-contact');
+      const compact = contact && innerWidth >= 60 * parseFloat(getComputedStyle(document.documentElement).fontSize) && pane.height <= 500;
       const next = r.querySelector('.signals-section'), nextHeading = next.querySelector('h3').getBoundingClientRect();
       return { dividerVisible: divider.top >= 90 && divider.bottom <= innerHeight, summaryGap: summary.top - divider.bottom, nextHeadingGap: nextHeading.top - next.getBoundingClientRect().top - parseFloat(getComputedStyle(next).borderTopWidth),
         noticeOutOfFlow: getComputedStyle(r.querySelector('.notice')).position === 'absolute', noticeVisible: getComputedStyle(r.querySelector('.notice-text')).visibility !== 'hidden',
-        statusHeight: status.height, statusWidth: status.width, expectedStatusHeight: 4.35 * statusFont, summaryStatusGap: summary.top - status.bottom, expectedStatusGap: parseFloat(contentStyle.rowGap) + heading.getBoundingClientRect().height + parseFloat(getComputedStyle(section).rowGap),
+        compact, contact, paneWidth: pane.width, paneHeight: pane.height,
+        statusHeight: status.height, statusWidth: status.width, expectedStatusHeight: compact ? maximum : 4.35 * statusFont, summaryStatusGap: summary.top - status.bottom, expectedStatusGap: (compact ? 0 : parseFloat(contentStyle.rowGap)) + heading.getBoundingClientRect().height + parseFloat(getComputedStyle(section).rowGap),
         statusRole: notice.getAttribute('role'), statusName: notice.getAttribute('aria-label'), statusText: notice.textContent,
         headingWidth: heading.getBoundingClientRect().width, headingHeight: heading.getBoundingClientRect().height, regionName: heading.textContent, summaryVisible: !section.hidden, summary: r.querySelector('.summary-text').textContent };
-    });
+    }, maximum);
     assert.equal(overview.noticeVisible, true, 'current overview keeps the quiet status visible');
     assert.equal(overview.statusText, locale === 'de' ? 'Auf dem neuesten Stand' : 'Up to date');
     assert.equal(overview.statusRole, 'status'); assert.ok(overview.statusName?.trim(), 'status slot has an accessible name');
     assert.ok(overview.statusWidth > 0 && overview.statusHeight > 0, 'status slot has a positive box');
-    assert.ok(Math.abs(overview.statusHeight - overview.expectedStatusHeight) <= .5, `${locale}/${width}: status reserves 4.35em`);
+    assert.ok(overview.paneWidth > 0 && overview.paneHeight > 0, 'layout is derived from a positive pane box');
+    if (height === 1100) assert.equal(overview.compact, false, 'tall desktop exercises the normal-layout 4.35em contract');
+    assert.ok(Math.abs(overview.statusHeight - overview.expectedStatusHeight) <= .5, `${locale}/${width}/${height}: status reserves exactly ${overview.compact ? 'the measured longest state' : '4.35em'}: ${JSON.stringify(overview)}`);
     assert.equal(overview.summaryVisible, true);
     assert.ok(overview.headingWidth > 1 && overview.headingHeight > 1, 'AIT-514 summary heading is visible with a positive box');
     assert.equal(overview.dividerVisible, true, 'readiness divider is visible below the sticky header');
     assert.equal(overview.noticeOutOfFlow, false);
-    assert.ok(Math.abs(overview.summaryStatusGap - overview.expectedStatusGap) <= .5, `${locale}/${width}: summary follows the status by the unchanged grid gap: ${JSON.stringify(overview)}`);
+    assert.ok(Math.abs(overview.summaryStatusGap - overview.expectedStatusGap) <= .5, `${locale}/${width}/${height}: summary follows the status by the exact ${overview.compact ? 'compact spacing' : 'unchanged grid gap'}: ${JSON.stringify(overview)}`);
     const ax = await page.accessibility.snapshot({ interestingOnly: false });
     const namedRegion = n => n.role === 'region' && n.name === overview.regionName || n.children?.some(namedRegion);
     assert.ok(namedRegion(ax), 'summary keeps its accessible region name');
@@ -794,7 +803,7 @@ test('AIT-290 RC24: named constant overview status slot DE/EN 1440/1024/390', as
       assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.notice-text')).visibility !== 'hidden'), true);
     }
     t.diagnostic(`PASS AIT-290 ${evidenceCommit} ${locale}/${width}: status ${overview.statusHeight}px; summary gap ${overview.summaryStatusGap}px; draft/current 0px; named status and summary region`);
-    if (width === 1440 || locale === 'de' && width === 390) await capture215(t, page, `${locale}-light-${width}-overview-status-slot`, { locale, width, ...overview, layoutShiftPx: 0, accessibleRegion: true });
+    if (width === 1440 || locale === 'de' && width === 390) await capture215(t, page, `${locale}-light-${width}x${height}-overview-status-slot`, { locale, width, ...overview, layoutShiftPx: 0, accessibleRegion: true });
   }
 });
 

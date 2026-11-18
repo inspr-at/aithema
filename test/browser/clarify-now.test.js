@@ -1,4 +1,5 @@
 // AIT-274: one page and one browser; all state-only contracts live in unit tests.
+import { overviewFadeCheck, compactStatusCheck, overviewStatusLayoutBudgetCheck } from './overview-fade-check.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
@@ -1760,3 +1761,11 @@ test('AIT-524 status-only hit testing, real padding and stationary rows: EN/DE l
   assert.deepEqual(errors, []);
   if (evidence) await writeFile(join(evidence, 'ait524-rects.json'), JSON.stringify(records, null, 2));
 });
+
+test('AIT-547 pinned contact: opaque heading and first signal above the fade, stable status EN/DE',
+  { timeout: 480_000 }, async t => { await overviewFadeCheck(t); await compactStatusCheck(t); });
+
+test('AIT-547 status measurement: bounded layout work for the complete catalog',
+  { timeout: 60_000 }, overviewStatusLayoutBudgetCheck);
+test('AIT-547 status measurement: isolated full remeasurement with classic scrollbars',
+  { timeout: 60_000 }, t => overviewStatusLayoutBudgetCheck(t, true));
