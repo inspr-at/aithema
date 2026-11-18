@@ -257,6 +257,51 @@ export async function transcriptComposerCases(t) {
       assert.ok(after.notice.bottom <= after.shell.bottom + .5, 'follow fully reveals the failure notice');
     });
   }
+  // A wrapped host failure can overflow a flex-shrunk paragraph even when
+  // that paragraph's minimum box fits. Its complete text and Retry are content.
+  for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) {
+    await t.test(`wrapped reply-failure follow reveals Retry ${locale}/${theme}/390x844`, async () => {
+      await reset(390, 844, locale, theme, { turns: 1 });
+      await shadow(page, async c => {
+        const { [c.session.locale]: copy } = await import(`/packages/ui/src/i18n/${c.session.locale}.js`);
+        const { inputRevision } = await import('/packages/core/src/session.js');
+        c.configure({ copy: { ...copy, replyFailed: Array(4).fill(copy.replyFailed).join(' ') }, session: c.session });
+        const shell = c.shadowRoot.querySelector('.transcript-shell'), css = getComputedStyle(shell);
+        shell.querySelector('ol').style.minHeight = `${shell.clientHeight - parseFloat(css.paddingTop) - parseFloat(css.paddingBottom) - 40}px`;
+        const failure = { lane: 'reaction', inputRevision: inputRevision(c.session), reason: 'fixture', retryable: true };
+        c.receive({ type: 'lane.failed', data: failure });
+        c.receive({ type: 'lane.status', data: { inputRevision: failure.inputRevision, running: [],
+          failures: [failure, { ...failure, lane: 'understanding' }], lastFailure: failure } });
+      });
+      await settleEvidenceFrame(page);
+      const sample = () => shadow(page, c => {
+        const r = c.shadowRoot, shell = r.querySelector('.transcript-shell');
+        const box = selector => r.querySelector(selector).getBoundingClientRect().toJSON();
+        return { shell: box('.transcript-shell'), list: box('.transcript-shell > ol'),
+          notice: box('.reaction-failure'), text: box('.reaction-failure-text'), retry: box('.reaction-failure > .retry'),
+          scrollTop: shell.scrollTop, paddingBottom: parseFloat(getComputedStyle(shell).paddingBottom),
+          minimum: parseFloat(getComputedStyle(r.querySelector('.reaction-failure')).minHeight) };
+      });
+      await shadow(page, c => { c.shadowRoot.querySelector('.transcript-shell').scrollTop = 0; });
+      const before = await sample(), stem = `ait511-wrapped-failure-${locale}-${theme}-390x844`;
+      if (evidence) await page.screenshot({ path: join(evidence, `${stem}-before.png`), captureBeyondViewport: false });
+      await shadow(page, c => c.shadowRoot.querySelector('.transcript-latest').click());
+      await settleEvidenceFrame(page);
+      const after = await sample(); records.push({ label: stem, before, after });
+      if (evidence) {
+        await page.screenshot({ path: join(evidence, `${stem}-after.png`), captureBeyondViewport: false });
+        await writeFile(join(evidence, `${stem}.json`), JSON.stringify({ before, after }, null, 2));
+      }
+      t.diagnostic(`${stem}: ${JSON.stringify({ before, after })}`);
+      for (const state of [before, after]) for (const name of ['shell', 'list', 'notice', 'text', 'retry']) positive(state[name], name);
+      assert.ok(before.list.bottom + before.paddingBottom <= before.shell.bottom + .5, 'the list fits before the wrapped failure');
+      assert.ok(before.text.height > before.minimum + .5, 'host failure copy genuinely exceeds the two-line minimum');
+      assert.ok(before.retry.bottom > before.shell.bottom + .5, 'wrapped Retry starts clipped before follow');
+      assert.ok(after.scrollTop > 0, 'follow includes the full wrapped failure content');
+      assert.ok(after.retry.top >= after.shell.top && after.retry.bottom <= after.shell.bottom + .5, 'follow fully reveals wrapped Retry');
+      assert.ok(after.notice.height >= after.text.height - .5, 'the failure row retains its intrinsic wrapped text height');
+    });
+  }
   for (const [width, height] of [[1440, 900], [1280, 800], [1024, 640], [1024, 900], [900, 700], [768, 1024], [390, 844]]) {
     await t.test(`growth and reclaimed notice space ${width}x${height}`, async () => {
       await reset(width, height, 'en', 'light', { voice: true });
