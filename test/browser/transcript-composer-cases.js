@@ -266,12 +266,17 @@ export async function transcriptComposerCases(t) {
         const { [c.session.locale]: copy } = await import(`/packages/ui/src/i18n/${c.session.locale}.js`);
         const { inputRevision } = await import('/packages/core/src/session.js');
         c.configure({ copy: { ...copy, replyFailed: Array(4).fill(copy.replyFailed).join(' ') }, session: c.session });
-        const shell = c.shadowRoot.querySelector('.transcript-shell'), css = getComputedStyle(shell);
-        shell.querySelector('ol').style.minHeight = `${shell.clientHeight - parseFloat(css.paddingTop) - parseFloat(css.paddingBottom) - 40}px`;
         const failure = { lane: 'reaction', inputRevision: inputRevision(c.session), reason: 'fixture', retryable: true };
         c.receive({ type: 'lane.failed', data: failure });
         c.receive({ type: 'lane.status', data: { inputRevision: failure.inputRevision, running: [],
           failures: [failure, { ...failure, lane: 'understanding' }], lastFailure: failure } });
+      });
+      await settleEvidenceFrame(page);
+      // Reconfigure resets the phone inset. Measure the fitting boundary only
+      // after its real viewport reservations have settled, without a timer.
+      await shadow(page, c => {
+        const shell = c.shadowRoot.querySelector('.transcript-shell'), css = getComputedStyle(shell);
+        shell.querySelector('ol').style.minHeight = `${shell.clientHeight - parseFloat(css.paddingTop) - parseFloat(css.paddingBottom) - 40}px`;
       });
       await settleEvidenceFrame(page);
       const sample = () => shadow(page, c => {
