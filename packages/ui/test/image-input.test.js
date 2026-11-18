@@ -12,7 +12,8 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 function fixture(t, copy = en, available = true, options = {}) {
   const c = document.createElement('aithema-session'), session = options.session ?? createSession({ demo: true, locale: copy === de ? 'de' : 'en' });
   session.featureMatrix = { best: Object.fromEntries(['text', 'analysis', 'uploads', 'imageInput', 'images'].map(key => [key,
-    { available: key === 'imageInput' ? available : key === 'uploads' ? options.documentsAvailable ?? true : true, reason: key === 'imageInput' && !available ? options.imageReason ?? 'current processing consent required' : key === 'uploads' && options.documentsAvailable === false ? 'current processing consent required' : null }])) };
+    { available: key === 'imageInput' ? available : key === 'uploads' ? options.documentsAvailable ?? true : true, reason: key === 'imageInput' && !available ? options.imageReason ?? 'current processing consent required' : key === 'uploads' && options.documentsAvailable === false ? 'current processing consent required' : null,
+      ...(key === 'imageInput' && options.imageReason === 'session paused' ? { unpaused: { available: true, reason: null } } : {}) }])) };
   const configuredImageReason = options.imageReason;
   const calls = [], asks = []; let imageGranted = available, documentsGranted = options.documentsAvailable ?? true;
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
@@ -29,7 +30,8 @@ function fixture(t, copy = en, available = true, options = {}) {
     if (url.endsWith('/turns') && options.method === 'POST') { const body = JSON.parse(options.body);
       return Response.json({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content, attachments: body.attachments } }); }
     const snapshot = c.session;
-    snapshot.featureMatrix.best.imageInput = { available: imageGranted, reason: imageGranted ? null : configuredImageReason ?? 'current processing consent required' };
+    snapshot.featureMatrix.best.imageInput = { available: imageGranted, reason: imageGranted ? null : configuredImageReason ?? 'current processing consent required',
+      ...(configuredImageReason === 'session paused' ? { unpaused: { available: true, reason: null } } : {}) };
     snapshot.featureMatrix.best.uploads = { available: documentsGranted, reason: documentsGranted ? null : 'current processing consent required' };
     if (url.endsWith('/consent')) return Response.json({ consentRevision: snapshot.consentRevision, selected: imageGranted ? ['images', 'image-input'] : ['images'], features: { images: ['images'], imageInput: ['image-input'] } });
     return Response.json(snapshot);
@@ -197,11 +199,32 @@ for (const copy of [en, de]) for (const [reason, key] of [
   assert.deepEqual(posts[0].options.body.getAll('files').map(file => file.name), ['notes.pdf']);
   assert.equal(f.root.querySelector('.upload__name').textContent, 'notes.pdf');
   assert.equal(f.root.querySelector('.staged-image'), null, 'the refused image was never staged');
-  assert.equal(f.root.querySelector('.image-refusals'), null);
-  assert.equal(f.root.querySelector('.composer-reason').textContent, copy === en
-    ? 'Not attached: photo.png (file type not accepted).' : 'Nicht angehängt: photo.png (Dateityp wird nicht angenommen).');
+  if (key === 'paused') {
+    assert.equal(f.root.querySelector('.image-refusal').textContent, `photo.png: ${copy.imageRefusals.paused}`);
+  } else {
+    assert.equal(f.root.querySelector('.image-refusals'), null);
+    assert.equal(f.root.querySelector('.composer-reason').textContent, copy === en
+      ? 'Not attached: photo.png (file type not accepted).' : 'Nicht angehängt: photo.png (Dateityp wird nicht angenommen).');
+  }
   assert.equal(f.asks.length, 0);
 });
+for (const copy of [en, de]) for (const path of ['picker', 'paste']) {
+  test(`AIT-556 L1: ${copy.display.locale} paused image-capable ${path} keeps the image refusal`, async t => {
+    const session = createSession({ demo: true, locale: copy.display.locale }); session.paused = true;
+    const f = fixture(t, copy, false, { session, imageReason: 'session paused' });
+    const file = new window.File(['pixels'], 'photo.png', { type: 'image/png' });
+    if (path === 'picker') await choose(f.root, [file]);
+    else {
+      const event = new window.Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'clipboardData', { value: { files: [file], getData: () => '' } });
+      f.root.querySelector('textarea').dispatchEvent(event); await tick(); await tick();
+      assert.equal(event.defaultPrevented, true, 'the paused image paste is handled');
+    }
+    assert.equal(f.root.querySelector('.image-refusal')?.textContent, `photo.png: ${copy.imageRefusals.paused}`);
+    assert.equal(f.calls.some(call => call.options.method === 'POST' && call.url.endsWith('/uploads')), false);
+    assert.deepEqual(f.asks, []);
+  });
+}
 for (const copy of [en, de]) test(`AIT-510 T-M3: ${copy.display.locale} withheld images use a sentence and release thumbnail dimensions`, async t => {
   const f = fixture(t, copy);
   await choose(f.root, [new window.File(['pixels'], 'photo.png', { type: 'image/png' })]);
