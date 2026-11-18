@@ -105,7 +105,7 @@ export class AithemaSession extends HTMLElement {
   #clarify = null; #clarifyRequest = null; #clarifyReplies = new Map(); #clarifyAsked = new Set(); #clarifyNoticeTimer; #clarifyNotice = false; #clarifyAnnouncement = '';
   #open = []; #cleared = []; #reactionFailureVersion = 0; #reactionFailureIdentity = null; #failure = false; #failureLane = null; #sending = false;
   #pointer = null; #onTranscript = false; #follow = true; #latestScrollTop = null; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false; #composerResuming = false;
-  #navigation = null; #programmaticScroll = null; #longReply = null; #longReplyTop = null; #tailReply = null; #seenTranscript = null;
+  #navigation = null; #programmaticScroll = null; #longReply = null; #longReplyTop = null; #tailReply = null; #seenTranscript = null; #composerOccluded = false;
   #pointerGuardUntil = 0; #pointerGuardPoint = null; #touchClickPoint = null;
   #postCallMatrix = null;
   #voiceResumeProjection = null;
@@ -212,7 +212,7 @@ export class AithemaSession extends HTMLElement {
     this.#syncClarify(); this.#restoreFailure(); this.#pending = null; this.#sending = false;
     this.#invalidatedAt = 0; this.#chooser = { choice: null, busy: false, error: '' }; this.#started = false; this.#inputMode = null;
     this.#open = []; this.#cleared = []; this.#follow = true; this.#onTranscript = false; this.#notice = ''; this.#connection = '';
-    this.#navigation = null; this.#programmaticScroll = null; this.#longReply = null; this.#tailReply = null; this.#seenTranscript = null;
+    this.#navigation = null; this.#programmaticScroll = null; this.#longReply = null; this.#tailReply = null; this.#seenTranscript = null; this.#composerOccluded = false;
     this.#pointerGuardUntil = 0; this.#pointerGuardPoint = null; this.#touchClickPoint = null; this.#latestScrollTop = null;
     this.#uploadAt.clear(); this.#retryFiles = []; this.#uploading = false; this.#uploadNotice = ''; this.#reading = ''; this.#limits = UPLOAD_LIMITS; this.#limitsLoad = null; this.#dragDepth = 0;
     // A page that loads paused stays paused until the person resumes it (AIT-116 D4).
@@ -1121,9 +1121,21 @@ export class AithemaSession extends HTMLElement {
           : this.#composerUsedUp ? root.querySelector('.composer-out__export')
           : this.#session.paused || input.disabled ? root.querySelector('.pause, .composer-resume') : input)?.focus();
       } });
-    this.#phoneViewport = new PhoneComposerViewport(root, { onCompactChange: () => this.#render('composer'), followsTranscript: () => !this.#longReply && this.#follow, onNoticesChange: () => {
+    this.#phoneViewport = new PhoneComposerViewport(root, {
+      questionPending: () => hasVisitorInput(this.#session) && (this.#sending || this.#partials.size > 0 ||
+        this.#session.operations?.running.includes('reaction') || activeTurns(this.#session).at(-1)?.role === 'user'),
+      resizeComposer: update => this.#anchored(update),
+      onComposerResize: ({ following }) => {
+        this.#questionCard.reserve();
+        if (following) this.#scrollToLatest();
+        else {
+          const shell = root.querySelector('.transcript-shell');
+          this.#composerOccluded = shell.scrollTop + shell.clientHeight < shell.scrollHeight - 8;
+          this.#updateTranscriptJump();
+        }
+      }, onCompactChange: () => this.#render('composer'), followsTranscript: () => this.#followsTranscript(), onNoticesChange: () => {
       // Growth preserves the upload target; shrink reservations release on row exit or scrolling.
-      if (this.#follow && !this.#hovered()?.closest('.upload') && !this.#fold.folded) this.#scrollToLatest();
+      if (this.#followsTranscript() && !this.#hovered()?.closest('.upload')) this.#scrollToLatest();
     } });
     this.#popups = new FooterPopups(root);
     this.#render('transcript'); this.#render('aside'); this.#render('composer');
@@ -1354,12 +1366,12 @@ export class AithemaSession extends HTMLElement {
       .filter(row => !row.hidden && !redacted.has(row.dataset.id))
       .map(row => [row.dataset.id, row.querySelector('.turn-text')?.textContent.length ?? 0]));
   }
-  #readTranscript() { this.#seenTranscript = this.#transcriptContent(); }
+  #readTranscript() { this.#seenTranscript = this.#transcriptContent(); this.#composerOccluded = false; }
   #updateTranscriptJump() {
     const content = this.#transcriptContent();
     this.#seenTranscript ??= content;
     const unread = [...content].some(([id, length]) => !this.#seenTranscript.has(id) || length > this.#seenTranscript.get(id));
-    this.shadowRoot.querySelector('.transcript-latest').style.visibility = unread ? '' : 'hidden';
+    this.shadowRoot.querySelector('.transcript-latest').style.visibility = unread || this.#composerOccluded ? '' : 'hidden';
   }
   #revealPhoneOffer(row) {
     if (!this.#combined || !row.isConnected || !this.ownerDocument.defaultView.matchMedia('(max-width:600px)').matches) return;
@@ -1401,7 +1413,35 @@ export class AithemaSession extends HTMLElement {
       else shell.style.removeProperty('--aithema-slack-bottom');
       delete shell.dataset.imageReadingSlack;
     }
-    shell.scrollTop = shell.scrollHeight;
+    let end = shell.scrollHeight;
+    // D511a: end reservations cannot turn fitting short content into a
+    // scrolled conversation. Keep the notice minimum and AIT-400 Latest slot
+    // intact; only genuinely overflowing content follows their native end.
+    if (this.shadowRoot.querySelector('.qcard').hidden && end > shell.clientHeight) {
+      const pane = shell.getBoundingClientRect(), listElement = shell.querySelector('ol');
+      const list = listElement.getBoundingClientRect();
+      // A hidden, detached or not-yet-measured nonempty list cannot prove fit.
+      // Preserve native-end following until both list dimensions are positive.
+      const measured = list.width > 0 && list.height > 0;
+      // Every visible in-flow child contributes, including reply-failure
+      // recovery. Only Latest and empty voice reservations are end slots.
+      const inFlow = child => {
+        const css = this.ownerDocument.defaultView.getComputedStyle(child);
+        return !child.hidden && !['absolute', 'fixed'].includes(css.position)
+          && !['hidden', 'collapse'].includes(css.visibility) && css.display !== 'none';
+      };
+      const visibleEnds = [...shell.children]
+        .filter(child => !child.classList.contains('transcript-latest') && inFlow(child))
+        .flatMap(child => child.classList.contains('voice-notices')
+          ? [...child.children].filter(row => row.classList.contains('voice-notice') && row.textContent.trim() && inFlow(row)) : [child])
+        .map(child => child.getBoundingClientRect())
+        .filter(box => box.width > 0 && box.height > 0).map(box => box.bottom);
+      const contentEnd = Math.max(list.bottom, ...visibleEnds) + shell.scrollTop - pane.top;
+      const padding = parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).paddingBottom) || 0;
+      if (pane.width > 0 && pane.height > 0 && (measured || !listElement.children.length)
+        && contentEnd + padding <= shell.clientHeight + .5) end = 0;
+    }
+    shell.scrollTop = end;
     // An inline capture can be taller than the combined phone's reading pane.
     // Reveal its entry controls before native focus; bottom-follow alone can
     // leave them above the sticky header and make focus scroll the whole page.
@@ -3164,7 +3204,10 @@ export class AithemaSession extends HTMLElement {
   }
   #clearStartIntent({ discardDraft = false } = {}) {
     const input = this.shadowRoot.querySelector('textarea');
-    if (input) { input.readOnly = false; if (discardDraft && this.#startIntent?.combined) input.value = ''; }
+    if (input) {
+      input.readOnly = false;
+      if (discardDraft && this.#startIntent?.combined) { input.value = ''; this.#phoneViewport?.sizeComposer(); }
+    }
     this.#clearStartRetry();
     clearTimeout(this.#startIntentTimer); this.#startIntent = null; this.#startFromNavigation = false; this.#checkingStartRestore = null;
     try { tabStorage()?.removeItem(START_INTENT_KEY); } catch { /* In-memory intent still works without storage. */ }
@@ -3694,7 +3737,7 @@ export class AithemaSession extends HTMLElement {
         await this.#rail.sendText(content, { deliveryId: this.#pending.clientEventId });
         if (this.#erased || sessionId !== this.#session.id) return;
       }
-      if (!option && input.value === content) input.value = '';
+      if (!option && input.value === content) { input.value = ''; this.#phoneViewport?.sizeComposer(); }
       this.#pending = null; this.#sendFailed = false; this.#images?.clear();
       if (voiceText) this.#status(this.#copy.voiceTextSent); else this.#confirmSaved();
     } catch { if (!this.#erased && sessionId === this.#session.id) { this.#navigation = null; this.#sendFailed = true; this.#clearNotice(); } }
@@ -3714,7 +3757,7 @@ export class AithemaSession extends HTMLElement {
       const opener = hostOpenerTurn(this.#session);
       if (opener) this.receive({ seq: this.#cursor + 1, type: 'turn.final', data: opener });
       this.receive({ seq: this.#cursor + 1, type: 'turn.final', data: { id: crypto.randomUUID(), role: 'user', content } });
-      if (clearInput && input.value === content) input.value = '';
+      if (clearInput && input.value === content) { input.value = ''; this.#phoneViewport?.sizeComposer(); }
       const id = crypto.randomUUID(), revision = inputRevision(this.#session), origin = aiTextOrigin({ model: device.model, plugin: device.id }), reply = new ReplyStream();
       // The device has no assessment lane: retain its canonical-turns-only context contract.
       const built = reasoningRequest(this.#session, 'reaction');

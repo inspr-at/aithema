@@ -1658,6 +1658,62 @@ canvas). The understanding column opens with START's 560 ms reveal only when the
 first input arrives on screen; `prefers-reduced-motion` stops every animation, the
 reveal included.
 
+The live transcript uses the remaining conversation height. Voice recovery notices
+are interactive end content in that scroll area; a voice binding alone reserves no
+empty row. Without a visible question card, an active desktop call retains its
+existing 108 px recovery region inside the transcript, keeping recovery changes
+stable. Beside a card, only visible recovery content takes room, so starting a
+call leaves the reply and its controls in place. Without a visible question card, short transcripts start at the top;
+explicit follow keeps fitting visible content at scroll zero even when hidden
+notice/Latest reservations extend the native scroll end. Visible reply-failure
+messages and Retry also count as content, including wrapped host copy.
+With a card, the latest reply stays beside its question. Unbound visuals reserve
+no concept bar; configured image visuals keep their 44 px row. The transcript keeps
+scroll gestures in its pane and suppresses boundary rebound.
+
+The composer grows upward with typed or pasted text, within 40% of the visual
+viewport and the room left for the latest reply and a visible question card.
+Short phone viewports allow at most three lines before the field scrolls. Short
+desktop viewports reduce outer spacing in both composer states; longer used-up
+copy scrolls in its body, which becomes keyboard-focusable only while overflowing.
+Attach, Send and the composer's bottom edge stay in place. Following readers stay at the
+latest turn; a resting transcript pointer keeps its row and gets Latest instead.
+Latest retains its existing end-control slot without a question card; beside a
+visible card it floats to keep the reply/card gap bounded.
+Only an accepted typed/device send clears the matching draft and its height;
+failed sends, answer-chip sends and edits made during a pending send retain it.
+Typing the next draft while a reply is pending reserves room for its future
+question card, so that reply can arrive without resizing the draft.
+Combined entrance uses the same sizing owner before and after visitor input;
+drafting beside a host opener does not reveal the overview. Combined disclosure,
+feedback and status slots retain their intrinsic reservations; the notice is
+anchored at the top and grows downward. Phones show its first sentence and a
+localized More action. Send and mic stay pinned while the field grows. The card
+margin stays outside the reading pane, counted once. Combined desktop layout
+reserves the fixed footer inside the configured component height before and
+after entrance.
+At desktop heights up to 700 px, combined mode yields spare outer grid gaps,
+starts the field at 44 px, and keeps the full footer row plus a 4 px gutter.
+Its notice, feedback and status retain their intrinsic text rows while the
+shared sizing owner preserves the reply and question-card floors.
+A visible header voice message uses free space above a short, top-aligned
+conversation without resizing the pane. Notice growth clears obsolete retained
+space; a deliberate transcript wheel gesture releases retained notice space.
+Discarding a pending combined draft refits the empty field immediately. Call-state
+and question-card visibility changes refresh the notice reservation baseline even
+when the notice text stays the same. Wrapped recovery notices align their final
+text line with the replay controls.
+The sizing owner publishes two measured CSS outputs on the workspace:
+`--aithema-composer-height` (effective composer height) and
+`--aithema-composer-growth` (growth above the empty composer baseline for the
+current layout). Visitor-added composer content contributes to this growth;
+viewport, keyboard and entrance/live layout changes reset the empty baseline.
+These are measurements, not host configuration. Existing host height and palette
+overrides continue to apply. Phone clearance uses the measured dock subtraction; a trailing conversation
+margin reserves only visitor growth to keep the stacked overview frame fixed.
+Card overlap uses an outside margin, independently of pointer anchoring slack
+and notice end reservations.
+
 Hosts list visitor choices per preset as `presets[p].choices = {models, voices,
 visuals, defaults}`. A model option is `{id, label?, binding | bindings: {reaction,
 understanding}, efforts?, effort?, quality?}`; voice options are `{id, label?, binding?}`

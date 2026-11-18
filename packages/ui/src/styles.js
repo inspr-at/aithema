@@ -164,13 +164,29 @@ svg { display:block; flex:none; }
 .voice-caption { color:var(--aithema-ink); white-space:nowrap; text-overflow:clip; direction:rtl; }
 .audio-rail[data-state="failed"][data-message]:not([data-time-bound]) .voice-state { color:var(--aithema-error); }
 
-/* Notices fill from the top; the permanent reservation leaves free room below them. */
-.voice-notices { grid-column:1/-1; min-width:0; display:flex; flex-direction:column; height:108px; font-size:.8rem; line-height:1.4; }
+/* Notices are transcript end content. Empty text mode reserves no voice row. */
+.voice-notices { grid-column:1/-1; min-width:0; display:flex; flex-direction:column; height:auto; font-size:.8rem; line-height:1.4; }
+/* Without a question card, an admitted desktop call retains its recovery
+   region inside the transcript. Beside a card, notices use their visible end
+   content only: introducing an empty region would move the bottom-aligned
+   reply and its controls at call start. Neither path adds dock padding. */
+@media(min-width:601px) {
+  .workspace:has(.audio-rail[data-call="active"]):not(:has(.qcard:not([hidden]))) .voice-notices { min-height:108px; }
+}
 .voice-notice { flex:none; display:flex; align-items:center; gap:12px; min-width:0; min-height:24px; overflow-wrap:anywhere; color:var(--aithema-muted); }
 .voice-notice--user { min-height:36px; }
-.voice-notice--reply { min-height:48px; color:var(--aithema-ink); }
+/* Centre the intrinsic baseline group inside the recovery row. A grid track
+   shares the final text baseline without flex's bottom placement at 48px.
+   The stacked phone rule below continues to own phone alignment. */
+.voice-notice--reply { min-height:48px; display:grid; grid-template-columns:minmax(0,max-content) max-content; justify-content:start; align-items:last baseline; align-content:center; color:var(--aithema-ink); }
 .voice-notice:empty, .voice-notice--reply:has(> span:empty):has(.voice-repeat[hidden]) { display:none; }
 .voice-reply-actions { display:flex; align-items:center; gap:12px; flex:none; }
+/* A remaining recovery sentence owns this intrinsic reservation after replay
+   retires. Keep its wrapping and baseline unchanged, with no focus or AX
+   targets. This adds no transcript padding or composer measurement owner. */
+.voice-notice--reply:has(> span:not(:empty)) > .voice-reply-actions[hidden] { display:flex !important; visibility:hidden; }
+.voice-notice--reply:has(> span:not(:empty)) > .voice-reply-actions[hidden] > .voice-repeat[hidden] { display:inline-grid !important; }
+.voice-notice--reply:has(> span:not(:empty)) > .voice-reply-actions[hidden] > .voice-read-text[hidden] { display:inline-block !important; }
 .voice-reply-actions .voice-repeat { display:inline-grid; align-items:center; flex:none; width:auto; height:auto; min-height:44px; padding:8px 14px; border:1px solid var(--aithema-line); border-radius:10px;
   background:var(--aithema-surface); color:var(--aithema-ink); font-size:.8rem; }
 .voice-repeat-label, .voice-repeat::before, .voice-repeat::after { grid-area:1/1; white-space:nowrap; }
@@ -231,14 +247,14 @@ svg { display:block; flex:none; }
 @media(max-width:600px) {
   .voice-notices { height:156px; }
   .voice-notice--user { min-height:44px; }
-  .voice-notice--reply { min-height:88px; flex-direction:column; align-items:flex-start; justify-content:center; gap:4px; }
+  .voice-notice--reply { min-height:88px; display:flex; flex-direction:column; align-items:flex-start; justify-content:center; gap:4px; }
 }
 
 /* Concepts: one quiet line under the rail (START keeps concepts out of the conversation's way). */
 /* One grid for the line: scene, state, the thumbnail once there is a concept, and Request at the right edge, so the
    thumbnail arriving narrows the state's column and never moves Request. */
  .concept-bar { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:.5rem; min-height:44px; }
-.workspace:not(:has(.audio-rail)) .concept-bar[data-no-drafts] { display:none; }
+.workspace .concept-bar[data-no-drafts] { display:none; }
 .concept-rail { display:grid; grid-template-columns:22px minmax(0,1fr); align-items:center; column-gap:.65rem; min-height:44px; }
 .concept-scene { grid-area:1/1; width:22px; height:22px; display:grid; grid-template-columns:1fr 1fr; gap:2px; }
 .concept-scene i { background:var(--aithema-line-strong); border-radius:2px; }
@@ -370,12 +386,27 @@ svg { display:block; flex:none; }
 @media(prefers-reduced-motion:reduce) { :is(.concept-backdrop,.concept-preview) img { transition:none; } }
 
 /* The transcript (START .v2__transcript): tailed bubbles on the page, reading position kept by hand. */
-.transcript-shell { position:relative; margin-top:var(--transcript-top-inset,0px); min-height:0; overflow:auto; overflow-anchor:none; overscroll-behavior-y:contain; scrollbar-gutter:stable;
+/* Contain scroll gestures without edge rebound moving a newly aligned reply. */
+.transcript-shell { position:relative; margin-top:var(--transcript-top-inset,0px); min-height:0; overflow:auto; overflow-anchor:none; overscroll-behavior-y:none; scrollbar-gutter:stable;
   scrollbar-width:thin; scrollbar-color:transparent transparent;
   /* Fade only the real top edge; retain just enough inset for the first row. */
   mask-image:linear-gradient(to bottom,transparent 0,#000 8px);
-  padding:calc(8px + var(--aithema-slack-top,0px)) .75rem calc(1.5rem + var(--aithema-slack-bottom,0px)) .6rem; }
-/* Visibility preserves Latest’s original reserved bottom slot in both states. */
+  /* Pointer anchoring owns slack; layout.js notice logic owns ol end reservations.
+     layout.js owns temporary clearance for a visible header message over a
+     short conversation. The dock is in grid flow (phone subtracts --phone-dock). */
+  padding:calc(8px + var(--aithema-slack-top,0px) + var(--transcript-message-inset,0px)) .75rem calc(8px + var(--aithema-slack-bottom,0px)) .6rem;
+  display:flex; flex-direction:column; }
+/* End content keeps its intrinsic height: wrapped recovery text and Retry
+   must not extend below the box used to decide whether the content fits. */
+.transcript-shell > ol, .transcript-shell > .voice-notices, .transcript-shell > .reaction-failure { flex:none; }
+/* Latest owns its original end-control slot when no question is shown.
+   The card-specific rule cancels only that slot to keep reply/card clearance. */
+.transcript-shell > .transcript-latest { order:1; flex:none; align-self:center; height:44px; margin:.6rem auto 0; }
+/* An empty recovery region retains its accessible live text without its 1px
+   hidden span extending the native scroll end beyond the last visible row.
+   Pointer-held minimum-height reservations still keep their own space. */
+.transcript-shell > .voice-notices:not(:has(> .voice-notice:not([hidden]):not(:empty))) { position:relative; overflow:clip; }
+/* Visibility keeps Latest’s control geometry stable in both states. */
 .transcript-latest { position:sticky; bottom:0; display:block; margin:.6rem auto 0; font-size:.75rem; border-radius:999px;
   background:var(--aithema-surface); box-shadow:var(--aithema-shadow-raised); }
 ol { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:.5rem; font-size:.95rem; }
@@ -425,7 +456,7 @@ ol { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; 
   background:color-mix(in srgb,var(--aithema-surface) 88%,transparent); box-shadow:var(--aithema-shadow-raised); backdrop-filter:blur(20px) saturate(1.2); }
 .composer:focus-within { border-color:var(--aithema-accent); box-shadow:var(--aithema-shadow-raised),0 0 0 3px color-mix(in srgb,var(--aithema-accent-bright) 20%,transparent); }
 .composer label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
-textarea { resize:none; width:100%; min-height:3.5rem; height:3.5rem; border:0; outline:0; background:transparent; color:var(--aithema-ink); padding:.25rem .5rem; font-size:1rem; line-height:1.5; }
+textarea { resize:none; width:100%; min-height:3.5rem; height:var(--composer-field-height,3.5rem); border:0; outline:0; background:transparent; color:var(--aithema-ink); padding:.25rem .5rem; font-size:1rem; line-height:1.5; }
 /* Absolute copy occupies the existing field slot; textarea and Send keep their boxes. */
 .composer-paused { position:absolute; top:clamp(.85rem,2vw,1.25rem); left:calc(clamp(.85rem,2vw,1.25rem) + .5rem); right:clamp(.85rem,2vw,1.25rem);
   min-height:44px; display:flex; align-items:center; gap:.35em; color:var(--aithema-muted); font-size:1rem; line-height:1.5; }
@@ -439,7 +470,7 @@ textarea { resize:none; width:100%; min-height:3.5rem; height:3.5rem; border:0; 
 .composer-shell[data-purpose-paused] .composer-actions { visibility:hidden; }
 textarea:focus-visible { outline:0; }
 textarea::placeholder { color:var(--aithema-muted); opacity:1; }
-.composer-actions { display:flex; align-items:center; justify-content:space-between; gap:.5rem; }
+.composer-actions { align-self:end; display:flex; align-items:center; justify-content:space-between; gap:.5rem; }
 .composer-actions small { font-size:.72rem; color:var(--aithema-muted); }
 /* A long reason wraps to a second line rather than ending in "…"; a longer upload refusal scrolls in its two lines. */
 .composer-reason { flex:1; min-width:0; line-height:1.3; max-height:2.6em; overflow-wrap:anywhere; overflow-y:auto; overscroll-behavior:contain; }

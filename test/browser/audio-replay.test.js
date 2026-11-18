@@ -17,6 +17,13 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
   browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
     env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
   const page = await browser.newPage(), files = [], passLines = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  await page.evaluateOnNewDocument(() => {
+    const OriginalDate = Date, now = Date.now();
+    window.Date = class extends OriginalDate {
+      constructor(...args) { super(...(args.length ? args : [now])); }
+      static now() { return now; }
+    };
+  });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.setRequestInterception(true);
   page.on('request', request => new URL(request.url()).pathname.endsWith('/features')
@@ -79,12 +86,36 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
       window.replayCallbacks.onMessage({ role: 'agent', message: window.replayText, event_id: 2 });
       await finalAcknowledged.promise;
       window.replayCallbacks.onDisconnect();
-      document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy); scrollTo(0, 0);
+      document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
+      // Direct configure bypasses the demo's locale path. Reuse its real host
+      // painter so legal/contact slots in the capture share the page language.
+      c.dispatchEvent(new Event('aithema-locale')); scrollTo(0, 0);
     }, locale);
     await until(page, () => window.replayRail.notices.recovery && !window.replayRail.notices.button.disabled);
     await settle(); await page.mouse.move(0, 500);
+    await t.test(`${locale}/${theme}/${width}: capture footer follows the page language`, async () => {
+      const labels = await page.$$eval('#demo-license, #demo-legal-source', links => links.map(link => link.getAttribute('aria-label')));
+      assert.deepEqual(labels, locale === 'en' ? ['Licence: AGPL-3.0-only', 'Source and notices']
+        : ['Lizenz: AGPL-3.0-only', 'Quellcode und Hinweise']);
+    });
     const selectors = ['.audio-rail', '.voice-repeat', '.voice-read-text', '.transcript-shell', '.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.voice-notices'];
     const before = await layoutBoxes(page, selectors);
+    const sentenceGeometry = () => shadow(page, c => {
+      const row = c.shadowRoot.querySelector('.voice-notice--reply');
+      return Object.fromEntries([['row', row], ['sentence', row.querySelector(':scope > span')],
+        ['actions', row.querySelector('.voice-reply-actions')]].map(([key, node]) => [key, node.getBoundingClientRect().toJSON()]));
+    });
+    const initialSentence = await sentenceGeometry();
+    if (width !== 390) await t.test(`${locale}/${theme}/${width}: single-line recovery keeps main's centred position`, () => {
+      for (const box of Object.values(initialSentence)) assert.ok(box.width > 0 && box.height > 0, 'positive recovery box');
+      const { row, sentence, actions } = initialSentence;
+      // Main centres the 44px actions in a 48px row. Preserve that position
+      // for single-line text while allowing the German final baseline to wrap.
+      if (sentence.height < 24) {
+        for (const box of [sentence, actions]) assert.ok(Math.abs((box.top + box.bottom - row.top - row.bottom) / 2) <= .5,
+          `single-line recovery stays centred within ±0.5px: ${JSON.stringify(initialSentence)}`);
+      }
+    });
     const capture = async state => {
       await settle();
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.turn:not(.user) .turn-text')?.textContent), await page.evaluate(() => window.replayText), `${state}: assistant bubble remains in the thread`);
@@ -130,13 +161,27 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
         assert.equal(alignment.disabled, state === 'disabled');
         assert.equal(alignment.buttonHeight, 44);
       });
-      const after = await layoutBoxes(page, selectors); assert.deepEqual(after, before, `${locale}/${theme}/${width}/${state}: 0 px layout shift`);
+      const sentence = await sentenceGeometry();
+      await t.test(`${locale}/${theme}/${width}/${state}: recovery sentence stays put`, () => {
+        for (const geometry of [initialSentence, sentence]) for (const name of ['row', 'sentence']) {
+          const box = geometry[name]; assert.ok(box.width > 0 && box.height > 0, `${state}/${name}: positive sentence box`);
+        }
+        for (const name of ['row', 'sentence']) for (const key of ['x', 'y', 'width', 'height']) {
+          assert.ok(Math.abs(initialSentence[name][key] - sentence[name][key]) <= .5,
+            `${state}/${name}/${key}: sentence retains idle geometry: ${JSON.stringify({ initialSentence, sentence })}`);
+        }
+      });
+      const after = await layoutBoxes(page, selectors);
+      for (const [phase, boxes] of [['before', before], ['after', after]]) for (const [i, box] of boxes.entries()) {
+        assert.ok(box[2] > 0 && box[3] > 0, `${locale}/${theme}/${width}/${state}/${phase}/${selectors[i]}: positive layout box`);
+      }
+      assert.deepEqual(after, before, `${locale}/${theme}/${width}/${state}: 0 px layout shift`);
       const file = `audio-replay-${state}-${width}-${theme}-${locale}.png`;
       if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false });
       files.push({ file, state, width, theme, locale, viewport: true });
       const aligned = Math.abs(alignment.centreOffsetPx) <= 1 && Math.abs(alignment.linkBaselineOffsetPx) <= 1 &&
         (!alignment.sameRow || Math.abs(alignment.noticeBaselineOffsetPx) <= 1);
-      passLines.push({ file, shiftPx: 0, ...alignment, pass: aligned }); t.diagnostic(`${aligned ? 'PASS' : 'FAIL'} ${file}: 0 px shift; alignment ${JSON.stringify(alignment)}`);
+      passLines.push({ file, shiftPx: 0, sentence, ...alignment, pass: aligned }); t.diagnostic(`${aligned ? 'PASS' : 'FAIL'} ${file}: 0 px shift; alignment ${JSON.stringify(alignment)}`);
     };
     await capture('idle');
     await t.test(`${locale}/${theme}/${width}: text link`, async () => {
@@ -169,6 +214,47 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').hidden), false, 'pending reply keeps its disabled button');
     await capture('disabled');
     await page.evaluate(() => { window.replayRail.notices.recovery.lastReplyText = window.replayText; window.replayRail.render(); });
+    {
+      await page.evaluate(() => { window.replayUnavailable = false; });
+      await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').click());
+      await until(page, () => window.replayRail.notices.playing && !window.replayRail.notices.pending && !window.replayAudio.paused);
+      const playingSentence = await sentenceGeometry();
+      // Drive the fixture audio sink's real completion callback, rather than
+      // setting the notice's state directly. No provider or wall-clock wait.
+      await page.evaluate(() => window.replayAudio.dispatchEvent(new Event('ended')));
+      await until(page, () => !window.replayRail.notices.playing && window.replayRail.notices.button.hidden);
+      await settle();
+      const completedSentence = await sentenceGeometry();
+      const frameSelectors = selectors.filter(selector => !['.voice-repeat', '.voice-read-text'].includes(selector));
+      const frameBefore = before.filter((_, i) => frameSelectors.includes(selectors[i]));
+      const frameAfter = await layoutBoxes(page, frameSelectors);
+      await t.test(`${locale}/${theme}/${width}/completed: recovery sentence stays put`, async () => {
+        for (const state of [initialSentence, playingSentence, completedSentence]) for (const name of ['row', 'sentence']) {
+          const box = state[name]; assert.ok(box.width > 0 && box.height > 0, `${name}: positive completed-state box`);
+        }
+        for (const state of [initialSentence, playingSentence]) for (const name of ['row', 'sentence']) for (const key of ['x', 'y', 'width', 'height']) {
+          assert.ok(Math.abs(state[name][key] - completedSentence[name][key]) <= .5,
+            `${name}/${key}: completed replay retains sentence geometry: ${JSON.stringify({ initialSentence, playingSentence, completedSentence })}`);
+        }
+        for (const boxes of [frameBefore, frameAfter]) for (const [i, box] of boxes.entries()) {
+          assert.ok(box[2] > 0 && box[3] > 0, `${frameSelectors[i]}: positive completed-state frame box`);
+        }
+        assert.deepEqual(frameAfter, frameBefore, 'completed replay: 0 px frame shift; retired controls excluded');
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-read-text').hidden), true, 'completed offer retires both controls');
+        assert.equal(await shadow(page, c => {
+          const button = c.shadowRoot.querySelector('.voice-repeat'); button.focus({ preventScroll: true });
+          return c.shadowRoot.activeElement === button;
+        }), false, 'retired replay is not a keyboard target');
+      });
+      const file = `audio-replay-completed-${width}-${theme}-${locale}.png`;
+      if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false });
+      files.push({ file, state: 'completed', width, theme, locale, viewport: true });
+      passLines.push({ file, initialSentence, playingSentence, completedSentence,
+        frame: { selectors: frameSelectors, before: frameBefore, after: frameAfter } });
+      t.diagnostic(`COMPLETED ${locale}/${theme}/${width}: ${JSON.stringify({ initialSentence, playingSentence, completedSentence })}`);
+      // The following existing identity checks exercise an active offer.
+      await page.evaluate(() => { window.replayRail.notices.completedReply = null; window.replayRail.render(); });
+    }
     // Establish absence in the acknowledged session, so a queued repaint cannot
     // restore a row removed only from the DOM. c.session is a snapshot clone.
     await shadow(page, c => {

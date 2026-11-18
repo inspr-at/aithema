@@ -6,9 +6,9 @@ export const questionCardStyles = `
 .composer-dock { position:relative; min-width:0; }
 .phone-dock-backdrop { display:none; }
 /* Without a visual rail, the transcript and composer own the two remaining rows. */
-.workspace[data-stage="live"]:not(:has(.audio-rail)) .conversation:has(> .concept-bar[data-no-drafts]) { grid-template-rows:minmax(0,1fr) auto; }
+.workspace[data-stage="live"] .conversation:has(> .concept-bar[data-no-drafts]) { grid-template-rows:minmax(0,1fr) auto; }
 @media(max-width:600px) {
-  .workspace[data-stage="live"]:not(:has(.audio-rail)) .conversation:has(> .concept-bar[data-no-drafts]) { grid-template-rows:minmax(0,1fr); }
+  .workspace[data-stage="live"] .conversation:has(> .concept-bar[data-no-drafts]) { grid-template-rows:minmax(0,1fr); }
 }
 /* Tick L2: keep the same composer slot over the footer. The overview remains
    in the page below the bounded transcript; scrolling it never loses input. */
@@ -19,11 +19,14 @@ export const questionCardStyles = `
   /* Linux and macOS font metrics differ; reclaim spacing, keeping every target 44px. */
   .workspace[data-phone-keyboard] .conversation { row-gap:4px; }
   .workspace[data-stage="live"] { padding-bottom:calc(var(--phone-dock,138px) + var(--phone-footer,57px) + 24px); }
+  /* Only visitor growth is reserved after the conversation to keep the stacked
+     overview frame fixed. Transcript clearance still subtracts the dock once. */
   .workspace[data-stage="live"] .conversation {
+    margin-bottom:var(--aithema-composer-growth,0px);
     height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,138px) - 32px);
     min-height:0; grid-template-rows:auto minmax(0,1fr); }
   .workspace[data-stage="live"] .transcript-shell { height:auto; min-height:0; }
-  .transcript-shell > .voice-notices { height:auto; margin-top:8px; }
+  .transcript-shell > .voice-notices { height:auto; margin-top:0; }
   .workspace[data-stage="live"] .phone-dock-backdrop { display:block; position:fixed; z-index:8;
     left:0; right:0; bottom:var(--phone-bottom,0px);
     height:calc(var(--phone-dock,138px) + var(--phone-footer,57px) + 24px); background:var(--aithema-paper);
@@ -60,9 +63,20 @@ export const questionCardStyles = `
   color:var(--aithema-accent); text-decoration:underline; }
 .turn-read-full { position:sticky; bottom:0; display:block; min-height:44px; padding:8px 0;
   font-size:.8rem; color:var(--aithema-accent); text-decoration:underline; background:var(--aithema-paper); }
-/* Latest is a floating action, never an invisible row below the last turn. */
+/* The visible card keeps the existing floating Latest rule. Without a card,
+   styles.js retains its original end-control reservation; neither owns padding. */
 .conversation:has(.qcard:not([hidden])) .transcript-latest { position:sticky; bottom:0; flex:none; align-self:flex-end;
   height:44px; margin:-44px 0 0 auto; }
+/* At short desktop heights retain two text lines and 44px actions while
+   yielding outer spacing to the 128px reply floor and 150px question minimum.
+   This depends on the viewport, never on an asynchronous card arrival. */
+@media(min-width:960px) and (max-height:700px) {
+  .workspace[data-stage="live"] .composer { padding-block:4px; row-gap:0; }
+  /* Its hidden grid peer must fit the same budget. Long copy remains scrollable. */
+  .workspace[data-stage="live"] .composer-out { padding-block:2px; gap:0; }
+  .workspace[data-stage="live"] .composer-out__title { font-size:13.5px; line-height:1.35; }
+  .workspace[data-stage="live"] .composer-out__body { max-height:2.8em; overflow-y:auto; }
+}
 @media(max-width:600px) {
   .qcard { max-height:min(35dvh,var(--question-card-limit,35dvh),calc(var(--phone-height,100dvh) - 220px)); padding:10px 12px; gap:6px; }
   .qcard:not([data-compact]) .qopts { min-height:var(--question-options-floor,66px); }
@@ -81,7 +95,7 @@ export const questionCardStyles = `
   /* This is a viewport decision, independent of the question's presence or size. */
   .workspace[data-phone-short][data-phone-overlay] .display-foot { display:none; }
   .workspace[data-phone-short] .composer { grid-template-columns:minmax(0,1fr) auto; padding:6px; gap:6px 2px; }
-  .workspace[data-phone-short] textarea { height:44px; min-height:44px; padding-block:10px; }
+  .workspace[data-phone-short] textarea { height:var(--composer-field-height,44px); min-height:44px; padding-block:10px; }
   .workspace[data-phone-short] .composer-actions { gap:0; }
   .workspace[data-phone-short] .composer-shell:not([data-used-up]) .composer-out { position:absolute; inset:0; }
   .workspace[data-phone-short] .composer-reason { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
@@ -89,7 +103,9 @@ export const questionCardStyles = `
      focus/accessibility target while the compact transcript uses that space. */
   .workspace[data-question-compact] .concept-bar { position:absolute; inset:0 0 auto; visibility:hidden; pointer-events:none; }
   .workspace[data-question-compact] .conversation { row-gap:0; grid-template-rows:minmax(0,1fr);
-    height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,58px) - 26px); }
+    /* Keep the same outer clearance as the expanded card; only its contents
+       compact. The trailing visitor-growth margin owns overview stability. */
+    height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,58px) - 32px); }
   .workspace[data-question-compact] .transcript-shell { padding-block:4px; mask-image:none; }
   .workspace[data-question-compact] .transcript-shell > .voice-notices { margin-top:0; }
 }
@@ -110,11 +126,12 @@ export const questionCardStyles = `
 .qopt[aria-disabled="true"] { opacity:.5; cursor:wait; }
 .qopt .tag { font:500 11.5px var(--aithema-font); color:var(--aithema-accent); }
 .qhint { margin:0; padding-left:10px; font-size:12.5px; color:var(--aithema-muted); }
-/* Reserve outside the scrollport: even keyboard scrolling cannot put a bubble
+/* Card overlap alone owns this margin outside the scrollport; ol end padding
+   and pointer slack have separate owners. Keyboard scrolling cannot put a bubble
    underneath the card. The grid gives up only transcript room, never the dock. */
 .transcript-shell { margin-bottom:var(--question-card-height,0px); }
 @media(min-width:601px) and (max-width:59.99rem) {
-  .transcript-shell { height:calc(clamp(20rem,60svh,36rem) - var(--question-card-height,0px)); }
+  .transcript-shell { height:calc(clamp(20rem,60svh,36rem) - var(--aithema-composer-growth,0px) - var(--question-card-height,0px)); }
 }
 `;
 

@@ -248,11 +248,136 @@ export class FooterPopups {
   }
 }
 
+// One sizing owner for native content measurement and the scrollHeight fallback.
+// Measure offscreen so the live field changes only inside the caller's pointer
+// anchor transaction; native field-sizing must not resize it before that snapshot.
+class ComposerSize {
+  constructor(root, { following, resize, changed, painted, questionPending }) {
+    Object.assign(this, { root, following, resize, changed, painted, questionPending });
+    this.view = root.ownerDocument.defaultView;
+    this.input = root.querySelector('.composer textarea');
+    this.onInput = () => { this.fit(true); this.painted(); };
+  }
+  connect() { this.input?.addEventListener('input', this.onInput); }
+  destroy() { this.input?.removeEventListener('input', this.onInput); }
+  fit(visitor = false) {
+    if (!this.input || this.fitting) return;
+    const workspace = this.root.querySelector('.workspace');
+    const combined = workspace.dataset.entrance === 'combined';
+    if (workspace.dataset.stage !== 'live' && !combined || this.root.querySelector('.conversation').hidden) return;
+    const visual = this.view.visualViewport;
+    if (visual && visual.scale !== 1) return;
+    const form = this.root.querySelector('.composer'), shell = this.root.querySelector('.transcript-shell');
+    const field = this.input.getBoundingClientRect(), composer = form.getBoundingClientRect();
+    if (!(field.width > 0 && field.height > 0 && composer.height > 0)) return;
+    const css = this.view.getComputedStyle(this.input), shellCSS = this.view.getComputedStyle(shell);
+    const phone = this.view.matchMedia('(max-width:600px)').matches;
+    const viewport = visual?.height ?? this.view.innerHeight;
+    const short = phone && workspace.hasAttribute('data-phone-short');
+    const keyboard = workspace.hasAttribute('data-phone-keyboard');
+    const minimum = parseFloat(css.minHeight) || (short ? 44 : 56);
+    const actualChrome = composer.height - field.height;
+    const card = this.root.querySelector('.qcard');
+    // Readiness is scrollable in combined mode; it must yield to a draft just
+    // like transcript content. Live mode still counts the card margin once.
+    const entrancePane = combined && workspace.dataset.stage !== 'live' && this.root.querySelector('.conversation-scroll');
+    const available = phone ? viewport + (visual?.offsetTop ?? 0)
+      - this.root.querySelector('.band').getBoundingClientRect().height
+      - this.root.querySelector('.display-foot').getBoundingClientRect().height
+      - this.root.querySelector('.concept-bar').getBoundingClientRect().height - 32
+      : entrancePane ? entrancePane.getBoundingClientRect().height + composer.height
+        : shell.getBoundingClientRect().height + (parseFloat(shellCSS.marginBottom) || 0) + composer.height;
+    const baselineContext = [field.width, viewport, short, keyboard, workspace.dataset.stage, minimum, css.font, css.lineHeight].join('/');
+    const context = [baselineContext, actualChrome.toFixed(1), available.toFixed(1)].join('/');
+    // A card closing or a notice arriving is not a visitor edit. In particular,
+    // an answer-chip send cannot expand a retained draft into newly free space.
+    if (!visitor && this.value === this.input.value && this.context === context) return;
+    this.value = this.input.value; this.context = context;
+    // First publication compares against the real pre-fit box. An unchanged
+    // default size must not notify a resize and turn initial reading into follow.
+    const following = this.following(), previousEffective = this.effective ?? composer.height;
+    const line = parseFloat(css.lineHeight) || 24;
+    const padding = (parseFloat(css.paddingTop) || 0) + (parseFloat(css.paddingBottom) || 0);
+    // The hidden used-up peer can stretch the live form. Measure intrinsic
+    // chrome independently, so growing the field does not require a second fit.
+    const probe = form.cloneNode(true), probeInput = probe.querySelector('textarea');
+    const prepare = element => {
+      element.removeAttribute('id'); element.inert = true; element.setAttribute('aria-hidden', 'true');
+      for (const child of element.querySelectorAll('[id]')) child.removeAttribute('id');
+      element.style.cssText = `position:fixed;left:-100000px;top:0;visibility:hidden;pointer-events:none;width:${composer.width}px;min-height:0;max-height:none;height:auto;`;
+    };
+    prepare(probe); probeInput.removeAttribute('placeholder'); probeInput.value = this.input.value;
+    const native = this.view.CSS?.supports?.('field-sizing', 'content');
+    probeInput.style.cssText = `min-height:${minimum}px;max-height:none;height:${native ? 'auto' : `${minimum}px`};field-sizing:${native ? 'content' : 'fixed'};overflow:hidden;`;
+    form.parentNode.append(probe);
+    let natural, chrome;
+    try {
+      const measured = probeInput.getBoundingClientRect().height;
+      natural = native ? measured : probeInput.scrollHeight;
+      chrome = probe.getBoundingClientRect().height - measured;
+      // Only responsive modes reset the empty baseline. Visitor-added chrome
+      // remains growth, including attachment rows measured by this same owner.
+      if (this.baselineContext !== baselineContext) {
+        let peerFloor = 0;
+        const peer = this.root.querySelector('.composer-out'), style = peer && this.view.getComputedStyle(peer);
+        if (peer && style.display !== 'none' && !['absolute', 'fixed'].includes(style.position)) {
+          const peerProbe = peer.cloneNode(true); prepare(peerProbe); peer.parentNode.append(peerProbe);
+          try {
+            const peerCSS = this.view.getComputedStyle(peerProbe);
+            // The phone peer overlaps the card with a negative margin. Its
+            // grid contribution, rather than its border box, sets the floor.
+            peerFloor = peerProbe.getBoundingClientRect().height
+              + (parseFloat(peerCSS.marginTop) || 0) + (parseFloat(peerCSS.marginBottom) || 0);
+          }
+          finally { peerProbe.remove(); }
+        }
+        this.baselineContext = baselineContext; this.baseline = Math.max(chrome + minimum, peerFloor);
+      }
+    } finally { probe.remove(); }
+    // A visitor can type the next draft before the preceding answer arrives.
+    // Reserve its future card on that edit, so an asynchronous question never
+    // has to shrink the draft or surrender the answer/reply floors.
+    const visibleCard = card && !card.hidden;
+    let cardMinimum = !short && (visibleCard || this.questionPending()) ? 150 : 0;
+    if (phone && cardMinimum && !visibleCard) {
+      // The next question can use all three lines and a translated two-line
+      // hint. Reserve that expanded phone minimum before its text is known;
+      // later visitor edits with a visible card still use the normal cap.
+      const cardCSS = this.view.getComputedStyle(card);
+      cardMinimum = Math.max(cardMinimum,
+        3 * parseFloat(this.view.getComputedStyle(card.querySelector('.qtext')).lineHeight)
+        + 2 * parseFloat(this.view.getComputedStyle(card.querySelector('.qhint')).lineHeight) + 66
+        + parseFloat(cardCSS.paddingTop) + parseFloat(cardCSS.paddingBottom) + 2 * parseFloat(cardCSS.rowGap) + 2);
+    }
+    const cardGap = phone && cardMinimum ? parseFloat(this.view.getComputedStyle(shell.querySelector('ol')).rowGap) || 0 : 0;
+    let cap = Math.min(.4 * viewport, available - cardMinimum - cardGap - (short ? 0 : 128));
+    cap = Math.max(minimum, cap - chrome);
+    if (short) cap = Math.min(cap, 3 * line + padding);
+    const height = Math.max(minimum, Math.min(natural, cap));
+    this.fitting = true;
+    try {
+      this.resize(() => {
+        workspace.style.setProperty('--composer-field-height', `${height}px`);
+        const effective = form.getBoundingClientRect().height;
+        this.effective = effective;
+        workspace.style.setProperty('--aithema-composer-height', `${effective}px`);
+        workspace.style.setProperty('--aithema-composer-growth', `${Math.max(0, effective - this.baseline)}px`);
+        if (Math.abs(field.height - height) > .1 || Math.abs(previousEffective - effective) > .1) {
+          this.painted(); this.changed({ following });
+        }
+      });
+    } finally { this.fitting = false; }
+  }
+}
+
 /** Keep the phone dock in the visual viewport, including keyboards that resize
  * only that viewport. Geometry comes from the existing band, footer and dock. */
 export class PhoneComposerViewport {
-  constructor(root, { onNoticesChange = () => {}, onCompactChange = () => {}, followsTranscript = () => true } = {}) {
+  constructor(root, { onNoticesChange = () => {}, onCompactChange = () => {}, followsTranscript = () => true,
+    resizeComposer = update => update(), onComposerResize = () => {}, questionPending = () => false } = {}) {
     this.onNoticesChange = onNoticesChange; this.followsTranscript = followsTranscript;
+    this.resizeContent = resizeComposer;
+    this.composerSize = new ComposerSize(root, { following: followsTranscript, resize: resizeComposer, changed: onComposerResize, painted: () => this.paint(), questionPending });
     this.root = root; this.view = root.ownerDocument.defaultView;
     this.paint = () => {
       const view = this.view, viewport = view?.visualViewport;
@@ -273,8 +398,8 @@ export class PhoneComposerViewport {
         this.footerFitWidth = geometry.width;
       }
       this.footerTextKey = footerText(footer.querySelector('.display-foot__row'));
-      // On phones the reserved voice notices belong to the scrolling content,
-      // leaving a usable transcript viewport above the fixed composer.
+      // Recovery notices share transcript end reservation at every width.
+      // A voice binding alone never consumes a concept-bar row.
       const phone = view?.matchMedia('(max-width:600px)').matches;
       // Size the input before measuring the dock/footer, independent of cards.
       // Updating both in this paint avoids a second resize losing bottom-follow.
@@ -282,11 +407,10 @@ export class PhoneComposerViewport {
       workspace.toggleAttribute('data-phone-short', short);
       workspace.toggleAttribute('data-phone-overlay', Boolean(phone && (view?.innerHeight ?? height) - height - (viewport?.offsetTop ?? 0) >= 150));
       const notices = root.querySelector('.voice-notices');
-      const parent = root.querySelector(phone ? '.transcript-shell' : '.concept-bar');
+      const parent = root.querySelector('.transcript-shell');
       const movedNotices = Boolean(notices && notices.parentNode !== parent);
       if (movedNotices) parent.append(notices);
-      if (!phone && notices) notices.style.minHeight = '';
-      if (phone) root.querySelector('.transcript-shell ol').style.paddingBottom = '';
+      if (notices) root.querySelector('.transcript-shell ol').style.paddingBottom = '';
       // Track the unobstructed phone viewport across resize-only keyboards too.
       // Set the attribute before measuring: footer and transcript change together.
       const touch = view?.matchMedia('(pointer:coarse)').matches || view?.navigator.maxTouchPoints > 0;
@@ -298,6 +422,14 @@ export class PhoneComposerViewport {
         this.viewportWidth = width; this.viewportOrientation = orientation;
       } else this.fullHeight = Math.max(this.fullHeight ?? 0, view?.innerHeight ?? height, height);
       workspace.toggleAttribute('data-phone-keyboard', Boolean(phone && touch && editing && this.fullHeight - height >= 150));
+      this.composerSize.fit();
+      const outBody = root.querySelector('.composer-out__body');
+      // Only clipped copy needs its own keyboard scroll target. Fitting copy
+      // keeps the original DOM, including the AIT-411 default panel contract.
+      if (outBody) {
+        if (outBody.scrollHeight > outBody.clientHeight) outBody.tabIndex = 0;
+        else outBody.removeAttribute('tabindex');
+      }
       const values = {
         '--phone-height': height + (viewport?.offsetTop ?? 0),
         '--phone-bottom': Math.max(0, (view?.innerHeight ?? height) - height - (viewport?.offsetTop ?? 0)),
@@ -311,13 +443,18 @@ export class PhoneComposerViewport {
         if (key === '--phone-dock' && value === 0) continue;
         workspace.style.setProperty(key, `${value}px`);
       }
+      this.clearHeaderMessage(phone);
       // A breakpoint changes the notice reservation without changing its
       // children. The next transcript event must not reuse the desktop height
       // and scroll past a pointer anchor established in the phone viewport.
       if (compactChanged) onCompactChange();
-      if (movedNotices && this.endHeight) {
+      // Call state and card visibility change the CSS recovery region without
+      // changing notice text. Refresh its baseline before the next shrink.
+      const noticeRegion = `${phone}/${root.querySelector('.audio-rail')?.dataset.call}/${root.querySelector('.qcard')?.hidden}`;
+      if ((movedNotices || noticeRegion !== this.noticeRegion) && this.endHeight) {
         this.noticeHeight = this.endHeight();
         this.noticeScrollTop = root.querySelector('.transcript-shell').scrollTop;
+        this.noticeRegion = noticeRegion;
       }
     };
     // focusout fires before activeElement changes; settle it in this frame.
@@ -326,6 +463,7 @@ export class PhoneComposerViewport {
   }
   connect() {
     this.connected = true;
+    this.composerSize.connect();
     this.root.addEventListener('focusin', this.paint);
     this.root.querySelector('.display-foot').addEventListener('pointerleave', this.paint);
     this.root.addEventListener('focusout', this.focusOut);
@@ -336,7 +474,10 @@ export class PhoneComposerViewport {
     this.observer?.disconnect();
     if (Observer) {
       this.observer = new Observer(this.paint);
-      for (const selector of ['.band', '.display-foot', '.composer-dock']) this.observer.observe(this.root.querySelector(selector));
+      for (const selector of ['.band', '.display-foot', '.composer-dock', '.audio-rail .voice-state']) {
+        const node = this.root.querySelector(selector);
+        if (node) this.observer.observe(node);
+      }
     }
     this.footerObserver?.disconnect();
     const FooterMutation = this.view?.MutationObserver;
@@ -381,7 +522,7 @@ export class PhoneComposerViewport {
         this.noticeUpload = null;
         if (this.uploadReservation) release();
       };
-      this.noticeWheel = () => { if (this.uploadReservation) release(); };
+      this.noticeWheel = release;
       this.noticeScroll ??= () => {
         const moved = shell.scrollTop !== this.noticeScrollTop;
         this.noticeScrollTop = shell.scrollTop;
@@ -405,13 +546,18 @@ export class PhoneComposerViewport {
           return relevant && (record.type !== 'attributes' ||
             record.oldValue !== record.target.getAttribute(record.attributeName));
         });
-        // Inline reply controls are last items at every width; recovery
-        // notices join them on phones. Run after render, without a pointer.
+        // Inline reply controls and recovery notices are end content
+        // at every width. Run after render, without a pointer.
         // Same-size label/text renders must not undo a transcript pointer anchor.
         const height = endHeight();
         if (changed && height !== this.noticeHeight) {
           const holdUpload = this.noticeUpload && height < this.noticeHeight;
-          if (this.followsTranscript() && !holdUpload) reserve('');
+          if (height > this.noticeHeight || this.followsTranscript() && !holdUpload) {
+            // Growth already supplies the old room naturally. Keep readers at
+            // their offset without leaving an obsolete minimum behind.
+            reserve('');
+            if (!this.followsTranscript()) shell.scrollTop = this.noticeScrollTop;
+          }
           else {
             // Shrinking end content must not clamp a resting upload out from
             // under the pointer, even when already following the bottom.
@@ -427,14 +573,57 @@ export class PhoneComposerViewport {
       const options = { subtree:true, childList:true, characterData:true, attributes:true, attributeOldValue:true, attributeFilter:['hidden'] };
       if (notices) this.noticesObserver.observe(notices, options);
       this.noticesObserver.observe(shell.querySelector('ol'), options);
+      // A card can appear without a transcript/notice mutation (for example
+      // restored question state); its CSS rule also releases the call region.
+      const card = this.root.querySelector('.qcard');
+      if (card) this.noticesObserver.observe(card, { attributes:true, attributeFilter:['hidden'], attributeOldValue:true });
     }
     this.paint();
   }
+  clearHeaderMessage(phone) {
+    const shell = this.root.querySelector('.transcript-shell');
+    const message = this.root.querySelector('.audio-rail[data-message] .voice-state');
+    const card = this.root.querySelector('.qcard');
+    let inset = 0;
+    // Only short, top-aligned conversations can use the free room. A visible
+    // header message owns this temporary content inset, never the pane frame.
+    if (!phone && message && shell.querySelector('li.turn') && (!card || card.hidden)) {
+      const box = message.getBoundingClientRect(), pane = shell.getBoundingClientRect();
+      const css = this.view.getComputedStyle(shell);
+      const current = parseFloat(shell.style.getPropertyValue('--transcript-message-inset')) || 0;
+      const slackTop = parseFloat(css.getPropertyValue('--aithema-slack-top')) || 0;
+      const slackBottom = parseFloat(css.getPropertyValue('--aithema-slack-bottom')) || 0;
+      const top = (parseFloat(css.paddingTop) || 0) - current - slackTop;
+      const bottom = (parseFloat(css.paddingBottom) || 0) - slackBottom;
+      // Round outward: independent fractional font/layout rounding must not
+      // paint the first bubble across the visible message boundary.
+      const needed = Math.ceil(Math.max(0, box.bottom - pane.top - top));
+      const list = shell.querySelector('ol').getBoundingClientRect();
+      const notices = shell.querySelector('.voice-notices')?.getBoundingClientRect();
+      const latest = shell.querySelector('.transcript-latest');
+      const latestCSS = latest && this.view.getComputedStyle(latest);
+      const endRoom = latest && latestCSS.display !== 'none' && !['absolute', 'fixed'].includes(latestCSS.position)
+        ? Math.max(0, latest.getBoundingClientRect().height + (parseFloat(latestCSS.marginTop) || 0)
+          + (parseFloat(latestCSS.marginBottom) || 0)) : 0;
+      if (box.width > 0 && box.height > 0 && pane.width > 0 && pane.height > 0 &&
+          this.view.getComputedStyle(message).visibility === 'visible' &&
+          list.height + (notices?.height ?? 0) + endRoom + top + bottom + needed <= shell.clientHeight) inset = needed;
+    }
+    const value = inset ? `${inset}px` : '';
+    if (shell.style.getPropertyValue('--transcript-message-inset') === value) return;
+    this.resizeContent(() => {
+      if (value) shell.style.setProperty('--transcript-message-inset', value);
+      else shell.style.removeProperty('--transcript-message-inset');
+    });
+    this.onNoticesChange();
+  }
+  sizeComposer() { this.composerSize.fit(true); this.paint(); }
   recordTranscriptAnchor() {
     this.noticeScrollTop = this.root.querySelector('.transcript-shell').scrollTop;
   }
   destroy() {
     this.connected = false;
+    this.composerSize.destroy();
     this.root.removeEventListener('focusin', this.paint);
     this.root.querySelector('.display-foot').removeEventListener('pointerleave', this.paint);
     this.root.removeEventListener('focusout', this.focusOut);

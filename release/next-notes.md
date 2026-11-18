@@ -266,3 +266,52 @@
   `signalUnconfirmed` = `unconfirmed` / `unbestätigt`. Missing keys fall back to
   the active locale. Summary/signal prompts use direct “you” / formal “Sie”,
   avoid provenance prose and preserve quoted evidence.
+
+- AIT-511/AIT-513: the transcript uses the remaining height and voice recovery
+  notices appear as interactive transcript end content at every width. A voice
+  binding reserves no empty notice row. Without a visible question card, an
+  active desktop call retains its existing 108 px recovery region inside the
+  transcript. Beside a card, only visible recovery content takes room; call
+  start leaves the reply and its controls in place. Image visuals retain their 44 px bar;
+  unbound visuals reserve none. Short transcripts align at the top without a
+  visible question card, and beside their question when a card is present. Explicit
+  follow keeps otherwise-fitting short content at scroll zero even when hidden end
+  reservations overflow; overflowing content retains the original Latest slot.
+  Reply-failure rows retain their full wrapped text height, and follow includes
+  their Retry. Transcript scrolling remains contained and suppresses native boundary rebound. A visible
+  header voice message uses free room above short top-aligned conversations;
+  the pane frame stays fixed. Notice growth clears obsolete retained space,
+  and a deliberate transcript wheel gesture releases retained notice space.
+- The composer grows upward with its draft, capped by 40% of the visual viewport
+  and the reply/card budget; short phone viewports allow at most three lines.
+  Short desktop viewports reduce outer spacing in both composer states; longer
+  used-up copy scrolls in its body, keyboard-focusable only while overflowing.
+  Attach, Send and the bottom edge stay fixed. Failed sends and answer-chip
+  sends retain a separate draft and its size; accepted typed/device sends reset
+  the matching draft. Discarded pending combined drafts refit immediately; CSS-only
+  call/card transitions refresh the stored notice height before later changes.
+  Wrapped recovery notices align their final text baseline with replay controls.
+  A next draft typed during a pending reply reserves its
+  future question-card budget without resizing when that reply arrives.
+  Follow mode re-pins; a resting transcript pointer wins
+  and Latest exposes the occluded tail. Latest keeps its existing end-control
+  slot without a question card and floats beside a visible card. Combined entrance
+  shares this owner
+  before and after input without treating an opener/draft as visitor input.
+  Combined disclosure/status slots retain their intrinsic reservations and the
+  top-anchored notice grows downward; Send and mic stay pinned. The card margin is counted once outside the
+  combined reading pane. Combined desktop retains the same fixed-footer clearance
+  before and after entrance. At desktop heights up to 700 px it yields spare
+  outer grid gaps, starts the field at 44 px and retains the full footer row
+  plus a 4 px gutter. Intrinsic notice, feedback and status rows stay readable
+  within the shared reply/card budget.
+- Additive measured CSS outputs on the workspace:
+  `--aithema-composer-height` and `--aithema-composer-growth`. Added visitor content
+  counts as growth; responsive viewport/keyboard/stage modes reset the empty
+  baseline. Effective form changes re-pin following readers even if the field
+  stays the same size. Hosts keep their
+  existing height/theme/copy overrides. No new options, copy keys, events or
+  package exports. Phone dock subtraction, card margin, notice end reservation
+  and pointer slack remain distinct padding/clearance owners. A trailing phone
+  conversation margin reserves only visitor growth to keep the stacked overview
+  frame fixed.
