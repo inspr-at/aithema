@@ -136,9 +136,10 @@ export class AudioRail {
       const signal = this.root.querySelector('.voice-signal').getBoundingClientRect();
       const viewport = this.root.ownerDocument.documentElement.clientWidth;
       const header = (this.root.closest('.band') ?? this.root).getBoundingClientRect();
-      const overview = this.root.closest('.workspace')?.querySelector('.understanding')?.getBoundingClientRect();
-      const besideOverview = this.root.closest('.band') && this.root.ownerDocument.defaultView?.matchMedia('(min-width:960px)').matches && overview?.width > 0;
-      const minLeft = Math.max(16, header.left), maxRight = Math.min(viewport - 16, header.right, besideOverview ? overview.right : Infinity);
+      const conversation = this.root.closest('.workspace')?.querySelector('.conversation')?.getBoundingClientRect();
+      const callEnded = ['voiceIdleEnded', 'voiceTimeLimit'].includes(this.errorKey);
+      const besideOverview = this.root.closest('.band') && this.root.ownerDocument.defaultView?.matchMedia('(min-width:960px)').matches && conversation?.width > 0 && !callEnded;
+      const minLeft = Math.max(16, header.left), maxRight = Math.min(viewport - 16, header.right, besideOverview ? conversation.right : Infinity);
       const width = Math.min(280, Math.max(0, maxRight - minLeft));
       const anchor = (MIC_FAILURES.includes(this.errorKey) ? this.button(this.session ? 'input' : 'start')
         : this.errorKey === 'voicePlaybackBlocked' ? this.button('playback')

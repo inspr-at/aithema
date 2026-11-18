@@ -1324,6 +1324,7 @@ for (const copy of [de, en]) test(`AIT-302: every ${copy.display.locale} header 
     const approved = approvedNarrowForm(copy, sample);
     if (approved) assert.equal(short, approved, `${sample.reason ?? sample.id}: Tick’s approved short form`);
     if (sample.creditCase) assert.equal(short, sample.short, `${sample.id}: exact AIT-422 status`);
+    else if (['voiceIdleEnded', 'voiceTimeLimit'].includes(sample.id)) assert.equal(short, copy.voiceMessagesNarrow[sample.id], `${sample.id}: exact AIT-541 continuation`);
     else assert.ok(short && [...short].length <= 22, `${sample.id}: ${short}`);
     assert.equal(narrow.getAttribute('aria-hidden'), 'true');
     const expected = sample.full + (sample.kind === 'consent' ? '\u00a0· ' : '');
