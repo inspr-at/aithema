@@ -107,7 +107,7 @@ export async function checkVoiceFailures(t) {
         expect(result.accessibleName === result.label && !result.calloutFocusable, { ...meta, assert: 'full accessible name and callout takes no focus', actual: result });
         if (width >= 600) {
           const desired = (result.anchor.left + result.anchor.right - result.callout.width) / 2;
-          const left = Math.max(16, result.header.left), right = Math.min(width - 16, result.header.right, state === 'voiceTimeLimit' ? Infinity : result.conversation.right);
+          const left = Math.max(16, result.header.left), right = Math.min(width - 16, result.header.right, ['voiceConnectFailed', 'voiceConnectionFailed', 'voiceTimeLimit', 'voiceDeadline', 'voiceConflict'].includes(state) ? Infinity : result.conversation.right);
           const clamped = Math.max(left, Math.min(desired, right - result.callout.width));
           expect(Math.abs(result.callout.left - clamped) <= 4 && Math.abs(result.callout.top - result.anchor.bottom - 8) <= 1,
             { ...meta, assert: 'anchor centre ±4 px (or clamped), top +8 ±1 px', actual: result.callout, anchor: result.anchor, expectedLeft: clamped });

@@ -137,8 +137,8 @@ export class AudioRail {
       const viewport = this.root.ownerDocument.documentElement.clientWidth;
       const header = (this.root.closest('.band') ?? this.root).getBoundingClientRect();
       const conversation = this.root.closest('.workspace')?.querySelector('.conversation')?.getBoundingClientRect();
-      const callEnded = ['voiceIdleEnded', 'voiceTimeLimit'].includes(this.errorKey);
-      const besideOverview = this.root.closest('.band') && this.root.ownerDocument.defaultView?.matchMedia('(min-width:960px)').matches && conversation?.width > 0 && !callEnded;
+      const retryMessage = this.state === 'failed' && !this.session && classifyVoiceEnd({ key: this.errorKey }).retryAnchor;
+      const besideOverview = this.root.closest('.band') && this.root.ownerDocument.defaultView?.matchMedia('(min-width:960px)').matches && conversation?.width > 0 && !retryMessage;
       const minLeft = Math.max(16, header.left), maxRight = Math.min(viewport - 16, header.right, besideOverview ? conversation.right : Infinity);
       const width = Math.min(280, Math.max(0, maxRight - minLeft));
       const anchor = (MIC_FAILURES.includes(this.errorKey) ? this.button(this.session ? 'input' : 'start')
@@ -237,7 +237,7 @@ export class AudioRail {
     this.root.dataset.startupPhase = this.startupPhase ?? '';
     this.root.toggleAttribute('data-playback-blocked', Boolean(this.playbackBlocked));
     this.root.toggleAttribute('data-moved', Boolean(this.moved));
-    this.root.toggleAttribute('data-call-ended', ['voiceIdleEnded', 'voiceTimeLimit'].includes(this.errorKey));
+    this.root.toggleAttribute('data-retry-message', this.state === 'failed' && !this.session && classifyVoiceEnd({ key: this.errorKey }).retryAnchor);
     this.root.toggleAttribute('data-time-bound', Boolean(this.timeBoundEnd || ['voiceTimeLimit', 'voiceIdleEnded'].includes(this.errorKey)));
     const combined = this.root.closest('.workspace')?.dataset.entrance === 'combined';
     const composerOwnsBlockedMic = combined && this.errorKey === 'voiceMicDenied';
