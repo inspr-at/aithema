@@ -70,6 +70,9 @@ export async function overviewStatusLayoutBudgetCheck(t, classicScrollbars = fal
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+  // This compact fixture fits the viewport. Reserve a real document gutter
+  // explicitly so classic mode exercises both outer and pane scrollbars.
+  if (classicScrollbars) await page.addStyleTag({ content: 'html { overflow-y:scroll; }' });
   await shadow(page, async c => {
     const { createSession, inputRevision } = await import('/packages/core/src/session.js');
     const { de: copy } = await import('/packages/ui/src/i18n/de.js');
@@ -129,6 +132,7 @@ export async function overviewStatusLayoutBudgetCheck(t, classicScrollbars = fal
         r.querySelector('.analysis-content').offsetWidth - r.querySelector('.analysis-content').clientWidth] };
     });
     assert.equal(frames.measurements, 8, 'full measurement notifications coalesce to one per frame');
+    t.diagnostic(`AIT-547 scrollbar gutters classic=${classicScrollbars}: ${JSON.stringify(frames.gutters)}`);
     if (classicScrollbars) assert.ok(frames.gutters.every(width => width > 0), 'classic test has real document and pane scrollbar gutters');
     for (const [i, sample] of frames.samples.entries()) for (const [selector, box] of Object.entries(sample)) {
       positive(box, `frame ${i}/${selector}`);

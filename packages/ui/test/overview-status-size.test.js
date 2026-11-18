@@ -29,7 +29,7 @@ function harness(copy) {
   const size = new OverviewStatusSize(root);
   let frame;
   const flush = () => { const callback = frame; frame = null; callback?.(); };
-  size.view = { requestAnimationFrame: callback => { frame = callback; return 1; }, cancelAnimationFrame: () => { frame = null; }, getComputedStyle: () => ({ display: 'flex', fontFamily: 'test', fontSize: '13px', lineHeight: '18px', columnGap: '8px' }) };
+  size.view = { removeEventListener() {}, requestAnimationFrame: callback => { frame = callback; return 1; }, cancelAnimationFrame: () => { frame = null; }, getComputedStyle: () => ({ display: 'flex', fontFamily: 'test', fontSize: '13px', lineHeight: '18px', columnGap: '8px' }) };
   size.connected = true;
   return { size, slot, text, pane, measured, copy, flush };
 }
