@@ -5,6 +5,7 @@ import { PluginRegistry, createMockReasoning, mockManifest, SessionLanes, inputR
 import { hostSettingsGauges } from '../../ui/src/settings-dialog.js';
 import { createOpenRouterReasoning } from '../../../plugins/openrouter/src/index.js';
 import { createDemoHost } from '../../../demo/host-ports.js';
+import { createImageInput } from '../../../plugins/image-input/src/index.js';
 import { ownedRequest, testToken, mockConsent } from '../../../test/helpers.js';
 import { binding, chatServer, request, consumeInFinallyReasoning, openRouterPrices } from '../../../test/plugin-fixtures.js';
 function qualify(b) {
@@ -47,6 +48,32 @@ for (const reason of [null, 'budget denied', 'current processing consent require
   assert.equal(paused.available, false, 'the outer verdict still blocks paused admission');
   assert.equal(paused.reason, 'session paused');
   assert.deepEqual(paused.unpaused, before, 'takeback can project exactly the existing unpaused verdict, including refusals');
+  assert.equal(h.storage.db.prepare('SELECT COUNT(*) AS n FROM budget_attempts').get().n, 0, 'presentation evaluation reserves no work');
+});
+for (const reason of [null, 'image input not supported', 'image normalizer unavailable']) test(`AIT-556: paused matrix retains unpaused image input verdict (${reason ?? 'available'})`, async t => {
+  const h = setup(t), normalizer = createImageInput();
+  h.registry.register(normalizer);
+  for (const config of Object.values(h.presets)) {
+    config.plugins.push('image-input');
+    config.imageInput = { plugin: 'image-input' };
+  }
+  if (reason !== 'image input not supported') h.b.imageInput = { maxImages: 4, maxTokensPerImage: 1600 };
+  if (reason === 'image normalizer unavailable') t.mock.method(normalizer, 'health', async () => ({ available: false }));
+  const before = (await h.runtime.matrix(h.session)).best.imageInput;
+  assert.deepEqual(before, { available: reason === null, reason });
+  const session = { ...h.session, paused: true };
+  const paused = (await h.runtime.matrix(session)).best.imageInput;
+  assert.equal(paused.available, false, 'the outer verdict still blocks paused admission');
+  if (reason === 'image input not supported') {
+    // Unsupported bindings are refused before the pause check. There is no
+    // paused verdict to project, and they must stay document-only.
+    assert.deepEqual(paused, before);
+    assert.equal(paused.unpaused, undefined);
+  } else {
+    assert.equal(paused.reason, 'session paused');
+    assert.deepEqual(paused.unpaused, before, 'presentation retains exactly the current binding and normalizer verdict');
+  }
+  assert.equal((await h.runtime.imageInputAvailability(session)).reason, paused.reason, 'the projection does not admit image input');
   assert.equal(h.storage.db.prepare('SELECT COUNT(*) AS n FROM budget_attempts').get().n, 0, 'presentation evaluation reserves no work');
 });
 for (const preview of [false, { ok: false, reason: 'session' }, { ok: false, reason: 'host-limit' },
