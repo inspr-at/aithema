@@ -169,15 +169,17 @@ export async function transcriptComposerCases(t) {
       c.setAttribute('theme', theme); c.setAttribute('motion', 'off');
       document.documentElement.lang = locale; document.documentElement.dataset.theme = theme;
       document.querySelector('#locale').value = locale; paintUtilities(copy);
+      // Direct configure bypasses the demo's locale event. Repaint its host
+      // slots through the real handler before capturing any fixture geometry.
+      c.dispatchEvent(new Event('aithema-locale'));
       if (card) c.receive({ seq: 11, type: 'turn.final', data: { id: 'question', role: 'assistant', inputRevision: inputRevision(c.session),
         content: locale === 'de' ? 'Welche Option passt?' : 'Which option fits?', question_short: locale === 'de' ? 'Welche Option passt?' : 'Which option fits?',
         options: [{ text: 'Option A', likely: true }, { text: 'Option B' }, { text: 'Option C' }] } });
       window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
     }, { locale, theme, voice, card, turns, visuals, usedUp, entrance, opener });
     await settleEvidenceFrame(page);
-    // This fixture configures the component directly, bypassing the demo's
-    // session-language path. Paint its host-owned legal slot after breakpoint
-    // listeners have settled, using the same labels and licence helper.
+    // Breakpoint listeners can repaint the host-owned legal slot. Pin its
+    // labels after they have settled, using the same locale and licence helper.
     await shadow(page, async (c, locale) => {
       const { [locale]: bundle } = await import(`/packages/ui/src/i18n/${locale}.js`);
       const { withDemoConsentCopy } = await import('/demo/consent-copy.js');
