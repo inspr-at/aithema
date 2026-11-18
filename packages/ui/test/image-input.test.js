@@ -28,7 +28,7 @@ function fixture(t, copy = en, available = true, options = {}) {
     if (url.endsWith('/turns') && options.method === 'POST') { const body = JSON.parse(options.body);
       return Response.json({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content, attachments: body.attachments } }); }
     const snapshot = c.session;
-    snapshot.featureMatrix.best.imageInput = { available: imageGranted, reason: imageGranted ? null : 'current processing consent required' };
+    snapshot.featureMatrix.best.imageInput = { available: imageGranted, reason: imageGranted ? null : options.imageReason ?? 'current processing consent required' };
     snapshot.featureMatrix.best.uploads = { available: documentsGranted, reason: documentsGranted ? null : 'current processing consent required' };
     if (url.endsWith('/consent')) return Response.json({ consentRevision: snapshot.consentRevision, selected: imageGranted ? ['images', 'image-input'] : ['images'], features: { images: ['images'], imageInput: ['image-input'] } });
     return Response.json(snapshot);
@@ -116,10 +116,9 @@ for (const copy of [en, de]) for (const entrance of ['choice', 'combined']) for 
     } else {
       await choose(f.root, [new window.File(['pixels'], 'photo.png', { type: 'image/png' }),
         ...(path === 'mixed' ? [new window.File(['fixture'], 'x.exe')] : [])]);
-      assert.ok(f.root.querySelector('.image-refusals'));
-      f.root.querySelector('.image-refusals button').click();
+      assert.equal(f.root.querySelector('.image-refusals'), null);
     }
-    assert.equal(f.root.querySelector('.composer').hasAttribute('data-image-input'), true, 'reserved layout remains latched');
+    assert.equal(f.root.querySelector('.composer').hasAttribute('data-image-input'), path === 'binding-switch', 'only a previously admitted image layout remains latched');
     if (path !== 'mixed') await choose(f.root, [new window.File(['fixture'], 'x.exe')]);
     const text = f.root.querySelector('.composer-reason').textContent;
     assert.equal(text, copy === en ? 'Not attached: x.exe (file type not accepted).' : 'Nicht angehängt: x.exe (Dateityp wird nicht angenommen).');
@@ -195,7 +194,9 @@ for (const copy of [en, de]) for (const [reason, key] of [
   assert.deepEqual(posts[0].options.body.getAll('files').map(file => file.name), ['notes.pdf']);
   assert.equal(f.root.querySelector('.upload__name').textContent, 'notes.pdf');
   assert.equal(f.root.querySelector('.staged-image'), null, 'the refused image was never staged');
-  assert.match(f.root.querySelector('.image-refusals').textContent, new RegExp(copy.imageRefusals[key], 'u'));
+  assert.equal(f.root.querySelector('.image-refusals'), null);
+  assert.equal(f.root.querySelector('.composer-reason').textContent, copy === en
+    ? 'Not attached: photo.png (file type not accepted).' : 'Nicht angehängt: photo.png (Dateityp wird nicht angenommen).');
   assert.equal(f.asks.length, 0);
 });
 for (const copy of [en, de]) test(`AIT-510 T-M3: ${copy.display.locale} withheld images use a sentence and release thumbnail dimensions`, async t => {
@@ -236,10 +237,12 @@ for (const copy of [en, de]) test(`AIT-510 G-M3 JIT: ${copy.display.locale} docu
   assert.equal(posts.length, 1, 'the consent continuation uploads exactly once');
   assert.deepEqual(posts[0].options.body.getAll('files').map(file => file.name), ['notes.pdf']);
   assert.equal(f.root.querySelector('.upload__name').textContent, 'notes.pdf');
-  const refusal = f.root.querySelector('.image-refusals');
-  assert.ok(refusal, 'the same pick retains its image refusal after document consent');
+  assert.equal(f.root.querySelector('.image-refusals'), null);
+  const refusal = f.root.querySelector('.composer-reason');
+  assert.ok(refusal, 'the same pick retains its document type refusal after document consent');
   assert.ok(refusal.textContent.includes('photo.png'));
-  assert.ok(refusal.textContent.includes(copy.imageRefusals.unavailable));
+  assert.equal(refusal.textContent, copy === en
+    ? 'Not attached: photo.png (file type not accepted).' : 'Nicht angehängt: photo.png (Dateityp wird nicht angenommen).');
   assert.equal(f.root.querySelector('.staged-image'), null);
   assert.equal(f.asks.length, 1, 'document consent never requests unavailable image processing');
 });
@@ -313,3 +316,16 @@ for (const copy of [en, de]) for (const entrance of ['choice', 'combined']) {
     }
   }
 }
+
+for (const copy of [en, de]) test(`AIT-556: ${copy.display.locale} additive image limits preserve host overrides`, async () => {
+  const { limitsText, UPLOAD_LIMITS } = await import('../src/uploads.js');
+  const locale = copy.display.locale;
+  const legacy = { ...copy, uploads: { ...copy.uploads, limits: 'Host legacy {files} / {size}' } };
+  assert.equal(limitsText(legacy, UPLOAD_LIMITS, locale), 'Host legacy 8 / 20 MB');
+  assert.equal(limitsText(legacy, UPLOAD_LIMITS, locale, true), 'Host legacy 8 / 20 MB');
+  const both = { ...legacy, uploads: { ...legacy.uploads, limitsWithImages: 'Host images {files} / {size}' } };
+  assert.equal(limitsText(both, UPLOAD_LIMITS, locale), 'Host legacy 8 / 20 MB');
+  assert.equal(limitsText(both, UPLOAD_LIMITS, locale, true), 'Host images 8 / 20 MB');
+  const oldBundle = { ...copy, uploads: { ...copy.uploads } }; delete oldBundle.uploads.limitsWithImages;
+  assert.equal(limitsText(oldBundle, UPLOAD_LIMITS, locale, true), copy.uploads.limitsWithImages.replace('{files}', '8').replace('{size}', '20 MB'));
+});

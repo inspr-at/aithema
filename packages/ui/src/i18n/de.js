@@ -539,7 +539,8 @@ export const de = {
   },
   uploads: {
     attach: 'Dateien anhängen',
-    limits: 'Bis zu {files} Dateien, je höchstens {size}: PDF, Word, Excel, PowerPoint, Text, Markdown, CSV, JSON, XML, PNG, JPEG, WebP oder GIF. Originaldokumente werden nicht aufbewahrt; normalisierte Bilder bleiben bis zum Zurückziehen oder Löschen gespeichert.',
+    limits: 'Bis zu {files} Dateien, je höchstens {size}: PDF, Word, Excel, PowerPoint, Text, Markdown, CSV, JSON oder XML. Die Originaldatei wird nicht aufbewahrt.',
+    limitsWithImages: 'Bis zu {files} Dateien, je höchstens {size}: PDF, Word, Excel, PowerPoint, Text, Markdown, CSV, JSON, XML, PNG, JPEG, WebP oder GIF. Originaldokumente werden nicht aufbewahrt; normalisierte Bilder bleiben bis zum Zurückziehen oder Löschen gespeichert.',
     dropActive: 'Loslassen zum Anhängen', dropLimits: 'Bis zu {files} Dateien, je höchstens {size}', unavailable: 'Dateien können nicht angehängt werden: {reason}',
     uploading: { one: '1 Datei wird hochgeladen …', other: '{count} Dateien werden hochgeladen …' },
     received: { one: 'Datei erhalten. Sie wird gelesen …', other: '{count} Dateien erhalten. Sie werden gelesen …' },

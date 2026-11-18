@@ -435,9 +435,9 @@ export function imageInputCheck(widths) {
       });
       await page.waitForFunction(() => [...document.querySelector('aithema-session').shadowRoot.querySelectorAll('.upload__name')].some(name => name.textContent === 'notes.pdf'));
       assert.deepEqual(await page.evaluate(() => window.imageUploadPicks.at(-1)), ['notes.pdf'], 'mixed pick uploads the document without sending the refused image');
-      const mixedReason = await inShadow(page, c => c.shadowRoot.querySelector('.image-refusals').textContent);
+      const mixedReason = await inShadow(page, c => c.shadowRoot.querySelector('.composer-reason').textContent);
       assert.ok(mixedReason.includes('photo.png'));
-      assert.ok(mixedReason.includes((locale === 'de' ? de : en).imageRefusals.unavailable));
+      assert.equal(mixedReason, locale === 'en' ? 'Not attached: photo.png (file type not accepted).' : 'Nicht angehängt: photo.png (Dateityp wird nicht angenommen).');
       await clearances('mixed-pick'); await shot('mixed-pick');
 
       await t.test('AIT-510 r15: document-only composers retain the main refusal without image formats or movement', async () => {
@@ -496,12 +496,12 @@ export function imageInputCheck(widths) {
             if (path === 'mixed') transfer.items.add(new File(['fixture'], 'x.exe'));
             c.shadowRoot.querySelector('.conversation').dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: transfer }));
           }, path);
-          await waitForShadow(page, '.image-refusals');
+          await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason').textContent.includes('photo.png'));
           // Let mixed document planning settle before dismissing the image feedback.
           await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer').hasAttribute('aria-busy'));
-          await inShadow(page, c => c.shadowRoot.querySelector('.image-refusals button').click());
+          assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.image-refusals')), null);
         }
-        assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.composer').hasAttribute('data-image-input')), true, 'reserved layout remains latched');
+        assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.composer').hasAttribute('data-image-input')), path === 'binding-switch', 'only a previously admitted image layout remains latched');
         const before = await boxes();
         // Repeat the document pick for mixed input too: compare positive frame boxes
         // within the already reserved image layout, before and after planning.
