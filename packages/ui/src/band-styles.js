@@ -56,10 +56,12 @@ export const bandStyles = `
   .audio-rail[data-call-reconciling] .voice-state { max-width:100%; } }
 .audio-rail[data-message] .voice-state { width:var(--voice-message-width,min(280px,calc(100vw - 32px))); top:var(--voice-message-top,calc(100% + 8px)); max-width:none;
   left:var(--voice-message-left,0px); right:auto; white-space:normal; overflow-wrap:normal; word-break:normal; hyphens:manual; }
-/* A permanent reading gap below desktop call controls leaves room for a
-   call-end message without covering either column or moving their content. */
+/* Two full lines fit below Retry in the existing header/transcript gap.
+   Keep the frame and both column budgets unchanged in every journey state. */
 @media(min-width:960px) and (min-height:701px) {
-  .workspace[data-stage="live"]:has(> .band > .audio-rail) { row-gap:60px; }
+  .band .audio-rail[data-message][data-retry-message] .voice-state {
+    padding:3px 44px 3px 8px; font-size:12px; line-height:1.25; min-height:0;
+  }
 }
 /* Compact desktop keeps the question/reply budget. Retry-related copy replaces
    the idle waveform inside its existing rail space, above both columns. */

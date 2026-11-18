@@ -140,7 +140,7 @@ export class AudioRail {
       const retryMessage = this.state === 'failed' && !this.session && classifyVoiceEnd({ key: this.errorKey }).retryAnchor;
       const besideOverview = this.root.closest('.band') && this.root.ownerDocument.defaultView?.matchMedia('(min-width:960px)').matches && conversation?.width > 0 && !retryMessage;
       const minLeft = Math.max(16, header.left), maxRight = Math.min(viewport - 16, header.right, besideOverview ? conversation.right : Infinity);
-      const width = Math.min(280, Math.max(0, maxRight - minLeft));
+      const width = Math.min(retryMessage && this.root.ownerDocument.defaultView?.matchMedia('(min-width:960px)').matches ? 480 : 280, Math.max(0, maxRight - minLeft));
       const anchor = (MIC_FAILURES.includes(this.errorKey) ? this.button(this.session ? 'input' : 'start')
         : this.errorKey === 'voicePlaybackBlocked' ? this.button('playback')
         : this.state === 'failed' && !this.session && classifyVoiceEnd({ key: this.errorKey }).retryAnchor ? this.button('retry')
