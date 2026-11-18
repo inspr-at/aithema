@@ -150,7 +150,7 @@ export async function checkVoiceFailures(t) {
         rail.errorKey = 'voicePlaybackBlocked'; rail.playbackBlocked = true;
         rail.root.style.transform = `translateX(${offset}px)`; rail.render(); return window.ait361Read();
       }, offset);
-      const left = Math.max(16, result.header.left), right = Math.min(width - 16, result.header.right, state === 'voiceTimeLimit' ? Infinity : result.conversation.right);
+      const left = Math.max(16, result.header.left), right = Math.min(width - 16, result.header.right, result.conversation.right);
       expect(result.callout.left >= left && result.callout.right <= right && Math.abs(result.callout.top - result.anchor.bottom - 8) <= 1,
         { provider, width, theme, locale, state: 'clamped', offset, assert: 'explicit left/right clamp stays inside viewport and header', actual: result.callout });
       await page.evaluate(() => { window.ait361Rail.root.style.transform = ''; window.ait361Rail.session = null; window.ait361Rail.render(); });
