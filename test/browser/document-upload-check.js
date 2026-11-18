@@ -26,6 +26,9 @@ export function documentUploadCheck() {
         window.documentUploadEntrance = entrance; window.documentImageReason = 'image normalizer not configured'; window.documentUploadPosts = [];
         const session = c.session;
         session.settings.origin = 'chosen'; session.settings.voice = 'off';
+        session.inputRevision = 1;
+        session.transcript = [{ id: 'document-input', role: 'user', content: 'Project documents', at: new Date(0).toISOString() },
+          { id: 'document-reply', role: 'assistant', content: 'Which document should we clarify?', at: new Date(1).toISOString() }];
         session.featureMatrix.best = Object.fromEntries(['text', 'analysis', 'uploads'].map(key => [key, { available: true }]));
         session.featureMatrix.best.imageInput = { available: false, reason: window.documentImageReason };
         window.documentSnapshot = session;
