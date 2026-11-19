@@ -72,6 +72,8 @@ export class UploadNotices {
     this.#copy = copy; this.#locale = locale;
     // Plain feedback and hidden measuring lines never enter the tab order.
     this.#reason.removeAttribute('tabindex');
+    // Focus restoration follows live actions after a status becomes a shortcut.
+    this.#reason.removeAttribute('data-focus-key');
     this.#reason.removeAttribute('data-feedback-scroll'); this.#reason.removeAttribute('data-feedback-more');
     this.#reason.inert = false;
     if (!this.#reason.hasAttribute('data-upload-feedback')) {
