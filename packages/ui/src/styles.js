@@ -977,6 +977,11 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .composer-reason[data-capacity-notice] { line-height:1.25; }
 .composer-reason[data-capacity-notice], .composer-reason[data-capacity-notice] .upload-notice-facts { max-height:3.75em; }
 .composer[data-image-input] .composer-reason[data-consent-feature="imageInput"] { overflow-y:auto; }
+/* Held consent shares the already measured feedback slot with current facts. */
+.composer-feedback:has(.composer-reason[data-held-consent]) { position:relative; }
+.composer-reason[data-held-consent] { position:absolute; inset:0; display:flex; flex-direction:column; justify-content:center; max-height:none; line-height:1.25; overflow:visible; }
+.held-upload-notice { display:block; flex:none; max-height:3.75em; overflow:auto; overscroll-behavior:contain; }
+.held-upload-consent { display:block; min-height:0; overflow:auto; overscroll-behavior:contain; }
 .image-refusals, .image-refusals-reserve__row { display:flex; align-items:flex-start; gap:5px; min-height:44px; font-size:.72rem; line-height:1.3; }
 .image-refusals { position:absolute; inset:0; overflow:auto; color:var(--aithema-warning); }
 .image-refusals__icon { flex:none; width:14px; height:14px; margin-top:2px; }
@@ -991,6 +996,7 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
   .workspace[data-phone-short] .composer[data-image-input] { padding-top:calc(var(--image-feedback-height,60px) + 10px); }
   .workspace[data-phone-short] .composer[data-image-input] .composer-feedback { position:absolute; top:4px; left:6px; right:6px; height:var(--image-feedback-height,60px); margin:0; }
   .workspace[data-phone-short] .composer[data-image-input] .composer-reason { position:static; width:auto; height:auto; max-height:none; clip-path:none; overflow:auto; }
+  .workspace[data-phone-short] .composer[data-image-input] .composer-reason[data-held-consent] { position:absolute; inset:0; height:auto; line-height:1.25; overflow:visible; }
   .workspace[data-phone-short] .composer[data-image-input] .composer-reason:has(.image-refusals) { transition:none; position:absolute; inset:0; overflow:visible; }
   /* A selected thumbnail shares one row with its 44px control on short phones. */
   .workspace[data-phone-short] .turn-image:not([data-withheld]) { max-width:44px; max-height:44px; }

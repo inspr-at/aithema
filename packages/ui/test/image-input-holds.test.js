@@ -56,7 +56,7 @@ for (const copy of [en, de]) test(`AIT-561 r2 Medium 1: ${copy.display.locale} e
   await choose(f.root, [new window.File(['pixels'], 'photo.png')]);
   await choose(f.root, [new window.File(['x'], 'newer.exe')]);
   const newer = copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'newer.exe')) + ' ' + copy.uploadsSupported;
-  assert.equal(f.root.querySelector('.composer-reason').textContent, newer);
+  assert.equal(f.root.querySelector('.held-upload-notice').textContent, newer.slice(0, -(1 + copy.uploadsSupported.length)));
   timers[0]();
   assert.equal(f.root.querySelector('.composer-reason').textContent, newer + reasonSeparator + copy.uploadsReselect.one);
   f.grantImages(); await tick(); await tick();
