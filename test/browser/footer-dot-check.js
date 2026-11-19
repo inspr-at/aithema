@@ -68,6 +68,12 @@ export async function footerDotCheck(t) {
             intervals.set(id, () => fn(...args)); return id--;
           };
           window.clearInterval = id => { if (!intervals.delete(id)) nativeClear(id); };
+          const nativeFetch = window.fetch.bind(window);
+          window.fetch = (url, init) => new URL(url, location.href).pathname.endsWith('/credits')
+            ? Promise.resolve(Response.json({ exhausted: false, limitSlot: null, lowAtMicro: 0, lowAtMaxMicro: 2_400_000,
+              tiers: { current: 'emailConfirmed', next: null, delta: 0, allowancesMicro: { emailConfirmed: 24_000_000 } },
+              balance: { owner: { limitMicro: 24_000_000, availableMicro: 24_000_000, committedMicro: 0, reservedMicro: 0 } } }))
+            : nativeFetch(url, init);
           window.footerTick = seconds => { now = base + seconds * 1000; for (const fn of intervals.values()) fn(); };
         }, { locale, theme });
         await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
@@ -77,8 +83,10 @@ export async function footerDotCheck(t) {
           const session = structuredClone(c.session); session.locale = locale;
           session.transcript = [{ id: 'dot-user', role: 'user', content: 'A website.' },
             { id: 'dot-reply', role: 'assistant', content: 'What should it do?' }];
-          c.setAttribute('motion', 'off'); c.configure({ session, copy });
+          c.setAttribute('motion', 'off'); c.configure({ session, copy, host: { credits: true } });
         }, locale);
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__amount').textContent);
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.status__dot').dataset.state === 'connected');
         await settle(page);
         if (width === 390) {
           await shadow(page, c => c.shadowRoot.querySelector('.ai-notice').click());
@@ -101,6 +109,7 @@ export async function footerDotCheck(t) {
             return { dot: box('.status__dot'), timer: box('.connection-timer'), footer: box('.display-foot'),
               others: ['.footer-info', '.host-credits', '.engine-info', '.status'].map(box), text: timer.textContent,
               label: dot.getAttribute('aria-label'), state: dot.dataset.state,
+              statusClip: getComputedStyle(root.querySelector('.status')).clipPath,
               unclipped: text.width > 0 && text.height > 0 && text.left >= bounds.left && text.right <= bounds.right && text.top >= bounds.top && text.bottom <= bounds.bottom };
           });
           dotClip ??= clipAround([frame.dot]);
@@ -137,6 +146,10 @@ export async function footerDotCheck(t) {
             assert.deepEqual(frame.dot, measurements[0].dot, `${label}: dot box stays fixed`);
             assert.deepEqual(frame.others, measurements[0].others, `${label}: adjacent footer boxes stay fixed`);
             assert.deepEqual(frame.footer, measurements[0].footer, `${label}: footer box stays fixed`);
+            if (width === 390) {
+              assert.equal(frame.statusClip, 'inset(50%)', `${label}: phone status remains intentionally clipped`);
+              continue;
+            }
             assert.deepEqual(pixels[i], pixels[0], `${label}: decoded dot pixels stay identical`);
             assert.equal(frame.dot.x, Math.round(frame.dot.x), `${label}: dot x is a whole pixel`);
             assert.equal(frame.dot.y, Math.round(frame.dot.y), `${label}: dot y is a whole pixel`);
