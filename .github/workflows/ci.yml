@@ -121,6 +121,72 @@ jobs:
       - if: steps.node.outputs.cache-hit != 'true'
         run: npm ci --ignore-scripts --no-audit --no-fund
 
+  # AIT-564: only main-scoped caches are shared with first PR and merge-group runs.
+  # Ten minutes allows the measured ~365 s apt stall plus cold downloads/saves;
+  # qualification retains its independent six-minute limit.
+  preview-cache:
+    needs: changes
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && needs.changes.result == 'success' && needs.changes.outputs.duplicate-of != ''
+    # Match preview-security so its ImageVersion-bound apt key is reusable.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      PLAYWRIGHT_VERSION: '1.56.1'
+    steps:
+      - name: Initialize qualification paths and runner image version
+        id: preview_paths
+        run: |
+          printf 'PLAYWRIGHT_BROWSERS_PATH=%s/preview-browsers\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'image-version=%s\n' "${ImageVersion:?Runner image version is required}" >> "$GITHUB_OUTPUT"
+      - name: Restore pinned qualification browser binaries
+        id: preview_browsers
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          lookup-only: true
+          path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
+          key: preview-browsers-v1-ubuntu-24.04-${{ runner.arch }}-playwright-${{ env.PLAYWRIGHT_VERSION }}-chromium-webkit-firefox
+      - name: Restore qualification OS dependency downloads
+        id: preview_apt
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          lookup-only: true
+          path: ${{ runner.temp }}/preview-apt-archives/*.deb
+          key: preview-apt-v1-ubuntu-24.04-${{ runner.arch }}-${{ steps.preview_paths.outputs.image-version }}-playwright-${{ env.PLAYWRIGHT_VERSION }}-chromium-webkit-firefox
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.preview_apt.outputs.cache-hit != 'true' || steps.preview_browsers.outputs.cache-hit != 'true'
+        with:
+          node-version: '24'
+      - name: Install pinned qualification core outside the workspace
+        id: preview_core
+        if: steps.preview_apt.outputs.cache-hit != 'true' || steps.preview_browsers.outputs.cache-hit != 'true'
+        run: |
+          npm install --prefix "$RUNNER_TEMP/preview-engines" --no-save --ignore-scripts --no-audit --no-fund "playwright-core@$PLAYWRIGHT_VERSION"
+      - name: Install qualification OS dependencies on cold and warm runs
+        id: preview_deps
+        if: steps.preview_apt.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/preview-apt-archives"
+          printf 'Dir::Cache::archives "%s";\nBinary::apt-get::APT::Keep-Downloaded-Packages "true";\n' "$RUNNER_TEMP/preview-apt-archives" | sudo tee /etc/apt/apt.conf.d/99-preview-security-cache > /dev/null
+          node "$RUNNER_TEMP/preview-engines/node_modules/playwright-core/cli.js" install-deps chromium webkit firefox
+      - name: Save completed OS dependency downloads
+        id: preview_apt_save
+        if: steps.preview_apt.outputs.cache-hit != 'true' && steps.preview_deps.outcome == 'success'
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ runner.temp }}/preview-apt-archives/*.deb
+          key: preview-apt-v1-ubuntu-24.04-${{ runner.arch }}-${{ steps.preview_paths.outputs.image-version }}-playwright-${{ env.PLAYWRIGHT_VERSION }}-chromium-webkit-firefox
+      - name: Download pinned qualification browsers on cache miss
+        id: preview_download
+        if: steps.preview_browsers.outputs.cache-hit != 'true'
+        run: node "$RUNNER_TEMP/preview-engines/node_modules/playwright-core/cli.js" install chromium webkit firefox
+      - name: Save completed pinned qualification browsers
+        id: preview_browsers_save
+        if: steps.preview_browsers.outputs.cache-hit != 'true' && steps.preview_download.outcome == 'success'
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
+          key: preview-browsers-v1-ubuntu-24.04-${{ runner.arch }}-playwright-${{ env.PLAYWRIGHT_VERSION }}-chromium-webkit-firefox
+
   test:
     permissions:
       contents: read
