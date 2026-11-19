@@ -539,7 +539,7 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 /* Keep the 44px target inside its text column, clear of Attach and Send. */
 .composer-reason[data-consent-feature="text"] > .consent-action::after { left:0; width:max(100%,44px); height:max(100%,44px); }
 @media(hover:none), (pointer:coarse) {
-  .composer-reason[data-consent-feature] > .consent-action::after, .upload-retry-copy[data-consent-feature] > .consent-action::after { height:max(100%,44px); }
+  .composer-reason[data-consent-feature] > .consent-action::after, .upload-retry-copy[data-consent-feature] > .consent-action::after, .held-upload-consent[data-consent-feature] > .consent-action::after { height:max(100%,44px); }
 }
 .attach, .send { display:grid; place-items:center; flex:none; width:44px; height:44px; padding:0; border-radius:22px; }
 .attach { color:var(--aithema-muted); border:1px solid var(--aithema-line); } .attach svg { width:20px; height:20px; }
@@ -981,7 +981,7 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .composer-feedback:has(.composer-reason[data-held-consent]) { position:relative; }
 .composer-reason[data-held-consent], .composer[data-image-input] .composer-reason[data-held-consent] { position:absolute; inset:0; display:flex; flex-direction:column; justify-content:center; max-height:none; line-height:1.25; overflow:visible; }
 .held-upload-notice { display:block; flex:none; max-height:3.75em; overflow:auto; overscroll-behavior:contain; }
-.held-upload-consent { display:block; min-height:0; overflow:auto; overscroll-behavior:contain; }
+.held-upload-consent { display:block; min-height:0; max-height:44px; overflow:auto; overscroll-behavior:contain; }
 .held-consent-narrow { display:none; }
 @media(max-width:600px) {
   .held-consent-wide { display:none; }
