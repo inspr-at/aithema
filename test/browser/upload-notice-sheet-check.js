@@ -11,7 +11,7 @@ import { browserForFile } from './shared-browser.js';
 import { startDemo, stopDemo, preparePage, waitForShadow, startTyping, inShadow } from './demo-helpers.js';
 
 export function uploadNoticeSheetCheck() {
-  for (const [width, locale] of [[390, 'de'], [390, 'en'], [1440, 'en']])
+  for (const [width, locale] of [[390, 'de'], [390, 'en'], [1440, 'en'], [1440, 'de']])
     test(`AIT-566 r3: ${width}/${locale} option A and ordinary feedback scope`, { timeout: 120000 }, async t => {
       const theme = locale === 'de' ? 'dark' : 'light', copy = { en, de }[locale];
       const directory = await mkdtemp(join(tmpdir(), 'aithema-notice-sheet-'));
@@ -32,7 +32,7 @@ export function uploadNoticeSheetCheck() {
       };
       const save = async (state, data) => {
         const evidence = process.env.AITHEMA_EVIDENCE_DIR; if (!evidence) return;
-        await mkdir(evidence, { recursive:true }); const prefix = join(evidence, `ait566-r3-${state}-${width}-${locale}-${theme}`);
+        await mkdir(evidence, { recursive:true }); const prefix = join(evidence, `ait566-r4-${state}-${width}-${locale}-${theme}`);
         await page.screenshot({ path:`${prefix}.png` }); await writeFile(`${prefix}.json`, JSON.stringify(data, null, 2));
       };
       const configure = async scenario => {
@@ -128,6 +128,46 @@ export function uploadNoticeSheetCheck() {
         assert.ok(measured.width > 0 && measured.height > 0, 'intrinsic combined reserve has a positive box');
         assert.ok(measured.lines.every(line => line.position !== 'absolute' && !line.fitted && line.tabIndex === null), 'measuring lines never match live fitting rules');
       });
+      await t.test('r4 short document status remains accessible and clipped', async () => {
+        await page.setViewport({ width:390, height:568, hasTouch:true });
+        await configure('text'); const before = await boxes();
+        const status = await inShadow(page, c => {
+          const reason = c.shadowRoot.querySelector('.composer-feedback > .composer-reason'), r = reason.getBoundingClientRect();
+          return { inert:reason.inert, role:reason.getAttribute('role'), text:reason.textContent, width:r.width, height:r.height, clip:getComputedStyle(reason).clipPath };
+        });
+        const client = await page.createCDPSession();
+        const { root } = await client.send('DOM.getDocument', { depth:-1, pierce:true });
+        const find = node => node.attributes?.some((value, index, values) => index % 2 === 0 && value === 'id' && values[index+1] === 'composer-reason') ? node : [...(node.children ?? []), ...(node.shadowRoots ?? [])].map(find).find(Boolean);
+        const { nodes } = await client.send('Accessibility.getPartialAXTree', { backendNodeId:find(root).backendNodeId });
+        await client.detach();
+        await save('short-document-status', { before, status, accessibility:nodes });
+        assert.equal(status.inert, false, 'short document status is never inert');
+        assert.equal(status.role, 'status');
+        assert.ok(nodes.some(node => !node.ignored && node.role?.value === 'status'), 'polite status remains in the accessibility tree');
+        assert.equal(status.width, 1); assert.equal(status.height, 1); assert.equal(status.clip, 'inset(50%)');
+        await configure('refusal'); const idle = await boxes(); await pick(['x.heic']);
+        const refused = await inShadow(page, c => { const reason = c.shadowRoot.querySelector('.composer-feedback > .composer-reason'), r = reason.getBoundingClientRect(); return { width:r.width, height:r.height, inert:reason.inert, text:reason.textContent }; });
+        await save('short-document-refusal', { idle, after:await boxes(), refused });
+        assert.equal(refused.inert, false); assert.equal(refused.width, 1); assert.equal(refused.height, 1);
+        unchanged(idle, await boxes());
+        await page.setViewport({ width, height:width === 390 ? 844 : 900, hasTouch:width === 390 });
+      });
+      await t.test('r4 lone image refusal stays inline on desktop', async () => {
+        await configure('refusal'); const idle = await boxes();
+        await inShadow(page, c => {
+          const data = new DataTransfer(); data.items.add(new File(['fixture'], 'photo.png', { type:'image/png', lastModified:1234 }));
+          c.shadowRoot.querySelector('textarea').dispatchEvent(new ClipboardEvent('paste', { clipboardData:data, bubbles:true, cancelable:true }));
+        }); await settle();
+        const result = await inShadow(page, c => {
+          const reason = c.shadowRoot.querySelector('.composer-feedback > .composer-reason'), action = reason.querySelector('.image-refusals__dismiss');
+          const name = reason.querySelector('.image-refusal');
+          const range = document.createRange(); if (name) range.selectNodeContents(name); const ink = name ? range.getBoundingClientRect() : null;
+          const r = action?.getBoundingClientRect();
+          return { text:reason.innerText, summary:Boolean(reason.querySelector('[data-summary]')), ink:ink && { y:ink.y, height:ink.height }, action:r && { x:r.x,y:r.y,width:r.width,height:r.height } };
+        });
+        await save('lone-refusal', { idle, after:await boxes(), result }); unchanged(idle, await boxes());
+        if (width === 1440) { assert.equal(result.summary, false, 'a fitting lone image refusal never becomes a summary'); assert.ok(result.action?.height >= 44); assert.ok(result.ink.y >= result.action.y && result.ink.y + result.ink.height <= result.action.y + result.action.height, 'refusal and action share a line'); }
+      });
       for (const scenario of ['summary', 'mixed', 'rehold']) await t.test(scenario, async scene => {
         await configure(scenario); const idle = await boxes(); await save(`${scenario}-idle`, { boxes:idle });
         await pick([scenario === 'rehold' ? 'photo.png' : 'scan.pdf']);
@@ -148,6 +188,16 @@ export function uploadNoticeSheetCheck() {
         });
         await save(scenario, { idle, before, result }); unchanged(idle, before);
         if (scenario === 'rehold') {
+          await scene.test('r4 fitting consent and action share their row', async () => {
+            const line = await inShadow(page, c => {
+              const reason = c.shadowRoot.querySelector('.composer-feedback > .composer-reason'), source = reason.querySelector('.held-upload-consent');
+              const label = source.querySelector('.consent-line-copy'), action = source.querySelector('.consent-action');
+              const range = document.createRange(); range.selectNodeContents(label); const ink = range.getBoundingClientRect(), a = action.getBoundingClientRect();
+              return { summary:Boolean(reason.querySelector('[data-summary]')), label:label.innerText, ink:{ x:ink.x,y:ink.y,width:ink.width,height:ink.height }, action:{ x:a.x,y:a.y,width:a.width,height:a.height } };
+            });
+            if (width === 1440) { assert.equal(line.summary, false, 'fitting held consent is shown in full'); assert.ok(line.action.height >= 44); assert.ok(line.ink.y >= line.action.y && line.ink.y + line.ink.height <= line.action.y + line.action.height, 'consent and action share a line'); }
+            else if (line.action.y >= line.ink.y + line.ink.height) { assert.equal(line.label.trim().endsWith('·'), false, 'a wrapped action has no dangling separator'); assert.ok(Math.abs(line.action.x-line.ink.x) <= .5, 'wrapped action aligns with its sentence'); }
+          });
           await inShadow(page, c => { const r = c.shadowRoot; (r.querySelector('.upload-notices-more') ?? r.querySelector('.held-upload-consent .consent-action')).focus({ preventScroll:true }); });
           assert.equal(result.text.includes(copy.uploadsReselect.one), false);
           if (result.control) await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-more').click());
