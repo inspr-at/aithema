@@ -2190,6 +2190,7 @@ export class AithemaSession extends HTMLElement {
       if (className) node.className = className; return node;
     };
     if (part === 'composer') {
+      this.#images?.prepareFeedback();
       this.#syncReconciling();
       const text = this.#feature('text', true), input = root.querySelector('textarea');
       const consentDraft = this.#combined && isConsentReason(text.rawReason ?? text.reason);
@@ -2353,6 +2354,7 @@ export class AithemaSession extends HTMLElement {
       root.querySelector('.composer').toggleAttribute('data-image-input', this.#imageLayout);
       root.querySelector('.composer').toggleAttribute('data-image-state', Boolean(this.#imageInputEnabled() && this.#imageIntent || this.#images?.hasRefusals));
       this.#paintAttach();
+      reason.toggleAttribute('data-upload-feedback', text.available && !this.#rail?.moved && !this.#sendFailed && Boolean(this.#uploadNotice || this.#imageIntent || this.#images?.hasRefusals || this.#retryFiles.length));
       this.#images?.update(copy);
       const out = root.querySelector('.composer-out'), usedUp = this.#composerUsedUp;
       const shell = root.querySelector('.composer-shell'), form = root.querySelector('form.composer'), u = copy.hostSurface.usedUp, credits = copy.hostSurface.credits;

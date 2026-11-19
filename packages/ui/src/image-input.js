@@ -1,14 +1,14 @@
+import { UploadNotices } from './upload-notices.js';
 import { resolveCopy } from './copy-resolve.js';
 import { node, setText } from './dom.js';
-import { WARNING_ICON } from './concept-view.js';
 import { stagedImage } from '../../core/src/image-input.js';
 import { isImageFile } from './uploads.js';
 
 /** Owns erasable previews and per-file refusal records; never changes conversation input. */
 export class ImageInputView {
-  #ports; #copy; #tiles; #records = []; #refusalVersion = 0; #urls = new Map(); #loads = new Map(); #epoch = 0; #reserve; #reserveObserver;
+  #ports; #copy; #tiles; #records = []; #refusalVersion = 0; #urls = new Map(); #loads = new Map(); #epoch = 0; #reserve; #reserveObserver; #notices;
   constructor(ports) {
-    this.#ports = ports; this.#copy = ports.copy;
+    this.#ports = ports; this.#copy = ports.copy; this.#notices = new UploadNotices(ports.form);
     this.#tiles = node('div', 'staged-images'); this.#tiles.hidden = true;
     ports.form.prepend(this.#tiles);
     this.#reserve = node('span', 'image-feedback-reserve');
@@ -16,21 +16,13 @@ export class ImageInputView {
     const fit = () => {
       const height = Math.ceil(this.#reserve.getBoundingClientRect().height);
       if (height > 0 && ports.form.hasAttribute('data-image-input')) ports.form.style.setProperty('--image-feedback-height', `${height}px`);
-      this.#fitFeedback();
+      this.#notices.fit();
     };
     const Observer = ports.form.ownerDocument.defaultView?.ResizeObserver;
     if (Observer) {
       this.#reserveObserver = new Observer(fit); this.#reserveObserver.observe(this.#reserve);
       this.#reserveObserver.observe(ports.form.querySelector('.composer-feedback'));
     }
-    const reason = ports.form.querySelector('.composer-reason');
-    reason.addEventListener('scroll', () => this.#fitFeedback());
-    reason.addEventListener('keydown', event => {
-      if (event.target !== reason || !reason.hasAttribute('data-feedback-scroll') || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-      if (event.key !== 'Home' && event.key !== 'End') return;
-      event.preventDefault(); reason.scrollTop = event.key === 'Home' ? 0 : reason.scrollHeight;
-      this.#fitFeedback();
-    });
     for (const upload of ports.session().uploads) this.receive(upload);
   }
   get refusalVersion() { return this.#refusalVersion; }
@@ -96,15 +88,7 @@ export class ImageInputView {
     const height = Math.ceil(this.#reserve.getBoundingClientRect().height);
     if (height > 0) this.#ports.form.style.setProperty('--image-feedback-height', `${height}px`);
   }
-  #fitFeedback() {
-    const reason = this.#ports.form.querySelector('.composer-reason');
-    const scrollable = reason.hasAttribute('data-held-consent') || this.#ports.form.hasAttribute('data-document-input')
-      && !this.#ports.form.hasAttribute('data-image-input') && !reason.hasAttribute('data-shortcut');
-    if (scrollable) reason.tabIndex = 0;
-    else if (reason.hasAttribute('data-feedback-scroll')) reason.tabIndex = -1;
-    reason.toggleAttribute('data-feedback-scroll', scrollable);
-    reason.toggleAttribute('data-feedback-more', scrollable && reason.scrollTop + reason.clientHeight < reason.scrollHeight - 1);
-  }
+  prepareFeedback() { this.#notices.prepare(); }
   paintNotice(line, text) {
     const supported = this.#text('uploadsSupported') ?? '';
     const formats = supported && text.endsWith(supported) ? supported : '';
@@ -119,23 +103,24 @@ export class ImageInputView {
   paintRefusals(line) {
     let region = line.querySelector('.image-refusals');
     if (!region) {
-      region = node('span', 'image-refusals'); region.tabIndex = 0;
-      const glyph = node('span', 'image-refusals__icon'); glyph.innerHTML = WARNING_ICON;
-      const list = node('span', 'image-refusals__list');
-      const dismiss = node('button', 'consent-action image-refusals__dismiss'); dismiss.type = 'button';
-      dismiss.addEventListener('click', () => { this.clear(); this.#ports.changed(); });
-      region.append(glyph, list, dismiss); line.replaceChildren(region);
+      region = node('span', 'image-refusals');
+      const list = node('span', 'image-refusals__list'); region.append(list); line.replaceChildren(region);
     }
     const list = region.querySelector('.image-refusals__list');
     const signature = JSON.stringify([this.#records, this.#copy.display?.locale, this.#records.map(record => this.refusalText(record.reason))]);
     if (list.dataset.records !== signature) {
-      list.replaceChildren(...this.#records.map(record => this.#refusal(record)));
+      list.replaceChildren(...this.#records.map(record => {
+        const item = node('span', 'image-refusal-item');
+        const dismiss = node('button', 'consent-action image-refusals__dismiss', this.#copy.uploads.discard); dismiss.type = 'button';
+        dismiss.addEventListener('click', () => { this.#records = this.#records.filter(prior => prior.key !== record.key); this.#ports.changed(); });
+        item.append(this.#refusal(record), dismiss); return item;
+      }));
       list.dataset.records = signature;
     }
-    setText(region.querySelector('button'), this.#copy.uploads.discard); delete line.dataset.consentFeature;
+    delete line.dataset.consentFeature;
   }
   update(copy = this.#copy) {
-    this.#copy = copy; this.#reserveFeedback(); this.#fitFeedback();
+    this.#copy = copy; this.#reserveFeedback(); this.#notices.update(copy, this.#ports.session().locale);
     const session = this.#ports.session(), images = session.uploads.filter(u => stagedImage(u) && !u.erased && u.state !== 'staged-discarded');
     this.#tiles.hidden = !images.length;
     const active = new Set((this.#ports.canRead() ? session.uploads : []).filter(u => u.kind === 'image' && !u.erased && ['staged-ready', 'sent'].includes(u.state)).map(u => `${u.id}:${u.digest}`));
@@ -200,5 +185,5 @@ export class ImageInputView {
     }).catch(() => {}).finally(() => this.#loads.delete(key));
     this.#loads.set(key, pending);
   }
-  destroy() { this.#reserveObserver?.disconnect(); this.#epoch++; for (const url of this.#urls.values()) URL.revokeObjectURL(url); this.#urls.clear(); this.#records = []; }
+  destroy() { this.#notices.destroy(); this.#reserveObserver?.disconnect(); this.#epoch++; for (const url of this.#urls.values()) URL.revokeObjectURL(url); this.#urls.clear(); this.#records = []; }
 }
