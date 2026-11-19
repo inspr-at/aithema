@@ -393,8 +393,8 @@ export function heldRegressionCheck() {
             await writeFile(join(evidence, `${prefix}.json`), JSON.stringify({ before }, null, 2));
           }
           for (const [selector, box] of Object.entries(before)) assert.ok(box.width > 0 && box.height > 0, `${selector}: positive idle box`);
-          // Main's composer footprint is shared by both locales and capabilities.
-          const expected = width === 390 ? 168.03125 : 150.90625;
+          // Main has a measured image slot and the ordinary document-only row.
+          const expected = scenario === 'idle-image' ? width === 390 ? 168.03125 : 150.90625 : width === 390 ? 164.078125 : 150;
           assert.ok(Math.abs(before['.composer'].height - expected) <= .5, `idle composer matches main within 0.5 px: ${before['.composer'].height} vs ${expected}`);
           if (width === 390 && scenario === 'idle-document')
             assert.ok(Math.abs(before['.send'].y - 716.40625) <= .5, 'document-only idle Send matches main within 0.5 px');
