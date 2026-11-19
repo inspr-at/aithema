@@ -128,8 +128,9 @@ export function uploadNoticeSheetCheck() {
         assert.ok(measured.width > 0 && measured.height > 0, 'intrinsic combined reserve has a positive box');
         assert.ok(measured.lines.every(line => line.position !== 'absolute' && !line.fitted && line.tabIndex === null), 'measuring lines never match live fitting rules');
       });
-      await t.test('r4 short document status remains accessible and clipped', async () => {
-        await page.setViewport({ width:390, height:568, hasTouch:true });
+      await t.test('r4 short document status remains accessible and clipped', async scene => {
+        scene.after(() => page.setViewport({ width, height:width === 390 ? 844 : 900, hasTouch:width === 390 }));
+        await page.setViewport({ width:390, height:568, hasTouch:width === 390 });
         await configure('text'); const before = await boxes();
         const status = await inShadow(page, c => {
           const reason = c.shadowRoot.querySelector('.composer-feedback > .composer-reason'), r = reason.getBoundingClientRect();
