@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -18,7 +18,101 @@ const step = id => {
 };
 const evaluate = (value, context) => runInNewContext(value.replace(/^\$\{\{|\}\}$/gu, '')
   .replaceAll('outputs.docs-only', "outputs['docs-only']")
+  .replaceAll('outputs.duplicate-of', "outputs['duplicate-of']")
   .replaceAll('outputs.cache-hit', "outputs['cache-hit']"), context);
+
+test('AIT-564 round 3: main preview cache seeding has exactly the npm-cache trigger', () => {
+  const warmer = ci.jobs['preview-cache'];
+  assert.ok(warmer, 'Main needs a preview-cache warmer for PR and merge-group cache reuse');
+  assert.equal(warmer.needs, ci.jobs['npm-cache'].needs);
+  assert.equal(warmer.if, ci.jobs['npm-cache'].if);
+  assert.equal(warmer['runs-on'], job['runs-on']);
+  assert.equal(warmer['timeout-minutes'], 10, 'Allow a slow-mirror cold seed without raising qualification limits');
+  assert.deepEqual(warmer.env, job.env);
+  for (const event of ['push', 'pull_request', 'merge_group']) {
+    for (const ref of ['refs/heads/main', 'refs/heads/other']) {
+      for (const attempt of [1, 2]) {
+        for (const result of ['success', 'failure', 'skipped']) {
+          for (const duplicate of ['', 'fixture-run']) {
+            const context = {
+              github: { event_name: event, ref, run_attempt: attempt },
+              needs: { changes: { result, outputs: { 'duplicate-of': duplicate } } },
+            };
+            assert.equal(evaluate(warmer.if, context), event === 'push' && ref === 'refs/heads/main'
+              && attempt === 1 && result === 'success' && duplicate !== '');
+          }
+        }
+      }
+    }
+  }
+});
+
+test('AIT-564 round 3: warmer shares exact cache keys, paths and producer commands with qualification', () => {
+  const warmer = ci.jobs['preview-cache'];
+  assert.ok(warmer);
+  const warmStep = id => {
+    const found = warmer.steps.find(value => value.id === id);
+    assert.ok(found, `preview-cache needs ${id}`);
+    return found;
+  };
+  assert.equal(warmer.steps[0], warmStep('preview_paths'));
+  for (const id of ['preview_paths', 'preview_core', 'preview_deps', 'preview_download']) {
+    assert.equal(warmStep(id).run, step(id).run, `Identical ${id} commands prevent cache drift`);
+  }
+  for (const [restoreId, producerId, saveId] of [
+    ['preview_apt', 'preview_deps', 'preview_apt_save'],
+    ['preview_browsers', 'preview_download', 'preview_browsers_save'],
+  ]) {
+    const restore = warmStep(restoreId), producer = warmStep(producerId), save = warmStep(saveId);
+    assert.equal(restore.uses, step(restoreId).uses);
+    assert.deepEqual(restore.with, { ...step(restoreId).with, 'lookup-only': true });
+    assert.equal(restore.if, undefined, 'Always look up both exact keys without downloading');
+    assert.equal(save.uses, step(saveId).uses);
+    assert.deepEqual(save.with, step(saveId).with);
+    assert.equal(warmer.steps.indexOf(save), warmer.steps.indexOf(producer) + 1);
+    assert.ok(warmer.steps.indexOf(restore) < warmer.steps.indexOf(warmStep('preview_core')));
+  }
+  const setup = warmer.steps.find(value => value.uses?.startsWith('actions/setup-node@'));
+  assert.equal(setup?.uses, job.steps.find(value => value.uses?.startsWith('actions/setup-node@')).uses);
+  assert.deepEqual(setup.with, { 'node-version': '24' });
+  assert.ok(warmer.steps.indexOf(setup) < warmer.steps.indexOf(warmStep('preview_core')));
+  for (const aptHit of ['true', 'false', '', undefined]) {
+    for (const browserHit of ['true', 'false', '', undefined]) {
+      for (const outcome of ['success', 'failure', 'cancelled', 'skipped', undefined]) {
+        const context = { steps: {
+          preview_apt: { outputs: { 'cache-hit': aptHit } },
+          preview_browsers: { outputs: { 'cache-hit': browserHit } },
+          preview_deps: { outcome }, preview_download: { outcome },
+        } };
+        for (const value of warmer.steps) {
+          const expected = ['preview_paths', 'preview_apt', 'preview_browsers'].includes(value.id) ? true
+            : value.id === 'preview_deps' ? aptHit !== 'true'
+            : value.id === 'preview_download' ? browserHit !== 'true'
+            : value.id === 'preview_apt_save' ? aptHit !== 'true' && outcome === 'success'
+            : value.id === 'preview_browsers_save' ? browserHit !== 'true' && outcome === 'success'
+            : aptHit !== 'true' || browserHit !== 'true';
+          assert.equal(value.if === undefined ? true : evaluate(value.if, context), expected,
+            `${value.id ?? value.uses}: ${aptHit}/${browserHit}/${outcome}`);
+          assert.equal(value['continue-on-error'], undefined);
+        }
+      }
+    }
+  }
+  assert.equal(warmer.steps.some(value => value.run?.includes('qualify-html-preview')), false);
+});
+
+test('AIT-564 round 3: a missing runner ImageVersion fails without publishing an apt key component', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'preview-missing-image-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const githubOutput = join(directory, 'github-output');
+  writeFileSync(githubOutput, '');
+  const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', step('preview_paths').run], {
+    encoding: 'utf8',
+    env: { PATH: process.env.PATH, RUNNER_TEMP: directory, GITHUB_ENV: join(directory, 'github-env'), GITHUB_OUTPUT: githubOutput },
+  });
+  assert.notEqual(result.status, 0);
+  assert.equal(readFileSync(githubOutput, 'utf8'), '');
+});
 
 test('AIT-564: engine and apt download caches bind the runner, architecture, exact core pin and browser list', () => {
   assert.equal(job.env?.PLAYWRIGHT_VERSION, '1.56.1');
