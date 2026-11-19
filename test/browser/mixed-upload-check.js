@@ -40,7 +40,13 @@ export function mixedUploadCheck() {
         const form = new FormData(), before = intake.storage.get(intake.session.id).seq;
         form.append('clientEventId', clientEventId);
         for (const file of files) form.append('files', new File([new Uint8Array(file.bytes)], file.name, { type: file.type }));
-        const response = await intake.handlers.handle(new Request(`http://localhost/api/sessions/${intake.session.id}/uploads`, { method: 'POST', body: form }));
+        let response;
+        try { response = await intake.handlers.handle(new Request(`http://localhost/api/sessions/${intake.session.id}/uploads`, { method: 'POST', body: form })); }
+        catch (error) {
+          // Match createHandlers' existing storage-capacity HTTP boundary.
+          if (!(error instanceof RangeError)) throw error;
+          response = Response.json({ error: 'size-limit' }, { status: 413 });
+        }
         const body = await response.json();
         await intake.handlers.idle();
         if (response.ok) body.events = intake.storage.read(intake.session.id, before);
