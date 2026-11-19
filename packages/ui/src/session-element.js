@@ -2267,18 +2267,12 @@ export class AithemaSession extends HTMLElement {
         if (!refusal) setText(action, copy.uploads.tryAgain);
         setText(discard, copy.uploads.discard);
       } else if (text.available && !this.#rail?.moved && !this.#sendFailed && this.#imageIntent) {
-        const feature = this.#imageIntent.features.includes('imageInput') ? 'imageInput' : 'uploads';
         if (!reason.querySelector('.held-upload-consent')) reason.replaceChildren(node('span', 'held-upload-notice'), node('span', 'held-upload-consent'));
         // The formats remain in the attachment help; this slot keeps the current
         // refusal and the held files' consent action visible together.
         const supported = resolveCopy(copy, 'uploadsSupported', undefined, this.#session.locale);
         const notice = supported && this.#uploadNotice.endsWith(supported) ? this.#uploadNotice.slice(0, -supported.length).trim() : this.#uploadNotice;
         setText(reason.querySelector('.held-upload-notice'), notice);
-        const line = reason.querySelector('.held-upload-consent');
-        paintConsentLine(line, { copy, feature, verdict: { available: false, reason: CONSENT_REASON },
-          open: opener => this.#dialog.openConsent(feature, opener) });
-        const label = line.querySelector('.consent-line-copy');
-        setText(label, `${this.#imageIntent.files.map(file => file.name).join(', ')}: ${label.textContent}`);
         delete reason.dataset.consentFeature;
       } else if (text.available && !this.#rail?.moved && !this.#sendFailed && this.#images?.hasRefusals) {
         this.#images.paintRefusals(reason);
@@ -2289,6 +2283,17 @@ export class AithemaSession extends HTMLElement {
           open: opener => this.#dialog.openConsent('text', opener) });
         uploadNotice = this.#imageLayout && text.available && !this.#rail?.moved && !this.#sendFailed && Boolean(words) && words === this.#uploadNotice;
         if (uploadNotice) this.#images.paintNotice(reason, words);
+      }
+      if (text.available && !this.#rail?.moved && !this.#sendFailed && this.#imageIntent) {
+        // A retained newer selection owns its retry/discard controls; the held
+        // files keep an independent consent opener alongside those controls.
+        let line = reason.querySelector('.held-upload-consent');
+        if (!line) { line = node('span', 'held-upload-consent'); reason.append(line); }
+        const feature = this.#imageIntent.features.includes('imageInput') ? 'imageInput' : 'uploads';
+        paintConsentLine(line, { copy, feature, verdict: { available: false, reason: CONSENT_REASON },
+          open: opener => this.#dialog.openConsent(feature, opener) });
+        const label = line.querySelector('.consent-line-copy');
+        setText(label, `${this.#imageIntent.files.map(file => file.name).join(', ')}: ${label.textContent}`);
       }
       reason.toggleAttribute('data-held-consent', Boolean(reason.querySelector('.held-upload-consent')) && Boolean(this.#imageIntent));
       const capacityNotice = [copy.uploads.tooMany.replace('{files}', this.#limits.maxDocumentsPerSession),
