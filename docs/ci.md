@@ -664,9 +664,11 @@ or helper edits retain the prior measured reservation until matching trusted CI
 observations arrive, then restart the series with the normal warmup margin.
 
 The table and packing above record AIT-557's provisional plans. AIT-558 removes
-the file-specific provisional bypass. Its L3 guard reserves the moved status
-work at measured p95 and keeps the combined reservation at or above
-`max(378.094 s, measured combined work)`. The +180 s start-journey growth
+the file-specific provisional bypass. Its L3 guard independently reserves the
+moved pre-split status work at **242.898533946 s**, without a provisional
+margin, and keeps the combined reservation at or above **378.094 s**.
+`assertMeasuredWeight` separately validates each reservation against its rolling
+CI observations. The +180 s start-journey growth
 scenario, fourteen shards, packer, every other weight and floor, job timeouts,
 and **405/420 s** limits remain unchanged.
 
