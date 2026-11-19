@@ -2306,6 +2306,7 @@ export class AithemaSession extends HTMLElement {
         if (ended) { ended.remove(); delete reason.dataset.consentFeature; }
       }
       reason.toggleAttribute('data-held-consent', Boolean(reason.querySelector('.held-upload-consent')) && Boolean(this.#imageIntent));
+      reason.toggleAttribute('data-held-only', Boolean(this.#imageIntent) && !this.#uploadNotice && !this.#retryFiles.length);
       const capacityNotice = [copy.uploads.tooMany.replace('{files}', this.#limits.maxDocumentsPerSession),
         copy.uploads.sessionFull.replace('{size}', formatBytes(this.#limits.maxSessionBytes, this.#session.locale))].includes(this.#uploadNotice);
       reason.toggleAttribute('data-capacity-notice', capacityNotice && words === this.#uploadNotice && !this.#retryFiles.length

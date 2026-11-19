@@ -539,7 +539,8 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 /* Keep the 44px target inside its text column, clear of Attach and Send. */
 .composer-reason[data-consent-feature="text"] > .consent-action::after { left:0; width:max(100%,44px); height:max(100%,44px); }
 @media(hover:none), (pointer:coarse) {
-  .composer-reason[data-consent-feature] > .consent-action::after, .upload-retry-copy[data-consent-feature] > .consent-action::after, .held-upload-consent[data-consent-feature] > .consent-action::after { height:max(100%,44px); }
+  .composer-reason[data-consent-feature] > .consent-action::after, .upload-retry-copy[data-consent-feature] > .consent-action::after { height:max(100%,44px); }
+  .held-upload-consent[data-consent-feature] > .consent-action::after { height:max(100%,44px); }
 }
 .attach, .send { display:grid; place-items:center; flex:none; width:44px; height:44px; padding:0; border-radius:22px; }
 .attach { color:var(--aithema-muted); border:1px solid var(--aithema-line); } .attach svg { width:20px; height:20px; }
@@ -982,7 +983,11 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .composer-reason[data-held-consent], .composer[data-image-input] .composer-reason[data-held-consent] { position:absolute; inset:0; display:flex; flex-direction:column; justify-content:center; max-height:none; line-height:1.25; overflow:visible; }
 .held-upload-notice { display:block; flex:none; max-height:3.75em; overflow:auto; overscroll-behavior:contain; }
 .held-upload-consent { display:block; min-height:0; max-height:44px; overflow:auto; overscroll-behavior:contain; }
-.held-consent-narrow { display:none; }
+/* With no competing facts, retain the established long-copy scrolling cap. */
+.composer-reason[data-held-consent][data-held-only], .composer[data-image-input] .composer-reason[data-held-consent][data-held-only] { position:static; display:block; max-height:44px; overflow-y:auto; }
+.composer-reason[data-held-only] .held-upload-consent { max-height:none; overflow:visible; }
+.composer-reason[data-held-only] .held-consent-wide { display:inline; }
+.composer-reason[data-held-only] .held-consent-narrow, .held-consent-narrow { display:none; }
 @media(max-width:600px) {
   .held-consent-wide { display:none; }
   .held-consent-narrow { display:inline; }
@@ -1002,6 +1007,7 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
   .workspace[data-phone-short] .composer[data-image-input] .composer-feedback { position:absolute; top:4px; left:6px; right:6px; height:var(--image-feedback-height,60px); margin:0; }
   .workspace[data-phone-short] .composer[data-image-input] .composer-reason { position:static; width:auto; height:auto; max-height:none; clip-path:none; overflow:auto; }
   .workspace[data-phone-short] .composer[data-image-input] .composer-reason[data-held-consent] { position:absolute; inset:0; height:auto; line-height:1.25; overflow:visible; }
+  .workspace[data-phone-short] .composer[data-image-input] .composer-reason[data-held-consent][data-held-only] { position:static; max-height:44px; overflow-y:auto; }
   .workspace[data-phone-short] .composer[data-image-input] .composer-reason:has(.image-refusals) { transition:none; position:absolute; inset:0; overflow:visible; }
   /* A selected thumbnail shares one row with its 44px control on short phones. */
   .workspace[data-phone-short] .turn-image:not([data-withheld]) { max-width:44px; max-height:44px; }
