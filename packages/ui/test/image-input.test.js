@@ -585,7 +585,6 @@ for (const copy of [en, de]) for (const entrance of ['choice', 'combined']) for 
     const laterName = later === 'refused' ? 'newer.exe' : later === 'paste' ? 'pasted.png' : 'report.pdf';
     const file = new window.File(['%PDF-fixture'], laterName);
     if (later === 'drop' || later === 'paste') {
-      const transfer = new window.DataTransfer(); transfer.items.add(file);
       const event = new window.Event(later === 'drop' ? 'drop' : 'paste', { bubbles: true, cancelable: true });
       Object.defineProperty(event, later === 'drop' ? 'dataTransfer' : 'clipboardData', { value: { types: ['Files'], files: [file], getData: () => '' } });
       f.root.querySelector('.conversation').dispatchEvent(event); await tick(); await tick();

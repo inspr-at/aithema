@@ -91,7 +91,7 @@ export function uploadFollowupCheck() {
 
 // Held-image evidence uses only local protocol fixtures and synthetic consent.
 export function heldUploadCheck() {
-  for (const locale of ['en', 'de']) for (const scenario of ['recognised-document', 'detected-document', 'detected-refused'])
+  for (const locale of ['en', 'de']) for (const scenario of ['recognised-document', 'detected-document', 'recognised-refused', 'detected-refused'])
     test(`AIT-561 r2 Medium 1: 390/${locale}/${scenario} held image survives a later selection and grant`, { timeout: 90000 }, async t => {
       const theme = locale === 'en' ? 'light' : 'dark';
       const directory = await mkdtemp(join(tmpdir(), 'aithema-held-followup-'));
