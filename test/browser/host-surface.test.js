@@ -1393,8 +1393,8 @@ test('AIT-507 integration: persisted opener alone exposes no email action or loc
 test('AIT-517: pinned contact preserves the combined inline email offer', { timeout: 180_000 }, contactOfferCheck);
 test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, and stable controls', { timeout: 240_000 }, inlineOfferCheck);
 
-// Hold only the header-fit observer, keeping native viewport layout and all
-// other observers live. This reproduces a busy frame without a timed sleep.
+// Hold the header fit write, keeping native viewport layout and observers
+// live. This reproduces a busy frame without a timed sleep.
 test('AIT-569: delayed host reads and header fit never move a visible chooser', { timeout: 180_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-chooser-fit-'));
   const demo = await startDemo(directory, { AITHEMA_DEMO_VERIFY: '1' });
@@ -1411,15 +1411,20 @@ test('AIT-569: delayed host reads and header fit never move a visible chooser', 
         await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
         await page.evaluateOnNewDocument(() => {
           const probe = window.chooserFitProbe = { hold: false, pending: [], lastWidth: null, reads: [], landed: [] };
+          const toggle = Element.prototype.toggleAttribute;
+          Element.prototype.toggleAttribute = function (name, ...args) {
+            if (name !== 'data-rail-row' || !this.matches('.band')) return toggle.call(this, name, ...args);
+            const deliver = () => toggle.call(this, name, ...args);
+            if (probe.hold) { probe.pending.push(deliver); return this.hasAttribute(name); }
+            return deliver();
+          };
           const Observer = window.ResizeObserver;
           window.ResizeObserver = class extends Observer {
             constructor(callback) {
               let header = false;
               super((entries, observer) => {
                 header ||= entries.some(entry => entry.target.matches('.band'));
-                const deliver = () => { callback(entries, observer); if (header) probe.lastWidth = innerWidth; };
-                if (header && probe.hold) probe.pending.push(deliver);
-                else deliver();
+                callback(entries, observer); if (header) probe.lastWidth = innerWidth;
               });
             }
           };
