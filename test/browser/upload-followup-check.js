@@ -19,7 +19,7 @@ function feedbackVisibility(c) {
   const texts = [], imageBottoms = [], heldTops = [], walker = document.createTreeWalker(reason, NodeFilter.SHOW_TEXT);
   while (walker.nextNode()) {
     const node = walker.currentNode;
-    if (!node.textContent.trim()) continue;
+    if (!node.textContent.trim() || reason.hasAttribute('data-shortcut') && getComputedStyle(reason).visibility === 'hidden') continue;
     const range = document.createRange(); range.selectNodeContents(node);
     const rects = [...range.getClientRects()].filter(r => r.width > 0 && r.height > 0);
     if (!rects.length) {
@@ -54,7 +54,8 @@ function feedbackVisibility(c) {
     while (parent !== slot && !/auto|scroll/u.test(getComputedStyle(parent).overflowY)) parent = parent.parentElement;
     const p = parent.getBoundingClientRect();
     treatment = { width: r.width, height: r.height, decoration: css.textDecorationLine, colour: css.color, parentColour: getComputedStyle(action.parentElement).color, offset: css.textUnderlineOffset,
-      underlineClipped: r.bottom + 3 > p.bottom + 1 && parent.scrollTop >= parent.scrollHeight - parent.clientHeight - 1 };
+      paintPort: { height: p.height, scrollHeight: parent.scrollHeight, clientHeight: parent.clientHeight, tabIndex: parent.tabIndex },
+      underlineClipped: r.bottom + 3 > p.bottom + 1 && (parent.tabIndex < 0 || parent.scrollTop >= parent.scrollHeight - parent.clientHeight - 1) };
   }
   const heldGap = imageBottoms.length && heldTops.length ? Math.min(...heldTops) - Math.max(...imageBottoms) : 0;
   const slotOverflow = slot.scrollHeight > slot.clientHeight + 1;
