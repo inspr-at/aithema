@@ -587,7 +587,7 @@ for (const copy of [en, de]) for (const entrance of ['choice', 'combined']) for 
     if (later === 'drop' || later === 'paste') {
       const transfer = new window.DataTransfer(); transfer.items.add(file);
       const event = new window.Event(later === 'drop' ? 'drop' : 'paste', { bubbles: true, cancelable: true });
-      Object.defineProperty(event, later === 'drop' ? 'dataTransfer' : 'clipboardData', { value: transfer });
+      Object.defineProperty(event, later === 'drop' ? 'dataTransfer' : 'clipboardData', { value: { types: ['Files'], files: [file], getData: () => '' } });
       f.root.querySelector('.conversation').dispatchEvent(event); await tick(); await tick();
     } else await choose(f.root, [file]);
     const notice = f.root.querySelector('.composer-reason').textContent;
