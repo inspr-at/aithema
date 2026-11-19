@@ -65,17 +65,8 @@ export class ImageInputView {
     return row;
   }
   #reserveFeedback() {
-    // Document-only hosts keep the ordinary 44px row; live feedback may
-    // scroll inside it. Image hosts retain their localized refusal measure.
-    if (!this.#ports.form.hasAttribute('data-image-input') && this.#ports.form.hasAttribute('data-document-input')) {
-      this.#reserve.classList.add('document-feedback-reserve');
-      if (this.#reserve.dataset.copy !== 'document-slot') {
-        this.#reserve.replaceChildren(); this.#reserve.dataset.copy = 'document-slot';
-      }
-      if (!this.#reserve.parentElement) this.#ports.form.querySelector('.composer-feedback').append(this.#reserve);
-      this.#ports.form.style.removeProperty('--image-feedback-height'); return;
-    }
-    this.#reserve.classList.remove('document-feedback-reserve');
+    // Image hosts measure localized refusal candidates. Other hosts retain
+    // main's ordinary idle confirmation row.
     if (!this.#ports.form.hasAttribute('data-image-input')) {
       if (this.#reserve.parentElement) {
         this.#reserve.remove();

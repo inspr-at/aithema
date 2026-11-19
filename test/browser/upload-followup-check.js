@@ -430,13 +430,8 @@ export function heldRegressionCheck() {
             const reference = idleGeometry.boxes[`${scenario.slice(5)}-${width}-${locale}`];
             for (const [selector, expectedBox] of Object.entries(reference)) {
               assert.ok(expectedBox.width > 0 && expectedBox.height > 0, `${selector}: positive main reference`);
-              for (const [axis, mainValue] of Object.entries(expectedBox)) {
-                // The hidden document feedback fills the existing row so later
-                // copy stays readable. Main's height and all control rects bind.
-                const expectedValue = scenario === 'idle-document' && selector === '.composer-feedback' && axis === 'width'
-                  ? reference['.send'].x - expectedBox.x - 8 : mainValue;
-                assert.ok(Math.abs(before[selector][axis] - expectedValue) <= .5, `${selector}.${axis}: idle target within 0.5 px (${before[selector][axis]} vs ${expectedValue})`);
-              }
+              for (const [axis, expectedValue] of Object.entries(expectedBox))
+                assert.ok(Math.abs(before[selector][axis] - expectedValue) <= .5, `${selector}.${axis}: idle matches main within 0.5 px (${before[selector][axis]} vs ${expectedValue})`);
             }
           }
           return;
@@ -540,7 +535,12 @@ export function heldRegressionCheck() {
           for (const box of result.visible) { assert.ok(box.width > 0 && box.height > 0 && box.rects > 0, `${box.text}: non-zero visible box`); assert.equal(box.clipped, false, `${box.text}: unclipped`); }
           for (const selector of Object.keys(before)) {
             assert.ok(before[selector].width > 0 && before[selector].height > 0 && after[selector].width > 0 && after[selector].height > 0, `${selector}: non-zero boxes`);
-            assert.deepEqual(after[selector], before[selector], `${selector}: 0 px shift`);
+            if (scenario === 'document-only' && selector === '.composer-feedback') {
+              // Main keeps idle confirmation compact, then gives new feedback
+              // the existing row space. Its origin/height and controls stay fixed.
+              const expected = { ...before[selector], width: before['.send'].x - before[selector].x - 8 };
+              assert.deepEqual(after[selector], expected, 'document feedback fills the existing row without moving its origin or height');
+            } else assert.deepEqual(after[selector], before[selector], `${selector}: 0 px shift`);
           }
           if (scenario === 'mixed-refusals' && width === 390) {
             await page.setViewport({ width, height: 568, hasTouch: true }); await settle();

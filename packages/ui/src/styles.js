@@ -966,8 +966,7 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .image-feedback-reserve { display:none; visibility:hidden; pointer-events:none; font-size:.72rem; line-height:1.3; }
 .composer[data-image-input] .image-feedback-reserve { display:grid; }
 .image-feedback-reserve > * { grid-area:1/1; }
-.composer[data-document-input]:not([data-image-input]) .composer-feedback { position:relative; flex:1; }
-.composer[data-document-input]:not([data-image-input]) .document-feedback-reserve { display:block; height:44px; }
+.composer[data-document-input]:not([data-image-input]) .composer-feedback { position:relative; }
 .composer[data-document-input]:not([data-image-input]) .composer-reason:not([data-shortcut]) { position:absolute; inset:0; max-height:none; overflow-y:auto; padding-bottom:4px; box-sizing:border-box; }
 .image-feedback-document-reserve { overflow-wrap:anywhere; }
 /* Keep arbitrary refusal batches in their established two-line scroll area;
