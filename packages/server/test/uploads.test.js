@@ -771,6 +771,7 @@ test('AIT-559: an entirely refused image request has a replayable per-file recei
   }
   assert.deepEqual(f.storage.get(f.session.id).uploads, []);
   assert.equal(f.storage.db.prepare('SELECT COUNT(*) AS n FROM uploads').get().n, 0);
+  assert.equal(JSON.stringify(f.storage.db.prepare('SELECT result FROM receipts').all()).includes('scan.pdf'), false, 'refusal receipts do not retain plaintext filenames');
 });
 
 test('AIT-559: available image intake admits the images that fit and every PDF, refusing only excess images', async t => {
