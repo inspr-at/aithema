@@ -41,6 +41,10 @@ export function uploadNoticeSheetCheck() {
             uploads:{ available:!held || scenario !== 'summary', reason:scenario === 'summary' ? 'current processing consent required' : null },
             imageInput:{ available:scenario === 'mixed', reason:scenario === 'summary' || !held ? 'image normalizer not configured' : 'current processing consent required' } } };
           window.sheetFixture = { scenario, asks:[], posts:[], limitsRead:false };
+          if (!window.sheetSchedule) {
+            window.sheetSchedule = window.setTimeout;
+            window.setTimeout = (callback, delay, ...args) => window.sheetSchedule(callback, new Error().stack.includes('#waitForUploadRetry') ? 0 : delay, ...args);
+          }
           if (!window.sheetListener) {
             window.sheetListener = true;
             c.addEventListener('aithema-consent', event => { window.sheetFixture.asks.push(event.detail); event.stopImmediatePropagation(); }, { capture:true });
@@ -69,7 +73,7 @@ export function uploadNoticeSheetCheck() {
         }, names);
         await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.attach').getAttribute('aria-disabled') === 'false'); await settle();
       };
-      for (const scenario of ['refusal', 'text', 'failure']) await t.test(scenario, async () => {
+      for (const scenario of ['refusal', 'text', 'failure']) await t.test(scenario, async scene => {
         await configure(scenario); const before = await boxes();
         if (scenario === 'refusal') await pick(['x.heic']);
         if (scenario === 'failure') {
@@ -85,8 +89,8 @@ export function uploadNoticeSheetCheck() {
         });
         const after = await boxes(); await save(scenario, { before, after, result });
         unchanged(before, after);
-        assert.equal(result.tabIndex, null, 'plain feedback never receives a tabindex');
-        if (scenario === 'refusal') assert.ok(Math.abs(result.center-result.referenceCenter) <= .5, `ordinary refusal remains centred like main: ${JSON.stringify(result)}`);
+        await scene.test('no feedback Tab stop', () => assert.equal(result.tabIndex, null, 'plain feedback never receives a tabindex'));
+        if (scenario === 'refusal') await scene.test('main centred alignment', () => assert.ok(Math.abs(result.center-result.referenceCenter) <= .5, `ordinary refusal remains centred like main: ${JSON.stringify(result)}`));
         if (scenario === 'text') { assert.equal(result.overflow, 'visible', 'text consent target is not clipped'); assert.ok(Number.parseFloat(result.target) >= 44); }
         if (scenario === 'failure') assert.equal(result.padding, '8px', 'send failure retains 8px paint room');
       });
