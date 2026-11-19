@@ -4400,8 +4400,8 @@ and byte notices expose a third line so their figures remain visible, while file
 lists retain the existing two-line scroll area. Exhausted busy retries keep the
 existing retained-file controls and backoff.
 The reserved image-feedback width stays stable when consent becomes a shortcut.
-Its hidden measurement node is mounted only while image input is active, so
-hosts without image input retain the existing composer DOM and geometry.
+Its hidden measurement node is mounted only while image input is active;
+document-only hosts use the reserved document feedback capacity above.
 Repeated inactive paints skip feedback DOM writes.
 
 The additive lower-level server APIs are `SQLiteStorage.turnReceipt`,
