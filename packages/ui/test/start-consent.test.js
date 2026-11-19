@@ -225,9 +225,13 @@ test('AIT-501 v2.2: storage exists inside the navigating host listener and clear
   assert.equal(sessionStorage.getItem('aithema-start-intent'), null);
 });
 test('AIT-501 v2.2: voice intent expires after 60 seconds', async t => {
-  const f = fixture(t, 'voice', true); const now = Date.now(); f.start();
+  let currentTime = 1_000_000;
+  t.mock.method(Date, 'now', () => currentTime);
+  const f = fixture(t, 'voice', true); const now = Date.now();
+  currentTime += 10; // Model work between the test's capture and the intent write.
+  f.start();
   assert.ok(JSON.parse(sessionStorage.getItem('aithema-start-intent')).expiresAt <= Date.now() + 60_000);
-  t.mock.method(Date, 'now', () => now + 60_001); await f.grant();
+  currentTime = now + 60_001; await f.grant();
   assert.equal(f.starts.length, 0);
   assert.equal(f.c.shadowRoot.querySelector('.intro').hidden, false);
 });
