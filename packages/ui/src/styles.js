@@ -995,7 +995,7 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .composer-reason[data-held-only] .held-upload-consent { max-height:none; overflow:visible; }
 .composer-reason[data-feedback-scroll] { scrollbar-width:thin; }
 .composer-reason[data-feedback-more] { box-shadow:inset 0 -3px 0 color-mix(in srgb,var(--aithema-muted) 55%,transparent); }
-.composer-feedback:has(.composer-reason[data-feedback-more])::after { content:'⌄' / ''; position:absolute; right:0; bottom:0; width:12px; height:12px; line-height:10px; text-align:center; color:var(--aithema-muted); background:var(--aithema-paper); pointer-events:none; }
+.composer-feedback:has(.composer-reason[data-feedback-more])::after { content:''; position:absolute; right:4px; bottom:5px; width:7px; height:7px; font-size:0; border-right:2px solid var(--aithema-muted); border-bottom:2px solid var(--aithema-muted); transform:rotate(45deg); pointer-events:none; }
 .composer-reason[data-held-only] .held-consent-wide { display:inline; }
 .composer-reason[data-held-only] .held-consent-narrow, .held-consent-narrow { display:none; }
 @media(max-width:600px) {

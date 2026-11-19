@@ -23,7 +23,14 @@ export class ImageInputView {
       this.#reserveObserver = new Observer(fit); this.#reserveObserver.observe(this.#reserve);
       this.#reserveObserver.observe(ports.form.querySelector('.composer-feedback'));
     }
-    ports.form.querySelector('.composer-reason').addEventListener('scroll', () => this.#fitFeedback());
+    const reason = ports.form.querySelector('.composer-reason');
+    reason.addEventListener('scroll', () => this.#fitFeedback());
+    reason.addEventListener('keydown', event => {
+      if (event.target !== reason || !reason.hasAttribute('data-feedback-scroll') || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      if (event.key !== 'Home' && event.key !== 'End') return;
+      event.preventDefault(); reason.scrollTop = event.key === 'Home' ? 0 : reason.scrollHeight;
+      this.#fitFeedback();
+    });
     for (const upload of ports.session().uploads) this.receive(upload);
   }
   get refusalVersion() { return this.#refusalVersion; }
