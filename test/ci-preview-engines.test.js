@@ -22,15 +22,17 @@ const evaluate = (value, context) => runInNewContext(value.replace(/^\$\{\{|\}\}
 
 test('AIT-564: engine and apt download caches bind the runner, architecture, exact core pin and browser list', () => {
   assert.equal(job.env?.PLAYWRIGHT_VERSION, '1.56.1');
-  assert.equal(job.env.PLAYWRIGHT_BROWSERS_PATH, '${{ runner.temp }}/preview-browsers');
+  assert.equal(job.env.PLAYWRIGHT_BROWSERS_PATH, undefined);
+  assert.doesNotMatch(JSON.stringify(job.env), /\brunner\./u, 'runner context is not allowed in job-level env');
   for (const [id, prefix, path] of [
     ['preview_browsers', 'preview-browsers', '${{ env.PLAYWRIGHT_BROWSERS_PATH }}'],
     ['preview_apt', 'preview-apt', '${{ runner.temp }}/preview-apt-archives/*.deb'],
   ]) {
     const cache = step(id);
-    assert.match(cache.uses, /^actions\/cache@[a-f0-9]{40}$/u);
+    assert.equal(cache.uses, 'actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684');
     assert.equal(cache.with.path, path);
-    assert.equal(cache.with.key, `${prefix}-v1-${job['runs-on']}-\${{ runner.arch }}-playwright-\${{ env.PLAYWRIGHT_VERSION }}-chromium-webkit-firefox`);
+    const image = id === 'preview_apt' ? '-${{ steps.preview_paths.outputs.image-version }}' : '';
+    assert.equal(cache.with.key, `${prefix}-v1-${job['runs-on']}-\${{ runner.arch }}${image}-playwright-\${{ env.PLAYWRIGHT_VERSION }}-chromium-webkit-firefox`);
     assert.equal(cache.with['restore-keys'], undefined, 'Never restore browsers from a different pin');
     assert.equal(cache.if, heavy);
     assert.equal(cache['continue-on-error'], undefined);
@@ -53,22 +55,71 @@ test('AIT-564: every run installs the full OS dependency set; only a browser cac
   for (const event of ['pull_request', 'merge_group', 'push']) {
     for (const result of ['success', 'failure', 'skipped', undefined]) {
       for (const docsOnly of ['true', 'false', '', undefined]) {
-        for (const hit of ['true', 'false', '', undefined]) {
+        for (const browserHit of ['true', 'false', '', undefined]) {
+          const aptHit = browserHit === 'true' ? 'false' : 'true';
+          const outcome = 'success';
           const context = {
             github: { event_name: event },
             needs: { changes: { result, outputs: { 'docs-only': docsOnly } } },
-            steps: { preview_browsers: { outputs: { 'cache-hit': hit } } },
+            steps: {
+              preview_browsers: { outputs: { 'cache-hit': browserHit } },
+              preview_apt: { outputs: { 'cache-hit': aptHit } },
+              preview_deps: { outcome }, preview_download: { outcome },
+            },
             always: () => true,
           };
           const light = event === 'pull_request' && result === 'success' && docsOnly === 'true';
           for (const value of job.steps) {
             const expected = value.name === 'Docs-only success' ? light
-              : value === download ? !light && hit !== 'true' : !light;
-            assert.equal(evaluate(value.if, context), expected, `${value.name ?? value.uses}: ${event}/${result}/${docsOnly}/${hit}`);
+              : value === download ? !light && browserHit !== 'true'
+              : value.id === 'preview_apt_save' ? !light && aptHit !== 'true' && outcome === 'success'
+              : value.id === 'preview_browsers_save' ? !light && browserHit !== 'true' && outcome === 'success'
+              : !light;
+            assert.equal(evaluate(value.if, context), expected, `${value.name ?? value.uses}: ${event}/${result}/${docsOnly}/${browserHit}/${aptHit}/${outcome}`);
           }
         }
       }
     }
+  }
+});
+
+test('AIT-564 round 2: initialize browser path through GITHUB_ENV and expose the runner image version', t => {
+  const init = step('preview_paths');
+  assert.equal(init.if, heavy);
+  assert.equal(job.steps.indexOf(init), 1, 'Initialize before every other heavy step');
+  const directory = mkdtempSync(join(tmpdir(), 'preview-paths-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const githubEnv = join(directory, 'github-env'), githubOutput = join(directory, 'github-output');
+  const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', init.run], {
+    encoding: 'utf8',
+    env: { PATH: process.env.PATH, RUNNER_TEMP: directory, GITHUB_ENV: githubEnv, GITHUB_OUTPUT: githubOutput, ImageVersion: 'fixture-image-version' },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(readFileSync(githubEnv, 'utf8'), `PLAYWRIGHT_BROWSERS_PATH=${directory}/preview-browsers\n`);
+  assert.equal(readFileSync(githubOutput, 'utf8'), 'image-version=fixture-image-version\n');
+});
+
+test('AIT-564 round 2: save each exact cache immediately after its producer succeeds, before qualification', () => {
+  for (const [restoreId, producerId, saveId] of [
+    ['preview_apt', 'preview_deps', 'preview_apt_save'],
+    ['preview_browsers', 'preview_download', 'preview_browsers_save'],
+  ]) {
+    const restore = step(restoreId), producer = step(producerId), save = step(saveId);
+    assert.equal(save.uses, 'actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684');
+    assert.deepEqual(save.with, restore.with, 'Save the exact restored key and path without fallback keys');
+    assert.equal(save.if, `${heavy} && steps.${restoreId}.outputs.cache-hit != 'true' && steps.${producerId}.outcome == 'success'`);
+    for (const hit of ['true', 'false', '', undefined]) {
+      for (const outcome of ['success', 'failure', 'cancelled', 'skipped', undefined]) {
+        const context = {
+          github: { event_name: 'push' },
+          needs: { changes: { result: 'success', outputs: { 'docs-only': 'false' } } },
+          steps: { [restoreId]: { outputs: { 'cache-hit': hit } }, [producerId]: { outcome } },
+        };
+        assert.equal(evaluate(save.if, context), hit !== 'true' && outcome === 'success', `${saveId}: ${hit}/${outcome}`);
+      }
+    }
+    assert.equal(job.steps.indexOf(save), job.steps.indexOf(producer) + 1);
+    assert.ok(job.steps.indexOf(save) < job.steps.findIndex(value => value.name === 'Qualify the strict host and demo with local fixtures'));
   }
 });
 
