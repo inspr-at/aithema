@@ -476,3 +476,31 @@ for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} detected-imag
   assert.deepEqual(posts.at(-1), ['eligible-later.pdf'], 'the document remains available for explicit retry');
   assert.equal(f.c.session.uploads.filter(upload => upload.filename === 'eligible.pdf').length, 1);
 });
+
+for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} a detected consent refusal fences a stale available feature until a grant`, async t => {
+  const f = fixture(t, copy, true), originalFetch = globalThis.fetch, posts = [];
+  let granted = false;
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    if (url.endsWith('/uploads') && options.method === 'POST') {
+      const files = options.body.getAll('files'); posts.push(files.map(file => file.name));
+      // Bound a broken continuation so the regression fails without a request loop.
+      if (!granted && posts.length > 1) return Response.json({ error: 'uploads-unavailable', reason: 'current processing consent required' }, { status: 403 });
+      const refused = [], events = [];
+      for (const [index, file] of files.entries()) {
+        if (file.name === 'scan.pdf' && !granted) refused.push({ index, name: file.name, kind: 'image', reason: 'current processing consent required' });
+        else events.push({ sessionId: f.c.session.id, seq: f.c.session.seq + events.length + 1, type: 'upload.state', data: {
+          id: `fenced-${file.name}`, filename: file.name, kind: file.name === 'scan.pdf' ? 'image' : 'document', state: file.name === 'scan.pdf' ? 'staged-pending' : 'accepted', bytes: file.size, at: new Date(0).toISOString() } });
+      }
+      return Response.json({ events, refused }, { status: 202 });
+    }
+    return originalFetch(url, options);
+  });
+  await choose(f.root, ['scan.pdf', 'eligible.pdf'].map(name => new window.File(['fixture'], name)));
+  await tick(); await tick();
+  assert.equal(f.asks.length, 1); assert.deepEqual(f.asks[0].features, ['imageInput']);
+  assert.deepEqual(posts, [['scan.pdf', 'eligible.pdf']], 'a stale available feature cannot resubmit refused images');
+  assert.deepEqual(f.c.session.uploads.map(upload => upload.filename), ['eligible.pdf']);
+  granted = true; f.grantImages(); await tick(); await tick(); await tick();
+  assert.deepEqual(posts[1], ['scan.pdf']);
+  assert.deepEqual(f.c.session.uploads.map(upload => upload.filename), ['eligible.pdf', 'scan.pdf']);
+});
