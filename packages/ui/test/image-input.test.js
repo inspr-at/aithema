@@ -4,6 +4,7 @@ import { Window } from 'happy-dom';
 import { createSession } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
+import { reasonSeparator } from '../src/reason-separator.js';
 import { planUploads, isImageFile } from '../src/uploads.js';
 const window = new Window({ url: 'http://localhost/' });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent', 'FormData']) globalThis[key] = window[key];
@@ -522,3 +523,36 @@ for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} unavailable i
   assert.equal(f.root.querySelector('.composer-reason').textContent, copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'clipboard')));
   assert.equal(f.root.querySelector('.image-refusals'), null);
 });
+
+for (const copy of [en, de]) test(`AIT-561 Low 2: ${copy.display.locale} a document-only consent race keeps the type refusal`, async t => {
+  const f = fixture(t, copy, false, { imageReason: 'image normalizer not configured' }), original = globalThis.fetch;
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => url.endsWith('/uploads') && options.method === 'POST'
+    ? Response.json({ events: [], refused: [{ index: 0, kind: 'image', reason: 'current processing consent required' }] }, { status: 202 }) : original(url, options));
+  await choose(f.root, [new window.File(['pixels'], 'clipboard')]);
+  assert.deepEqual(f.asks, []);
+  assert.equal(f.root.querySelector('.composer-reason').textContent, copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'clipboard')));
+});
+
+for (const copy of [en, de]) for (const action of ['decline', 'expiry', 'new-selection'])
+  test(`AIT-561 Low 3: ${copy.display.locale}/${action} detected-image consent ends visibly and old timers cannot replace a new notice`, async t => {
+    const f = fixture(t, copy, false), original = globalThis.fetch, schedule = globalThis.setTimeout, timers = [];
+    t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
+      if (delay === 180000) { timers.push(callback); return schedule(() => {}, delay); }
+      return schedule(callback, delay, ...args);
+    });
+    t.mock.method(globalThis, 'fetch', async (url, options = {}) => url.endsWith('/uploads') && options.method === 'POST'
+      ? Response.json({ events: [], refused: [{ index: 0, kind: 'image', reason: 'current processing consent required' }] }, { status: 202 }) : original(url, options));
+    await choose(f.root, [new window.File(['pixels'], 'clipboard'), new window.File(['x'], 'blocked.exe')]);
+    assert.equal(f.asks.length, 1); assert.equal(timers.length, 1);
+    if (action === 'decline') f.asks[0].cancel();
+    else if (action === 'expiry') timers[0]();
+    else await choose(f.root, [new window.File(['x'], 'newer.exe')]);
+    const expected = action === 'new-selection'
+      ? copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'newer.exe')) + ' ' + copy.uploadsSupported
+      : copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'blocked.exe')) + reasonSeparator + copy.uploadsReselect.one;
+    assert.equal(f.root.querySelector('.composer-reason').textContent, expected);
+    timers[0]();
+    assert.equal(f.root.querySelector('.composer-reason').textContent, expected, 'even an already queued callback cannot overwrite current feedback');
+    assert.equal(f.root.querySelector('.composer-reason .consent-action'), null);
+    assert.equal(f.calls.filter(call => call.options.method === 'POST' && call.url.endsWith('/uploads')).length, 1);
+  });
