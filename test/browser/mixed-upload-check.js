@@ -74,7 +74,7 @@ export function mixedUploadCheck() {
             const session = await window.mixedConfigure(host, reason);
             session.settings.voice = 'off'; session.settings.origin = 'chosen';
             if (host.endsWith('limit')) session.uploads[0].state = 'sent';
-            session.featureMatrix.best = Object.fromEntries(['text', 'analysis', 'uploads'].map(key => [key, { available: true }]));
+            session.featureMatrix = { best: Object.fromEntries(['text', 'analysis', 'uploads'].map(key => [key, { available: true }])) };
             session.featureMatrix.best.imageInput = { available: host.endsWith('limit'), reason: host.endsWith('limit') ? null : reason };
             c.addEventListener('aithema-consent', event => { window.mixedAsks.push(event.detail); event.stopImmediatePropagation(); }, { capture: true, once: true });
             window.fetch = async (url, options = {}) => {
