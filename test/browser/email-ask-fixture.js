@@ -29,7 +29,7 @@ export async function fixture(page, locale, { delivery = false, confirmationEnab
     window.ait164Fetch ??= window.fetch.bind(window);
     const allowancesMicro = tierAllowances ?? { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 };
     window.ait164Locale = locale;
-    const state = window.ait164 = { address, confirmed, spent: 3_450_000, ask: {}, after: 0, lowClaim: { after: 0, armed: true }, creditsReads: 0, visitorReads: 0, identityReads: 0, saving: false, saveFails: false, linkFails: false, requests: [], voiceEvents: null };
+    const state = window.ait164 = { address, confirmed, spent: 3_450_000, ask: {}, after: 0, lowClaim: { after: 0, armed: true }, creditsReads: 0, visitorReads: 0, visitorReadCalls: [], identityReads: 0, saving: false, saveFails: false, linkFails: false, requests: [], voiceEvents: null };
     const tier = () => state.confirmed ? 'emailConfirmed' : visitorStore && state.address ? 'emailGiven' : 'anonymous';
     const identity = () => ({ ...c.session.identity, address: state.address, status: state.confirmed ? 'verified' : state.address && canConfirm ? 'verification-pending' : 'guest',
       assessmentUnlocked: !lock || state.confirmed, conceptsUnlocked: !lock || state.confirmed, verificationRequired: lock, pollVerification: false, resendAfterMs: 0, delivery: 'sent' });
@@ -48,6 +48,12 @@ export async function fixture(page, locale, { delivery = false, confirmationEnab
       if (path === `/api/sessions/${c.session.id}`) return Response.json({ ...c.session, identity: identity(), featureMatrix: c.session.featureMatrix });
       if (path.endsWith('/visitor/email')) {
         state.visitorReads++;
+        // Fixture-only caller evidence, including reads from a replaced host.
+        state.visitorReadCalls.push({ method, stack: new Error('visitor email request').stack,
+          trigger: window.event?.type ?? state.trigger ?? 'async host load', visitorStore,
+          session: { id: c.session.id, paused: c.session.paused, consentRevision: c.session.consentRevision,
+            featureMatrix: c.session.featureMatrix, emailOffer: c.session.emailOffer },
+          creditsReads: state.creditsReads, identityReads: state.identityReads, requests: [...state.requests] });
         if (!visitorStore) { if (method === 'PUT') state.requests.push('refused-save'); return Response.json({ error: 'visitor-unavailable' }, { status: 404 }); }
         if (method === 'PUT') { state.requests.push('save'); state.noticeVersion = JSON.parse(init.body).noticeVersion; while (state.saving) await new Promise(resolve => setTimeout(resolve, 20)); if (state.saveFails || state.saveStatus) return Response.json({ error: 'unavailable' }, { status: state.saveStatus ?? 503 }); state.address = JSON.parse(init.body).address; state.confirmed = false; }
         return Response.json({ visitor: visitor(), notice: { version: 'ait-135-v1', deliveryEnabled: delivery }, privacyDocumentConfigured: true });

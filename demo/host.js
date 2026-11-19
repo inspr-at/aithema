@@ -12,8 +12,28 @@ import { reasonSeparator } from '../packages/ui/src/display.js';
 import { reasonText } from './reason-text.js';
 import { aiNotice } from '../packages/core/src/ai-notice.js';
 import { sessionKey as key, localeKey, preferredLocale, readPreference, remember, mountTheme, paintUtilities } from './page-preferences.js';
+// Keep this page's document and stop its work before the owner tears it down.
+const document = globalThis.document, page = document.defaultView, component = document.querySelector('aithema-session');
+const lifetime = new AbortController(), pending = new Set();
+const active = () => !lifetime.signal.aborted && Boolean(component?.isConnected);
+async function hostWork(action) {
+  if (!active()) return;
+  const work = action(); pending.add(work);
+  try { return await work; } finally { pending.delete(work); }
+}
+export async function stopHost() {
+  page.removeEventListener('pagehide', pageHidden);
+  lifetime.abort();
+  await Promise.all([...pending]);
+}
+function pageHidden(event) {
+  // A page kept in the back/forward cache still owns its DOM and may resume.
+  if (!event.persisted) void stopHost();
+}
+page.addEventListener('pagehide', pageHidden);
 // Startup owns its failures, including rejection values without a stack or message.
 function signalStartupFailure() {
+  if (!active()) return true;
   if (document.documentElement.hasAttribute('data-host-ready')) return false;
   document.dispatchEvent(new document.defaultView.Event('aithema-host-failed'));
   return true;
@@ -21,7 +41,7 @@ function signalStartupFailure() {
 async function startup() {
   document.documentElement.dataset.hostStarted = '';
   try {
-const component = document.querySelector('aithema-session'), bundles = { en: withDemoConsentCopy(en), de: withDemoConsentCopy(de) };
+const bundles = { en: withDemoConsentCopy(en), de: withDemoConsentCopy(de) };
 mountTheme();
 let fakeVoice, liveVoiceClient, grokVoiceClient, localeChoice = preferredLocale(), copy = bundles[localeChoice];
 function paintPrivacyLink(link, legal, locale) {
@@ -58,9 +78,10 @@ function paintContact() {
 }
 // The page always speaks the current conversation's language.
 function paintPage() {
+  if (!active()) return;
   const h = copy.host, text = (selector, value) => { const node = document.querySelector(selector); if (node) node.textContent = value; };
   document.documentElement.lang = component.session?.locale ?? localeChoice; document.title = 'Aithema';
-  paintUtilities(copy);
+  paintUtilities(copy, document);
   const privacyLink = document.querySelector('[data-aithema-privacy]');
   if (privacyLink) paintPrivacyLink(privacyLink, privacyLink.closest('nav'), document.documentElement.lang);
   for (const [selector, value] of [['#title', h.title], ['#new', h.newConversation], ['#resume-hint', h.resumeHint], ['#source', h.slots.source],
@@ -94,6 +115,7 @@ function visualKind() {
   return session.conceptVisualKind === 'html' ? 'html' : 'images';
 }
 function paintVisuals() {
+  if (!active()) return;
   const h = copy.host, kind = visualKind(), raw = { html: binding.htmlLabel, images: binding.imageLabel }[kind];
   const visuals = kind === 'off' ? h.visualsOff : h.labels[raw] ?? raw;
   const provider = document.querySelector('#provider'); if (!provider) return;
@@ -102,12 +124,16 @@ function paintVisuals() {
 }
 // Without an explicit request the server offers the owner's last confirmed choice.
 async function open(fresh = false, request = {}) {
+  if (!active()) return;
   try {
     const saved = fresh ? null : readPreference(key);
-    let response = saved ? await fetch(`/api/sessions/${saved}`) : null;
-    if (!response?.ok) response = await postJson('/api/sessions', { ...request, locale: localeChoice });
+    let response = saved ? await fetch(`/api/sessions/${saved}`, { signal: lifetime.signal }) : null;
+    if (!active()) return;
+    if (!response?.ok) response = await postJson('/api/sessions', { ...request, locale: localeChoice }, { signal: lifetime.signal });
+    if (!active()) return;
     if (!response.ok) throw new Error();
-    await adopt(await response.json());
+    const session = await response.json();
+    if (active()) await adopt(session);
   } catch { if (!signalStartupFailure()) document.querySelector('#error').textContent = binding.demoHost === true ? copy.host.restoreFailed : copy.host.conversationFailed; }
 }
 // The demo handover reaches a local fake recipient, so its success line says nobody calls back.
@@ -115,6 +141,7 @@ const componentCopy = (bundle = copy) => binding.demoHost !== true ? bundle
   : { ...bundle, hostSurface: { ...bundle.hostSurface, handover: { ...bundle.hostSurface.handover, ...bundle.host.handover } } };
 // Shows a conversation: one from storage or a new one, or one the library opened, created or reset.
 async function adopt(session) {
+  if (!active()) return;
   try {
     remember(key, session.id);
     copy = bundles[session.locale] ?? en;
@@ -131,6 +158,7 @@ async function adopt(session) {
     }
     if (binding.grokVoiceConfigured) {
       const { createGrokVoiceClient } = await import('../plugins/grok-voice/src/client.js');
+      if (!active()) return;
       const ports = createVoiceControl({ sessionId: session.id, receive: event => component.receive(event) });
       grokVoiceClient = createGrokVoiceClient({ control: ports.control, network: { url: '/api/voice/grok/relay' } });
     }
@@ -148,11 +176,13 @@ async function adopt(session) {
         handover: binding.demoHost === true, credits: true, locale: () => localeChoice, version: binding.build } });
     // A stored choice may have changed while the initial conversation was being restored.
     await component.changeLocale(localeChoice);
+    if (!active()) return;
     paintPage();
     document.querySelector('#error').textContent = '';
   } catch { if (!signalStartupFailure()) document.querySelector('#error').textContent = binding.demoHost === true ? copy.host.restoreFailed : copy.host.conversationFailed; }
 }
-const binding = await fetch('/demo/config').then(r => r.json());
+const binding = await fetch('/demo/config', { signal: lifetime.signal }).then(r => r.json());
+if (!active()) return;
 const narrowLegal = document.defaultView.matchMedia('(width < 600px)');
 // The host owns this local overlay. Opening it has no conversation or delivery effect.
 for (const button of document.querySelectorAll('.demo-contact-open')) {
@@ -175,13 +205,14 @@ if (binding.privacy?.url === '/privacy') {
 // Demo only: the fake mail outbox stands in for the visitor's inbox (GET S/demo/outbox).
 const outbox = document.querySelector('#outbox');
 async function paintOutbox(status = '') {
+  if (!active()) return;
   const o = copy.host.outbox, list = document.querySelector('#outbox-list'), id = component.session.id;
   document.querySelector('#outbox-status').textContent = status;
   try {
-    const response = await fetch(`/api/sessions/${id}/demo/outbox`);
+    const response = await fetch(`/api/sessions/${id}/demo/outbox`, { signal: lifetime.signal });
     if (!response.ok) throw new Error();
     const { messages } = await response.json();
-    if (component.session.id !== id) return;
+    if (!active() || component.session.id !== id) return;
     list.replaceChildren(...messages.toReversed().map(message => {
       const item = document.createElement('li'), to = document.createElement('span');
       to.textContent = o.to.replace('{address}', message.address);
@@ -189,24 +220,33 @@ async function paintOutbox(status = '') {
       const confirm = document.createElement('button'); confirm.type = 'button'; confirm.textContent = o.confirm;
       // Confirming unlocks the AI assessment, so the outbox's own notice line describes it (AIT-119).
       confirm.setAttribute('aria-describedby', 'ai-notice');
-      confirm.addEventListener('click', async () => {
+      confirm.addEventListener('click', () => { void hostWork(async () => {
         confirm.disabled = true;
-        const result = await postJson(`/api/sessions/${id}/identity/confirm`, { token: message.token }).catch(() => null);
+        const result = await postJson(`/api/sessions/${id}/identity/confirm`, { token: message.token }, { signal: lifetime.signal }).catch(() => null);
+        if (!active()) return;
         const body = await result?.json().catch(() => null);
+        if (!active()) return;
         await paintOutbox(result?.ok && body?.identity?.status === 'verified' ? o.confirmed : o.failed);
-      });
+      }); });
       item.append(to, confirm); return item;
     }));
     if (!messages.length) document.querySelector('#outbox-status').textContent = status || o.empty;
-  } catch { document.querySelector('#outbox-status').textContent = o.failed; }
+  } catch { if (active()) document.querySelector('#outbox-status').textContent = o.failed; }
 }
 if (binding.demoHost === true) {
   document.querySelector('#outbox-open').hidden = false;
-  document.querySelector('#outbox-open').addEventListener('click', () => { outbox.showModal(); void paintOutbox(); });
+  document.querySelector('#outbox-open').addEventListener('click', () => { outbox.showModal(); void hostWork(() => paintOutbox()); });
   document.querySelector('#outbox-close').addEventListener('click', () => outbox.close());
 }
 if (binding.voiceMode === 'elevenlabs') {
-  await new Promise((resolve, reject) => { const script = document.createElement('script'); script.src = '/vendor/elevenlabs/lib.iife.js'; script.onload = resolve; script.onerror = reject; document.head.append(script); });
+  await new Promise((resolve, reject) => {
+    const script = document.createElement('script'); script.src = '/vendor/elevenlabs/lib.iife.js';
+    const finish = callback => event => { lifetime.signal.removeEventListener('abort', abort); script.onload = script.onerror = null; callback(event); };
+    const abort = () => { script.remove(); finish(reject)(lifetime.signal.reason); };
+    script.onload = finish(resolve); script.onerror = finish(reject);
+    lifetime.signal.addEventListener('abort', abort, { once: true }); document.head.append(script);
+  });
+  if (!active()) return;
 }
 const fakeControls = document.querySelector('#fake-voice'); if (fakeControls) fakeControls.hidden = binding.voiceMode !== 'fake';
 for (const [selector, action] of [['#fake-say', () => fakeVoice?.speak()],
@@ -216,24 +256,24 @@ for (const [selector, action] of [['#fake-say', () => fakeVoice?.speak()],
 // A device conversation lives in its tab, so crossing that boundary starts a new session.
 component.addEventListener('aithema-new-conversation', event => {
   const { processingPreset, settings, confirm } = event.detail;
-  void open(true, { processingPreset, settings, confirm });
+  void hostWork(() => open(true, { processingPreset, settings, confirm }));
 });
 // The settings dialog defers consent to this host interface.
 // The library opened, created or reset a conversation: this host owns its voice clients, so it switches.
-component.addEventListener('aithema-open-conversation', event => { event.preventDefault(); void adopt(event.detail.session); });
+component.addEventListener('aithema-open-conversation', event => { event.preventDefault(); void hostWork(() => adopt(event.detail.session)); });
 component.addEventListener('aithema-consent', event => {
   if (component.session?.id) component.openConsent(event.detail.features?.[0] ?? 'text');
 });
 component.addEventListener('aithema-features', paintVisuals);
 component.addEventListener('aithema-locale', () => { copy = bundles[component.session.locale] ?? en; paintPage(); });
 // Remember the next-conversation choice even when a call or an existing turn prevents changing this one.
-document.querySelector('#locale').addEventListener('change', async event => {
+document.querySelector('#locale').addEventListener('change', event => { void hostWork(async () => {
   if (document.documentElement.hasAttribute('data-host-unavailable')) return;
   const locale = event.target.value; localeChoice = locale; remember(localeKey, locale);
   await component.changeLocale(locale); paintPage();
-});
+}); });
 await open();
-if (binding.operatorLogin && location.hash === '#settings-general') {
+if (active() && binding.operatorLogin && location.hash === '#settings-general') {
   component.openSettings(undefined, { tab: 'general', anchor: '.operator-section' });
   const cleaned = new URL(location.href); cleaned.searchParams.delete('operator'); cleaned.hash = '';
   history.replaceState(null, '', cleaned.pathname + cleaned.search);
@@ -242,4 +282,4 @@ if (binding.operatorLogin && location.hash === '#settings-general') {
     signalStartupFailure();
   }
 }
-await startup().catch(signalStartupFailure);
+await hostWork(startup).catch(signalStartupFailure);

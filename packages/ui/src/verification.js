@@ -59,6 +59,7 @@ export class Verification {
   get locked() { return this.enabled && this.#identity.verificationRequired === true && this.#identity.assessmentUnlocked !== true; }
   get identity() { return this.#identity ? structuredClone(this.#identity) : null; }
   async load() {
+    if (!this.#alive) return;
     const generation = this.#identityGeneration;
     try {
       const response = await this.#request('identity');
@@ -70,7 +71,9 @@ export class Verification {
         else if (!this.#checkedSinceConnect) this.#schedule();
       }
     } catch { /* No identity port: the entry stays away. */ }
-    if (this.#visitorEmail?.canSave === false && this.#visitorEmail.canDelete === false) return;
+    // Reconfiguration destroys the old verifier while its identity read may
+    // still be pending. It must not start another request for the new host.
+    if (!this.#alive || this.#visitorEmail?.canSave === false && this.#visitorEmail.canDelete === false) return;
     const visitorGeneration = this.#identityGeneration;
     try {
       const response = await this.#request('/api/visitor/email');
