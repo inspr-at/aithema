@@ -51,6 +51,16 @@ test('updates are deterministic, idempotent and keep only the latest twenty exec
   assert.throws(() => assertMeasuredWeight({ ...weight, seconds: 21 }), /differs/u);
 });
 
+test('AIT-558: browser manifests reject URL metacharacters before source attribution', () => {
+  for (const suffix of ['?ref=other', '#fragment', '&ref=other', '%3Fref=other']) {
+    const unsafe = `test/browser/example${suffix}.test.js`;
+    assert.throws(() => parseTimingArtifact(artifact({
+      0: { files: { [unsafe]: workload } }, 1: { file: unsafe },
+    }), undefined, () => assert.fail('unsafe manifests must be rejected before source attribution')),
+    /Invalid browser timing file manifest/u, unsafe);
+  }
+});
+
 test('changed workloads retire the old series; changed test coverage cannot silently shrink a sample', () => {
   const old = updateMeasurement(undefined, [{ workload, sample: sample('1', 100) }], workload);
   const changed = 'c'.repeat(64);
@@ -177,9 +187,10 @@ if (args[0] === 'api' && args[1] === 'repos/inspr-at/aithema/actions/runs/123') 
 else if (args[0] === 'api' && args[1] === 'repos/inspr-at/aithema/compare/${sha}...main') reply(${JSON.stringify(changes.comparison ?? { status: 'ahead', merge_base_commit: { sha } })});
 else if (args[0] === 'api' && args[1] === 'repos/inspr-at/aithema/actions/runs/123/artifacts?per_page=100') reply({ artifacts });
 else if (args[0] === 'api' && args[1].startsWith('repos/inspr-at/aithema/contents/') && args[1].endsWith('?ref=${sha}')) {
-  const path = args[1].slice('repos/inspr-at/aithema/contents/'.length, -'?ref=${sha}'.length);
+  const encodedPath = args[1].slice('repos/inspr-at/aithema/contents/'.length, -'?ref=${sha}'.length);
   const sources = ${JSON.stringify(changes.sources ?? {})};
-  if (!(path in sources)) throw new Error('Unexpected source path: ' + path);
+  const path = Object.keys(sources).find(file => file.split('/').map(encodeURIComponent).join('/') === encodedPath);
+  if (path === undefined) throw new Error('Unexpected source path: ' + encodedPath);
   reply({ encoding: 'base64', content: Buffer.from(sources[path]).toString('base64') });
 }
 else if (args[0] === 'run' && args[1] === 'list' && args[args.indexOf('--repo') + 1] === 'inspr-at/aithema' && args[args.indexOf('--event') + 1] === 'push' && args[args.indexOf('--branch') + 1] === 'main') reply([{ databaseId: 123 }]);
@@ -188,6 +199,14 @@ else if (args[0] === 'run' && args[1] === 'download' && args[2] === '123' && arg
   const dir = args[args.indexOf('--dir') + 1]; mkdirSync(dir, { recursive: true });
   writeFileSync(dir + '/batch.jsonl', ${JSON.stringify(changes.payload ?? payload)});
 } else throw new Error('Unexpected gh command: ' + JSON.stringify(args));
+`, { mode: 0o755 });
+    writeFileSync(join(root, 'git'), `#!${process.execPath}
+const sources = ${JSON.stringify(changes.localSources ?? null)}, args = process.argv.slice(2);
+if (!sources) process.exit(128);
+if (args.length !== 3 || args[0] !== '--no-replace-objects' || args[1] !== 'show') throw new Error('Timing sources must disable replace objects');
+const key = args[2], prefix = '${sha}:';
+if (!key.startsWith(prefix) || !(key.slice(prefix.length) in sources)) throw new Error('Unexpected local timing source');
+process.stdout.write(sources[key.slice(prefix.length)]);
 `, { mode: 0o755 });
     return spawnSync(process.execPath, ['scripts/update-browser-timings.js', ...args], {
       cwd: root, encoding: 'utf8', env: { PATH: `${root}:${process.env.PATH}` },
@@ -313,6 +332,29 @@ else if (args[0] === 'run' && args[1] === 'download' && args[2] === '123' && arg
     const imported = JSON.parse(readFileSync(weightPath));
     assert.deepEqual(imported.timing.samples[0].tests, [{ name: 'first', seconds: 2 }]);
     assert.equal(imported.timing.workload, currentWorkload, 'ownership does not rewrite the reported workload hash');
+  });
+  await t.test('AIT-558: contents fallback encodes every source path segment', () => {
+    const helper = 'test/browser/shared #?&%.js';
+    const sources = {
+      [file]: "import './shared #?&%.js';",
+      [helper]: "import { test } from 'node:test'; test('first', () => {});",
+    };
+    const result = invoke({ sources, payload: artifact({
+      0: { files: { [file]: browserWorkload(file, root) } }, 1: { file: `/checkout/${helper}` },
+    }) });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(weightPath)).timing.samples[0].tests, [{ name: 'first', seconds: 2 }]);
+  });
+  await t.test('AIT-558: local trusted source reads disable replace objects', () => {
+    const helper = 'test/browser/local-check.js';
+    const result = invoke({ localSources: {
+      [file]: "import './local-check.js';",
+      [helper]: "import { test } from 'node:test'; test('first', () => {});",
+    }, payload: artifact({
+      0: { files: { [file]: browserWorkload(file, root) } }, 1: { file: `/checkout/${helper}` },
+    }) });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(weightPath)).timing.samples[0].tests, [{ name: 'first', seconds: 2 }]);
   });
   await t.test('AIT-558: a single-file batch cannot claim an unrelated helper by its test name', () => {
     const before = readFileSync(weightPath, 'utf8');
