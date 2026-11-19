@@ -980,6 +980,10 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .composer[data-image-input] .composer-reason[data-consent-feature="imageInput"] { overflow-y:auto; }
 /* Measure held consent with its current facts before any intake occurs. */
 .held-feedback-reserve { display:flex; flex-direction:column; line-height:1.25; }
+.held-feedback-reserve__facts { display:block; flex:none; max-height:3.75em; overflow:auto; }
+.held-feedback-reserve__line { display:block; min-height:0; max-height:44px; overflow:auto; }
+.held-feedback-reserve__action { display:inline-block; line-height:inherit; white-space:nowrap; }
+.held-feedback-reserve__narrow { display:none; }
 .held-upload-images { flex:none; min-height:0; }
 .held-upload-images .image-refusals { position:static; min-height:44px; max-height:44px; }
 .held-upload-images .image-refusal__name { display:inline; white-space:normal; }
@@ -993,8 +997,8 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .composer-reason[data-held-only] .held-consent-wide { display:inline; }
 .composer-reason[data-held-only] .held-consent-narrow, .held-consent-narrow { display:none; }
 @media(max-width:600px) {
-  .held-consent-wide { display:none; }
-  .held-consent-narrow { display:inline; }
+  .held-consent-wide, .held-feedback-reserve__wide { display:none; }
+  .held-consent-narrow, .held-feedback-reserve__narrow { display:inline; }
 }
 .image-refusals, .image-refusals-reserve__row { display:flex; align-items:flex-start; gap:5px; min-height:44px; font-size:.72rem; line-height:1.3; }
 .image-refusals { position:absolute; inset:0; overflow:auto; color:var(--aithema-warning); }

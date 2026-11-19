@@ -85,11 +85,11 @@ export class ImageInputView {
       });
       const held = (facts, imageRow) => {
         const candidate = node('span', 'held-feedback-reserve');
-        const line = node('span', 'held-upload-consent'), label = node('span', 'consent-line-copy');
-        label.append(node('span', 'held-consent-wide', `filename.pdf: ${sentence}${reasonSeparator}`),
-          node('span', 'held-consent-narrow', `filename.pdf: ${this.#copy.featureConsent.textNarrow}${reasonSeparator}`));
-        line.append(label, node('span', 'consent-action', this.#copy.featureConsent.action));
-        candidate.append(node('span', 'held-upload-notice', facts));
+        const line = node('span', 'held-feedback-reserve__line'), label = node('span', 'held-feedback-reserve__copy');
+        label.append(node('span', 'held-feedback-reserve__wide', `filename.pdf: ${sentence}${reasonSeparator}`),
+          node('span', 'held-feedback-reserve__narrow', `filename.pdf: ${this.#copy.featureConsent.textNarrow}${reasonSeparator}`));
+        line.append(label, node('span', 'held-feedback-reserve__action', this.#copy.featureConsent.action));
+        candidate.append(node('span', 'held-feedback-reserve__facts', facts));
         if (imageRow) candidate.append(imageRow.cloneNode(true));
         candidate.append(line); return candidate;
       };
