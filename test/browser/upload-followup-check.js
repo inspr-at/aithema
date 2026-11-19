@@ -318,7 +318,7 @@ export function heldRegressionCheck() {
             const state = window.regression;
             if (/\/events(?:\?|$)/u.test(String(url))) return new Response(new ReadableStream({ start(controller) { options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
             if (String(url).endsWith('/uploads')) {
-              if (options.method !== 'POST') { state.limitsRead = true; return Response.json({ limits: scenario === 'document-only' ? { maxDocumentsPerSession: 0 } : {} }); }
+              if (options.method !== 'POST') { state.limitsRead = true; return Response.json({ limits: scenario === 'document-only' ? { maxRequestBytes: 1 } : {} }); }
               const files = options.body.getAll('files'); state.posts.push(files.map(f => f.name));
               if (scenario === 'mixed-refusals' && files.some(f => f.name === 'scan.pdf')) return Response.json({ refused: [{ index: 0, kind: 'image', reason: 'current processing consent required' }] }, { status: 202 });
               return Response.json({ events: files.map((file, index) => ({ sessionId: c.session.id, seq: c.session.seq + index + 1, type: 'upload.state', data: {
