@@ -5,7 +5,7 @@ import { plural, resolveCopy } from './copy-resolve.js';
 /** Fits complete notices into the existing cell; the same nodes own sheet actions. */
 export class UploadNotices {
   #form; #reason; #slot; #dialog; #body; #title; #close; #more;
-  #containers = []; #rows = []; #placements = []; #sources = []; #visible = 0; #copy; #locale; #observer; #focused;
+  #containers = []; #rows = []; #placements = []; #sources = []; #visible = 0; #copy; #locale; #observer; #focused; #actionLayouts = []; #separators = []; #clippedActions = [];
   constructor(form) {
     this.#form = form; this.#slot = form.querySelector('.composer-feedback');
     this.#reason = this.#slot.querySelector(':scope > .composer-reason');
@@ -20,7 +20,7 @@ export class UploadNotices {
     this.#more = node('button', 'upload-notices-more'); this.#more.type = 'button';
     this.#more.setAttribute('aria-haspopup', 'dialog'); this.#more.setAttribute('aria-controls', this.#dialog.id);
     this.#more.addEventListener('click', () => {
-      this.#showRows(); this.#dialog.showModal(); this.#close.focus({ preventScroll: true });
+      this.#dialog.showModal(); this.#showRows(); this.#close.focus({ preventScroll: true });
     });
     this.#dialog.addEventListener('close', () => {
       this.#putRowsBack(); this.fit();
@@ -49,6 +49,10 @@ export class UploadNotices {
   prepare() {
     const active = this.#form.getRootNode().activeElement;
     this.#focused = active && (this.#reason.contains(active) || this.#dialog.contains(active)) ? active : null;
+    for (const [action, tabIndex] of this.#clippedActions) { if (tabIndex === null) action.removeAttribute('tabindex'); else action.setAttribute('tabindex', tabIndex); } this.#clippedActions = [];
+    for (const [text, original] of this.#separators) text.textContent = original; this.#separators = [];
+    for (const source of this.#actionLayouts) { source.removeAttribute('data-notice-action'); source.removeAttribute('data-action-wrap'); source.querySelector(':scope > .upload-notice-join')?.remove(); }
+    this.#actionLayouts = [];
     for (const { element, marker } of this.#placements) marker.replaceWith(element);
     this.#placements = [];
     for (const element of this.#containers) element.classList.add('image-refusals'); this.#containers = [];
@@ -76,15 +80,22 @@ export class UploadNotices {
     this.#reason.removeAttribute('data-focus-key');
     this.#reason.removeAttribute('data-feedback-scroll'); this.#reason.removeAttribute('data-feedback-more');
     this.#reason.inert = false;
+    const reasonBox = this.#reason.getBoundingClientRect();
+    const clipped = reasonBox.width === 1 && reasonBox.height === 1;
+    if (clipped) for (const action of this.#reason.querySelectorAll('button')) {
+      this.#clippedActions.push([action, action.getAttribute('tabindex')]); action.tabIndex = -1;
+    }
     if (!this.#reason.hasAttribute('data-upload-feedback')) {
       if (this.#dialog.open) this.#dialog.close();
-      const box = this.#reason.getBoundingClientRect();
-      if (box.width === 1 && box.height === 1) this.#reason.inert = true;
       this.#retainFocus(); return;
     }
     const box = this.#slot.getBoundingClientRect();
     // Layout-free consumers still use the original semantic tree.
-    if (!(box.width > 1 && box.height > 1)) { this.#reason.inert = true; this.#retainFocus(); return; }
+    if (!(box.width > 1 && box.height > 1) || clipped) {
+      // Visually hidden statuses still announce every message. An open sheet
+      // retains its content even when the underlying compact cell disappears.
+      if (!this.#dialog.open) { this.#retainFocus(); return; }
+    }
     const held = this.#reason.hasAttribute('data-held-consent'), images = this.#reason.querySelectorAll('.image-refusal-item');
     if (!held && !images.length && !this.#dialog.open && this.#fits(box)) { this.#retainFocus(); return; }
     this.#reason.setAttribute('data-notice-layout', '');
@@ -101,6 +112,7 @@ export class UploadNotices {
     this.#containers = [...this.#reason.querySelectorAll('.image-refusals')];
     for (const element of this.#containers) element.classList.remove('image-refusals');
     this.#rows = groups.map(elements => this.#row(elements));
+    for (const row of this.#rows) this.#prepareActions(row);
     // Empty original containers remain reusable by the painter, without paint or focus.
     for (const element of sources.filter(element => element.nodeType === 1 && element.parentNode === this.#reason)) {
       this.#sources.push([element, element.hidden]); element.hidden = true;
@@ -141,38 +153,87 @@ export class UploadNotices {
     (retained ? focused : this.#dialog.open ? this.#close : this.#focusFallback())?.focus({ preventScroll: true });
   }
 
+  #prepareActions(row) {
+    for (const action of row.querySelectorAll('.consent-action')) {
+      const source = action.parentElement;
+      source.setAttribute('data-notice-action', ''); this.#actionLayouts.push(source);
+      // The separator belongs to the join, never to the end of a wrapped sentence.
+      const walker = this.#form.ownerDocument.createTreeWalker(source, 4);
+      while (walker.nextNode()) {
+        const text = walker.currentNode;
+        if (!action.contains(text) && text.textContent.endsWith(reasonSeparator)) {
+          this.#separators.push([text, text.textContent]);
+          text.textContent = text.textContent.slice(0, -reasonSeparator.length);
+        }
+      }
+      const join = node('span', 'upload-notice-join', reasonSeparator); join.setAttribute('aria-hidden', 'true');
+      action.before(join);
+    }
+  }
+  #layoutActions(row) {
+    for (const source of row.querySelectorAll('[data-notice-action]')) {
+      source.removeAttribute('data-action-wrap');
+      source.toggleAttribute('data-action-wrap', source.scrollWidth > row.clientWidth + .5);
+    }
+  }
+  #setMore(count, summary = false) {
+    this.#more.replaceChildren(); this.#more.toggleAttribute('data-summary', summary);
+    if (summary) {
+      const consentOnly = this.#reason.hasAttribute('data-held-only');
+      this.#more.append(node('span', '', this.#text(consentOnly ? 'summaryConsent' : 'summaryUnavailable')),
+        reasonSeparator, node('span', 'upload-notices-details', this.#text('detailsAction')));
+    } else {
+      const join = node('span', 'upload-notices-more-join', reasonSeparator); join.setAttribute('aria-hidden', 'true');
+      this.#more.append(join, node('span', '', plural(this.#text('moreNotices'), count)));
+    }
+  }
   fit() {
     if (!this.#rows.length || this.#dialog.open) return;
     const focused = this.#form.getRootNode().activeElement;
-    for (const row of this.#rows) { row.hidden = false; row.inert = false; }
+    const hadFocus = focused === this.#more || this.#rows.some(row => row.contains(focused));
     this.#more.remove();
-    const available = this.#slot.clientHeight;
-    const heights = this.#rows.map(row => row.getBoundingClientRect().height);
-    const total = heights.reduce((sum, height) => sum + height, 0);
-    this.#visible = this.#rows.length;
-    if (total > available + .25) {
-      let used = 0; this.#visible = 0;
-      for (const height of heights) {
-        if (used + height + 44 > available + .25) break;
-        used += height; this.#visible++;
-      }
-      const count = this.#rows.length - this.#visible;
-      this.#more.replaceChildren(); this.#more.toggleAttribute('data-summary', this.#visible === 0);
-      if (!this.#visible) {
-        this.#more.append(node('span', '', this.#text('summaryUnavailable')), reasonSeparator, node('span', 'upload-notices-details', this.#text('detailsAction')));
-      } else setText(this.#more, plural(this.#text('moreNotices'), count));
-      this.#reason.append(this.#more);
+    for (const row of this.#rows) {
+      row.removeAttribute('data-more-inline'); row.hidden = false; row.inert = false; this.#reason.append(row);
+      this.#layoutActions(row);
     }
-    this.#putRowsBack();
-    if (focused?.isConnected && !focused.closest('[hidden]')) focused.focus({ preventScroll: true });
+    const bounds = this.#slot.getBoundingClientRect();
+    this.#visible = this.#rows.length;
+    if (!this.#fits(bounds)) {
+      this.#visible = 0;
+      for (let count = this.#rows.length - 1; count > 0; count--) {
+        this.#more.remove();
+        for (const [index, row] of this.#rows.entries()) {
+          row.hidden = index >= count; row.inert = row.hidden; row.removeAttribute('data-more-inline');
+        }
+        const last = this.#rows[count - 1];
+        this.#setMore(this.#rows.length - count); last.append(this.#more);
+        // Measure the join with the control; both keep a 44px row-height target.
+        last.setAttribute('data-more-inline', '');
+        if (last.scrollWidth > last.clientWidth + .5) last.removeAttribute('data-more-inline');
+        if (this.#fits(bounds)) { this.#visible = count; break; }
+      }
+      if (!this.#visible) {
+        this.#more.remove();
+        for (const row of this.#rows) { row.hidden = true; row.inert = true; row.removeAttribute('data-more-inline'); }
+        this.#setMore(this.#rows.length, true); this.#reason.append(this.#more);
+      }
+    }
+    if (hadFocus) {
+      const retained = focused?.isConnected && !focused.closest('[hidden], [inert]');
+      (retained ? focused : this.#focusFallback())?.focus({ preventScroll: true });
+    }
   }
   #showRows() {
-    for (const row of this.#rows) { row.hidden = false; row.inert = false; this.#body.append(row); }
+    this.#more.remove();
+    for (const row of this.#rows) {
+      row.hidden = false; row.inert = false; row.removeAttribute('data-more-inline'); this.#body.append(row);
+      this.#layoutActions(row);
+    }
   }
   #putRowsBack() {
     for (const [index, row] of this.#rows.entries()) {
       row.hidden = index >= this.#visible; row.inert = row.hidden;
-      this.#reason.insertBefore(row, this.#more.parentNode === this.#reason ? this.#more : null);
+      this.#reason.append(row);
     }
   }
   destroy() { this.#observer?.disconnect(); this.prepare(); this.#dialog.remove(); }

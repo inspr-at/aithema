@@ -286,11 +286,12 @@ export function uploadNoticeSheetCheck() {
             const more = c.shadowRoot.querySelector('.upload-notices-more'); more.focus();
             const slot = c.shadowRoot.querySelector('.composer-feedback'); slot.style.height = '500px'; slot.style.maxWidth = '680px'; slot.style.width = '680px';
           }); await settle();
-          assert.equal(await inShadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('textarea') || Boolean(c.shadowRoot.activeElement?.closest('.composer-reason'))), true, 'disappearing disclosure never drops focus to the document body');
+          const retained = await inShadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('textarea') || Boolean(c.shadowRoot.activeElement?.closest('.composer-reason')));
           await inShadow(page, c => {
             const slot = c.shadowRoot.querySelector('.composer-feedback'); slot.style.cssText = '';
           }); await settle();
           await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-more').click()); await settle();
+          assert.equal(retained, true, 'disappearing disclosure never drops focus to the document body');
         });
         await scene.test('r4 an open sheet survives a collapsed slot update', async () => {
           await inShadow(page, c => {

@@ -913,6 +913,7 @@ export class AithemaSession extends HTMLElement {
           const start = root.querySelector('.voice-start');
           return !start?.disabled && this.#rail?.root.dataset.call !== 'active' ? start : root.querySelector('.audio-rail');
         }
+        if (opener?.dataset?.focusKey === 'consent-text' && !root.querySelector('textarea')?.disabled) return root.querySelector('textarea');
         return [...root.querySelectorAll('[data-focus-key]')].find(node => opener?.dataset?.focusKey && node.dataset.focusKey === opener.dataset.focusKey &&
           !node.closest('[hidden]')) ?? root.querySelector('.settings-open');
       },
