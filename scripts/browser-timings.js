@@ -121,7 +121,7 @@ export function parseTimingArtifact(text, expectedRun, ownersForSource = () => [
     throw new Error('Incomplete, failed, skipped or unsupported browser timing artifact');
   }
   const files = Object.keys(header.files), tests = new Map(files.map(file => [file, []]));
-  if (!files.length || files.some(file => !/^test\/browser\/[^/]+\.test\.js$/u.test(file) || !/^[a-f\d]{64}$/u.test(header.files[file]))) {
+  if (!files.length || files.some(file => !/^test\/browser\/[\w.-]+\.test\.js$/u.test(file) || !/^[a-f\d]{64}$/u.test(header.files[file]))) {
     throw new Error('Invalid browser timing file manifest');
   }
   for (const record of records.slice(1)) {

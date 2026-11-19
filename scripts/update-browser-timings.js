@@ -29,10 +29,11 @@ function timingSources(file, sha) {
     if (source === undefined) {
       // Read the exact trusted snapshot, never the current worktree. Local Git
       // objects are sufficient when present; otherwise use canonical GitHub.
-      try { source = releaseExecFileSync('git', ['show', sourceKey], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }); }
+      try { source = releaseExecFileSync('git', ['--no-replace-objects', 'show', sourceKey], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }); }
       catch (error) {
         if (error.status !== 128) throw error;
-        const blob = JSON.parse(gh('api', `repos/${timingRepository}/contents/${file}?ref=${sha}`));
+        const encodedPath = file.split('/').map(encodeURIComponent).join('/');
+        const blob = JSON.parse(gh('api', `repos/${timingRepository}/contents/${encodedPath}?ref=${sha}`));
         if (blob.encoding !== 'base64' || typeof blob.content !== 'string') throw new Error('Missing timing source evidence');
         source = Buffer.from(blob.content, 'base64').toString('utf8');
       }
