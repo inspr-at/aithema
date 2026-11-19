@@ -437,7 +437,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
   .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__export span { display:none; }
   .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__export::after { content:attr(data-short); }
 }
-@media(max-width:360px) {
+@media(max-width:389px) {
   .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__upgrade { font-size:12px; padding-inline:8px; }
   .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__export { min-width:44px; justify-content:center; }
   .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__export::after { content:none; }

@@ -221,8 +221,8 @@ test('AIT-553 item 5: desktop render-only opener ends at the last text line plus
 
 test('AIT-553 item 6: phone used-up confirmation stacks a one-line 44 px action below its text without moving the dock', { timeout: 120_000 }, async t => {
   const { page, server } = await harness(t), records = [];
-  for (const locale of ['en','de']) {
-    await open(page, server, { width: 390, height: 844, locale, theme: locale === 'de' ? 'dark' : 'light' });
+  for (const locale of ['en','de']) for (const width of [390, 375, 320]) {
+    await open(page, server, { width, height: 844, locale, theme: locale === 'de' ? 'dark' : 'light' });
     await creditFixture(page, locale, { address: 'visitor@example.test', delivery: true, spent: 0 });
     const before = (await observe(page)).geometry;
     await creditFixture(page, locale, { address: 'visitor@example.test', delivery: true, spent: 18_000_000 });
@@ -236,7 +236,7 @@ test('AIT-553 item 6: phone used-up confirmation stacks a one-line 44 px action 
       return { next: out.dataset.next, boxes: { text: box(text), button: box(button), label: box(label), export: box(out.querySelector('.composer-out__export')) },
         lines: [...new Set(lines.map(b => b.y))].length, label: label.textContent, textVisible: text.checkVisibility({ checkVisibilityCSS: true }), visible: button.checkVisibility({ checkVisibilityCSS: true }) };
     });
-    await retain(page, `390-${locale}-used-up-confirm`, record);
+    await retain(page, `${width}-${locale}-used-up-confirm`, record);
     records.push({ before, after: (await observe(page)).geometry, record });
   }
   for (const { before, after, record } of records) {
