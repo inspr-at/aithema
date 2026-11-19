@@ -421,6 +421,7 @@ export function heldRegressionCheck() {
               assert.equal(box.clipped, false, `${box.text}: short-phone refusal and consent stay visible`);
             }
             if (evidence) await writeFile(join(evidence, `ait566-short-mixed-${locale}.json`), JSON.stringify({ boxes: await boxes(), result: short }, null, 2));
+            await page.setViewport({ width, height: 844, hasTouch: true }); await settle();
           }
         }
       });
