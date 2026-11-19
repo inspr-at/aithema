@@ -4362,7 +4362,7 @@ localized notice, and show it without the two-line cap. Composers without image
 input keep the existing document refusal without image-format help. This also
 holds after an image refusal or a switch to a binding without image input,
 even when the reserved image layout remains mounted. Combined
-composers with document intake reserve the existing two-line feedback capacity
+composers with document intake reserve three lines of feedback capacity
 before intake, so a wrapped document-only refusal keeps the controls fixed.
 That session reserve survives pause and consent changes; combined composers
 without uploads retain their natural feedback height. The expanded
@@ -4380,17 +4380,25 @@ the current selection also stay visible across upload acknowledgements; a later
 successful attachment clears older feedback.
 Detected images awaiting consent reuse the existing image consent action and
 retain their original files while document batches continue. Granting consent
-resumes only those images. Decline and expiry ask the visitor to choose again,
-preserving earlier file notices. A newer selection invalidates an older hold's
-timer; document-only hosts keep their type refusal through consent races.
+resumes only those images. Decline and expiry of recognised or detected image
+holds ask the visitor to choose again,
+preserving earlier file notices. A newer pick, drop or paste keeps consent-held images,
+even if that new selection is refused entirely. Granting consent attaches those
+held images once and preserves newer file notices. Expiry appends the existing
+choose-again message to newer feedback; timers are fenced by intent identity.
+Document-only hosts keep their type refusal through consent races.
 Excess images receive the existing named image-limit
 refusal; the images that fit and eligible documents continue. Refusal lists keep
 every file, including duplicate filenames and selections exceeding eight files,
 inside the existing scroll area. Older whole-request failures name each affected
 file in a mixed selection, and later batches are still attempted for batch-local
 refusals. Final ownership, missing-session and conflict failures stop that
-selection with one notice naming all unsent files; exhausted busy retries keep
-the existing retained-file controls and backoff.
+selection with one notice giving the reason before all unsent filenames.
+Multiple unsent files use the additive EN/DE `uploads.failedMany` default;
+legacy `uploads.failed` host overrides remain supported. Single-sentence count
+and byte notices expose a third line so their figures remain visible, while file
+lists retain the existing two-line scroll area. Exhausted busy retries keep the
+existing retained-file controls and backoff.
 The reserved image-feedback width stays stable when consent becomes a shortcut.
 Its hidden measurement node is mounted only while image input is active, so
 hosts without image input retain the existing composer DOM and geometry.

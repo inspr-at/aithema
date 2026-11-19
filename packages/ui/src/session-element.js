@@ -127,7 +127,7 @@ export class AithemaSession extends HTMLElement {
   #questionCard; #disposeVersion; #footerMedia; #footerListener; #brandObserver;
   #uploadAt = new Map(); #uploading = false; #uploadNotice = ''; #reading = ''; #limits = UPLOAD_LIMITS; #limitsLoad = null; #dragDepth = 0;
   #images; #imageLayout = false; #imageIntent = null; #imageIntentTimer; #detectedImages = new WeakSet(); #unclassifiedUploads = new WeakSet();
-  #uploadController; #uploadRetryTimer = null; #retryFiles = [];
+  #uploadController; #uploadRetryTimer = null; #retryFiles = []; #uploadSelection = 0;
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
     // Track the resting pointer so updates can keep the element under it in place.
@@ -2266,7 +2266,8 @@ export class AithemaSession extends HTMLElement {
         if (consentCopy) consentCopy.tabIndex = 0; else retryLabel.tabIndex = 0;
         if (!refusal) setText(action, copy.uploads.tryAgain);
         setText(discard, copy.uploads.discard);
-      } else if (text.available && !this.#rail?.moved && !this.#sendFailed && this.#imageIntent) {
+      } else if (text.available && !this.#rail?.moved && !this.#sendFailed && this.#imageIntent
+        && (!this.#uploadNotice || this.#imageIntent.selection === this.#uploadSelection)) {
         const feature = this.#imageIntent.features.includes('imageInput') ? 'imageInput' : 'uploads';
         paintConsentLine(reason, { copy, feature, verdict: { available: false, reason: CONSENT_REASON },
           open: opener => this.#dialog.openConsent(feature, opener) });
@@ -2280,6 +2281,10 @@ export class AithemaSession extends HTMLElement {
         uploadNotice = this.#imageLayout && text.available && !this.#rail?.moved && !this.#sendFailed && Boolean(words) && words === this.#uploadNotice;
         if (uploadNotice) this.#images.paintNotice(reason, words);
       }
+      const capacityNotice = [copy.uploads.tooMany.replace('{files}', this.#limits.maxDocumentsPerSession),
+        copy.uploads.sessionFull.replace('{size}', formatBytes(this.#limits.maxSessionBytes, this.#session.locale))].includes(this.#uploadNotice);
+      reason.toggleAttribute('data-capacity-notice', capacityNotice && words === this.#uploadNotice && !this.#retryFiles.length
+        && (!this.#imageIntent || this.#imageIntent.selection !== this.#uploadSelection));
       reason.toggleAttribute('data-upload-notice', uploadNotice);
       reason.toggleAttribute('data-send-failed', this.#sendFailed && text.available && !this.#rail?.moved);
       if (reason.hasAttribute('data-send-failed')) {
@@ -3596,7 +3601,8 @@ export class AithemaSession extends HTMLElement {
   }
   async #attach(files, retry = false, refusalVersion, continuation = null) {
     if (!files.length || !this.isConnected) return;
-    if (!retry && !continuation) { clearTimeout(this.#imageIntentTimer); this.#imageIntent = null; }
+    // A later pick owns its feedback, but cannot silently discard consent-held files.
+    if (!retry && !continuation) this.#uploadSelection++;
     const consentRevision = this.#session.consentRevision;
     // A successful receipt clears older feedback, including across consent.
     // Decoder events from this selection may already have arrived.
@@ -3651,7 +3657,9 @@ export class AithemaSession extends HTMLElement {
           if (!current()) return;
           if (result?.final) {
             const names = plan.batches.flat().slice(attempted).map(file => file.name).join(', ');
-            notices.push([copy.uploads.refused.replace('{list}', names), result.failure].join(reasonSeparator));
+            const failure = result.failure === copy.uploads.failed && plan.batches.flat().length - attempted > 1
+              ? resolveCopy(copy, 'uploads.failedMany', 'uploads.failed', this.#session.locale) : result.failure;
+            notices.push([failure, copy.uploads.refused.replace('{list}', names)].join(reasonSeparator));
             break;
           }
           if (typeof result === 'string' && result) {
@@ -3696,7 +3704,17 @@ export class AithemaSession extends HTMLElement {
   }
   #isImageFile = file => isImageFile(file) || this.#detectedImages.has(file);
   #holdImageIntent(files, features, refusalVersion, continuation = null) {
-    const pending = this.#imageIntent = { files, features, continuation, id: this.#session.id, refusalVersion };
+    const previous = this.#imageIntent;
+    // More consent-held selections share the same grant; replacing the timer must
+    // neither replace the earlier files nor let its queued callback end this hold.
+    if (previous) {
+      files = [...new Set([...previous.files, ...files])];
+      features = [...new Set([...previous.features, ...features])];
+      refusalVersion = Math.min(previous.refusalVersion, refusalVersion);
+      const notice = [...new Set([previous.continuation?.notice, continuation?.notice].filter(Boolean))].join(reasonSeparator);
+      if (previous.continuation || continuation) continuation = { ...previous.continuation, ...continuation, notice };
+    }
+    const pending = this.#imageIntent = { files, features, continuation, id: this.#session.id, refusalVersion, selection: this.#uploadSelection };
     clearTimeout(this.#imageIntentTimer);
     this.#imageIntentTimer = setTimeout(() => this.#endImageIntent(pending), 180000);
     this.#requestConsent('use', features, 'attach');
@@ -3704,7 +3722,9 @@ export class AithemaSession extends HTMLElement {
   #endImageIntent(pending) {
     if (!pending || this.#imageIntent !== pending || pending.id !== this.#session.id) return;
     clearTimeout(this.#imageIntentTimer); this.#imageIntent = null;
-    this.#uploadNotice = [pending.continuation?.notice, plural(resolveCopy(this.#copy, 'uploadsReselect', undefined, this.#session.locale), pending.files.length)].filter(Boolean).join(reasonSeparator);
+    const notice = [...new Set([pending.continuation?.notice,
+      pending.selection !== this.#uploadSelection ? this.#uploadNotice : ''].filter(Boolean))].join(reasonSeparator);
+    this.#uploadNotice = [notice, plural(resolveCopy(this.#copy, 'uploadsReselect', undefined, this.#session.locale), pending.files.length)].filter(Boolean).join(reasonSeparator);
     this.#render('composer');
   }
   async #removeImage(id) {
@@ -3722,7 +3742,8 @@ export class AithemaSession extends HTMLElement {
     if (pending.continuation && this.#session.consentRevision === pending.continuation.consentRevision) return;
     if (pending.features.includes('imageInput') && !this.#feature('imageInput').available || pending.features.includes('uploads') && !this.#feature('uploads').available) return;
     this.#imageIntent = null; clearTimeout(this.#imageIntentTimer);
-    void this.#attach(pending.files, false, pending.refusalVersion, pending.continuation);
+    const notice = [...new Set([pending.continuation?.notice, this.#uploadNotice].filter(Boolean))].join(reasonSeparator);
+    void this.#attach(pending.files, false, pending.refusalVersion, { ...pending.continuation, notice });
   }
   #cancelUploads() {
     this.#detectedImages = new WeakSet(); this.#unclassifiedUploads = new WeakSet();

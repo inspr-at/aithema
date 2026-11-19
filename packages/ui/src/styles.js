@@ -478,6 +478,8 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
    compact confirmation width; all variants share the existing row height. */
 .composer-feedback { display:grid; flex:1; margin-right:auto; min-width:0; align-items:center; align-self:stretch; }
 .composer-feedback:not([data-voice-space]):has(.composer-reason[data-shortcut]) { flex:0 1 auto; }
+/* Reserve three capacity lines before intake, including on document-only hosts. */
+.composer[data-document-input] .composer-feedback { min-height:2.808rem; }
 .composer-feedback > :not(.sr-only) { grid-area:1/1; }
 .composer-reason { transition:opacity 120ms ease; }
 .composer-reason kbd { font:inherit; padding:0 .2em; border:1px solid var(--aithema-line-strong); border-radius:3px; }
@@ -972,6 +974,9 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .upload-notice-formats { display:block; overflow-wrap:anywhere; }
 .composer-reason[data-upload-notice] { display:block; overflow:visible; }
 .composer[data-image-input] .composer-reason[data-upload-notice] { max-height:none; }
+/* A single count/byte sentence keeps its figure in view. Arbitrary file lists
+   retain their two-line area and existing scrolling treatment. */
+.composer-reason[data-capacity-notice], .composer-reason[data-capacity-notice] .upload-notice-facts { max-height:3.9em; }
 .composer[data-image-input] .composer-reason[data-consent-feature="imageInput"] { overflow-y:auto; }
 .image-refusals, .image-refusals-reserve__row { display:flex; align-items:flex-start; gap:5px; min-height:44px; font-size:.72rem; line-height:1.3; }
 .image-refusals { position:absolute; inset:0; overflow:auto; color:var(--aithema-warning); }
