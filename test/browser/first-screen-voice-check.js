@@ -27,7 +27,10 @@ async function open(page, server, variant, entrance = 'combined') {
   await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: variant.theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.goto(`${server.url}/first-screen-fixture?locale=${variant.locale}&entrance=${entrance}${variant.opener ? '&opener' : ''}`);
   await page.waitForFunction(() => globalThis.ready);
-  await page.evaluate(theme => { c.setAttribute('theme', theme); c.style.setProperty('--aithema-height', '100dvh'); }, variant.theme);
+  await page.evaluate(({ theme, entrance }) => {
+    c.setAttribute('theme', theme); c.style.setProperty('--aithema-height', '100dvh');
+    const configure = c.configure.bind(c); c.configure = options => configure({ entrance, ...options });
+  }, { theme: variant.theme, entrance });
 }
 async function observe(page) {
   await page.evaluate(async () => { await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
@@ -129,7 +132,7 @@ test('AIT-553 item 3: used-up upgrade copy has an exposed export link; the host 
     await retain(page, `${variant.width}-${variant.locale}-${variant.theme}-used-up-upgrade`, record);
     records.push(record);
     await creditFixture(page, variant.locale, { spent: 12_000_000, dailyCap: true });
-    await page.evaluate(() => c.configure({ host: { credits: true, usedUp: { dailyCapActions: 'none' } } }));
+    await page.evaluate(async () => c.configure({ session: c.session, copy: (await import(`/packages/ui/src/i18n/${c.session.locale}.js`))[c.session.locale], host: { credits: true, usedUp: { dailyCapActions: 'none' } } }));
     await page.waitForFunction(() => c.shadowRoot.querySelector('.composer-out').dataset.creditActions === 'none');
     assert.equal(await page.evaluate(() => c.shadowRoot.querySelector('.composer-out__export').getAttribute('aria-hidden')), 'true');
   }
@@ -170,12 +173,12 @@ const desktops = [
 ];
 async function openIntro(page, server, variant) {
   await open(page, server, variant);
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const session = structuredClone(c.session);
     session.opener.text = session.locale === 'de'
       ? 'Willkommen. Ihre KI-Assistenz ist für Sie bereit. Erzählen Sie uns von Ihrer Idee und Ihren Anforderungen. Gemeinsam können wir die Ziele, die verfügbaren Ressourcen und die nächsten Schritte besprechen. Sie können Ihre Fragen eingeben oder das Mikrofon verwenden, um das Gespräch zu beginnen.'
       : 'Welcome. Your AI assistant is ready to help. Tell us about your idea and requirements. Together we can discuss your goals, available resources and next steps. You can type your questions or use the microphone to begin the conversation. Take your time and share whatever matters most to you.';
-    c.configure({ session });
+    c.configure({ session, copy: (await import(`/packages/ui/src/i18n/${session.locale}.js`))[session.locale] });
   });
 }
 
