@@ -540,8 +540,13 @@ for (const copy of [en, de]) for (const action of ['decline', 'expiry', 'new-sel
       if (delay === 180000) { timers.push(callback); return schedule(() => {}, delay); }
       return schedule(callback, delay, ...args);
     });
-    t.mock.method(globalThis, 'fetch', async (url, options = {}) => url.endsWith('/uploads') && options.method === 'POST'
-      ? Response.json({ events: [], refused: [{ index: 0, kind: 'image', reason: 'current processing consent required' }] }, { status: 202 }) : original(url, options));
+    t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+      if (url.endsWith('/uploads') && options.method === 'POST') {
+        f.calls.push({ url, options });
+        return Response.json({ events: [], refused: [{ index: 0, kind: 'image', reason: 'current processing consent required' }] }, { status: 202 });
+      }
+      return original(url, options);
+    });
     await choose(f.root, [new window.File(['pixels'], 'clipboard'), new window.File(['x'], 'blocked.exe')]);
     assert.equal(f.asks.length, 1); assert.equal(timers.length, 1);
     if (action === 'decline') f.asks[0].cancel();
