@@ -160,6 +160,16 @@ test('LPT fixture packing is complete and independent of file and weight inserti
   assert.ok(Math.max(...packed.totals) <= total / 4 + 3 * largest / 4);
 });
 
+test('AIT-558: the shard guard test runs without npm on PATH', () => {
+  const result = spawnSync(process.execPath, ['--test', '--test-name-pattern=^the shard guard command prints',
+    'test/browser-shards.test.js'], {
+    cwd: new URL('../', import.meta.url), encoding: 'utf8',
+    env: { ...process.env, PATH: '', NODE_TEST_CONTEXT: undefined },
+  });
+  assert.match(result.stdout, /the shard guard command prints/u, result.stdout + result.stderr);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+});
+
 test('per-file weights reject stale measurements after a test is removed or renamed', t => {
   const root = mkdtempSync(join(tmpdir(), 'browser-weights-stale-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
