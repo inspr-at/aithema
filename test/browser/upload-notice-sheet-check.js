@@ -78,12 +78,12 @@ export function uploadNoticeSheetCheck() {
         if (scenario === 'refusal') await pick(['x.heic']);
         if (scenario === 'failure') {
           await pick(['report.pdf']);
-          await inShadow(page, c => { c.shadowRoot.querySelector('textarea').value = 'Send fixture'; c.shadowRoot.querySelector('form.composer').requestSubmit(); });
+          await inShadow(page, c => { c.shadowRoot.querySelector('textarea').value = 'Send fixture'; c.shadowRoot.querySelector('form.composer').dispatchEvent(new Event('submit', { cancelable:true, bubbles:true })); });
           await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('[data-send-failed]')); await settle();
         }
         const result = await inShadow(page, c => {
           const reason = c.shadowRoot.querySelector('.composer-feedback > .composer-reason'), send = c.shadowRoot.querySelector('.send').getBoundingClientRect();
-          const css = getComputedStyle(reason), r = reason.getBoundingClientRect();
+          const css = getComputedStyle(reason), range = document.createRange(); range.selectNodeContents(reason); const r = range.getBoundingClientRect();
           return { text:reason.textContent, center:r.y+r.height/2, referenceCenter:send.y+send.height/2, tabIndex:reason.getAttribute('tabindex'), overflow:css.overflowY, padding:css.paddingBottom,
             target:reason.querySelector('.consent-action') ? getComputedStyle(reason.querySelector('.consent-action'), '::after').height : null };
         });
