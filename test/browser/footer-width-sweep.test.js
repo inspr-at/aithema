@@ -155,6 +155,12 @@ test('AIT-281: actor role state matrix has exactly 0px movement at 1440/1024/390
       const original = window.fetch.bind(window);
       window.fetch = async (url, init = {}) => {
         const path = new URL(url, location.href).pathname, f = window.roleFixture;
+        // Role commands and projections belong to this fixture. Keep unrelated
+        // server journal events from restoring the real session over its actor.
+        if (f && path.endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+          if (init.signal?.aborted) controller.close();
+          else init.signal?.addEventListener('abort', () => controller.close(), { once: true });
+        } }), { headers: { 'content-type': 'text/event-stream' } });
         if (f && path.endsWith('/identity')) return Response.json({ roleChoice: f.view });
         if (f && path.endsWith('/identity/role')) {
           f.command = JSON.parse(init.body);
