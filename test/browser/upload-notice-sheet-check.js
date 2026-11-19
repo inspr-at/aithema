@@ -132,7 +132,16 @@ export function uploadNoticeSheetCheck() {
         if (scenario === 'rehold') {
           await inShadow(page, c => { const r = c.shadowRoot; (r.querySelector('.upload-notices-more') ?? r.querySelector('.held-upload-consent .consent-action')).focus({ preventScroll:true }); });
           assert.equal(result.text.includes(locale === 'de' ? 'Bitte wähle' : 'Please choose'), false);
+          if (result.control) await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-more').click());
           await page.evaluate(() => window.sheetFixture.asks.at(-1).cancel()); await settle();
+          if (result.control) {
+            const ended = await inShadow(page, c => ({ open:c.shadowRoot.querySelector('.upload-notices-sheet').open,
+              rows:[...c.shadowRoot.querySelectorAll('.upload-notices-sheet .upload-notice-row')].map(row => row.innerText) }));
+            assert.equal(ended.open, true, 'ending a hold preserves the open review sheet');
+            assert.equal(ended.rows.length, 1, 'the ended notice replaces held consent inside the open sheet');
+            assert.ok(ended.rows[0].includes(locale === 'de' ? 'Bitte wählen Sie' : 'Please choose'), 'the current choose-again notice is fully shown');
+            await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-close').click());
+          }
           await save('rehold-ended', { boxes:await boxes() }); unchanged(idle, await boxes());
           await inShadow(page, c => { const input = c.shadowRoot.querySelector('textarea'); input.value = 'Clear ended notice'; input.dispatchEvent(new Event('input')); });
           assert.equal(await inShadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('textarea')), true, 'ending feedback and returning to the touch shortcut retains meaningful focus');
