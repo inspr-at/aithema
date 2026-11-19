@@ -114,8 +114,8 @@ export function uploadNoticeSheetCheck() {
           });
           await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason[data-shortcut]'));
           await page.keyboard.press('Escape'); await settle();
-          assert.equal(await inShadow(page, c => c.shadowRoot.activeElement?.classList.contains('settings-open') ?? false), true,
-            'consent grant returns to a stable control when feedback becomes the shortcut');
+          assert.equal(await inShadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('textarea')), true,
+            'consent grant returns to the textarea when feedback becomes the shortcut');
           unchanged(before, await boxes());
         }
         if (scenario === 'failure') assert.equal(result.padding, '8px', 'send failure retains 8px paint room');
@@ -188,6 +188,18 @@ export function uploadNoticeSheetCheck() {
             rows:[...reason.querySelectorAll('.upload-notice-row')].filter(row => !row.hidden).map(row => { const r = row.getBoundingClientRect(); return { text:row.innerText, width:r.width, height:r.height, clientHeight:row.clientHeight, scrollHeight:row.scrollHeight }; }) };
         });
         await save(scenario, { idle, before, result }); unchanged(idle, before);
+        if (scenario === 'mixed' && width === 1440) await scene.test('r4 more control shares the last fitting notice line', async () => {
+          assert.ok(result.rows.length > 0, 'desktop shows a complete notice before disclosure');
+          const joined = await inShadow(page, c => {
+            const more = c.shadowRoot.querySelector('.upload-notices-more'), row = more?.closest('.upload-notice-row');
+            if (!row) return null;
+            const r = row.getBoundingClientRect(), m = more.getBoundingClientRect();
+            return { row:{ x:r.x,y:r.y,width:r.width,height:r.height }, control:{ x:m.x,y:m.y,width:m.width,height:m.height } };
+          });
+          assert.ok(joined && joined.row.width > 0 && joined.row.height > 0 && joined.control.width >= 44 && joined.control.height >= 44);
+          assert.ok(joined.control.y >= joined.row.y && joined.control.y + joined.control.height <= joined.row.y + joined.row.height + .5);
+          assert.ok(joined.row.height <= 44.5, 'notice and disclosure occupy one 44px line');
+        });
         if (scenario === 'rehold') {
           await scene.test('r4 fitting consent and action share their row', async () => {
             const line = await inShadow(page, c => {
@@ -198,6 +210,13 @@ export function uploadNoticeSheetCheck() {
             });
             if (width === 1440) { assert.equal(line.summary, false, 'fitting held consent is shown in full'); assert.ok(line.action.height >= 44); assert.ok(line.ink.y >= line.action.y && line.ink.y + line.ink.height <= line.action.y + line.action.height, 'consent and action share a line'); }
             else if (line.action.y >= line.ink.y + line.ink.height) { assert.equal(line.label.trim().endsWith('·'), false, 'a wrapped action has no dangling separator'); assert.ok(Math.abs(line.action.x-line.ink.x) <= .5, 'wrapped action aligns with its sentence'); }
+          });
+          await scene.test('r4 consent-only summary is honest', async () => {
+            await inShadow(page, c => { c.shadowRoot.querySelector('.composer-feedback').style.maxWidth = '100px'; }); await settle();
+            const summary = await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-more[data-summary]')?.innerText);
+            await save('consent-summary', { summary, boxes:await boxes() });
+            await inShadow(page, c => { c.shadowRoot.querySelector('.composer-feedback').style.maxWidth = ''; }); await settle();
+            assert.equal(summary, `${locale === 'de' ? 'Einwilligung nötig' : 'Consent needed'}${reasonSeparator}Details`);
           });
           await inShadow(page, c => { const r = c.shadowRoot; (r.querySelector('.upload-notices-more') ?? r.querySelector('.held-upload-consent .consent-action')).focus({ preventScroll:true }); });
           assert.equal(result.text.includes(copy.uploadsReselect.one), false);
@@ -238,6 +257,26 @@ export function uploadNoticeSheetCheck() {
         assert.ok(opened.rows.length >= 2); for (const row of opened.rows) assert.ok(row.width > 0 && row.height > 0 && row.scrollHeight <= row.clientHeight);
         for (const action of opened.actions) assert.ok(action.width >= 44 && action.height >= 44, `${action.text}: 44px target`);
         if (width === 390) assert.ok(opened.height >= 840, 'phone sheet occupies the full viewport');
+        await scene.test('r4 sheet action joins never leave a dangling separator', async () => {
+          const joins = await inShadow(page, c => [...c.shadowRoot.querySelectorAll('.upload-notices-sheet [data-consent-feature]')].map(source => {
+            const label = source.querySelector('.consent-line-copy'), action = source.querySelector('.consent-action');
+            if (!label || !action) return null;
+            const range = document.createRange(); range.selectNodeContents(label); const l = range.getBoundingClientRect(), a = action.getBoundingClientRect();
+            return { text:label.innerText, label:{ x:l.x,y:l.y,width:l.width,height:l.height }, action:{ x:a.x,y:a.y,width:a.width,height:a.height } };
+          }).filter(Boolean));
+          for (const join of joins) if (join.action.y >= join.label.y + join.label.height) {
+            assert.equal(join.text.trim().endsWith('·'), false); assert.ok(Math.abs(join.action.x-join.label.x) <= .5);
+          }
+        });
+        await scene.test('r4 an open sheet survives a collapsed slot update', async () => {
+          await inShadow(page, c => {
+            const slot = c.shadowRoot.querySelector('.composer-feedback'); slot.style.cssText = 'width:1px!important;height:1px!important;flex:0 0 1px!important;max-width:1px!important';
+            c.receive({ sessionId:c.session.id, seq:c.session.seq+1, type:'settings.changed', data:{ processingPreset:'best', settings:{ ...c.session.settings, revision:2 } } });
+          }); await settle();
+          const rows = await inShadow(page, c => [...c.shadowRoot.querySelectorAll('.upload-notices-sheet .upload-notice-row')].map(row => row.innerText));
+          await inShadow(page, c => { c.shadowRoot.querySelector('.composer-feedback').style.cssText = ''; }); await settle();
+          assert.ok(rows.length >= 2 && rows.every(text => text.trim()), 'collapsing the slot never empties the open sheet');
+        });
         await page.keyboard.press('Tab'); await page.keyboard.down('Shift'); await page.keyboard.press('Tab'); await page.keyboard.up('Shift');
         assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-sheet').contains(c.shadowRoot.activeElement)), true, 'focus stays in sheet');
         await page.keyboard.press('Escape'); await settle();
