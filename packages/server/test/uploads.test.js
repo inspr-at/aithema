@@ -725,3 +725,37 @@ test('expiry cancels only expired pending uploads and preserves newer and other-
   assert.equal(f.storage.get(other.id).uploads[0].state, 'accepted');
   assert.equal(observer.activeCount(), 0);
 });
+
+// AIT-559: intake classifications are authoritative, including when the picker
+// cannot identify image bytes. A refusal must never swallow an eligible PDF.
+for (const [host, reason] of [
+  ['document-only', 'image normalizer not configured'],
+  ['text-only reaction', 'image input not supported'],
+  ['text-only understanding', 'image input not supported'],
+  ['pending consent', 'current processing consent required'],
+  ['normalizer unavailable', 'image normalizer unavailable'],
+  ['image limit', null],
+]) for (const [name, content, type] of [
+  ['clipboard', Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), 'application/octet-stream'],
+  ['typed', bytes('image fixture'), 'image/png'],
+  ['scan.pdf', Buffer.from([255, 216, 255, 224, 0, 0]), 'application/pdf'],
+  ['photo.heic', Buffer.from('excluded'), 'image/heic'],
+  ['photo.avif', Buffer.from('excluded'), 'image/avif'],
+]) test(`AIT-559: ${host}/${name} refuses only the detected image and attaches PDFs across requests`, async t => {
+  const f = setup(t, { limits: { maxImagesPerSession: 1 } });
+  t.mock.method(f.runtime, 'imageInputAvailability', async () => ({ reason }));
+  if (!reason) f.storage.postUploads(f.session.id, 'existing-image', 'existing-image', [{ kind: 'image', filename: 'existing.png', mediaType: 'image/png', bytes: bytes('fixture'), deadlineAt: Date.now() + 25000 }], { maxImagesPerSession: 1 });
+  const files = [[name, content, type], ['eligible.pdf', pdf(), 'application/pdf']];
+  const response = await f.handlers.handle(uploadRequest(f.session.id, 'mixed', files));
+  assert.equal(response.status, 202, 'no whole-POST refusal');
+  const result = await response.json();
+  assert.deepEqual(result.refused, [{ index: 0, name, kind: 'image', reason: reason ?? 'limit' }]);
+  assert.deepEqual(result.uploads.map(upload => upload.filename), ['eligible.pdf']);
+  await f.handlers.idle();
+  assert.equal(f.storage.get(f.session.id).uploads.find(upload => upload.filename === 'eligible.pdf').state, 'accepted');
+  const replay = await f.handlers.handle(uploadRequest(f.session.id, 'mixed', files));
+  assert.equal(replay.status, 200); assert.deepEqual((await replay.json()).refused, result.refused, 'receipt preserves per-file outcomes');
+  await post(f, 'later', [['later.pdf', pdf(), 'application/pdf']]); await f.handlers.idle();
+  assert.equal(f.storage.get(f.session.id).uploads.find(upload => upload.filename === 'later.pdf').state, 'accepted');
+  assert.equal(f.storage.get(f.session.id).uploads.some(upload => upload.filename === name), false, 'refused original bytes are never staged');
+});
