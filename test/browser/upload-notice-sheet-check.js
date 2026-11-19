@@ -63,6 +63,7 @@ export function uploadNoticeSheetCheck() {
             }
             if (String(url).endsWith('/turns')) throw new TypeError('fixture send failure');
             const snapshot = c.session;
+            if (window.sheetFixture.textGranted) snapshot.featureMatrix.best.text = { available:true, reason:null };
             if (window.sheetFixture.textBlocked) snapshot.featureMatrix.best.text = { available:false, reason:'current processing consent required' };
             return Response.json(snapshot);
           };
@@ -103,7 +104,20 @@ export function uploadNoticeSheetCheck() {
           assert.ok(Math.abs(result.center-result.referenceCenter-offset) <= .5, `ordinary refusal matches main ink centre: ${JSON.stringify(result)}`);
           if (scenario === 'single-line-refusal') assert.equal(result.ink.lines, 1, 'short host copy provides a true single-line refusal at both widths');
         });
-        if (scenario === 'text') { assert.equal(result.overflow, 'visible', 'text consent target is not clipped'); assert.ok(Number.parseFloat(result.target) >= 44); }
+        if (scenario === 'text') {
+          assert.equal(result.overflow, 'visible', 'text consent target is not clipped'); assert.ok(Number.parseFloat(result.target) >= 44);
+          await inShadow(page, c => c.shadowRoot.querySelector('.composer-reason > .consent-action').click());
+          await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
+          await inShadow(page, c => {
+            window.sheetFixture.textGranted = true;
+            c.receive({ sessionId:c.session.id, seq:c.session.seq+1, type:'settings.changed', data:{ processingPreset:'best', settings:{ ...c.session.settings, revision:2 } } });
+          });
+          await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason[data-shortcut]'));
+          await page.keyboard.press('Escape'); await settle();
+          assert.equal(await inShadow(page, c => c.shadowRoot.activeElement?.classList.contains('settings-open') ?? false), true,
+            'consent grant returns to a stable control when feedback becomes the shortcut');
+          unchanged(before, await boxes());
+        }
         if (scenario === 'failure') assert.equal(result.padding, '8px', 'send failure retains 8px paint room');
       });
       await t.test('combined measuring lines retain intrinsic sizing', async () => {
