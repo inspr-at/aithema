@@ -39,11 +39,11 @@ export function uploadNoticeSheetCheck() {
         await inShadow(page, async (c, { locale, scenario }) => {
           const session = structuredClone(c.session); session.id = crypto.randomUUID(); session.seq = 0; session.locale = locale; session.uploads = [];
           session.transcript = [{ id:'established', role:'user', content:'Project documents', at:new Date(0).toISOString() }];
-          session.settings.voice = 'off'; session.settings.origin = 'chosen';
+          session.paused = scenario === 'image-refusal'; session.settings.voice = 'off'; session.settings.origin = 'chosen';
           const held = scenario === 'summary' || scenario === 'mixed' || scenario === 'rehold';
           session.featureMatrix = { best: { text:{ available:scenario !== 'text', reason:scenario === 'text' ? 'current processing consent required' : null },
             uploads:{ available:!held || scenario !== 'summary', reason:scenario === 'summary' ? 'current processing consent required' : null },
-            imageInput:{ available:scenario === 'mixed', reason:scenario === 'summary' || !held ? 'image normalizer not configured' : 'current processing consent required' } } };
+            imageInput:{ available:scenario === 'mixed' || scenario === 'image-refusal', reason:scenario === 'summary' || !held ? 'image normalizer not configured' : 'current processing consent required' } } };
           window.sheetFixture = { scenario, asks:[], posts:[], limitsRead:false };
           if (!window.sheetSchedule) {
             window.sheetSchedule = window.setTimeout;
@@ -154,7 +154,7 @@ export function uploadNoticeSheetCheck() {
         await page.setViewport({ width, height:width === 390 ? 844 : 900, hasTouch:width === 390 });
       });
       await t.test('r4 lone image refusal stays inline on desktop', async () => {
-        await configure('refusal'); const idle = await boxes();
+        await configure('image-refusal'); const idle = await boxes();
         await inShadow(page, c => {
           const data = new DataTransfer(); data.items.add(new File(['fixture'], 'photo.png', { type:'image/png', lastModified:1234 }));
           c.shadowRoot.querySelector('textarea').dispatchEvent(new ClipboardEvent('paste', { clipboardData:data, bubbles:true, cancelable:true }));
