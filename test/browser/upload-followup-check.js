@@ -59,6 +59,17 @@ export function feedbackText(c) {
   return reason.textContent;
 }
 
+export async function openFeedback(page) {
+  return inShadow(page, c => {
+    const root = c.shadowRoot, more = root.querySelector('.upload-notices-more');
+    if (more && !root.querySelector('.upload-notices-sheet').open) { more.click(); return true; }
+    return false;
+  });
+}
+export async function closeFeedback(page) {
+  await inShadow(page, c => { const sheet = c.shadowRoot.querySelector('.upload-notices-sheet'); if (sheet?.open) sheet.close(); });
+}
+
 export async function visibleFeedback(page) {
   const more = await inShadow(page, c => Boolean(c.shadowRoot.querySelector('.upload-notices-more')));
   if (more) await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-more').click());
@@ -124,6 +135,7 @@ export function uploadFollowupCheck() {
         result.notice = await inShadow(page, feedbackText);
         const important = scenario === 'count' || scenario === 'bytes' ? result.notice
           : scenario === 'purpose' ? copy.purposePaused.split('. ')[0] + '.' : locale === 'en' ? 'The files could not be added.' : 'Die Dateien konnten nicht übernommen werden.';
+        await openFeedback(page);
         const visible = await inShadow(page, (c, important) => {
           const reason = c.shadowRoot.querySelector('.upload-notice-facts') ?? c.shadowRoot.querySelector('.composer-reason');
           const walker = document.createTreeWalker(reason, NodeFilter.SHOW_TEXT), node = walker.nextNode();

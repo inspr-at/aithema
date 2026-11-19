@@ -258,5 +258,10 @@
         "height": 74.84375
       }
     }
+  },
+  "ordinaryRefusal": {
+    "source": "72512711",
+    "platform": "darwin",
+    "inkCenterOffset": -0.984375
   }
 }

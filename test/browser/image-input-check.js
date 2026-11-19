@@ -1,3 +1,4 @@
+import { openFeedback, closeFeedback } from './upload-followup-check.js';
 import { mockConsent } from './consent-helpers.js';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -193,6 +194,7 @@ export function imageInputCheck(widths) {
           assert.ok(r.w > 0 && r.h > 0, `${selector} positive at ${height}`);
           for (const edge of selector === '.composer' ? ['bottom'] : ['x', 'y', 'w', 'h']) assert.ok(Math.abs(r[edge] - shortBefore[selector][edge]) <= .5, `${height} ${selector}.${edge}`);
         }
+        await openFeedback(page);
         const controls = await inShadow(page, c => Object.fromEntries(['textarea', '.composer-mic', '.send', '.image-refusals'].map(selector => {
           const r = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [selector, { x: r.x, y: r.y, w: r.width, h: r.height, right: r.right, bottom: r.bottom }];
         })));
@@ -217,6 +219,7 @@ export function imageInputCheck(widths) {
             filename: reason === 'unsupported' ? 'fixture.heic' : 'fixture.png', state: 'staged-refused',
             reason: reason === 'malformed' ? 'unsupported' : reason } });
         }, reason);
+        await openFeedback(page);
         await waitForShadow(page, '.image-refusals');
         const after = await boxes();
         for (const [selector, r] of Object.entries(after)) {
@@ -267,6 +270,7 @@ export function imageInputCheck(widths) {
           assert.ok(r.w > 0 && r.h > 0);
           for (const edge of selector === '.composer' ? ['bottom'] : ['x', 'y', 'w', 'h']) assert.ok(Math.abs(r[edge] - compact[selector][edge]) <= .5, `keyboard ${selector}.${edge}`);
         }
+        await openFeedback(page);
         const visible = await inShadow(page, c => { const el = c.shadowRoot.querySelector('.image-refusals'), r = el.getBoundingClientRect(); return { w: r.width, h: r.height, top: r.top, bottom: r.bottom, clip: getComputedStyle(el.parentElement).clipPath }; });
         assert.ok(visible.w > 0 && visible.h > 0 && visible.top >= 0 && visible.bottom <= 530); assert.equal(visible.clip, 'none');
         changes.push({ reason: 'keyboard-malformed', before: compact, rects: after }); await shot('keyboard');

@@ -4,7 +4,7 @@ import { plural, resolveCopy } from './copy-resolve.js';
 /** Fits complete notices into the existing cell; the same nodes own sheet actions. */
 export class UploadNotices {
   #form; #reason; #slot; #dialog; #body; #title; #close; #more;
-  #rows = []; #placements = []; #sources = []; #visible = 0; #copy; #locale; #observer; #focused;
+  #containers = []; #rows = []; #placements = []; #sources = []; #visible = 0; #copy; #locale; #observer; #focused;
   constructor(form) {
     this.#form = form; this.#slot = form.querySelector('.composer-feedback');
     this.#reason = this.#slot.querySelector(':scope > .composer-reason');
@@ -43,16 +43,20 @@ export class UploadNotices {
     this.#focused = active && (this.#reason.contains(active) || this.#dialog.contains(active)) ? active : null;
     for (const { element, marker } of this.#placements) marker.replaceWith(element);
     this.#placements = [];
+    for (const element of this.#containers) element.classList.add('image-refusals'); this.#containers = [];
     for (const [element, hidden] of this.#sources) element.hidden = hidden;
     this.#sources = [];
     for (const row of this.#rows) row.remove(); this.#rows = [];
     this.#more.remove(); this.#reason.removeAttribute('data-notice-layout');
   }
   #row(elements) {
-    const row = node('span', `upload-notice-row${elements[0]?.classList?.contains('image-refusal-item') ? ' image-refusals' : ''}`);
+    const image = elements[0]?.classList?.contains('image-refusal-item');
+    const row = node('span', `upload-notice-row${image ? ' image-refusals' : ''}`);
+    const target = image ? node('span', 'image-refusals__list') : row;
+    if (image) row.append(target);
     for (const element of elements) {
       const marker = this.#form.ownerDocument.createComment('notice'); element.before(marker);
-      this.#placements.push({ element, marker }); row.append(element);
+      this.#placements.push({ element, marker }); target.append(element);
     }
     this.#reason.append(row); return row;
   }
@@ -72,8 +76,7 @@ export class UploadNotices {
     // Layout-free consumers still use the original semantic tree.
     if (!(box.width > 1 && box.height > 1)) { this.#reason.inert = true; this.#retainFocus(); return; }
     const held = this.#reason.hasAttribute('data-held-consent'), images = this.#reason.querySelectorAll('.image-refusal-item');
-    if (!held && !images.length && this.#reason.scrollHeight <= this.#slot.clientHeight
-      && this.#reason.getBoundingClientRect().height <= box.height) { this.#retainFocus(); return; }
+    if (!held && !images.length && this.#fits(box)) { this.#retainFocus(); return; }
     this.#reason.setAttribute('data-notice-layout', '');
     const sources = [...this.#reason.childNodes];
     const groups = [];
@@ -85,6 +88,8 @@ export class UploadNotices {
       if (retry) groups.push([retry, this.#reason.querySelector('.upload-retry-actions')].filter(Boolean));
       const consent = this.#reason.querySelector('.held-upload-consent'); if (consent) groups.push([consent]);
     } else groups.push(sources);
+    this.#containers = [...this.#reason.querySelectorAll('.image-refusals')];
+    for (const element of this.#containers) element.classList.remove('image-refusals');
     this.#rows = groups.map(elements => this.#row(elements));
     // Empty original containers remain reusable by the painter, without paint or focus.
     for (const element of sources.filter(element => element.nodeType === 1 && element.parentNode === this.#reason)) {
@@ -94,6 +99,21 @@ export class UploadNotices {
     this.fit();
     if (this.#dialog.open) this.#showRows();
     this.#retainFocus();
+  }
+  #fits(bounds) {
+    const outside = (r, b) => r.top < b.top - .5 || r.bottom > b.bottom + .5 || r.left < b.left - .5 || r.right > b.right + .5;
+    const document = this.#form.ownerDocument, walker = document.createTreeWalker(this.#reason, 4);
+    while (walker.nextNode()) {
+      const text = walker.currentNode;
+      if (!text.textContent.trim() || text.parentElement.closest('[hidden]')) continue;
+      const range = document.createRange(); range.selectNodeContents(text);
+      for (const rect of range.getClientRects()) {
+        if (outside(rect, bounds)) return false;
+        for (let parent = text.parentElement; parent && parent !== this.#slot; parent = parent.parentElement)
+          if (/auto|scroll|hidden|clip/u.test(document.defaultView.getComputedStyle(parent).overflowY) && outside(rect, parent.getBoundingClientRect())) return false;
+      }
+    }
+    return this.#reason.scrollHeight <= this.#slot.clientHeight;
   }
   #retainFocus() {
     if (!this.#focused || this.#form.getRootNode().activeElement === this.#focused) return;

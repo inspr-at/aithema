@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import mainGeometry from '../fixtures/held-idle-geometry.json' with { type:'json' };
 import { test } from 'node:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -61,7 +62,8 @@ export function uploadNoticeSheetCheck() {
             return Response.json(c.session);
           };
           const { [locale]:copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
-          c.configure({ session, copy, entrance:'choice', sessionToken:'fixture', voiceClient:{} });
+          const supplied = scenario === 'single-line-refusal' ? { ...copy, uploads:{ ...copy.uploads, type:locale === 'de' ? '{name} (abgelehnt)' : '{name} (not allowed)' } } : copy;
+          c.configure({ session, copy:supplied, entrance:'choice', sessionToken:'fixture', voiceClient:{} });
         }, { locale, scenario });
         await startTyping(page); await settle();
       };
@@ -73,9 +75,9 @@ export function uploadNoticeSheetCheck() {
         }, names);
         await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.attach').getAttribute('aria-disabled') === 'false'); await settle();
       };
-      for (const scenario of ['refusal', 'text', 'failure']) await t.test(scenario, async scene => {
+      for (const scenario of ['refusal', 'single-line-refusal', 'text', 'failure']) await t.test(scenario, async scene => {
         await configure(scenario); const before = await boxes();
-        if (scenario === 'refusal') await pick(['x.heic']);
+        if (scenario.endsWith('refusal')) await pick(['x.heic']);
         if (scenario === 'failure') {
           await pick(['report.pdf']);
           await inShadow(page, c => { c.shadowRoot.querySelector('textarea').value = 'Send fixture'; c.shadowRoot.querySelector('form.composer').dispatchEvent(new Event('submit', { cancelable:true, bubbles:true })); });
@@ -84,13 +86,18 @@ export function uploadNoticeSheetCheck() {
         const result = await inShadow(page, c => {
           const reason = c.shadowRoot.querySelector('.composer-feedback > .composer-reason'), send = c.shadowRoot.querySelector('.send').getBoundingClientRect();
           const css = getComputedStyle(reason), range = document.createRange(); range.selectNodeContents(reason); const r = range.getBoundingClientRect();
-          return { text:reason.textContent, center:r.y+r.height/2, referenceCenter:send.y+send.height/2, tabIndex:reason.getAttribute('tabindex'), overflow:css.overflowY, padding:css.paddingBottom,
+          return { text:reason.textContent, ink:{ width:r.width, height:r.height, lines:range.getClientRects().length }, center:r.y+r.height/2, referenceCenter:send.y+send.height/2, tabIndex:reason.getAttribute('tabindex'), overflow:css.overflowY, padding:css.paddingBottom,
             target:reason.querySelector('.consent-action') ? getComputedStyle(reason.querySelector('.consent-action'), '::after').height : null };
         });
         const after = await boxes(); await save(scenario, { before, after, result });
         unchanged(before, after);
         await scene.test('no feedback Tab stop', () => assert.equal(result.tabIndex, null, 'plain feedback never receives a tabindex'));
-        if (scenario === 'refusal') await scene.test('main centred alignment', () => assert.ok(Math.abs(result.center-result.referenceCenter) <= .5, `ordinary refusal remains centred like main: ${JSON.stringify(result)}`));
+        if (scenario.endsWith('refusal')) await scene.test('main centred alignment', () => {
+          const offset = process.platform === mainGeometry.ordinaryRefusal.platform ? mainGeometry.ordinaryRefusal.inkCenterOffset : 0;
+          assert.ok(result.ink.width > 0 && result.ink.height > 0, 'refusal ink has a positive box');
+          assert.ok(Math.abs(result.center-result.referenceCenter-offset) <= .5, `ordinary refusal matches main ink centre: ${JSON.stringify(result)}`);
+          if (scenario === 'single-line-refusal') assert.equal(result.ink.lines, 1, 'short host copy provides a true single-line refusal at both widths');
+        });
         if (scenario === 'text') { assert.equal(result.overflow, 'visible', 'text consent target is not clipped'); assert.ok(Number.parseFloat(result.target) >= 44); }
         if (scenario === 'failure') assert.equal(result.padding, '8px', 'send failure retains 8px paint room');
       });

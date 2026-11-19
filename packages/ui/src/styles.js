@@ -1019,7 +1019,7 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
   position:static; display:block; min-height:0; height:auto; max-height:none; overflow:visible; }
 .upload-notice-row .image-refusal__name { display:inline; white-space:normal; overflow:visible; text-overflow:clip; }
 .upload-notice-row.image-refusals { position:static; inset:auto; display:block; min-height:0; font:inherit; overflow:visible; }
-.upload-notice-row .image-refusal { display:block; }
+.upload-notice-row .image-refusals__list, .upload-notice-row .image-refusal { display:block; }
 .upload-notice-row .image-refusal-item { color:var(--aithema-warning); }
 .upload-notice-row .consent-action { display:block; width:max-content; max-width:100%; min-width:44px; min-height:44px;
   padding:0 4px; font:inherit; line-height:1.3; color:inherit; text-decoration:underline; text-underline-offset:3px; }
