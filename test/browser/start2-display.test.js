@@ -1559,6 +1559,101 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
   if (evidence) await writeFile(join(evidence, 'ait105-version-pass-lines.json'), JSON.stringify(passLines, null, 2));
 });
 
+// Hold each await in the old refresh across a same-session configure(). The
+// supplied snapshot is authoritative even when its cursor/revisions are equal.
+test('AIT-572: configure fences late feature and consent reads before their first paint', { timeout: 90_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-configure-consent-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
+  });
+  const browser = await browserForFile(), page = await browser.newPage();
+  t.after(async () => { await browser.close(); await demo.kill(); });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await mockIdentityReads(page);
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session?.id);
+  await shadow(page, c => { window.configureSeed = c.session; });
+  for (const [locale, theme, width] of [['de', 'dark', 390], ['en', 'light', 1440]]) {
+    await page.setViewport({ width, height: 1000 }); await page.select('#theme', theme);
+    for (const boundary of ['snapshot', 'document']) for (const missing of [false, true]) {
+      await t.test(`${locale}/${width}/${boundary}/${missing ? 'missing' : 'allowed'}`, async () => {
+        const before = await shadow(page, async (c, { locale, boundary, missing }) => {
+          const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+          const { inputRevision } = await import('/packages/core/src/session.js');
+          const s = structuredClone(window.configureSeed);
+          s.locale = locale; s.settings.origin = 'chosen'; s.processingPreset = 'best';
+          s.paused = false; s.pauseReason = null; s.visualsBound = true;
+          s.transcript = [{ id: 'configure-user', role: 'user', content: 'A fixture website.' },
+            { id: 'configure-reply', role: 'assistant', content: 'A fixture reply.' }];
+          s.transcript[1].inputRevision = inputRevision(s);
+          s.understanding = { ...s.understanding, inputRevision: inputRevision(s), readinessAssessed: true, summary: 'A fixture website.' };
+          s.conceptVisualKind = 'html'; s.conceptCost = null; s.conceptStatus = { phase: 'idle' }; s.concepts = [];
+          s.featureMatrix = { best: Object.fromEntries(['text', 'analysis', 'voice', 'uploads', 'html', 'images'].map(key => [key, { available: true, reason: null }])) };
+          const old = structuredClone(s);
+          if (boundary === 'snapshot' && !missing) old.featureMatrix.best.html = { available: false, reason: 'current processing consent required' };
+          const doc = { consentRevision: s.consentRevision, selected: missing ? ['fixture-draft'] : [], features: { html: ['fixture-draft'] } };
+          let release, reached;
+          const gate = new Promise(resolve => { release = resolve; });
+          window.configureReadReached = new Promise(resolve => { reached = resolve; });
+          window.releaseConfigureRead = release;
+          const native = window.configureNativeFetch ??= window.fetch.bind(window);
+          window.fetch = async (url, init = {}) => {
+            const path = new URL(url, location.href).pathname;
+            if (path.endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+              init.signal.addEventListener('abort', () => controller.close(), { once: true });
+            } }));
+            const snapshot = path === `/api/sessions/${s.id}`, documentRead = path.endsWith('/consent');
+            if ((init.method ?? 'GET') === 'GET' && (snapshot || documentRead)) {
+              return { ok: true, async json() {
+                if (boundary === 'snapshot' && snapshot || boundary === 'document' && documentRead) { reached(); await gate; }
+                return structuredClone(snapshot ? old : doc);
+              } };
+            }
+            return native(url, init);
+          };
+          const options = { copy, session: s, voiceClient: {} };
+          c.configure(options);
+          c.shadowRoot.querySelector('.drafts-settings-action').click();
+          await window.configureReadReached;
+          s.concepts = [{ id: 'configure-draft', mediaType: 'text/html', turnIds: ['configure-user'], referenceIds: [], archived: false }];
+          if (missing) s.featureMatrix.best.html = { available: false, reason: 'current processing consent required' };
+          c.configure(options);
+          const read = () => ({ text: c.shadowRoot.querySelector('.concept-activity-text').textContent,
+            available: c.session.featureMatrix.best.html.available,
+            consent: Boolean(c.shadowRoot.querySelector('.concept-activity-text .consent-action')) });
+          const synchronous = read();
+          await new Promise(resolve => requestAnimationFrame(resolve));
+          return { synchronous, firstPaint: read() };
+        }, { locale, boundary, missing });
+        const after = await shadow(page, async c => {
+          window.releaseConfigureRead();
+          await new Promise(resolve => requestAnimationFrame(resolve));
+          const line = c.shadowRoot.querySelector('.concept-activity-text');
+          const box = line.getBoundingClientRect();
+          return { text: line.textContent, available: c.session.featureMatrix.best.html.available,
+            consent: Boolean(line.querySelector('.consent-action')), width: box.width, height: box.height };
+        });
+        if (process.env.AITHEMA_EVIDENCE_DIR && !missing) {
+          const label = `ait572-${width}-${locale}-${theme}-${boundary}`;
+          await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+          await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, label + '.png'), fullPage: false });
+          await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, label + '.json'), JSON.stringify({ head: evidenceCommit, before, after }, null, 2));
+        }
+        const copy = { de, en }[locale], ready = copy.conceptDraftReady.replace('{number}', '1');
+        for (const [phase, actual] of Object.entries({ ...before, lateFirstPaint: after })) {
+          assert.equal(actual.available, !missing, `${phase}: retain the configured feature verdict`);
+          if (missing) assert.notEqual(actual.text, ready, `${phase}: missing consent never announces ready`);
+          else {
+            assert.equal(actual.text, ready, `${phase}: no stale consent sentence, even for one paint`);
+            assert.equal(actual.consent, false, `${phase}: no stale consent action`);
+          }
+        }
+        if (!missing) assert.ok(after.width > 0 && after.height > 0, 'the measured activity line is visible');
+      });
+    }
+  }
+});
+
 test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, export, pointer hints and appearance', { timeout: 180_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-ui-polish-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {

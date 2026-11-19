@@ -4150,7 +4150,9 @@ export class AithemaSession extends HTMLElement {
     // An erased conversation has no server snapshot: any read can only 404 (AIT-464).
     if (this.#erased || this.#session.processingPreset === 'device' || this.#session.tombstone) return;
     const sessionId = this.#session.id, startCursor = this.#cursor, voiceGeneration = this.#rail?.generation, revision = this.#session.consentRevision, pending = this.#consentRefresh;
-    const operationsAtRead = this.#session.operations;
+    // configure() can replace the view for the same session/cursor/revision.
+    // Its older reads own neither the new feature verdict nor its consent document.
+    const concept = this.#concept, operationsAtRead = this.#session.operations;
     // A read begun before the local listening acknowledgement cannot repaint
     // its cached paused verdict afterward, even within the same rail generation.
     const projectionRevision = this.#voiceResumeRevision, resume = this.#voiceResumeProjection;
@@ -4176,7 +4178,7 @@ export class AithemaSession extends HTMLElement {
         pending.timer.unref?.();
       }
     }
-    const active = () => !this.#erased && sessionId === this.#session.id && projectionRevision === this.#voiceResumeRevision &&
+    const active = () => !this.#erased && concept === this.#concept && sessionId === this.#session.id && projectionRevision === this.#voiceResumeRevision &&
       pending === this.#consentRefresh && (!pending || pending.attempt === attempt);
     const fail = () => { if (active()) { restorePaused(); this.#failConsentRefresh(pending); } };
     const repeat = (seq, differs) => {
