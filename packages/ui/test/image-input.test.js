@@ -504,3 +504,21 @@ for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} a detected co
   assert.deepEqual(posts[1], ['scan.pdf']);
   assert.deepEqual(f.c.session.uploads.map(upload => upload.filename), ['eligible.pdf', 'scan.pdf']);
 });
+
+for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} unavailable image intake keeps main type refusal despite an existing full image quota`, async t => {
+  const session = createSession({ demo: true, locale: copy.display.locale });
+  session.uploads = [{ id: 'earlier', kind: 'image', state: 'sent', filename: 'earlier.png', bytes: 1, at: new Date(0).toISOString() }];
+  const f = fixture(t, copy, false, { session, imageReason: 'image normalizer not configured' }), originalFetch = globalThis.fetch;
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    if (url.endsWith('/uploads') && options.method !== 'POST') return Response.json({ limits: { maxImagesPerSession: 1 } });
+    if (url.endsWith('/uploads') && options.method === 'POST') return Response.json({
+      refused: [{ index: 0, name: 'clipboard', kind: 'image', reason: 'image normalizer not configured' }],
+      events: [{ sessionId: session.id, seq: f.c.session.seq + 1, type: 'upload.state', data: { id: 'eligible', filename: 'eligible.pdf', state: 'accepted', bytes: 1, at: new Date(0).toISOString() } }],
+    }, { status: 202 });
+    return originalFetch(url, options);
+  });
+  await choose(f.root, [new window.File(['pixels'], 'clipboard', { type: 'image/png' }), new window.File(['x'], 'eligible.pdf')]);
+  assert.deepEqual(f.c.session.uploads.map(upload => upload.filename), ['earlier.png', 'eligible.pdf']);
+  assert.equal(f.root.querySelector('.composer-reason').textContent, copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'clipboard')));
+  assert.equal(f.root.querySelector('.image-refusals'), null);
+});
