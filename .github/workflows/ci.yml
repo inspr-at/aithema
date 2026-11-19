@@ -335,11 +335,16 @@ jobs:
     timeout-minutes: 6
     env:
       PLAYWRIGHT_VERSION: '1.56.1'
-      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/preview-browsers
     steps:
       - name: Docs-only success
         if: github.event_name == 'pull_request' && needs.changes.result == 'success' && needs.changes.outputs.docs-only == 'true'
         run: echo "Docs-only PR; engine qualification skipped."
+      - name: Initialize qualification paths and runner image version
+        id: preview_paths
+        if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+        run: |
+          printf 'PLAYWRIGHT_BROWSERS_PATH=%s/preview-browsers\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'image-version=%s\n' "${ImageVersion:?Runner image version is required}" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -349,22 +354,23 @@ jobs:
           cache: npm
       - run: npm ci
         if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
-      - name: Cache pinned qualification browser binaries
+      - name: Restore pinned qualification browser binaries
         id: preview_browsers
         if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
           key: preview-browsers-v1-ubuntu-24.04-${{ runner.arch }}-playwright-${{ env.PLAYWRIGHT_VERSION }}-chromium-webkit-firefox
       # AIT-564: apt mirror stalls dominated the cancelled jobs, not browser downloads.
       # Cache only downloaded packages; apt still resolves and installs the full dep set.
-      - name: Cache qualification OS dependency downloads
+      # Warm .deb trust comes from cache scope; apt accepts size-matched archives.
+      - name: Restore qualification OS dependency downloads
         id: preview_apt
         if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: ${{ runner.temp }}/preview-apt-archives/*.deb
-          key: preview-apt-v1-ubuntu-24.04-${{ runner.arch }}-playwright-${{ env.PLAYWRIGHT_VERSION }}-chromium-webkit-firefox
+          key: preview-apt-v1-ubuntu-24.04-${{ runner.arch }}-${{ steps.preview_paths.outputs.image-version }}-playwright-${{ env.PLAYWRIGHT_VERSION }}-chromium-webkit-firefox
       - name: Install pinned qualification core outside the workspace
         id: preview_core
         if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
@@ -377,10 +383,24 @@ jobs:
           mkdir -p "$RUNNER_TEMP/preview-apt-archives"
           printf 'Dir::Cache::archives "%s";\nBinary::apt-get::APT::Keep-Downloaded-Packages "true";\n' "$RUNNER_TEMP/preview-apt-archives" | sudo tee /etc/apt/apt.conf.d/99-preview-security-cache > /dev/null
           node "$RUNNER_TEMP/preview-engines/node_modules/playwright-core/cli.js" install-deps chromium webkit firefox
+      - name: Save completed OS dependency downloads
+        id: preview_apt_save
+        if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') && steps.preview_apt.outputs.cache-hit != 'true' && steps.preview_deps.outcome == 'success'
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ runner.temp }}/preview-apt-archives/*.deb
+          key: preview-apt-v1-ubuntu-24.04-${{ runner.arch }}-${{ steps.preview_paths.outputs.image-version }}-playwright-${{ env.PLAYWRIGHT_VERSION }}-chromium-webkit-firefox
       - name: Download pinned qualification browsers on cache miss
         id: preview_download
         if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') && steps.preview_browsers.outputs.cache-hit != 'true'
         run: node "$RUNNER_TEMP/preview-engines/node_modules/playwright-core/cli.js" install chromium webkit firefox
+      - name: Save completed pinned qualification browsers
+        id: preview_browsers_save
+        if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') && steps.preview_browsers.outputs.cache-hit != 'true' && steps.preview_download.outcome == 'success'
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
+          key: preview-browsers-v1-ubuntu-24.04-${{ runner.arch }}-playwright-${{ env.PLAYWRIGHT_VERSION }}-chromium-webkit-firefox
       - name: Qualify the strict host and demo with local fixtures
         if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
         timeout-minutes: 2
