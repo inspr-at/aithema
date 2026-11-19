@@ -8,6 +8,45 @@ import { de } from '../../packages/ui/src/i18n/de.js';
 import { browserForFile } from './shared-browser.js';
 import { startDemo, stopDemo, preparePage, waitForShadow, startTyping, inShadow } from './demo-helpers.js';
 
+// Inspect all live text, including lines outside the slot's first viewport.
+// Overflow is accepted only in a focusable scroll port that can reach each rect.
+function feedbackVisibility(c) {
+  const slot = c.shadowRoot.querySelector('.composer-feedback'), reason = slot.querySelector('.composer-reason'), bounds = slot.getBoundingClientRect();
+  const box = r => ({ top: r.top, bottom: r.bottom, left: r.left, right: r.right, width: r.width, height: r.height });
+  const outside = (r, b) => r.top < b.top - 1 || r.bottom > b.bottom + 1 || r.left < b.left - 1 || r.right > b.right + 1;
+  const ports = [slot, reason, ...reason.querySelectorAll('*')].filter(e => /auto|scroll/u.test(getComputedStyle(e).overflowY) && e.tabIndex >= 0);
+  const texts = [], walker = document.createTreeWalker(reason, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    if (!node.textContent.trim()) continue;
+    const range = document.createRange(); range.selectNodeContents(node);
+    const rects = [...range.getClientRects()].filter(r => r.width > 0 && r.height > 0);
+    if (!rects.length) continue; // Responsive alternatives with display:none have no painted rect.
+    const port = ports.find(p => p.contains(node)), pr = port?.getBoundingClientRect();
+    texts.push({ text: node.textContent, rects: rects.map(box), outside: rects.some(r => outside(r, bounds)),
+      reachable: rects.every(r => !outside(r, bounds) || Boolean(port && pr.width > 0 && pr.height > 0 &&
+        pr.top >= bounds.top - 1 && pr.bottom <= bounds.bottom + 1 &&
+        r.left >= pr.left - 1 && r.right <= pr.right + 1 &&
+        r.top >= pr.top - port.scrollTop - 1 && r.bottom <= pr.top - port.scrollTop + port.scrollHeight + 1)) });
+  }
+  const action = reason.querySelector('.held-upload-consent .consent-action') ?? reason.querySelector('.consent-action');
+  let treatment = null;
+  if (action) {
+    const css = getComputedStyle(action), r = action.getBoundingClientRect();
+    let parent = action.parentElement;
+    while (parent !== slot && !/auto|scroll/u.test(getComputedStyle(parent).overflowY)) parent = parent.parentElement;
+    const p = parent.getBoundingClientRect();
+    treatment = { decoration: css.textDecorationLine, colour: css.color, parentColour: getComputedStyle(action.parentElement).color, offset: css.textUnderlineOffset,
+      underlineClipped: r.bottom + 3 > p.bottom + 1 && parent.scrollHeight <= parent.clientHeight };
+  }
+  const line = reason.querySelector('.held-upload-consent'), image = reason.querySelector('.held-upload-images');
+  const heldGap = line && image ? line.getBoundingClientRect().top - image.getBoundingClientRect().bottom : 0;
+  const slotOverflow = slot.scrollHeight > slot.clientHeight + 1;
+  return { slot: box(bounds), scrollHeight: slot.scrollHeight, clientHeight: slot.clientHeight, slotOverflow, texts, action: treatment, heldGap,
+    ports: ports.map(p => ({ className: p.className, scrollHeight: p.scrollHeight, clientHeight: p.clientHeight, tabIndex: p.tabIndex })),
+    unreachable: texts.some(t => !t.reachable) || slotOverflow && !ports.some(p => p === slot) };
+}
+
 export function uploadFollowupCheck() {
   for (const width of [390, 1440]) for (const locale of ['en', 'de']) {
     const theme = locale === 'en' ? 'light' : 'dark', copy = { en, de }[locale];
@@ -297,12 +336,12 @@ export function heldRegressionCheck() {
       await preparePage(page, [locale]); await page.setViewport({ width, height: width === 390 ? 844 : 900, hasTouch: width === 390 });
       await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
       await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
-      for (const scenario of ['rehold-decline', 'rehold-expiry', 'rehold-grant', 'mixed-refusals', 'document-only', 'text-block']) await t.test(scenario, async () => {
+      for (const scenario of ['idle-image', 'idle-document', 'rehold-decline', 'rehold-expiry', 'rehold-grant', 'mixed-refusals', 'document-only', 'text-block']) await t.test(scenario, async () => {
         await inShadow(page, async (c, { locale, scenario }) => {
           const session = structuredClone(c.session); session.id = crypto.randomUUID(); session.seq = 0; session.locale = locale; session.uploads = [];
           session.transcript = [{ id: 'established', role: 'user', content: 'Project documents', at: new Date(0).toISOString() }];
           session.settings.voice = 'off'; session.settings.origin = 'chosen';
-          const documentOnly = scenario === 'document-only';
+          const documentOnly = scenario === 'document-only' || scenario === 'idle-document';
           session.featureMatrix = { best: { text: { available: true }, uploads: { available: !documentOnly, reason: documentOnly ? 'current processing consent required' : null },
             imageInput: { available: scenario === 'mixed-refusals', reason: documentOnly ? 'image normalizer not configured' : 'current processing consent required' } } };
           window.regression = { scenario, granted: false, textBlocked: false, asks: [], timers: [], posts: [], firstText: null };
@@ -335,7 +374,7 @@ export function heldRegressionCheck() {
         }, { locale, scenario });
         await startTyping(page);
         const settle = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-        const boxes = () => inShadow(page, c => Object.fromEntries(['.composer', '.send', 'textarea', '.composer-feedback'].map(selector => {
+        const boxes = () => inShadow(page, c => Object.fromEntries(['.composer', '.attach', '.send', 'textarea', '.composer-feedback'].map(selector => {
           const r = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [selector, { x: r.x, y: r.y, width: r.width, height: r.height }];
         })));
         const pick = async names => {
@@ -347,6 +386,20 @@ export function heldRegressionCheck() {
           await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer').hasAttribute('aria-busy')); await settle();
         };
         await settle(); const before = await boxes();
+        if (scenario.startsWith('idle-')) {
+          const evidence = process.env.AITHEMA_EVIDENCE_DIR, prefix = `ait566-r2-${scenario}-${width}-${locale}-${theme}`;
+          if (evidence) {
+            await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, `${prefix}.png`) });
+            await writeFile(join(evidence, `${prefix}.json`), JSON.stringify({ before }, null, 2));
+          }
+          for (const [selector, box] of Object.entries(before)) assert.ok(box.width > 0 && box.height > 0, `${selector}: positive idle box`);
+          // Main's composer footprint is shared by both locales and capabilities.
+          const expected = width === 390 ? 168.03125 : 150.90625;
+          assert.ok(Math.abs(before['.composer'].height - expected) <= .5, `idle composer matches main within 0.5 px: ${before['.composer'].height} vs ${expected}`);
+          if (width === 390 && scenario === 'idle-document')
+            assert.ok(Math.abs(before['.send'].y - 716.40625) <= .5, 'document-only idle Send matches main within 0.5 px');
+          return;
+        }
         const heldName = scenario === 'document-only' || scenario === 'mixed-refusals' ? 'scan.pdf' : 'photo.png';
         await pick([heldName]);
         await page.waitForFunction(() => window.regression.asks.length > 0);
@@ -381,7 +434,7 @@ export function heldRegressionCheck() {
           });
           return { notice: reason.textContent, visible, heldOnly: reason.hasAttribute('data-held-only'), imageLayout: c.shadowRoot.querySelector('.composer').hasAttribute('data-image-input'), firstText: window.regression.firstText };
         });
-        const result = await inspect(), evidence = process.env.AITHEMA_EVIDENCE_DIR;
+        const result = await inspect(), visibility = await inShadow(page, feedbackVisibility), evidence = process.env.AITHEMA_EVIDENCE_DIR;
         // A compact review packet: two re-hold states, four mixed scenes, two document-only scenes and first text renders.
         const selected = scenario === 'mixed-refusals' || scenario === 'text-block' || (scenario === 'rehold-decline' || scenario === 'document-only') && (width === 390 && locale === 'de' || width === 1440 && locale === 'en');
         const save = async (suffix, data) => {
@@ -389,7 +442,19 @@ export function heldRegressionCheck() {
           await mkdir(evidence, { recursive: true }); const prefix = join(evidence, `ait566-${scenario}-${width}-${locale}-${theme}${suffix}`);
           await page.screenshot({ path: `${prefix}.png` }); await writeFile(`${prefix}.json`, JSON.stringify(data, null, 2));
         };
-        await save('', { before, after, result });
+        await save('', { before, after, result, visibility });
+        await t.test(`${scenario}: slot and every text node`, () => assert.equal(visibility.unreachable, false, JSON.stringify(visibility)));
+        if (scenario === 'mixed-refusals' || scenario === 'document-only') {
+          await t.test(`${scenario}: consent link treatment`, () => {
+            assert.ok(visibility.action.decoration.includes('underline'), 'consent is underlined');
+            assert.equal(visibility.action.colour, visibility.action.parentColour, 'consent inherits the sentence ink like the shared link');
+            assert.equal(visibility.action.offset, '3px');
+            assert.equal(visibility.action.underlineClipped, false, 'the underline has paint room inside its scroll port');
+          });
+          if (scenario === 'mixed-refusals' && width === 1440) await t.test('mixed: no blank line before held filename', () => {
+            assert.ok(visibility.heldGap <= 2, `held line follows current facts without an empty line: ${visibility.heldGap}px`);
+          });
+        }
         if (scenario.startsWith('rehold')) {
           if (scenario === 'rehold-grant') {
             await inShadow(page, c => { window.regression.granted = true; c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: ['imageInput'], removed: [] } }); });

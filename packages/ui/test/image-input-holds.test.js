@@ -241,3 +241,58 @@ for (const copy of [en, de]) test(`AIT-566 L-c: ${copy.display.locale} newer ima
   assert.ok(reason.textContent.includes(copy.imageRefusals.size));
   assert.ok(reason.querySelector('.held-upload-consent .consent-action'));
 });
+
+for (const copy of [en, de]) for (const ending of ['decline', 'expiry'])
+  test(`AIT-566 r2 L1: ${copy.display.locale}/${ending} typing clears ended held descendants with image refusals`, async t => {
+    const f = followupFixture(t, copy, 'choice', true, true), schedule = globalThis.setTimeout, timers = [];
+    t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
+      if (delay === 180000) { timers.push(callback); return schedule(() => {}, delay); }
+      return schedule(callback, delay, ...args);
+    });
+    await choose(f.root, [f.held()]);
+    const large = new window.File(['pixels'], 'oversized.png'); Object.defineProperty(large, 'size', { value: 21 * 1024 * 1024 });
+    await choose(f.root, [new window.File(['x'], 'newer.exe'), large]);
+    assert.ok(f.root.querySelector('.held-upload-notice').textContent.includes('newer.exe'));
+    if (ending === 'decline') f.asks.at(-1).cancel(); else timers.at(-1)();
+    const input = f.root.querySelector('textarea'); input.value = 'Continue'; input.dispatchEvent(new window.Event('input'));
+    const reason = f.root.querySelector('.composer-reason');
+    assert.equal(reason.textContent.includes('newer.exe'), false, 'cleared document facts cannot survive in a nested held node');
+    assert.ok(reason.textContent.includes('oversized.png'), 'the independent image refusal remains');
+    assert.equal(reason.querySelector('.held-upload-notice'), null);
+  });
+
+for (const copy of [en, de]) for (const scenario of ['retain-notice', 'retry-hold'])
+  test(`AIT-566 r2 ${scenario === 'retain-notice' ? 'L2' : 'L3'}: ${copy.display.locale}/${scenario} retained retry files preserve facts without duplicate choose-again`, async t => {
+    const f = fixture(t, copy, false), original = globalThis.fetch, schedule = globalThis.setTimeout;
+    let blocked = false;
+    t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => schedule(callback, [5000, 10000].includes(delay) ? 0 : delay, ...args));
+    t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+      if (url.endsWith('/uploads') && options.method === 'POST') return Response.json({ error: 'upload-rate-limit' }, { status: 429 });
+      if (blocked && url.endsWith(`/api/sessions/${f.c.session.id}`)) {
+        const snapshot = f.c.session; snapshot.featureMatrix.best.uploads = { available: false, reason: 'current processing consent required' };
+        return Response.json(snapshot);
+      }
+      return original(url, options);
+    });
+    await choose(f.root, [new window.File(['x'], 'a.exe'), new window.File(['%PDF-fixture'], 'report.pdf')]);
+    for (let n = 0; n < 100 && !f.root.querySelector('.upload-retry'); n++) await new Promise(resolve => schedule(resolve, 0));
+    const retry = f.root.querySelector('.upload-retry'); assert.ok(retry);
+    const before = f.root.querySelector('.composer-reason').textContent;
+    assert.ok(before.includes('a.exe'));
+    await choose(f.root, [new window.File(['pixels'], 'photo.png')]);
+    if (scenario === 'retain-notice') {
+      assert.ok(f.root.querySelector('.composer-reason').textContent.includes('a.exe'), 'the refused sibling stays visible while report.pdf is retained');
+      assert.ok(f.root.querySelector('.upload-retry'));
+    } else {
+      f.asks.at(-1).cancel();
+      blocked = true;
+      f.c.receive({ sessionId: f.c.session.id, seq: f.c.session.seq + 1, type: 'settings.changed', data: { processingPreset: 'best', settings: { ...f.c.session.settings, revision: 2 } } });
+      for (let n = 0; n < 100 && f.c.session.featureMatrix.best.uploads.available; n++) await tick();
+      assert.equal(f.c.session.featureMatrix.best.uploads.available, false);
+      // An already queued retry activation must use the current consent verdict.
+      retry.click(); await tick(); await tick();
+      assert.ok(f.root.querySelector('.held-upload-consent').textContent.includes('report.pdf'));
+      f.asks.at(-1).cancel();
+      assert.equal(f.root.querySelector('.composer-reason').textContent.split(copy.uploadsReselect.one).length - 1, 1, 'ending the retry hold does not append the same choose-again sentence twice');
+    }
+  });
