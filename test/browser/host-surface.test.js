@@ -1414,9 +1414,11 @@ test('AIT-569: delayed host reads and header fit never move a visible chooser', 
           const Observer = window.ResizeObserver;
           window.ResizeObserver = class extends Observer {
             constructor(callback) {
+              let header = false;
               super((entries, observer) => {
-                const deliver = () => { callback(entries, observer); probe.lastWidth = innerWidth; };
-                if (entries.some(entry => entry.target.matches('.band')) && probe.hold) probe.pending.push(deliver);
+                header ||= entries.some(entry => entry.target.matches('.band'));
+                const deliver = () => { callback(entries, observer); if (header) probe.lastWidth = innerWidth; };
+                if (header && probe.hold) probe.pending.push(deliver);
                 else deliver();
               });
             }
