@@ -966,6 +966,8 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .image-feedback-reserve { display:none; visibility:hidden; pointer-events:none; font-size:.72rem; line-height:1.3; }
 .composer:is([data-image-input], [data-document-input]) .image-feedback-reserve { display:grid; }
 .image-feedback-reserve > * { grid-area:1/1; }
+/* Whole pixels keep font-baseline rounding from moving a locale repaint. */
+.composer[data-document-input]:not([data-image-input]) .composer-feedback { min-height:var(--image-feedback-height,44px); }
 .image-feedback-document-reserve { overflow-wrap:anywhere; }
 /* Keep arbitrary refusal batches in their established two-line scroll area;
    accepted formats have their own fully wrapped row and never scroll away. */
@@ -1017,6 +1019,19 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
   .workspace[data-phone-short] .composer:is([data-image-input], [data-document-input]) .composer-reason[data-held-consent] { position:absolute; inset:0; height:auto; line-height:1.25; overflow:visible; }
   .workspace[data-phone-short] .composer:is([data-image-input], [data-document-input]) .composer-reason[data-held-consent][data-held-only] { position:static; max-height:44px; overflow-y:auto; }
   .workspace[data-phone-short] .composer:is([data-image-input], [data-document-input]) .composer-reason:has(.image-refusals) { transition:none; position:absolute; inset:0; overflow:visible; }
+  /* The short phone keeps reading room by flowing concurrent facts across
+     the full feedback width, instead of allocating a separate 44px row. */
+  .workspace[data-phone-short] .held-feedback-reserve,
+  .workspace[data-phone-short] .composer-reason[data-held-consent]:not([data-held-only]) { display:block; }
+  .workspace[data-phone-short] :is(.held-feedback-reserve__facts, .held-upload-notice) { display:inline; }
+  .workspace[data-phone-short] :is(.held-feedback-reserve__facts, .held-upload-notice)::after { content:' '; white-space:pre; }
+  .workspace[data-phone-short] .held-feedback-reserve .image-refusals-reserve__row,
+  .workspace[data-phone-short] .held-upload-images .image-refusals { display:inline; min-height:0; max-height:none; overflow:visible; }
+  .workspace[data-phone-short] :is(.held-feedback-reserve, .held-upload-images) .image-refusals__icon { display:none; }
+  .workspace[data-phone-short] :is(.held-feedback-reserve, .held-upload-images) .image-refusals__list { display:contents; }
+  .workspace[data-phone-short] :is(.held-feedback-reserve, .held-upload-images) :is(.image-refusal, .image-refusal__name) { display:inline; white-space:normal; }
+  .workspace[data-phone-short] :is(.held-feedback-reserve, .held-upload-images) .image-refusals__dismiss { display:inline; min-height:0; padding:0 4px; }
+  .workspace[data-phone-short] .held-upload-images .image-refusals__dismiss::after { height:max(100%,44px); }
   /* A selected thumbnail shares one row with its 44px control on short phones. */
   .workspace[data-phone-short] .turn-image:not([data-withheld]) { max-width:44px; max-height:44px; }
   .workspace[data-phone-short] .staged-images { height:46px; }
