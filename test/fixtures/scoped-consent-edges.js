@@ -92,7 +92,7 @@ export async function scopedConsentEdges({ t, a, session, setSession, setSelecte
     assert.deepEqual(immediate.ids, [kind === 'html' ? 'image' : 'html']);
     // Elapsed handler time is diagnostic only: scheduling/load cannot change
     // the return-boundary guarantee asserted above (AIT-545).
-    assert.deepEqual(visibleBoxes(immediate.geometry), baseline, 'event moves thread/composer/rail/header/access/canvas 0 px');
+    assert.deepEqual(visibleBoxes(immediate.geometry), baseline, 'event moves rail/band/access/canvas 0 px');
     await capture(width, `scoped-${kind}`);
     await releaseSnapshots(); await a.waitForFunction(() => window.verifiedRevision === c.session.consentRevision);
     const confirmed = await a.evaluate(() => ({ ...inspect(), geometry: scopedBoxes() }));

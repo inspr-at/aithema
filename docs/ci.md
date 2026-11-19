@@ -616,10 +616,10 @@ floor, trusted sample, twelve shards and **405/420 s** limits remain unchanged.
 ### AIT-557 fourteenth-shard capacity (2026-11-18)
 
 The clarify-now split preserves all tests while separating status/hit-testing
-work. The old 378.094 s reservation covered 483.337 s of trusted CI work before
-the split. The two provisional reservations now cover the separate workloads:
-301 s for clarify-now and 304 s for clarify-now-status. Both await measured
-rolling-main replacements in a coordinator-owned follow-up, following AIT-477.
+work. The old 378.094 s reservation under-reserved the 483.337 s of trusted CI
+work measured before the split. The provisional reservations initially covered
+the separate workloads: 301 s for clarify-now and 304 s for clarify-now-status.
+AIT-558 replaces both with measured rolling-main timings below, following AIT-477.
 
 Coordinator Round 5 applies the AIT-410/AIT-419 standing capacity rule: add a
 shard when the unchanged growth scenario exceeds the target. Keep all 36 files,
@@ -650,6 +650,29 @@ unchanged. Timing import retains every supported historical count and admits
 complete 14-shard histories, rejecting missing, duplicate, out-of-range, mixed
 or expired artifacts before writing weights.
 
+### AIT-558 measured clarify reservations (2026-11-19)
+
+Six successful canonical post-split merge-group runs replace both provisional
+reservations: **285.158 s** for clarify-now and **321.369 s** for
+clarify-now-status, **606.527 s** combined. Both workload hashes match the
+post-split files. The runs are `44371370170`, `44375931233`, `44399683830`,
+`44475421367`, `44484221831` and `44500373409`, all attempt 1. Each reservation
+is the sum of the top-level tests' rolling nearest-rank p95, without a warmup
+margin because both series exceed the five-sample maturity threshold.
+
+The table and packing above record AIT-557's provisional plans. AIT-558 removes
+the file-specific provisional bypass. Its L3 guard reserves the moved status
+work at measured p95 and keeps the combined reservation at or above
+`max(378.094 s, measured combined work)`. The +180 s start-journey growth
+scenario, fourteen shards, packer, every other weight and floor, job timeouts,
+and **405/420 s** limits remain unchanged.
+
+Helper-defined top-level records are attributed only when the verified CI
+commit's import graph identifies exactly one test file in the same batch's
+manifest. The importer parses source syntax so comments and fixture strings
+cannot invent import edges. Ambiguous and unassigned helpers are rejected;
+workload hashing and every existing provenance and coverage check remain intact.
+
 The AIT-557 capacity decision above extends the merged AIT-511/AIT-513 plan
 to fourteen shards and retains all AIT-510 reservations above; earlier
 twelve/thirteen-shard observations remain historical. Each CI shard writes
@@ -662,7 +685,7 @@ them. Failed, cancelled, skipped, todo or incomplete batches cannot enter the
 measurement set. Remote runs remain useful for profiling and UI evidence;
 GitHub CI is the planner's comparable timing source.
 
-Refresh from the latest 20 successful canonical main push CI runs:
+Refresh from recent successful canonical main-push and merge-group CI runs:
 
 ```sh
 npm run update:browser-timings

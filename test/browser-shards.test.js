@@ -4,7 +4,7 @@ import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { plannedSeconds, assertMeasuredWeight, browserWorkload, timingMinimumSamples } from '../scripts/browser-timings.js';
+import { plannedSeconds, measuredSeconds, assertMeasuredWeight, browserWorkload, timingMinimumSamples } from '../scripts/browser-timings.js';
 import { readBrowserTestWeights, assertBrowserShardHeadroom, assertBrowserShardBudget, assertBrowserShardCoverage, browserShardCount, browserShards, browserTestWeights, browserShardTotals, packBrowserTests, discoverBrowserTests, selectBrowserTests } from '../scripts/browser-shards.js';
 
 const measuredWeight = (seconds = 90) => {
@@ -133,8 +133,8 @@ test('invalid weights and shard counts fail before packing', () => {
 });
 
 
-test('the shard guard command prints projected totals for every shard', () => {
-  const result = spawnSync(process.execPath, ['scripts/browser-shards.js'], {
+test('the shard guard command prints projected totals for every shard', t => {
+  const result = spawnSync('npm', ['run', 'test:browser-shards'], {
     cwd: new URL('../', import.meta.url), encoding: 'utf8',
   });
   assert.equal(result.status, 0, result.stderr);
@@ -142,6 +142,7 @@ test('the shard guard command prints projected totals for every shard', () => {
     assert.ok(result.stdout.includes(`Browser shard ${index + 1}/${browserShardCount}: projected file work ${total.toFixed(3)}s`));
   });
   assert.ok(result.stdout.includes(`${discoverBrowserTests().length} files, exactly once across ${browserShardCount} shards.`));
+  t.diagnostic(result.stdout.trim());
 });
 
 test('LPT fixture packing is complete and independent of file and weight insertion order', () => {
@@ -251,11 +252,20 @@ test('AIT-557: current measured workloads fit fourteen bins without changing eit
 
 test('AIT-557: fourteen bins retain 405s headroom with AIT-506 and AIT-524 measured growth', t => {
   const files = discoverBrowserTests();
-  // AIT-524's measured reservation at 48956966; never lower an existing weight.
-  // AIT-557 preserves that reservation across the split and covers the moved CI work.
+  // AIT-558 replaces AIT-557's provisional 25% estimate with mature CI work.
+  // Keep the moved status work covered, plus the larger of AIT-524's inherited
+  // combined reservation and the measured per-test p95 work of both halves.
+  const measured = Object.fromEntries(['clarify-now', 'clarify-now-status'].map(name => {
+    const measurement = JSON.parse(readFileSync(new URL(`../test/browser/${name}.weight.json`, import.meta.url)));
+    assertMeasuredWeight(measurement);
+    return [name, measuredSeconds(measurement.timing.samples)];
+  }));
+  assert.ok(browserTestWeights['test/browser/clarify-now-status.test.js'] >= measured['clarify-now-status'],
+    'the moved status work remains reserved at its measured rolling p95');
   assert.ok(browserTestWeights['test/browser/clarify-now.test.js']
-    + browserTestWeights['test/browser/clarify-now-status.test.js'] >= 378.094);
-  assert.ok(browserTestWeights['test/browser/clarify-now-status.test.js'] >= 242.898533946 * 1.25);
+    + browserTestWeights['test/browser/clarify-now-status.test.js']
+    >= Math.max(378.094, measured['clarify-now'] + measured['clarify-now-status']),
+    'the halves cover both the inherited reservation and their measured combined work');
   const weights = { ...browserTestWeights,
     'test/browser/start-journey.test.js': browserTestWeights['test/browser/start-journey.test.js'] + 180,
   };
