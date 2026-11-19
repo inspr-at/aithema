@@ -62,7 +62,9 @@ export function uploadNoticeSheetCheck() {
               return Response.json({ refused:[{ index:0, kind:'image', reason:'current processing consent required' }] }, { status:202 });
             }
             if (String(url).endsWith('/turns')) throw new TypeError('fixture send failure');
-            return Response.json(c.session);
+            const snapshot = c.session;
+            if (window.sheetFixture.textBlocked) snapshot.featureMatrix.best.text = { available:false, reason:'current processing consent required' };
+            return Response.json(snapshot);
           };
           const { [locale]:copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
           const supplied = scenario === 'single-line-refusal' ? { ...copy, uploads:{ ...copy.uploads, type:locale === 'de' ? '{name} (abgelehnt)' : '{name} (not allowed)' } } : copy;
@@ -191,6 +193,19 @@ export function uploadNoticeSheetCheck() {
           await page.keyboard.press('Escape'); await settle();
           assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-sheet').contains(c.shadowRoot.activeElement)), true, 'consent editor returns focus to the sheet action');
           await page.keyboard.press('Escape'); await settle(); unchanged(idle, await boxes());
+          await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-more').click());
+          await inShadow(page, c => {
+            window.sheetFixture.textBlocked = true;
+            c.receive({ sessionId:c.session.id, seq:c.session.seq+1, type:'settings.changed', data:{ processingPreset:'best', settings:{ ...c.session.settings, revision:2 } } });
+          });
+          await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason[data-consent-feature="text"] .consent-action'));
+          await settle();
+          const blocked = await inShadow(page, c => ({ sheet:c.shadowRoot.querySelector('.upload-notices-sheet').open,
+            disabled:c.shadowRoot.querySelector('textarea').disabled, active:c.shadowRoot.activeElement?.className ?? null }));
+          assert.equal(blocked.sheet, false, 'text consent supersedes the upload sheet');
+          assert.equal(blocked.disabled, true);
+          assert.equal(blocked.active, 'attach', 'sheet availability changes return focus to a usable control');
+          unchanged(idle, await boxes());
         }
       });
     });
