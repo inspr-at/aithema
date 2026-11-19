@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -153,6 +153,7 @@ test('updater verifies GitHub provenance before importing and rejects local or P
   const root = mkdtempSync(join(tmpdir(), 'timing-import-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, 'scripts'));
+  symlinkSync(fileURLToPath(new URL('../node_modules', import.meta.url)), join(root, 'node_modules'), 'dir');
   mkdirSync(join(root, 'test/browser'), { recursive: true });
   mkdirSync(join(root, 'release/lib'), { recursive: true });
   writeFileSync(join(root, 'release/lib/exec.mjs'), readFileSync(new URL('../release/lib/exec.mjs', import.meta.url)));
@@ -300,7 +301,7 @@ else if (args[0] === 'run' && args[1] === 'download' && args[2] === '123' && arg
     // are read from the trusted run's immutable commit, never the working tree.
     writeFileSync(join(root, file), '// current source deliberately differs');
     const sources = {
-      [file]: "import { check } from './bridge.js'; check();",
+      [file]: "import { check } from './bridge.js'; check(); // import './fake.js';\nconst fixture = \"import './fake.js';\";",
       'test/browser/bridge.js': "import './shared-check.js'; export const check = () => {};",
       [helper]: "import { test } from 'node:test'; test('first', () => {});",
     };
@@ -313,14 +314,32 @@ else if (args[0] === 'run' && args[1] === 'download' && args[2] === '123' && arg
     assert.deepEqual(imported.timing.samples[0].tests, [{ name: 'first', seconds: 2 }]);
     assert.equal(imported.timing.workload, currentWorkload, 'ownership does not rewrite the reported workload hash');
   });
+  await t.test('AIT-558: a single-file batch cannot claim an unrelated helper by its test name', () => {
+    const before = readFileSync(weightPath, 'utf8');
+    const rejected = invoke({ sources: { [file]: '// no imports' }, payload: artifact({
+      0: { files: { [file]: browserWorkload(file, root) } },
+      1: { file: '/checkout/test/browser/unrelated-check.js' },
+    }) });
+    assert.notEqual(rejected.status, 0, rejected.stdout);
+    assert.match(rejected.stderr, /unassigned/u);
+    assert.equal(readFileSync(weightPath, 'utf8'), before);
+  });
   await t.test('AIT-558: a helper imported by two test files in one batch remains rejected', () => {
     const other = 'test/browser/other.test.js', helper = 'test/browser/shared-check.js';
     const sources = { [file]: "import './shared-check.js';", [other]: "import './shared-check.js';",
       [helper]: "import { test } from 'node:test'; test('first', () => {});" };
     const before = readFileSync(weightPath, 'utf8');
-    const rejected = invoke({ sources, payload: artifact({
-      0: { files: { [file]: workload, [other]: workload } }, 1: { file: `/checkout/${helper}` },
-    }) });
+    writeFileSync(join(root, file), '// distinct ambiguous fixture workload');
+    const records = artifact({
+      0: { files: { [file]: browserWorkload(file, root), [other]: workload } }, 1: { file: `/checkout/${helper}` },
+      2: { counts: { failed: 0, cancelled: 0, skipped: 0, todo: 0, topLevel: 3 } },
+    }).split('\n');
+    // Each file has direct coverage too: assigning the helper arbitrarily
+    // would otherwise produce a valid sample and must be rejected here.
+    records.splice(2, 0, ...[file, other].map(file => JSON.stringify({
+      type: 'test:pass', file: `/checkout/${file}`, name: 'own test', seconds: 1,
+    })));
+    const rejected = invoke({ sources, payload: records.join('\n') });
     assert.notEqual(rejected.status, 0, rejected.stdout);
     assert.match(rejected.stderr, /unassigned|ambiguous/u);
     assert.equal(readFileSync(weightPath, 'utf8'), before, 'ambiguous helper ownership writes no weights');

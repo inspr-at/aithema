@@ -1,8 +1,9 @@
 // Read-only GitHub access; writes only measured sibling .weight.json files.
+import ts from 'typescript';
 import { releaseExecFileSync } from '../release/lib/exec.mjs';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { browserWorkload, parseTimingArtifact, updateMeasurement, timingWindow, timingRepository,
   assertTrustedTimingRun, assertTimingArtifactRun, assertTimingMainHistory } from './browser-timings.js';
@@ -15,11 +16,56 @@ for (let i = 0; i < args.length; i++) {
 }
 const gh = (...args) => releaseExecFileSync('gh', args, { cwd: root, encoding: 'utf8' });
 const observations = new Map();
+const sourceCache = new Map(), graphCache = new Map();
+function timingSources(file, sha) {
+  const key = `${sha}:${file}`;
+  if (graphCache.has(key)) return graphCache.get(key);
+  const sources = new Set();
+  function visit(file) {
+    if (sources.has(file)) return;
+    sources.add(file);
+    const sourceKey = `${sha}:${file}`;
+    let source = sourceCache.get(sourceKey);
+    if (source === undefined) {
+      // Read the exact trusted snapshot, never the current worktree. Local Git
+      // objects are sufficient when present; otherwise use canonical GitHub.
+      try { source = releaseExecFileSync('git', ['show', sourceKey], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }); }
+      catch (error) {
+        if (error.status !== 128) throw error;
+        const blob = JSON.parse(gh('api', `repos/${timingRepository}/contents/${file}?ref=${sha}`));
+        if (blob.encoding !== 'base64' || typeof blob.content !== 'string') throw new Error('Missing timing source evidence');
+        source = Buffer.from(blob.content, 'base64').toString('utf8');
+      }
+      sourceCache.set(sourceKey, source);
+    }
+    // Parse syntax so comments and fixture strings cannot create import edges.
+    const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+    if (ast.parseDiagnostics.length) throw new Error(`Invalid timing source syntax: ${file}`);
+    function imports(node) {
+      const specifier = ts.isImportDeclaration(node) || ts.isExportDeclaration(node) ? node.moduleSpecifier
+        : ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword ? node.arguments[0] : undefined;
+      if (specifier && ts.isStringLiteral(specifier) && specifier.text.startsWith('.')) {
+        const dependency = posix.normalize(posix.join(posix.dirname(file), specifier.text));
+        if (dependency.startsWith('test/') && /\.[cm]?js$/u.test(dependency)) visit(dependency);
+      }
+      ts.forEachChild(node, imports);
+    }
+    imports(ast);
+  }
+  visit(file);
+  graphCache.set(key, sources);
+  return sources;
+}
+function timingOwners(path, files, run) {
+  if (typeof path !== 'string') return [];
+  return files.filter(file => [...timingSources(file, run.head_sha)]
+    .some(source => path === source || path.endsWith(`/${source}`)));
+}
 function readDirectory(directory, expectedRun) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) readDirectory(path, expectedRun);
-    else if (entry.name.endsWith('.jsonl')) for (const [file, observation] of Object.entries(parseTimingArtifact(readFileSync(path, 'utf8'), expectedRun))) {
+    else if (entry.name.endsWith('.jsonl')) for (const [file, observation] of Object.entries(parseTimingArtifact(readFileSync(path, 'utf8'), expectedRun, (source, files) => timingOwners(source, files, expectedRun)))) {
       if (!observations.has(file)) observations.set(file, []);
       observations.get(file).push(observation);
     }
