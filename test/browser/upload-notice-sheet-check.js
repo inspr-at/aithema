@@ -123,7 +123,7 @@ export function uploadNoticeSheetCheck() {
           assert.ok(result.control.height >= 44 && result.control.width >= 44, 'control has a 44px target');
           assert.equal(result.tabIndex, null); assert.ok(result.scrollHeight <= result.clientHeight, 'slot never clips or scrolls a partial notice');
           for (const row of result.rows) assert.ok(row.width > 0 && row.height > 0 && row.scrollHeight <= row.clientHeight, 'every visible notice fits completely');
-          if (scenario === 'summary' && width === 390) assert.equal(result.text.trim(), locale === 'de' ? 'Hochladen nicht möglich · Details' : "Can't upload · Details");
+          if (result.rows.length === 0) assert.equal(result.text.trim(), locale === 'de' ? 'Hochladen nicht möglich · Details' : "Can't upload · Details");
           else assert.match(result.control.text, locale === 'de' ? /\d+ weitere Meldung/u : /Show \d+ more notice/u);
         });
         if (!result.control) return;

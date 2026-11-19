@@ -61,7 +61,14 @@ export class UploadNotices {
     // Plain feedback and hidden measuring lines never enter the tab order.
     this.#reason.removeAttribute('tabindex');
     this.#reason.removeAttribute('data-feedback-scroll'); this.#reason.removeAttribute('data-feedback-more');
-    if (!this.#reason.hasAttribute('data-upload-feedback')) { if (this.#dialog.open) this.#dialog.close(); return; }
+    this.#reason.inert = false;
+    if (!this.#reason.hasAttribute('data-upload-feedback')) {
+      if (this.#dialog.open) this.#dialog.close();
+      if (this.#focused && !this.#focused.isConnected) this.#form.querySelector('textarea').focus({ preventScroll: true });
+      const box = this.#reason.getBoundingClientRect();
+      if (box.width === 1 && box.height === 1) this.#reason.inert = true;
+      return;
+    }
     const box = this.#slot.getBoundingClientRect();
     // Layout-free consumers still use the original semantic tree.
     if (!(box.width > 1 && box.height > 1)) return;

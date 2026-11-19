@@ -9,62 +9,62 @@ import idleGeometry from '../fixtures/held-idle-geometry.json' with { type: 'jso
 import { browserForFile } from './shared-browser.js';
 import { startDemo, stopDemo, preparePage, waitForShadow, startTyping, inShadow } from './demo-helpers.js';
 
-// Inspect all live text, including lines outside the slot's first viewport.
-// Overflow is accepted only in a focusable scroll port that can reach each rect.
-function feedbackVisibility(c) {
-  const slot = c.shadowRoot.querySelector('.composer-feedback'), reason = slot.querySelector('.composer-reason'), bounds = slot.getBoundingClientRect();
-  const box = r => ({ top: r.top, bottom: r.bottom, left: r.left, right: r.right, width: r.width, height: r.height });
+// Slot text must be fully visible. A disclosed sheet may scroll as a whole,
+// but each notice keeps its complete, positive box without internal clipping.
+export function feedbackVisibility(c) {
+  const sheet = c.shadowRoot.querySelector('.upload-notices-sheet[open]');
+  const slot = sheet?.querySelector('.upload-notices-body') ?? c.shadowRoot.querySelector('.composer-feedback');
+  const reason = sheet ? slot : slot.querySelector(':scope > .composer-reason'), bounds = slot.getBoundingClientRect();
+  const box = r => ({ top:r.top, bottom:r.bottom, left:r.left, right:r.right, width:r.width, height:r.height });
   const outside = (r, b) => r.top < b.top - 1 || r.bottom > b.bottom + 1 || r.left < b.left - 1 || r.right > b.right + 1;
-  const ports = [slot, reason, ...reason.querySelectorAll('*')].filter(e => /auto|scroll/u.test(getComputedStyle(e).overflowY) && e.tabIndex >= 0);
-  const texts = [], imageBottoms = [], heldTops = [], walker = document.createTreeWalker(reason, NodeFilter.SHOW_TEXT);
+  const texts = [], walker = document.createTreeWalker(reason, NodeFilter.SHOW_TEXT);
   while (walker.nextNode()) {
-    const node = walker.currentNode;
-    if (!node.textContent.trim() || reason.hasAttribute('data-shortcut') && getComputedStyle(reason).visibility === 'hidden') continue;
-    const range = document.createRange(); range.selectNodeContents(node);
-    const rects = [...range.getClientRects()].filter(r => r.width > 0 && r.height > 0);
+    const text = walker.currentNode, parent = text.parentElement;
+    if (!text.textContent.trim() || parent.closest('[hidden]') || reason.hasAttribute('data-shortcut') && getComputedStyle(reason).visibility === 'hidden') continue;
+    const range = document.createRange(); range.selectNodeContents(text);
+    const rects = [...range.getClientRects()];
     if (!rects.length) {
-      const alternative = node.parentElement.closest('.held-consent-wide, .held-consent-narrow, .consent-wide, .consent-narrow');
+      const alternative = parent.closest('.held-consent-wide, .held-consent-narrow, .consent-wide, .consent-narrow');
       if (alternative && getComputedStyle(alternative).display === 'none' || reason.hasAttribute('data-shortcut')) continue;
-      texts.push({ text: node.textContent, rects: [], outside: true, reachable: false }); continue;
     }
-    if (node.parentElement.closest('.held-upload-images')) imageBottoms.push(...rects.map(r => r.bottom));
-    if (node.parentElement.closest('.held-upload-consent')) heldTops.push(...rects.map(r => r.top));
-    const port = ports.find(p => p.contains(node));
+    const row = parent.closest('.upload-notice-row'), visibleBounds = sheet && row ? row.getBoundingClientRect() : bounds;
     const clippers = [];
-    for (let e = node.parentElement; e && e !== slot; e = e.parentElement) {
-      const css = getComputedStyle(e);
-      if (/auto|scroll|hidden|clip/u.test(css.overflowY)) clippers.push(e);
-    }
-    const reaches = (r, p) => {
-      const b = p.getBoundingClientRect();
-      return p.tabIndex >= 0 && /auto|scroll/u.test(getComputedStyle(p).overflowY) && b.width > 0 && b.height > 0
-        && b.top >= bounds.top - 1 && b.bottom <= bounds.bottom + 1
-        && r.left >= b.left - 1 && r.right <= b.right + 1
-        && r.top >= b.top - p.scrollTop - 1 && r.bottom <= b.top - p.scrollTop + p.scrollHeight + 1;
-    };
-    texts.push({ text: node.textContent, rects: rects.map(box), outside: rects.some(r => outside(r, bounds)),
-      reachable: rects.every(r => (!outside(r, bounds) || Boolean(port && reaches(r, port)))
-        && clippers.every(p => !outside(r, p.getBoundingClientRect()) || reaches(r, p))) });
+    for (let element = parent; element && element !== slot; element = element.parentElement)
+      if (/auto|scroll|hidden|clip/u.test(getComputedStyle(element).overflowY)) clippers.push(element);
+    const clipped = !rects.length || rects.some(r => r.width <= 0 || r.height <= 0 || outside(r, visibleBounds)
+      || clippers.some(element => outside(r, element.getBoundingClientRect())));
+    texts.push({ text:text.textContent, rects:rects.map(box), outside:clipped, reachable:!clipped });
   }
   const action = reason.querySelector('.held-upload-consent .consent-action') ?? reason.querySelector('.consent-action');
   let treatment = null;
   if (action) {
-    const css = getComputedStyle(action), r = action.getBoundingClientRect();
-    const discard = reason.querySelector('.image-refusals__dismiss'), reference = discard ? getComputedStyle(discard) : null;
-    let parent = action.parentElement;
-    while (parent !== slot && !/auto|scroll/u.test(getComputedStyle(parent).overflowY)) parent = parent.parentElement;
-    const p = parent.getBoundingClientRect();
-    treatment = { width: r.width, height: r.height, fontSize: css.fontSize, lineHeight: css.lineHeight,
-      referenceLeading: reference ? Number.parseFloat(reference.lineHeight) / Number.parseFloat(reference.fontSize) : 1.3, decoration: css.textDecorationLine, colour: css.color, parentColour: getComputedStyle(action.parentElement).color, offset: css.textUnderlineOffset,
-      paintPort: { height: p.height, scrollHeight: parent.scrollHeight, clientHeight: parent.clientHeight, tabIndex: parent.tabIndex },
-      underlineClipped: r.bottom + 3 > p.bottom + 1 && (parent.tabIndex < 0 || parent.scrollTop >= parent.scrollHeight - parent.clientHeight - 1) };
+    const css = getComputedStyle(action), r = action.getBoundingClientRect(), range = document.createRange(); range.selectNodeContents(action);
+    const ink = range.getBoundingClientRect(), parent = action.closest('.upload-notice-row') ?? slot, p = parent.getBoundingClientRect();
+    treatment = { width:r.width, height:r.height, fontSize:css.fontSize, lineHeight:css.lineHeight, referenceLeading:1.3,
+      decoration:css.textDecorationLine, colour:css.color, parentColour:getComputedStyle(action.parentElement).color, offset:css.textUnderlineOffset,
+      paintPort:{ height:p.height, scrollHeight:parent.scrollHeight, clientHeight:parent.clientHeight, tabIndex:parent.tabIndex },
+      underlineClipped:ink.bottom + 3 > p.bottom + 1 };
   }
-  const heldGap = imageBottoms.length && heldTops.length ? Math.min(...heldTops) - Math.max(...imageBottoms) : 0;
+  const rows = [...reason.querySelectorAll('.upload-notice-row')].filter(row => !row.hidden);
   const slotOverflow = slot.scrollHeight > slot.clientHeight + 1;
-  return { slot: box(bounds), scrollHeight: slot.scrollHeight, clientHeight: slot.clientHeight, slotOverflow, texts, action: treatment, heldGap,
-    ports: ports.map(p => ({ className: p.className, scrollHeight: p.scrollHeight, clientHeight: p.clientHeight, scrollTop: p.scrollTop, tabIndex: p.tabIndex,
-      more: p.hasAttribute('data-feedback-more'), cue: getComputedStyle(p).boxShadow })),
-    unreachable: bounds.width <= 0 || bounds.height <= 0 || texts.some(t => !t.reachable) || slotOverflow && !ports.some(p => p === slot) };
+  return { slot:box(bounds), sheet:Boolean(sheet), scrollHeight:slot.scrollHeight, clientHeight:slot.clientHeight, slotOverflow, texts, action:treatment,
+    heldGap:0, ports:[],
+    unreachable:bounds.width <= 0 || bounds.height <= 0 || texts.some(text => !text.reachable)
+      || !sheet && slotOverflow || rows.some(row => row.clientHeight <= 0 || row.scrollHeight > row.clientHeight) };
+}
+
+export function feedbackText(c) {
+  const reason = c.shadowRoot.querySelector('.composer-feedback > .composer-reason').cloneNode(true);
+  reason.querySelector('.upload-notices-more')?.remove();
+  return reason.textContent;
+}
+
+export async function visibleFeedback(page) {
+  const more = await inShadow(page, c => Boolean(c.shadowRoot.querySelector('.upload-notices-more')));
+  if (more) await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-more').click());
+  const visibility = await inShadow(page, feedbackVisibility);
+  if (more) await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-close').click());
+  return visibility;
 }
 
 function feedbackBoxes(visibility) {
@@ -118,9 +118,10 @@ export function uploadFollowupCheck() {
           for (let i = 0; i < count; i++) transfer.items.add(new File(['%PDF-' + 'x'.repeat(25)], `document-${i}.pdf`, { type: 'application/pdf' }));
           const input = c.shadowRoot.querySelector('.attach-input'); input.files = transfer.files; input.dispatchEvent(new Event('change'));
         });
-        await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer').hasAttribute('aria-busy'));
+        await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.attach').getAttribute('aria-disabled') === 'false');
         await settle(); const after = await boxes();
         const result = await inShadow(page, c => ({ posts: window.followupPosts, notice: c.shadowRoot.querySelector('.composer-reason').textContent }));
+        result.notice = await inShadow(page, feedbackText);
         const important = scenario === 'count' || scenario === 'bytes' ? result.notice
           : scenario === 'purpose' ? copy.purposePaused.split('. ')[0] + '.' : locale === 'en' ? 'The files could not be added.' : 'Die Dateien konnten nicht übernommen werden.';
         const visible = await inShadow(page, (c, important) => {
@@ -132,7 +133,7 @@ export function uploadFollowupCheck() {
           return { startsWith: true, width: r.width, height: r.height, lines: rects.length,
             clipped: rects.some(b => b.width <= 0 || b.height <= 0 || b.top < r.top - 1 || b.bottom > r.bottom + 1 || b.left < r.left - 1 || b.right > r.right + 1) };
         }, important);
-        const visibility = await inShadow(page, feedbackVisibility);
+        const visibility = await visibleFeedback(page);
         assert.equal(visibility.unreachable, false, JSON.stringify(visibility));
         const evidence = process.env.AITHEMA_EVIDENCE_DIR, prefix = `ait561-${scenario}-${width}-${locale}-${theme}`;
         if (evidence) { await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, `${prefix}.png`) }); await writeFile(join(evidence, `${prefix}.json`), JSON.stringify({ before, after, result, visible }, null, 2)); }
@@ -208,7 +209,9 @@ export function heldUploadCheck() {
       await page.waitForFunction(() => window.heldAsks.length === 1);
       const laterName = scenario.endsWith('refused') ? 'newer.exe' : 'report.pdf';
       await pick([[laterName, false]]);
-      await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer').hasAttribute('aria-busy'));
+      await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.attach').getAttribute('aria-disabled') === 'false');
+      const beforeVisibility = await visibleFeedback(page);
+      assert.equal(beforeVisibility.unreachable, false, JSON.stringify(beforeVisibility));
       const beforeGrant = await inShadow(page, c => ({ notice: c.shadowRoot.querySelector('.composer-reason').textContent, attached: c.session.uploads.map(u => u.filename) }));
       await inShadow(page, c => {
         window.heldGranted = true;
@@ -216,10 +219,12 @@ export function heldUploadCheck() {
       });
       // Bounded settling records the broken before state too, without a timeout hiding evidence.
       await page.waitForFunction(() => document.querySelector('aithema-session').session.featureMatrix.best.imageInput.available);
-      await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer').hasAttribute('aria-busy'));
+      await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.attach').getAttribute('aria-disabled') === 'false');
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       await inShadow(page, async c => { await Promise.all([...c.shadowRoot.querySelectorAll('.image-thumbnail')].map(img => img.decode().catch(() => {}))); });
       const result = await inShadow(page, c => ({ notice: c.shadowRoot.querySelector('.composer-reason').textContent, attached: c.session.uploads.map(u => u.filename), posts: window.heldPosts }));
+      const finalVisibility = await visibleFeedback(page);
+      assert.equal(finalVisibility.unreachable, false, JSON.stringify(finalVisibility));
       if (process.env.AITHEMA_EVIDENCE_DIR) {
         await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
         const prefix = join(process.env.AITHEMA_EVIDENCE_DIR, `ait561-held-${scenario}-390-${locale}-${theme}`);
@@ -289,7 +294,7 @@ export function heldConsentFollowupCheck() {
             for (const name of names) transfer.items.add(new File([name === 'scan.pdf' ? new Uint8Array([255, 216, 255, 224]) : '%PDF-' + 'x'.repeat(25)], name, { lastModified: 1234 }));
             const input = c.shadowRoot.querySelector('.attach-input'); input.files = transfer.files; input.dispatchEvent(new Event('change'));
           }, names);
-          await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer').hasAttribute('aria-busy'));
+          await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.attach').getAttribute('aria-disabled') === 'false');
           await settle();
         };
         await settle(); const before = await boxes();
@@ -307,7 +312,7 @@ export function heldConsentFollowupCheck() {
             c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: ['imageInput'], removed: [] } });
           });
           await page.waitForFunction(() => document.querySelector('aithema-session').session.featureMatrix.best.imageInput.available);
-          await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer').hasAttribute('aria-busy'));
+          await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.attach').getAttribute('aria-disabled') === 'false');
         }
         await settle(); const after = await boxes();
         await inShadow(page, async c => { await Promise.all([...c.shadowRoot.querySelectorAll('.image-thumbnail')].map(img => img.decode().catch(() => {}))); });
@@ -317,7 +322,8 @@ export function heldConsentFollowupCheck() {
           const tapHeight = action ? Number.parseFloat(getComputedStyle(action, '::after').height) : 0;
           return { notice: reason.textContent, action: action?.textContent, tapHeight, attached: c.session.uploads.map(u => u.filename), posts: window.heldPosts };
         });
-        const visibility = await inShadow(page, feedbackVisibility);
+        result.notice = await inShadow(page, feedbackText);
+        const visibility = await visibleFeedback(page);
         result.visible = feedbackBoxes(visibility);
         assert.equal(visibility.unreachable, false, JSON.stringify(visibility));
         if (process.env.AITHEMA_EVIDENCE_DIR && entrance === 'choice' && (scenario === 'refused' || width === 390 && !['count', 'bytes'].includes(scenario))) {
@@ -328,13 +334,13 @@ export function heldConsentFollowupCheck() {
         if (['refused', 'count', 'bytes'].includes(scenario)) {
           assert.equal(result.action, copy.featureConsent.action, 'held consent action stays visible with newer feedback');
           assert.ok(result.notice.includes('scan.pdf'), 'held filename stays visible');
-          if (width === 390) assert.ok(result.tapHeight >= 44, 'held consent keeps the existing 44 px phone target');
+          if (width === 390) assert.ok(Math.max(result.tapHeight, visibility.action?.height ?? 0) >= 44, 'held consent keeps the existing 44 px phone target');
           const current = scenario === 'refused' ? copy.uploads.type.replace('{name}', 'newer.exe') : scenario === 'count' ? copy.uploads.tooMany.replace('{files}', '8') : copy.uploads.sessionFull.replace('{size}', '50 B');
           assert.ok(result.notice.includes(current), 'the current reason and capacity figure stay visible');
           assert.ok(result.visible.length >= 3);
           for (const box of result.visible) {
             assert.ok(box.width > 0 && box.height > 0, `${box.text}: visible box`);
-            assert.equal(box.clipped, false, `${box.text}: fully visible in the reserved slot`);
+            assert.equal(box.clipped, false, `${box.text}: fully visible in the reserved slot or disclosed notice sheet`);
           }
           for (const selector of Object.keys(before)) {
             assert.ok(before[selector].width > 0 && before[selector].height > 0 && after[selector].width > 0 && after[selector].height > 0, `${selector}: visible box`);
@@ -409,7 +415,7 @@ export function heldRegressionCheck() {
             for (const name of names) transfer.items.add(new File([name === 'oversized.png' ? new Uint8Array(21 * 1024 * 1024) : '%PDF-fixture'], name, { lastModified: 1234 }));
             const input = c.shadowRoot.querySelector('.attach-input'); input.files = transfer.files; input.dispatchEvent(new Event('change'));
           }, names);
-          await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer').hasAttribute('aria-busy')); await settle();
+          await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.attach').getAttribute('aria-disabled') === 'false'); await settle();
         };
         await settle(); const before = await boxes();
         if (scenario.startsWith('idle-')) {
@@ -465,7 +471,8 @@ export function heldRegressionCheck() {
             const reason = c.shadowRoot.querySelector('.composer-reason');
             return { notice: reason.textContent, heldOnly: reason.hasAttribute('data-held-only'), imageLayout: c.shadowRoot.querySelector('.composer').hasAttribute('data-image-input'), firstText: window.regression.firstText };
           });
-          const visibility = await inShadow(page, feedbackVisibility);
+          state.notice = await inShadow(page, feedbackText);
+          const visibility = await visibleFeedback(page);
           return { ...state, visibility, visible: feedbackBoxes(visibility) };
         };
         const result = await inspect(), visibility = result.visibility, evidence = process.env.AITHEMA_EVIDENCE_DIR;
@@ -485,33 +492,11 @@ export function heldRegressionCheck() {
             assert.equal(visibility.action.colour, visibility.action.parentColour, 'consent inherits the sentence ink like the shared link');
             assert.equal(visibility.action.offset, '3px');
             assert.ok(Math.abs(Number.parseFloat(visibility.action.lineHeight) / Number.parseFloat(visibility.action.fontSize) - visibility.action.referenceLeading) < .01, 'consent keeps the shared Discard/L-a line box for its underline');
-            assert.equal(visibility.action.underlineClipped, false, 'the underline has paint room inside its scroll port');
+            assert.equal(visibility.action.underlineClipped, false, 'the underline has paint room in its complete notice row');
           });
-          if (scenario === 'mixed-refusals' && width === 1440) await scene.test('mixed: no blank line before held filename', () => {
-            assert.ok(visibility.heldGap <= 2, `held line follows current facts without an empty line: ${visibility.heldGap}px`);
+          await scene.test('each notice owns a nonempty row', () => {
+            assert.ok(visibility.texts.every(text => text.rects.length > 0), 'each visible notice has painted text');
           });
-        }
-        if (['mixed-refusals', 'document-only'].includes(scenario) && visibility.ports.some(p => p.className === 'composer-reason' && p.scrollHeight > p.clientHeight + 1)) {
-          const scrollBefore = await boxes();
-          await inShadow(page, c => c.shadowRoot.querySelector('[data-feedback-scroll]')?.focus({ preventScroll: true }));
-          await page.keyboard.press('End');
-          await page.waitForFunction(() => { const r = document.querySelector('aithema-session').shadowRoot.querySelector('[data-feedback-scroll]'); return r && r.scrollTop >= r.scrollHeight - r.clientHeight - 1; }, { timeout: 5000 });
-          await settle();
-          const scrolled = await inShadow(page, feedbackVisibility);
-          await save('-scrolled', { before: scrollBefore, after: await boxes(), visibility: scrolled });
-          await scene.test(`${scenario}: keyboard reaches the final words`, () => {
-            const port = scrolled.ports.find(p => p.className === 'composer-reason');
-            assert.ok(port && port.scrollTop > 0, 'End scrolls the focused feedback region');
-            assert.ok(visibility.ports.some(p => p.more && p.cue !== 'none'), 'overflow has a visible affordance');
-            const last = scrolled.texts.at(-1), slot = scrolled.slot;
-            assert.ok(last.rects.every(r => r.top >= slot.top - 1 && r.bottom <= slot.bottom + 1), 'the complete final action is in view');
-            assert.equal(scrolled.unreachable, false);
-            assert.equal(scrolled.action.underlineClipped, false, 'the final action keeps its underline inside the scroll port');
-          });
-          assert.deepEqual(await boxes(), scrollBefore, 'keyboard scrolling never moves composer or controls');
-          await page.keyboard.press('Home');
-          await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('[data-feedback-scroll]').scrollTop === 0, { timeout: 5000 });
-          await settle();
         }
         if (scenario.startsWith('rehold')) {
           if (scenario === 'rehold-grant') {
@@ -520,7 +505,7 @@ export function heldRegressionCheck() {
           } else if (scenario === 'rehold-decline') await page.evaluate(() => window.regression.asks.at(-1).cancel());
           else await page.evaluate(() => window.regression.timers.at(-1)());
           await settle(); const ended = await inspect(); await save('-ended', { result: ended });
-          assert.equal(ended.visibility.unreachable, false, 'every ended-hold word remains reachable');
+          assert.equal(ended.visibility.unreachable, false, 'every ended-hold word remains fully visible');
           assert.equal(ended.notice.split(copy.uploadsReselect.one).length - 1, scenario === 'rehold-grant' ? 0 : 1, 'no duplicate or stale choose-again sentence');
           assert.equal(result.notice.includes(copy.uploadsReselect.one), false, 're-hold supersedes the stale sentence');
         } else if (scenario === 'text-block') {

@@ -1,3 +1,4 @@
+import { feedbackText, visibleFeedback } from './upload-followup-check.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -118,9 +119,12 @@ export function mixedUploadCheck() {
             documents: c.session.uploads.filter(upload => upload.kind !== 'image').map(upload => upload.filename),
             notice: c.shadowRoot.querySelector('.composer-reason').textContent,
             refusals: [...c.shadowRoot.querySelectorAll('.image-refusals .image-refusal')].map(row => row.textContent), consent: Boolean(c.shadowRoot.querySelector('.composer-reason[data-consent-feature="imageInput"] .consent-action')) }));
+          result.notice = await inShadow(page, feedbackText);
+          const visibility = await visibleFeedback(page);
+          assert.equal(visibility.unreachable, false, JSON.stringify(visibility));
           if (evidence) {
             await page.screenshot({ path: join(evidence, `${prefix}-after.png`) });
-            await writeFile(join(evidence, `${prefix}.json`), JSON.stringify({ before, after, result }, null, 2));
+            await writeFile(join(evidence, `${prefix}.json`), JSON.stringify({ before, after, result, visibility }, null, 2));
           }
           assert.deepEqual(result.posts, host === 'default-batches' ? [['scan.pdf', ...Array.from({ length: 7 }, (_, index) => `eligible-${index}.pdf`)], ['eligible-7.pdf']] : host === 'recognised-limit' ? [['eligible.pdf', 'eligible-later.pdf'], ['eligible-final.pdf']] : [['clipboard', 'eligible.pdf'], ['typed.pdf', 'eligible-typed.pdf'], ['scan.pdf', 'eligible-later.pdf']], 'later batches sent');
           assert.deepEqual(result.documents, host === 'default-batches' ? Array.from({ length: 8 }, (_, index) => `eligible-${index}.pdf`) : host === 'recognised-limit' ? ['eligible.pdf', 'eligible-later.pdf', 'eligible-final.pdf'] : ['eligible.pdf', 'eligible-typed.pdf', 'eligible-later.pdf']);
