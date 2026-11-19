@@ -8,7 +8,7 @@ export const combinedEntranceStyles = `
 .workspace[data-entrance="combined"] .conversation { display:flex; flex-direction:column; min-height:0; gap:8px; }
 /* The whole entrance/transcript surface scrolls above the reserved input row. */
 .workspace[data-entrance="combined"] .conversation-scroll { display:flex; flex-direction:column; flex:1 1 0; min-height:0; overflow:auto; scrollbar-gutter:stable; gap:.85rem; }
-.workspace[data-entrance="combined"] .intro { flex:none; min-height:0; grid-template-columns:minmax(0,1fr); padding:.5rem 0; gap:.5rem; }
+.workspace[data-entrance="combined"] .intro { flex:none; width:100%; min-height:0; grid-template-columns:minmax(0,1fr); padding:.5rem 0; gap:.5rem; }
 .workspace[data-entrance="combined"] .intro[hidden] { display:none; }
 .workspace[data-entrance="combined"] .intro__prompt { display:none; }
 .workspace[data-entrance="combined"] .intro__card { width:100%; }
@@ -30,9 +30,10 @@ export const combinedEntranceStyles = `
 /* The saved address replaces the input in the same reserved row. Retain its
    full accessible text while keeping long addresses beside localized Resend. */
 .workspace[data-entrance="combined"] .email-offer__address { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-/* Canonical replies gain playback controls. Reserve their row before input so
-   persistence cannot resize the welcome bubble or shift the content below it. */
-.workspace[data-entrance="combined"] [data-host-opener]:not(:has(.reply-actions))::after { content:''; display:block; height:44px; }
+/* The render-only opener has no playback row. Intrinsic content scrolls above
+   the pinned dock when persistence later adds canonical reply controls. */
+/* Keep the idle mic cell reserved; the composer owns the entrance microphone. */
+.workspace[data-entrance="combined"] .audio-rail[data-call="none"] .voice-start { visibility:hidden; }
 .workspace[data-entrance="combined"] .composer-dock { display:block; flex:none; }
 .workspace[data-entrance="combined"] .composer-shell { display:grid; }
 .workspace[data-entrance="combined"] .composer { display:grid; grid-template-columns:minmax(0,1fr) 44px 44px;

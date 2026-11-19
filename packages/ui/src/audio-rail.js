@@ -251,9 +251,9 @@ export class AudioRail {
     this.root.querySelector('.voice-state').setAttribute('aria-live', this.usedUp?.() ? 'off' : 'polite');
     paintConsentLine(this.root.querySelector('.voice-state'), { copy: c, feature: 'voice',
       verdict: composerOwnsConsent || active || transitional || usedUp || this.error ? { available: true } : available,
-      text: composerOwnsBlockedMic ? '' : composerOwnsConsent ? c.voiceStates.idle : usedUp ? (creditEnding ? c.voiceStates.creditEnding : usedUpLabel) : creditLabel ?? this.error ?? (this.startupPhase === 'cooldown' ? c.voiceCooldown.replace('{s}', this.countdown) :
+      text: composerOwnsBlockedMic ? '' : composerOwnsConsent ? '' : usedUp ? (creditEnding ? c.voiceStates.creditEnding : usedUpLabel) : creditLabel ?? this.error ?? (this.startupPhase === 'cooldown' ? c.voiceCooldown.replace('{s}', this.countdown) :
       this.startupPhase ? c.voiceStates[this.startupPhase] : this.timeBoundEnd && !active && !transitional ? c.voiceStates.failed : active || transitional ? c.voiceStates[this.root.dataset.state] :
-      available.available && this.client ? c.voiceStates[this.state] : available.reason ?? c.notConfigured), open: opener => this.consent?.(opener) });
+      available.available && this.client ? (combined && this.state === 'idle' ? '' : c.voiceStates[this.state]) : available.reason ?? c.notConfigured), open: opener => this.consent?.(opener) });
     const low = !usedUp && !this.error && active && ['listening', 'speaking', 'thinking'].includes(state) && this.lowCredit?.();
     this.root.querySelector('.voice-state').classList.toggle('low', Boolean(low));
     if (low) setText(this.root.querySelector('.voice-state'), c.voiceStates.low);

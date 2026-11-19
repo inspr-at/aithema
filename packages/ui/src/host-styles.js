@@ -200,6 +200,10 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .composer-out[data-host-limit] .composer-out__upgrade { padding:0; max-width:none; border-radius:0; background:none; color:var(--aithema-accent); font-size:13.5px; white-space:nowrap; text-decoration:underline; text-underline-offset:3px; text-align:start; }
 .composer-out[data-host-limit] .composer-out__export { max-width:none; color:var(--aithema-muted); }
 .composer-out__export svg { width:14px; height:14px; flex:none; color:var(--aithema-muted); }
+/* Upgrade and export are both available: give each its own reserved cell. */
+.composer-out:not([data-host-limit]) .composer-out__actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px 14px; }
+.composer-out:not([data-host-limit]) .composer-out__upgrade { white-space:nowrap; }
+
 [data-used-up]:is(.qcard,.question-card) button { color:var(--aithema-muted); background:none; }
 [data-used-up]:is(.qcard,.question-card) :is(.go,.tag,.qhint) { visibility:hidden; }
 .composer-out__actions { position:relative; }
@@ -371,6 +375,11 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
   .composer-out__steps { min-height:4lh; }
   .composer-out__upgrade { max-width:132px; padding:4px 12px; line-height:1.2; text-align:center; white-space:normal; }
   .composer-out__export { line-height:1.25; }
+  /* Reserve the same stacked offer before exhaustion; the dock never moves
+     when the confirmation replaces the field. The full label owns one line. */
+  .composer-out:not([data-host-limit]) .composer-out__bar { flex-direction:column; align-items:stretch; gap:8px; }
+  .composer-out:not([data-host-limit]) .composer-out__actions { justify-content:flex-start; }
+  .composer-out:not([data-host-limit]) .composer-out__upgrade { max-width:none; min-height:44px; }
   .host-credits__used-up-full { display:none; } .host-credits__used-up-short { display:inline; }
 }
 @media(width < 360px) { .host-credits .host-credits__track { display:none; } }

@@ -2421,7 +2421,7 @@ export class AithemaSession extends HTMLElement {
       setText(out.querySelector('.composer-out__export span'), u.export);
       out.querySelector('.composer-out__export').href = `${this.#base}/api/sessions/${this.#session.id}/export`;
       for (const node of out.querySelectorAll('[data-next]')) { const shown = node.dataset.next === kind && !node.hidden; node.setAttribute('aria-hidden', String(!shown)); node.inert = !shown; }
-      const exportLink = out.querySelector('.composer-out__export'), exportShown = !noAction && (kind === 'none' || newConversationEnabled || ['host-limit', 'session'].includes(this.#host?.endReason));
+      const exportLink = out.querySelector('.composer-out__export'), exportShown = !noAction;
       exportLink.toggleAttribute('data-export', exportShown); exportLink.inert = !exportShown; exportLink.setAttribute('aria-hidden', String(!exportShown));
       const upgrade = out.querySelector('.composer-out__upgrade'); upgrade.inert = kind === 'none' || noAction; upgrade.setAttribute('aria-hidden', String(kind === 'none' || noAction));
       if (noAction) out.querySelector('.composer-out__actions').setAttribute('aria-hidden', 'true');
