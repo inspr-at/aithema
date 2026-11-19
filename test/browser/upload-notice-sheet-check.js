@@ -301,10 +301,13 @@ export function uploadNoticeSheetCheck() {
         await scene.test('r4 an open sheet survives a collapsed slot update', async () => {
           await inShadow(page, c => {
             const slot = c.shadowRoot.querySelector('.composer-feedback'); slot.style.cssText = 'width:1px!important;height:1px!important;flex:0 0 1px!important;max-width:1px!important';
+            c.shadowRoot.querySelector('.composer-feedback > .composer-reason').style.cssText = 'width:1px;height:1px';
             c.receive({ sessionId:c.session.id, seq:c.session.seq+1, type:'settings.changed', data:{ processingPreset:'best', settings:{ ...c.session.settings, revision:2 } } });
           }); await settle();
           const rows = await inShadow(page, c => [...c.shadowRoot.querySelectorAll('.upload-notices-sheet .upload-notice-row')].map(row => row.innerText));
-          await inShadow(page, c => { c.shadowRoot.querySelector('.composer-feedback').style.cssText = ''; }); await settle();
+          const actions = await inShadow(page, c => [...c.shadowRoot.querySelectorAll('.upload-notices-sheet button')].map(action => action.tabIndex));
+          await inShadow(page, c => { c.shadowRoot.querySelector('.composer-feedback').style.cssText = ''; c.shadowRoot.querySelector('.composer-feedback > .composer-reason').style.cssText = ''; }); await settle();
+          assert.ok(actions.every(index => index >= 0), 'actions moved into the sheet remain in its Tab order');
           assert.ok(rows.length >= 2 && rows.every(text => text.trim()), 'collapsing the slot never empties the open sheet');
         });
         await page.keyboard.press('Tab'); await page.keyboard.down('Shift'); await page.keyboard.press('Tab'); await page.keyboard.up('Shift');
