@@ -102,6 +102,9 @@ export function heldUploadCheck() {
       await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
       await inShadow(page, async (c, { locale, scenario }) => {
         window.heldScenario = scenario; window.heldAsks = []; window.heldPosts = []; window.heldGranted = false;
+        const canvas = document.createElement('canvas'); canvas.width = 64; canvas.height = 32;
+        const context = canvas.getContext('2d'); context.fillStyle = '#0f766e'; context.fillRect(0, 0, 64, 32);
+        window.heldPNG = Uint8Array.from(atob(canvas.toDataURL('image/png').split(',')[1]), c => c.charCodeAt(0));
         const session = structuredClone(c.session); session.id = crypto.randomUUID(); session.seq = 0; session.locale = locale; session.uploads = [];
         session.transcript = [{ id: 'established', role: 'user', content: 'Project documents', at: new Date(0).toISOString() }];
         session.settings.voice = 'off'; session.settings.origin = 'chosen';
@@ -109,6 +112,7 @@ export function heldUploadCheck() {
         c.addEventListener('aithema-consent', event => { window.heldAsks.push(event.detail); event.stopImmediatePropagation(); }, { capture: true });
         window.fetch = async (url, options = {}) => {
           if (/\/events(?:\?|$)/u.test(String(url))) return new Response(new ReadableStream({ start(controller) { options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
+          if (/\/uploads\/[^/]+\/image$/u.test(String(url))) return new Response(window.heldPNG, { headers: { 'content-type': 'image/png' } });
           if (String(url).endsWith('/uploads')) {
             if (options.method !== 'POST') return Response.json({ limits: {} });
             const files = options.body.getAll('files'); window.heldPosts.push(files.map(f => f.name)); const events = [], refused = [];
@@ -116,7 +120,7 @@ export function heldUploadCheck() {
               const image = file.name === 'photo.png' || file.name === 'scan.pdf';
               if (image && !window.heldGranted) refused.push({ index, kind: 'image', reason: 'current processing consent required' });
               else events.push({ sessionId: session.id, seq: c.session.seq + events.length + 1, type: 'upload.state', data: {
-                id: file.name, filename: file.name, kind: image ? 'image' : 'document', state: image ? 'staged-ready' : 'accepted', bytes: file.size, at: new Date(0).toISOString() } });
+                id: file.name, filename: file.name, kind: image ? 'image' : 'document', state: image ? 'staged-ready' : 'accepted', ...(image ? { mediaType: 'image/png', w: 64, h: 32, digest: 'fixture' } : {}), bytes: file.size, at: new Date(0).toISOString() } });
             }
             return Response.json({ events, refused }, { status: 202 });
           }
@@ -146,6 +150,7 @@ export function heldUploadCheck() {
       await page.waitForFunction(() => document.querySelector('aithema-session').session.featureMatrix.best.imageInput.available);
       await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer').hasAttribute('aria-busy'));
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      await inShadow(page, async c => { await Promise.all([...c.shadowRoot.querySelectorAll('.image-thumbnail')].map(img => img.decode().catch(() => {}))); });
       const result = await inShadow(page, c => ({ notice: c.shadowRoot.querySelector('.composer-reason').textContent, attached: c.session.uploads.map(u => u.filename), posts: window.heldPosts }));
       if (process.env.AITHEMA_EVIDENCE_DIR) {
         await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
