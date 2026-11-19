@@ -64,17 +64,16 @@ export class UploadNotices {
     this.#reason.inert = false;
     if (!this.#reason.hasAttribute('data-upload-feedback')) {
       if (this.#dialog.open) this.#dialog.close();
-      if (this.#focused && !this.#focused.isConnected) this.#form.querySelector('textarea').focus({ preventScroll: true });
       const box = this.#reason.getBoundingClientRect();
       if (box.width === 1 && box.height === 1) this.#reason.inert = true;
-      return;
+      this.#retainFocus(); return;
     }
     const box = this.#slot.getBoundingClientRect();
     // Layout-free consumers still use the original semantic tree.
-    if (!(box.width > 1 && box.height > 1)) return;
+    if (!(box.width > 1 && box.height > 1)) { this.#reason.inert = true; this.#retainFocus(); return; }
     const held = this.#reason.hasAttribute('data-held-consent'), images = this.#reason.querySelectorAll('.image-refusal-item');
     if (!held && !images.length && this.#reason.scrollHeight <= this.#slot.clientHeight
-      && this.#reason.getBoundingClientRect().height <= box.height) return;
+      && this.#reason.getBoundingClientRect().height <= box.height) { this.#retainFocus(); return; }
     this.#reason.setAttribute('data-notice-layout', '');
     const sources = [...this.#reason.childNodes];
     const groups = [];
@@ -94,11 +93,16 @@ export class UploadNotices {
     setText(this.#title, this.#text('noticesTitle')); setText(this.#close, this.#text('closeNotices'));
     this.fit();
     if (this.#dialog.open) this.#showRows();
-    if (this.#focused && this.#form.getRootNode().activeElement !== this.#focused) {
-      const retained = this.#focused.isConnected && !this.#focused.closest('[hidden]') && (!this.#dialog.open || this.#dialog.contains(this.#focused));
-      (retained ? this.#focused : this.#dialog.open ? this.#close : this.#more.isConnected ? this.#more : this.#form.querySelector('textarea')).focus({ preventScroll: true });
-    }
+    this.#retainFocus();
   }
+  #retainFocus() {
+    if (!this.#focused || this.#form.getRootNode().activeElement === this.#focused) return;
+    const retained = this.#focused.isConnected && !this.#focused.closest('[hidden], [inert]')
+      && this.#focused.matches('button, a[href], input, textarea, select, [tabindex]') && (!this.#dialog.open || this.#dialog.contains(this.#focused));
+    (retained ? this.#focused : this.#dialog.open ? this.#close : this.#more.isConnected ? this.#more
+      : this.#form.querySelector('textarea:not(:disabled)') ?? this.#form.querySelector('.attach')).focus({ preventScroll: true });
+  }
+
   fit() {
     if (!this.#rows.length || this.#dialog.open) return;
     const focused = this.#form.getRootNode().activeElement;

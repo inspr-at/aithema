@@ -94,6 +94,14 @@ export function uploadNoticeSheetCheck() {
         if (scenario === 'text') { assert.equal(result.overflow, 'visible', 'text consent target is not clipped'); assert.ok(Number.parseFloat(result.target) >= 44); }
         if (scenario === 'failure') assert.equal(result.padding, '8px', 'send failure retains 8px paint room');
       });
+      await t.test('combined measuring lines retain intrinsic sizing', async () => {
+        await configure('refusal');
+        await inShadow(page, async c => { const session = c.session, { [session.locale]:copy } = await import(`/packages/ui/src/i18n/${session.locale}.js`); c.configure({ session, copy, entrance:'combined', sessionToken:'fixture', voiceClient:{} }); });
+        await startTyping(page); await settle();
+        const measured = await inShadow(page, c => { const reserve = c.shadowRoot.querySelector('.composer-feedback-reserve'), r = reserve.getBoundingClientRect(); return { width:r.width, height:r.height, lines:[...reserve.children].map(line => ({ position:getComputedStyle(line).position, fitted:line.hasAttribute('data-notice-layout'), tabIndex:line.getAttribute('tabindex') })) }; });
+        assert.ok(measured.width > 0 && measured.height > 0, 'intrinsic combined reserve has a positive box');
+        assert.ok(measured.lines.every(line => line.position !== 'absolute' && !line.fitted && line.tabIndex === null), 'measuring lines never match live fitting rules');
+      });
       for (const scenario of ['summary', 'mixed', 'rehold']) await t.test(scenario, async scene => {
         await configure(scenario); const idle = await boxes(); await save(`${scenario}-idle`, { boxes:idle });
         await pick([scenario === 'rehold' ? 'photo.png' : 'scan.pdf']);
@@ -114,9 +122,14 @@ export function uploadNoticeSheetCheck() {
         });
         await save(scenario, { idle, before, result }); unchanged(idle, before);
         if (scenario === 'rehold') {
+          await inShadow(page, c => { const r = c.shadowRoot; (r.querySelector('.upload-notices-more') ?? r.querySelector('.held-upload-consent .consent-action')).focus({ preventScroll:true }); });
           assert.equal(result.text.includes(locale === 'de' ? 'Bitte wähle' : 'Please choose'), false);
           await page.evaluate(() => window.sheetFixture.asks.at(-1).cancel()); await settle();
-          await save('rehold-ended', { boxes:await boxes() }); unchanged(idle, await boxes()); return;
+          await save('rehold-ended', { boxes:await boxes() }); unchanged(idle, await boxes());
+          await inShadow(page, c => { const input = c.shadowRoot.querySelector('textarea'); input.value = 'Clear ended notice'; input.dispatchEvent(new Event('input')); });
+          assert.equal(await inShadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('textarea')), true, 'ending feedback and returning to the touch shortcut retains meaningful focus');
+          assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.composer-reason').hasAttribute('tabindex')), false);
+          return;
         }
         await scene.test('overflow is disclosed without a scroll region', () => {
           assert.ok(result.control, 'overflow offers a labelled sheet control');
@@ -146,6 +159,20 @@ export function uploadNoticeSheetCheck() {
         await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-more').click());
         await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-close').click()); await settle();
         assert.equal(await inShadow(page, c => c.shadowRoot.activeElement?.classList.contains('upload-notices-more')), true, 'Close restores opener focus'); unchanged(idle, await boxes());
+        if (scenario === 'mixed') {
+          await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-more').click());
+          await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-sheet .image-refusals__dismiss').click()); await settle();
+          const discarded = await inShadow(page, c => ({ text:c.shadowRoot.querySelector('.upload-notices-sheet').innerText,
+            focused:c.shadowRoot.querySelector('.upload-notices-sheet').contains(c.shadowRoot.activeElement) }));
+          assert.equal(discarded.text.includes('oversized.png'), false, 'sheet Discard consumes the same refusal record');
+          assert.ok(discarded.text.includes('newer.exe') && discarded.text.includes('scan.pdf'), 'other notices survive Discard');
+          assert.equal(discarded.focused, true, 'discarding a focused sheet action keeps focus in the dialog');
+          await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-sheet .held-upload-consent .consent-action').click());
+          assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('dialog.settings').open), true, 'sheet consent opens the existing consent editor');
+          await page.keyboard.press('Escape'); await settle();
+          assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-sheet').contains(c.shadowRoot.activeElement)), true, 'consent editor returns focus to the sheet action');
+          await page.keyboard.press('Escape'); await settle(); unchanged(idle, await boxes());
+        }
       });
     });
 }
