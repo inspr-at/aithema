@@ -49,7 +49,7 @@ export class UploadNotices {
   prepare() {
     const active = this.#form.getRootNode().activeElement;
     this.#focused = active && (this.#reason.contains(active) || this.#dialog.contains(active)) ? active : null;
-    for (const [action, tabIndex] of this.#clippedActions) { if (tabIndex === null) action.removeAttribute('tabindex'); else action.setAttribute('tabindex', tabIndex); } this.#clippedActions = [];
+    this.#restoreClippedActions();
     for (const [text, original] of this.#separators) text.textContent = original; this.#separators = [];
     for (const source of this.#actionLayouts) { source.removeAttribute('data-notice-action'); source.removeAttribute('data-action-wrap'); source.querySelector(':scope > .upload-notice-join')?.remove(); }
     this.#actionLayouts = [];
@@ -72,7 +72,14 @@ export class UploadNotices {
     }
     this.#reason.append(row); return row;
   }
+  #restoreClippedActions() {
+    for (const [action, tabIndex] of this.#clippedActions) {
+      if (tabIndex === null) action.removeAttribute('tabindex'); else action.setAttribute('tabindex', tabIndex);
+    }
+    this.#clippedActions = [];
+  }
   update(copy, locale) {
+    this.#restoreClippedActions();
     this.#copy = copy; this.#locale = locale;
     // Plain feedback and hidden measuring lines never enter the tab order.
     this.#reason.removeAttribute('tabindex');
@@ -156,6 +163,7 @@ export class UploadNotices {
   #prepareActions(row) {
     for (const action of row.querySelectorAll('.consent-action')) {
       const source = action.parentElement;
+      if (!source.matches('.held-upload-consent, .image-refusal-item, .upload-retry-copy')) continue;
       source.setAttribute('data-notice-action', ''); this.#actionLayouts.push(source);
       // The separator belongs to the join, never to the end of a wrapped sentence.
       const walker = this.#form.ownerDocument.createTreeWalker(source, 4);
@@ -200,7 +208,13 @@ export class UploadNotices {
     this.#visible = this.#rows.length;
     if (!this.#fits(bounds)) {
       this.#visible = 0;
-      for (let count = this.#rows.length - 1; count > 0; count--) {
+      let used = 0, complete = 0;
+      for (const row of this.#rows) {
+        const height = row.getBoundingClientRect().height;
+        if (used + height > this.#slot.clientHeight + .25) break;
+        used += height; complete++;
+      }
+      for (let count = Math.min(complete, this.#rows.length - 1); count > 0; count--) {
         this.#more.remove();
         for (const [index, row] of this.#rows.entries()) {
           row.hidden = index >= count; row.inert = row.hidden; row.removeAttribute('data-more-inline');
