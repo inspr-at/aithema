@@ -12,17 +12,20 @@ test('demo host creates owned sessions through postJson and combines consent, pa
   const keys = ['HTMLElement', 'customElements', 'document', 'CustomEvent', 'localStorage', 'location'];
   const originals = Object.fromEntries(keys.map(key => [key, globalThis[key]]));
   let cookie = ''; const posts = [];
-  const lateRequest = Promise.withResolvers();
-  let holdSession = false;
+  const lateRequest = Promise.withResolvers(), lateOutbox = Promise.withResolvers(), lateAdoption = Promise.withResolvers();
+  const heldSignals = [];
+  let holdSession = false, host;
   try {
     const html = await nativeFetch(running.url).then(response => response.text());
     window.document.write(html.replace(/<script[^>]*>[\s\S]*?<\/script>/gu, ''));
     for (const key of keys) globalThis[key] = window[key];
     localStorage.setItem('aithema-demo-locale', 'en');
     globalThis.fetch = async (url, init = {}) => {
-      if (holdSession && String(url) === '/api/sessions') {
-        init.signal?.addEventListener('abort', () => lateRequest.reject(init.signal.reason), { once: true });
-        return lateRequest.promise;
+      if (holdSession && (String(url) === '/api/sessions' || String(url).endsWith('/demo/outbox'))) {
+        const held = String(url) === '/api/sessions' ? lateRequest : lateOutbox;
+        heldSignals.push(init.signal);
+        init.signal?.addEventListener('abort', () => held.reject(init.signal.reason), { once: true });
+        return held.promise;
       }
       const headers = new Headers(init.headers);
       if (cookie) headers.set('cookie', cookie);
@@ -32,7 +35,7 @@ test('demo host creates owned sessions through postJson and combines consent, pa
       if (createdCookie) cookie = createdCookie.split(';')[0];
       return response;
     };
-    await import('../host.js');
+    host = await import('../host.js');
     const component = document.querySelector('aithema-session'), root = component.shadowRoot;
     const wait = async (step, predicate) => {
       const started = performance.now();
@@ -130,8 +133,35 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     // An abort-aware host can settle it during teardown instead. No timer race.
     holdSession = true;
     component.dispatchEvent(new CustomEvent('aithema-new-conversation', { detail: {} }));
+    document.querySelector('#outbox').showModal = () => {};
+    document.querySelector('#outbox-open').click();
+    // Also hold adoption after configure, where locale acknowledgement can fail.
+    component.configure = () => {};
+    component.changeLocale = () => lateAdoption.promise;
+    component.dispatchEvent(new CustomEvent('aithema-open-conversation', { detail: { session: component.session } }));
+    assert.equal(heldSignals.length, 2, 'both host fetches are held');
+    assert.ok(heldSignals.every(signal => signal && !signal.aborted));
+    const cached = new window.Event('pagehide'); Object.defineProperty(cached, 'persisted', { value: true });
+    window.dispatchEvent(cached);
+    assert.ok(heldSignals.every(signal => !signal.aborted), 'a cached page keeps its work');
+    const errorBefore = document.querySelector('#error').textContent, outboxBefore = document.querySelector('#outbox-status').textContent;
+    window.dispatchEvent(new window.Event('pagehide'));
+    let drained = false;
+    const stopping = host.stopHost().then(() => { drained = true; });
+    assert.ok(heldSignals.every(signal => signal.aborted), 'page unload aborts host requests');
+    await Promise.resolve();
+    assert.equal(drained, false, 'teardown also waits for adoption, beyond the fetch aborts');
+    lateAdoption.reject(new Error('fixture: locale acknowledgement failed after unload'));
+    await stopping;
+    assert.equal(document.querySelector('#error').textContent, errorBefore, 'late failures do not repaint the stopped host');
+    assert.equal(document.querySelector('#outbox-status').textContent, outboxBefore, 'late outbox failure does not repaint');
+    const count = heldSignals.length;
+    component.dispatchEvent(new CustomEvent('aithema-new-conversation', { detail: {} }));
+    assert.equal(heldSignals.length, count, 'a stopped host starts no new work');
     t.after(() => setImmediate(() => lateRequest.reject(new Error('fixture: page has closed'))));
   } finally {
+    lateAdoption.resolve();
+    await host?.stopHost();
     window.document.querySelector('aithema-session')?.remove();
     await running.kill(); await window.happyDOM.close();
     globalThis.fetch = nativeFetch;
