@@ -658,7 +658,10 @@ clarify-now-status, **606.527 s** combined. Both workload hashes match the
 post-split files. The runs are `44371370170`, `44375931233`, `44399683830`,
 `44475421367`, `44484221831` and `44500373409`, all attempt 1. Each reservation
 is the sum of the top-level tests' rolling nearest-rank p95, without a warmup
-margin because both series exceed the five-sample maturity threshold.
+margin because both series exceed the five-sample maturity threshold. This is
+a point-in-time calibration fact, not a permanent test requirement. Later test
+or helper edits retain the prior measured reservation until matching trusted CI
+observations arrive, then restart the series with the normal warmup margin.
 
 The table and packing above record AIT-557's provisional plans. AIT-558 removes
 the file-specific provisional bypass. Its L3 guard reserves the moved status

@@ -4,7 +4,7 @@ import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { plannedSeconds, measuredSeconds, assertMeasuredWeight, browserWorkload, timingMinimumSamples } from '../scripts/browser-timings.js';
+import { plannedSeconds, measuredSeconds, assertMeasuredWeight } from '../scripts/browser-timings.js';
 import { readBrowserTestWeights, assertBrowserShardHeadroom, assertBrowserShardBudget, assertBrowserShardCoverage, browserShardCount, browserShards, browserTestWeights, browserShardTotals, packBrowserTests, discoverBrowserTests, selectBrowserTests } from '../scripts/browser-shards.js';
 
 const measuredWeight = (seconds = 90) => {
@@ -223,13 +223,10 @@ for (const name of ['email-unlock-reply', 'identity-unlock', 'clarify-now', 'cla
   });
 }
 
-test('AIT-558: both clarify halves use mature CI samples for their current workloads', () => {
+test('AIT-558: both clarify halves use measured CI observations without provisional bypasses', () => {
   for (const name of ['clarify-now', 'clarify-now-status']) {
-    const file = `test/browser/${name}.test.js`;
     const measurement = JSON.parse(readFileSync(new URL(`../test/browser/${name}.weight.json`, import.meta.url)));
     assertMeasuredWeight(measurement);
-    assert.ok(measurement.timing.samples.length >= timingMinimumSamples, `${name}: at least five matching CI samples`);
-    assert.equal(measurement.timing.workload, browserWorkload(file));
     assert.equal(measurement.provisional, undefined);
   }
 });
