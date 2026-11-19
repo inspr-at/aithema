@@ -3,8 +3,14 @@ import { join } from 'node:path';
 import { createSession, applyEvent } from '../../packages/core/src/index.js';
 
 // Reuses AIT-364's browser, page and offline server within its measured file.
-export async function scopedConsentEdges({ t, a, isCI, session, setSession, setSelected, features, url, evidence }) {
+export async function scopedConsentEdges({ t, a, session, setSession, setSelected, features, url, evidence }) {
   const checks = [], shots = [];
+  const visibleBoxes = geometry => {
+    for (const [selector, [, , width, height]] of Object.entries(geometry)) {
+      assert.ok(width > 0 && height > 0, `${selector} has positive width and height`);
+    }
+    return geometry;
+  };
   const heldRead = async () => {
     for (let i = 0; i < 300 && !a.heldConsentRead; i++) await new Promise(resolve => setTimeout(resolve, 10));
     assert.ok(a.heldConsentRead, 'consent read reached the controlled barrier');
@@ -47,28 +53,43 @@ export async function scopedConsentEdges({ t, a, isCI, session, setSession, setS
   };
   for (const [width, kind] of [[1440, 'html'], [390, 'html'], [1440, 'image']]) await t.test(`AIT-365 E1 ${width}/${kind}`, async () => {
     await init(width, kind);
-    const baseline = await a.evaluate(() => boxes());
+    const before = await a.evaluate(() => ({ ...inspect(), geometry: boxes() }));
+    assert.equal(before.open, true, 'the revoked viewer starts open');
+    assert.ok((kind === 'html' ? before.frames : before.images).includes(kind), 'the revoked surface starts populated');
+    const baseline = visibleBoxes(before.geometry);
     const e = event([kind === 'html' ? 'html-drafts' : 'images']);
     setSelected(kind === 'html' ? ['models', 'images'] : ['models', 'drafts']);
     session().featureMatrix.best[kind === 'html' ? 'html' : 'images'] = { available: false, reason: 'current processing consent required' };
     a.holdSnapshot = true; a.heldSnapshots = [];
-    const immediate = await a.evaluate(e => {
-      const start = performance.now(); c.receive(e);
-      // Deliberately no await or microtask: this is the event handler boundary.
-      return { ...inspect(), eventToRemovalMs: performance.now() - start, geometry: boxes() };
-    }, e);
+    const immediate = await a.evaluate(({ e, kind, width }) => {
+      const start = performance.now();
+      // RED PROOF: defer the event across each forbidden scheduling boundary.
+      if (kind === 'image') setTimeout(() => c.receive(e), 0);
+      else if (width === 390) requestAnimationFrame(() => c.receive(e));
+      else Promise.resolve().then(() => c.receive(e));
+      const eventToRemovalMs = performance.now() - start;
+      // Snapshot before returning from this call stack: even an already-resolved
+      // await would leave revoked bytes here. No paint, microtask or timer runs.
+      const atReturn = inspect();
+      const removedBeforeReturn = !atReturn.open && !atReturn.frames.includes(kind) &&
+        !atReturn.images.includes(kind) && !atReturn.ids.includes(kind) &&
+        (kind !== 'html' || atReturn.iframeCount === 0);
+      return { ...atReturn, removedBeforeReturn, eventToRemovalMs, geometry: boxes() };
+    }, { e, kind, width });
+    assert.equal(immediate.removedBeforeReturn, true, 'scoped removal completes before receive returns, without an await, frame or timer');
     assert.equal(immediate.open, false, 'scoped event closes the revoked viewer before returning');
     assert.equal(immediate.frames.includes(kind), false);
     assert.equal(immediate.images.includes(kind), false, 'all revoked image src values are removed synchronously');
     if (kind === 'html') assert.equal(immediate.iframeCount, 0);
     assert.deepEqual(immediate.ids, [kind === 'html' ? 'image' : 'html']);
-    assert.ok(immediate.eventToRemovalMs < (isCI ? 50 : 5), `eventToRemovalMs=${immediate.eventToRemovalMs}`);
-    assert.deepEqual(immediate.geometry, baseline, 'event moves thread/composer/rail/header/access/canvas 0 px');
+    // Elapsed handler time is diagnostic only: scheduling/load cannot change
+    // the return-boundary guarantee asserted above (AIT-545).
+    assert.deepEqual(visibleBoxes(immediate.geometry), baseline, 'event moves thread/composer/rail/header/access/canvas 0 px');
     await capture(width, `scoped-${kind}`);
     await releaseSnapshots(); await a.waitForFunction(() => window.verifiedRevision === c.session.consentRevision);
     const confirmed = await a.evaluate(() => ({ ...inspect(), geometry: boxes() }));
     assert.equal(confirmed.notice, immediate.notice, 'refresh keeps the same withdrawal notice');
-    assert.deepEqual(confirmed.ids, immediate.ids); assert.deepEqual(confirmed.geometry, baseline, 'confirmation moves 0 px');
+    assert.deepEqual(confirmed.ids, immediate.ids); assert.deepEqual(visibleBoxes(confirmed.geometry), baseline, 'confirmation moves 0 px');
     checks.push({ width, theme: 'light', locale: 'de', edge: 'E1', kind, ...immediate, confirmed, movementPx: 0, sameNotice: true, viewportOnly: true });
   });
   for (const ahead of [false, true]) await t.test(`AIT-365 E3 grant/server-ahead=${ahead}`, async () => {

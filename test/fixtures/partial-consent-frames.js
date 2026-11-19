@@ -243,7 +243,7 @@ export async function partialConsentFrames(t, { isCI } = {}) {
     assert.deepEqual(await a.evaluate(() => view.items.map(i => i.id)), ['image'], 'covered images reopen without reload; withdrawn HTML stays gone');
     checks.push({ width, theme: 'light', locale: 'de', kind: 'both', failure, changed, edge: 'E2', ...result, deadlineAdvancedMs: failure === 'document-stall' ? 2000 : null, movementPx: 0, recoveryMovementPx: 0, synchronousRedaction: true, viewportOnly: true, noReload: true, automaticRecovery: true, recovered, retainedOpenable: true });
   });
-  const scoped = await scopedConsentEdges({ t, a, isCI, session: () => session, setSession: value => { session = value; }, setSelected: value => { selected = value; }, features, url: `http://127.0.0.1:${server.address().port}/`, evidence });
+  const scoped = await scopedConsentEdges({ t, a, session: () => session, setSession: value => { session = value; }, setSelected: value => { selected = value; }, features, url: `http://127.0.0.1:${server.address().port}/`, evidence });
   const allChecks = [...checks.filter(c => c.edge === 'E2'), ...scoped.checks].map(check => ({ ...check, edge: check.edge ?? check.state }));
   assert.deepEqual([...new Set(allChecks.map(check => check.edge))].sort(), ['E1', 'E2', 'E3', 'E4'], 'the evidence report carries every required edge');
   assert.equal(allChecks.filter(check => check.edge === 'E2').length, 4, 'absent and unknown scope HTTP/stall results are retained');
