@@ -175,6 +175,12 @@ const reply = value => process.stdout.write(JSON.stringify(value));
 if (args[0] === 'api' && args[1] === 'repos/inspr-at/aithema/actions/runs/123') reply(run);
 else if (args[0] === 'api' && args[1] === 'repos/inspr-at/aithema/compare/${sha}...main') reply(${JSON.stringify(changes.comparison ?? { status: 'ahead', merge_base_commit: { sha } })});
 else if (args[0] === 'api' && args[1] === 'repos/inspr-at/aithema/actions/runs/123/artifacts?per_page=100') reply({ artifacts });
+else if (args[0] === 'api' && args[1].startsWith('repos/inspr-at/aithema/contents/') && args[1].endsWith('?ref=${sha}')) {
+  const path = args[1].slice('repos/inspr-at/aithema/contents/'.length, -'?ref=${sha}'.length);
+  const sources = ${JSON.stringify(changes.sources ?? {})};
+  if (!(path in sources)) throw new Error('Unexpected source path: ' + path);
+  reply({ encoding: 'base64', content: Buffer.from(sources[path]).toString('base64') });
+}
 else if (args[0] === 'run' && args[1] === 'list' && args[args.indexOf('--repo') + 1] === 'inspr-at/aithema' && args[args.indexOf('--event') + 1] === 'push' && args[args.indexOf('--branch') + 1] === 'main') reply([{ databaseId: 123 }]);
 else if (args[0] === 'run' && args[1] === 'list' && args[args.indexOf('--event') + 1] === 'merge_group') reply([]);
 else if (args[0] === 'run' && args[1] === 'download' && args[2] === '123' && args[args.indexOf('--repo') + 1] === 'inspr-at/aithema' && JSON.stringify(args.filter((arg, i) => args[i - 1] === '--name')) === JSON.stringify(artifacts.map(a => a.name))) {
@@ -288,6 +294,37 @@ else if (args[0] === 'run' && args[1] === 'download' && args[2] === '123' && arg
     assert.match(rejected.stderr, /incomplete or mixed/u);
     assert.equal(readFileSync(weightPath, 'utf8'), before, 'incomplete input writes no weights');
   }
+  await t.test('AIT-558: helper-defined top-level tests belong to the exact importing file in their batch', () => {
+    const helper = 'test/browser/shared-check.js';
+    // The named import reaches a transitive side-effect import. These sources
+    // are read from the trusted run's immutable commit, never the working tree.
+    writeFileSync(join(root, file), '// current source deliberately differs');
+    const sources = {
+      [file]: "import { check } from './bridge.js'; check();",
+      'test/browser/bridge.js': "import './shared-check.js'; export const check = () => {};",
+      [helper]: "import { test } from 'node:test'; test('first', () => {});",
+    };
+    const currentWorkload = browserWorkload(file, root);
+    const result = invoke({ sources, payload: artifact({
+      0: { files: { [file]: currentWorkload } }, 1: { file: `/checkout/${helper}` },
+    }) });
+    assert.equal(result.status, 0, result.stderr);
+    const imported = JSON.parse(readFileSync(weightPath));
+    assert.deepEqual(imported.timing.samples[0].tests, [{ name: 'first', seconds: 2 }]);
+    assert.equal(imported.timing.workload, currentWorkload, 'ownership does not rewrite the reported workload hash');
+  });
+  await t.test('AIT-558: a helper imported by two test files in one batch remains rejected', () => {
+    const other = 'test/browser/other.test.js', helper = 'test/browser/shared-check.js';
+    const sources = { [file]: "import './shared-check.js';", [other]: "import './shared-check.js';",
+      [helper]: "import { test } from 'node:test'; test('first', () => {});" };
+    const before = readFileSync(weightPath, 'utf8');
+    const rejected = invoke({ sources, payload: artifact({
+      0: { files: { [file]: workload, [other]: workload } }, 1: { file: `/checkout/${helper}` },
+    }) });
+    assert.notEqual(rejected.status, 0, rejected.stdout);
+    assert.match(rejected.stderr, /unassigned|ambiguous/u);
+    assert.equal(readFileSync(weightPath, 'utf8'), before, 'ambiguous helper ownership writes no weights');
+  });
   const local = invoke({}, ['--artifacts', root]);
   assert.notEqual(local.status, 0);
   assert.match(local.stderr, /only verified canonical main push/u);
