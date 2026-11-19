@@ -89,7 +89,7 @@ export class UploadNotices {
     this.#reason.inert = false;
     const reasonBox = this.#reason.getBoundingClientRect();
     const clipped = reasonBox.width === 1 && reasonBox.height === 1;
-    if (clipped) for (const action of this.#reason.querySelectorAll('button')) {
+    if (clipped && !this.#dialog.open) for (const action of this.#reason.querySelectorAll('button')) {
       this.#clippedActions.push([action, action.getAttribute('tabindex')]); action.tabIndex = -1;
     }
     if (!this.#reason.hasAttribute('data-upload-feedback')) {
