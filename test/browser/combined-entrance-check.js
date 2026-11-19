@@ -317,18 +317,20 @@ export async function combinedOpenerCheck(t) {
         globalThis.openerRow=c.shadowRoot.querySelector('[data-id="host:opener"]');
         c.receive({seq:c.session.seq+1,type:'turn.final',data:{id:'host:opener',role:'assistant',origin:'host',content:c.session.opener.text}});
       });
-      unmoved(initial,await shot('persisted'));
+      // AIT-553 item 5: playback gains its real row only after persistence.
+      const canonical = { ...initial, opener: initial.opener.map((value, i) => i === 3 ? value + 44 : value) };
+      unmoved(canonical,await shot('persisted'));
       assert.equal(await page.evaluate(() => openerRow===c.shadowRoot.querySelector('[data-id="host:opener"]')),true);
       await page.evaluate(() => {failSend=false;});await page.click('aithema-session >>> .send');
       await page.waitForFunction(() => sent.length===1 && document.querySelector('aithema-session').shadowRoot.querySelector('.composer-saved-announcement').textContent.length>0);
       await exposedFeedback(page,'.composer-saved-announcement');
-      unmoved(initial,await shot('saved'));
+      unmoved(canonical,await shot('saved'));
       await page.click('aithema-session >>> .composer-mic');
       await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-mic').getAttribute('aria-pressed')==='true');
-      unmoved(initial,await shot('listening'));
+      unmoved(canonical,await shot('listening'));
       await page.click('aithema-session >>> .voice-close');
       await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-status').textContent.length>0);
-      unmoved(initial,await shot('call-ended'));
+      unmoved(canonical,await shot('call-ended'));
       assert.deepEqual(problems,[]);
     } finally { await page.close(); }
   });
