@@ -1,6 +1,4 @@
 import { resolveCopy } from './copy-resolve.js';
-import { featureConsentText } from './consent-line.js';
-import { reasonSeparator } from './reason-separator.js';
 import { node, setText } from './dom.js';
 import { WARNING_ICON } from './concept-view.js';
 import { stagedImage } from '../../core/src/image-input.js';
@@ -17,10 +15,15 @@ export class ImageInputView {
     this.#reserve.setAttribute('aria-hidden', 'true'); this.#reserve.inert = true;
     const fit = () => {
       const height = Math.ceil(this.#reserve.getBoundingClientRect().height);
-      if (height > 0) ports.form.style.setProperty('--image-feedback-height', `${height}px`);
+      if (height > 0 && ports.form.hasAttribute('data-image-input')) ports.form.style.setProperty('--image-feedback-height', `${height}px`);
+      this.#fitFeedback();
     };
     const Observer = ports.form.ownerDocument.defaultView?.ResizeObserver;
-    if (Observer) { this.#reserveObserver = new Observer(fit); this.#reserveObserver.observe(this.#reserve); }
+    if (Observer) {
+      this.#reserveObserver = new Observer(fit); this.#reserveObserver.observe(this.#reserve);
+      this.#reserveObserver.observe(ports.form.querySelector('.composer-feedback'));
+    }
+    ports.form.querySelector('.composer-reason').addEventListener('scroll', () => this.#fitFeedback());
     for (const upload of ports.session().uploads) this.receive(upload);
   }
   get refusalVersion() { return this.#refusalVersion; }
@@ -55,9 +58,18 @@ export class ImageInputView {
     return row;
   }
   #reserveFeedback() {
-    // Reserve intake feedback before a selection, including document-only consent.
-    const images = this.#ports.form.hasAttribute('data-image-input');
-    if (!images && !this.#ports.form.hasAttribute('data-document-input')) {
+    // Document-only hosts keep the ordinary 44px row; live feedback may
+    // scroll inside it. Image hosts retain their localized refusal measure.
+    if (!this.#ports.form.hasAttribute('data-image-input') && this.#ports.form.hasAttribute('data-document-input')) {
+      this.#reserve.classList.add('document-feedback-reserve');
+      if (this.#reserve.dataset.copy !== 'document-slot') {
+        this.#reserve.replaceChildren(); this.#reserve.dataset.copy = 'document-slot';
+      }
+      if (!this.#reserve.parentElement) this.#ports.form.querySelector('.composer-feedback').append(this.#reserve);
+      this.#ports.form.style.removeProperty('--image-feedback-height'); return;
+    }
+    this.#reserve.classList.remove('document-feedback-reserve');
+    if (!this.#ports.form.hasAttribute('data-image-input')) {
       if (this.#reserve.parentElement) {
         this.#reserve.remove();
         this.#ports.form.style.removeProperty('--image-feedback-height');
@@ -70,34 +82,30 @@ export class ImageInputView {
     // localized sentence and accepted formats before intake can settle.
     const documentFacts = this.#copy.uploads.refused.replace('{list}', this.#copy.uploads.type.replace('{name}', 'filename.unknown'));
     const documentFormats = this.#text('uploadsSupported');
-    const feature = images ? 'imageInput' : 'uploads', sentence = featureConsentText(this.#copy, feature);
-    const key = JSON.stringify([images, reasons.map(reason => this.refusalText(reason)), this.#copy.uploads, this.#copy.featureConsent, documentFacts, documentFormats, sentence]);
+    const key = JSON.stringify([reasons.map(reason => this.refusalText(reason)), this.#copy.uploads.discard, documentFacts, documentFormats]);
     if (this.#reserve.dataset.copy !== key) {
       this.#reserve.dataset.copy = key;
       const documentNotice = node('span', 'image-feedback-document-reserve');
       documentNotice.append(node('span', 'upload-notice-facts', documentFacts), node('span', 'upload-notice-formats', documentFormats));
-      const rows = reasons.map(reason => {
+      this.#reserve.replaceChildren(documentNotice, ...reasons.map(reason => {
         const row = node('span', 'image-refusals-reserve__row');
         const icon = node('span', 'image-refusals__icon');
         const list = node('span', 'image-refusals__list'); list.append(this.#refusal({ name: 'file', reason }));
         row.append(icon, list, node('span', 'image-refusals__dismiss', this.#copy.uploads.discard));
         return row;
-      });
-      const held = (facts, imageRow) => {
-        const candidate = node('span', 'held-feedback-reserve');
-        const line = node('span', 'held-feedback-reserve__line'), label = node('span', 'held-feedback-reserve__copy');
-        label.append(node('span', 'held-feedback-reserve__wide', `filename.pdf: ${sentence}${reasonSeparator}`),
-          node('span', 'held-feedback-reserve__narrow', `filename.pdf: ${this.#copy.featureConsent.textNarrow}${reasonSeparator}`));
-        line.append(label, node('span', 'held-feedback-reserve__action', this.#copy.featureConsent.action));
-        candidate.append(node('span', 'held-feedback-reserve__facts', facts));
-        if (imageRow) candidate.append(imageRow.cloneNode(true));
-        candidate.append(line); return candidate;
-      };
-      this.#reserve.replaceChildren(...(images ? [documentNotice, ...rows, ...rows.map(row => held(documentFacts, row))] : []),
-        held(this.#copy.uploads.impossible));
+      }));
     }
     const height = Math.ceil(this.#reserve.getBoundingClientRect().height);
     if (height > 0) this.#ports.form.style.setProperty('--image-feedback-height', `${height}px`);
+  }
+  #fitFeedback() {
+    const reason = this.#ports.form.querySelector('.composer-reason');
+    const scrollable = reason.hasAttribute('data-held-consent') || this.#ports.form.hasAttribute('data-document-input')
+      && !this.#ports.form.hasAttribute('data-image-input') && !reason.hasAttribute('data-shortcut');
+    if (scrollable) reason.tabIndex = 0;
+    else if (reason.hasAttribute('data-feedback-scroll')) reason.tabIndex = -1;
+    reason.toggleAttribute('data-feedback-scroll', scrollable);
+    reason.toggleAttribute('data-feedback-more', scrollable && reason.scrollTop + reason.clientHeight < reason.scrollHeight - 1);
   }
   paintNotice(line, text) {
     const supported = this.#text('uploadsSupported') ?? '';
@@ -129,7 +137,7 @@ export class ImageInputView {
     setText(region.querySelector('button'), this.#copy.uploads.discard); delete line.dataset.consentFeature;
   }
   update(copy = this.#copy) {
-    this.#copy = copy; this.#reserveFeedback();
+    this.#copy = copy; this.#reserveFeedback(); this.#fitFeedback();
     const session = this.#ports.session(), images = session.uploads.filter(u => stagedImage(u) && !u.erased && u.state !== 'staged-discarded');
     this.#tiles.hidden = !images.length;
     const active = new Set((this.#ports.canRead() ? session.uploads : []).filter(u => u.kind === 'image' && !u.erased && ['staged-ready', 'sent'].includes(u.state)).map(u => `${u.id}:${u.digest}`));

@@ -961,17 +961,14 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .turn-image[data-withheld] { background:none; border-radius:0; overflow:visible; overflow-wrap:normal; word-break:normal; }
 /* Measure every real localized reason at the live width before any decoder result.
    The name has one line; the reason below it is never truncated. */
-.composer:is([data-image-input], [data-document-input]) .composer-feedback,
-.composer:is([data-image-input], [data-document-input]) .composer-feedback:has(.composer-reason[data-shortcut]) { position:relative; flex:1; }
+.composer[data-image-input] .composer-feedback,
+.composer[data-image-input] .composer-feedback:has(.composer-reason[data-shortcut]) { position:relative; flex:1; }
 .image-feedback-reserve { display:none; visibility:hidden; pointer-events:none; font-size:.72rem; line-height:1.3; }
-.composer:is([data-image-input], [data-document-input]) .image-feedback-reserve { display:grid; }
+.composer[data-image-input] .image-feedback-reserve { display:grid; }
 .image-feedback-reserve > * { grid-area:1/1; }
-/* A document-only slot stays within the existing composer row budget, even
-   when a later snapshot first admits uploads. Five compact lines fit phones. */
-.composer[data-document-input]:not([data-image-input]) .image-feedback-reserve { height:44px; }
-@media(max-width:600px) {
-  .composer[data-document-input]:not([data-image-input]) .image-feedback-reserve { height:6em; }
-}
+.composer[data-document-input]:not([data-image-input]) .composer-feedback { position:relative; flex:1; }
+.composer[data-document-input]:not([data-image-input]) .document-feedback-reserve { display:block; height:44px; }
+.composer[data-document-input]:not([data-image-input]) .composer-reason:not([data-shortcut]) { position:absolute; inset:0; max-height:none; overflow-y:auto; padding-bottom:4px; box-sizing:border-box; }
 .image-feedback-document-reserve { overflow-wrap:anywhere; }
 /* Keep arbitrary refusal batches in their established two-line scroll area;
    accepted formats have their own fully wrapped row and never scroll away. */
@@ -984,27 +981,26 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .composer-reason[data-capacity-notice] { line-height:1.25; }
 .composer-reason[data-capacity-notice], .composer-reason[data-capacity-notice] .upload-notice-facts { max-height:3.75em; }
 .composer[data-image-input] .composer-reason[data-consent-feature="imageInput"] { overflow-y:auto; }
-/* Measure held consent with its current facts before any intake occurs. */
-.held-feedback-reserve { display:flex; flex-direction:column; line-height:1.2; }
-.held-feedback-reserve__facts { display:block; flex:none; max-height:3.75em; overflow:auto; }
-.held-feedback-reserve__line { display:block; min-height:0; max-height:44px; overflow:auto; }
-.held-feedback-reserve__action { display:inline; line-height:inherit; white-space:nowrap; }
-.held-feedback-reserve__narrow { display:none; }
-.held-upload-images { flex:none; min-height:0; }
-.held-upload-images .image-refusals { position:static; min-height:44px; max-height:44px; }
+/* Concurrent held facts flow inline inside the existing feedback footprint. */
+.held-upload-images { min-height:0; }
 .held-upload-images .image-refusal__name { display:inline; white-space:normal; }
 .composer-feedback:has(.composer-reason[data-held-consent]) { position:relative; }
-.composer-reason[data-held-consent], .composer[data-image-input] .composer-reason[data-held-consent] { position:absolute; inset:0; display:flex; flex-direction:column; justify-content:center; max-height:none; line-height:1.2; overflow:visible; }
-.held-upload-notice { display:block; flex:none; max-height:3.75em; overflow:auto; overscroll-behavior:contain; }
-.held-upload-consent { display:block; min-height:0; max-height:44px; overflow:auto; overscroll-behavior:contain; }
+.composer-reason[data-held-consent], .composer[data-image-input] .composer-reason[data-held-consent] { position:absolute; inset:0; display:block; max-height:none; line-height:1.2; overflow-y:auto; overscroll-behavior:contain; padding-bottom:4px; box-sizing:border-box; }
+.held-upload-notice { display:inline; }
+.held-upload-notice:not(:empty)::after { content:' '; white-space:pre; }
+.held-upload-consent { display:inline; }
+.held-upload-consent .consent-action { line-height:1.3; }
 /* With no competing facts, retain the established long-copy scrolling cap. */
 .composer-reason[data-held-consent][data-held-only], .composer[data-image-input] .composer-reason[data-held-consent][data-held-only] { position:static; display:block; max-height:44px; overflow-y:auto; }
 .composer-reason[data-held-only] .held-upload-consent { max-height:none; overflow:visible; }
+.composer-reason[data-feedback-scroll] { scrollbar-width:thin; }
+.composer-reason[data-feedback-more] { box-shadow:inset 0 -3px 0 color-mix(in srgb,var(--aithema-muted) 55%,transparent); }
+.composer-feedback:has(.composer-reason[data-feedback-more])::after { content:'⌄' / ''; position:absolute; right:0; bottom:0; width:12px; height:12px; line-height:10px; text-align:center; color:var(--aithema-muted); background:var(--aithema-paper); pointer-events:none; }
 .composer-reason[data-held-only] .held-consent-wide { display:inline; }
 .composer-reason[data-held-only] .held-consent-narrow, .held-consent-narrow { display:none; }
 @media(max-width:600px) {
-  .held-consent-wide, .held-feedback-reserve__wide { display:none; }
-  .held-consent-narrow, .held-feedback-reserve__narrow { display:inline; }
+  .held-consent-wide { display:none; }
+  .held-consent-narrow { display:inline; }
 }
 .image-refusals, .image-refusals-reserve__row { display:flex; align-items:flex-start; gap:5px; min-height:44px; font-size:.72rem; line-height:1.3; }
 .image-refusals { position:absolute; inset:0; overflow:auto; color:var(--aithema-warning); }
@@ -1014,34 +1010,27 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .image-refusal { display:block; overflow-wrap:anywhere; }
 .image-refusal__name { display:block; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; min-height:1.3em; }
 .image-refusals__dismiss { flex:none; display:inline-flex; align-items:center; min-height:44px; padding:0 4px; color:inherit; font:inherit; }
-.composer-reason:has(.image-refusals) { transition:none; position:absolute; inset:0; width:auto; height:auto; max-height:none; overflow:visible; }
+.composer-reason:has(.image-refusals):not([data-held-consent]) { transition:none; position:absolute; inset:0; width:auto; height:auto; max-height:none; overflow:visible; }
+.held-upload-images .image-refusals { display:inline; position:static; min-height:0; max-height:none; overflow:visible; }
+.held-upload-images .image-refusals__icon { display:none; }
+.held-upload-images .image-refusals__list { display:contents; }
+.held-upload-images :is(.image-refusal, .image-refusal__name) { display:inline; white-space:normal; }
+.held-upload-images .image-refusals__dismiss { display:inline; min-height:0; padding:0 4px; }
+.held-upload-images .image-refusals__dismiss::after { height:max(100%,44px); }
 @media(max-width:600px) {
   /* Reserve the short phone reason slot with the declared input capability. */
-  .workspace[data-phone-short] .composer:is([data-image-input], [data-document-input]) { padding-top:calc(var(--image-feedback-height,60px) + 10px); }
-  .workspace[data-phone-short] .composer:is([data-image-input], [data-document-input]) .composer-feedback { position:absolute; top:4px; left:6px; right:6px; height:var(--image-feedback-height,60px); margin:0; }
-  .workspace[data-phone-short] .composer:is([data-image-input], [data-document-input]) .composer-reason { position:static; width:auto; height:auto; max-height:none; clip-path:none; overflow:auto; }
-  .workspace[data-phone-short] .composer:is([data-image-input], [data-document-input]) .composer-reason[data-held-consent] { position:absolute; inset:0; height:auto; line-height:1.2; overflow:visible; }
-  .workspace[data-phone-short] .composer:is([data-image-input], [data-document-input]) .composer-reason[data-held-consent][data-held-only] { position:static; max-height:44px; overflow-y:auto; }
-  .workspace[data-phone-short] .composer:is([data-image-input], [data-document-input]) .composer-reason:has(.image-refusals) { transition:none; position:absolute; inset:0; overflow:visible; }
-  /* The short phone keeps reading room by flowing concurrent facts across
-     the full feedback width, instead of allocating a separate 44px row. */
-  .workspace[data-phone-short] .held-feedback-reserve,
-  .workspace[data-phone-short] .composer-reason[data-held-consent]:not([data-held-only]) { display:block; }
-  .workspace[data-phone-short] :is(.held-feedback-reserve__facts, .held-upload-notice) { display:inline; }
-  .workspace[data-phone-short] :is(.held-feedback-reserve__facts, .held-upload-notice)::after { content:' '; white-space:pre; }
-  .workspace[data-phone-short] .held-feedback-reserve .image-refusals-reserve__row,
-  .workspace[data-phone-short] .held-upload-images .image-refusals { display:inline; min-height:0; max-height:none; overflow:visible; }
-  .workspace[data-phone-short] :is(.held-feedback-reserve, .held-upload-images) .image-refusals__icon { display:none; }
-  .workspace[data-phone-short] :is(.held-feedback-reserve, .held-upload-images) .image-refusals__list { display:contents; }
-  .workspace[data-phone-short] :is(.held-feedback-reserve, .held-upload-images) :is(.image-refusal, .image-refusal__name) { display:inline; white-space:normal; }
-  .workspace[data-phone-short] :is(.held-feedback-reserve, .held-upload-images) .image-refusals__dismiss { display:inline; min-height:0; padding:0 4px; }
-  .workspace[data-phone-short] .held-upload-images .image-refusals__dismiss::after { height:max(100%,44px); }
+  .workspace[data-phone-short] .composer[data-image-input] { padding-top:calc(var(--image-feedback-height,60px) + 10px); }
+  .workspace[data-phone-short] .composer[data-image-input] .composer-feedback { position:absolute; top:4px; left:6px; right:6px; height:var(--image-feedback-height,60px); margin:0; }
+  .workspace[data-phone-short] .composer[data-image-input] .composer-reason { position:static; width:auto; height:auto; max-height:none; clip-path:none; overflow:auto; }
+  .workspace[data-phone-short] .composer[data-image-input] .composer-reason[data-held-consent] { position:absolute; inset:0; height:auto; line-height:1.2; overflow-y:auto; }
+  .workspace[data-phone-short] .composer[data-image-input] .composer-reason[data-held-consent][data-held-only] { position:static; max-height:44px; overflow-y:auto; }
+  .workspace[data-phone-short] .composer[data-image-input] .composer-reason:has(.image-refusals):not([data-held-consent]) { transition:none; position:absolute; inset:0; overflow:visible; }
   /* A selected thumbnail shares one row with its 44px control on short phones. */
   .workspace[data-phone-short] .turn-image:not([data-withheld]) { max-width:44px; max-height:44px; }
   .workspace[data-phone-short] .staged-images { height:46px; }
   .workspace[data-phone-short] .staged-image { flex-basis:220px; height:46px; grid-template-columns:44px minmax(0,1fr) 44px; grid-template-rows:44px; }
   .workspace[data-phone-short] .staged-image__status { grid-column:2; grid-row:1; align-self:center; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; }
   .workspace[data-phone-short] .staged-image__remove { grid-column:3; }
-  .workspace[data-phone-short] .composer:is([data-image-input], [data-document-input]) .composer-reason[data-shortcut] { visibility:hidden; }
+  .workspace[data-phone-short] .composer[data-image-input] .composer-reason[data-shortcut] { visibility:hidden; }
 }
 `;
