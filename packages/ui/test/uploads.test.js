@@ -845,18 +845,18 @@ for (const copy of [en, de]) for (const entrance of ['choice', 'combined']) for 
     const names = ['first.pdf', 'second.pdf', 'later.pdf', 'last.pdf'];
     await choose(root, names.map(name => new window.File(['%PDF-fixture'], name)));
     assert.equal(calls.filter(call => call.options.method === 'POST').length, 1);
-    const failure = status === 409 ? copy.purposePaused : copy.uploads.failed;
+    const failure = status === 409 ? copy.purposePaused : copy === en ? 'The files could not be added.' : 'Die Dateien konnten nicht übernommen werden.';
     const notice = root.querySelector('.composer-reason').textContent;
     for (const name of names) assert.equal(notice.split(name).length - 1, 1, notice);
     assert.equal(notice.split(failure).length - 1, 1, notice);
     assert.equal(root.querySelector('.upload-retry'), null);
   });
 
-for (const copy of [en, de]) for (const entrance of ['choice', 'combined']) for (const capacity of ['count', 'session'])
-  test(`AIT-561 Low 1: ${copy.display.locale}/${entrance}/${capacity} retained retry keeps the specific capacity figure`, async t => {
+for (const copy of [en, de]) for (const entrance of ['choice', 'combined']) for (const images of [false, true]) for (const capacity of ['count', 'session'])
+  test(`AIT-561 Low 1: ${copy.display.locale}/${entrance}/${images}/${capacity} retained retry keeps the specific capacity figure`, async t => {
     const schedule = globalThis.setTimeout;
     t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => schedule(callback, [5000, 10000].includes(delay) ? 0 : delay, ...args));
-    const { c, root, calls } = setup(t, { copy, entrance, limits: { ...UPLOAD_LIMITS, maxDocumentsPerSession: 2, maxSessionBytes: 100 },
+    const { c, root, calls } = setup(t, { copy, entrance, images, limits: { ...UPLOAD_LIMITS, maxDocumentsPerSession: 2, maxSessionBytes: 100 },
       post: () => Response.json({ error: 'upload-rate-limit' }, { status: 429 }) });
     await choose(root, ['one.pdf', 'two.pdf'].map(name => new window.File(['%PDF-' + 'x'.repeat(25)], name)));
     for (let n = 0; n < 100 && !root.querySelector('.upload-retry'); n++) await new Promise(resolve => setTimeout(resolve, 0));
@@ -918,4 +918,16 @@ for (const copy of [en, de]) for (const entrance of ['choice', 'combined']) for 
     assert.deepEqual(c.session.uploads.map(upload => upload.filename), names);
     assert.equal(calls.filter(call => call.options.method === 'POST').length, capacity === 'count' ? 2 : 1);
     assert.equal(root.querySelector('.composer-reason').textContent, copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'clipboard')));
+  });
+
+for (const copy of [en, de]) for (const status of [403, 409]) for (const count of [1, 4])
+  test(`AIT-561 r2 M1: ${copy.display.locale}/${status}/${count} final reason precedes the named unsent files with correct number`, async t => {
+    const { root } = setup(t, { copy, limits: { ...UPLOAD_LIMITS, maxFilesPerRequest: 2 },
+      post: () => Response.json(status === 409 ? { reason: 'purpose' } : { error: 'not-owner' }, { status }) });
+    const names = Array.from({ length: count }, (_, i) => `document-${i}.pdf`);
+    await choose(root, names.map(name => new window.File(['%PDF-fixture'], name)));
+    const failure = status === 409 ? copy.purposePaused : count === 1 ? copy.uploads.failed
+      : copy === en ? 'The files could not be added.' : 'Die Dateien konnten nicht übernommen werden.';
+    assert.equal(root.querySelector('.composer-reason').textContent,
+      failure + ' · ' + copy.uploads.refused.replace('{list}', names.join(', ')));
   });
