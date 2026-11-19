@@ -53,7 +53,7 @@ export function uploadNoticeSheetCheck() {
               if (scenario === 'failure') return Response.json({ error:'upload-rate-limit' }, { status:429 });
               return Response.json({ refused:[{ index:0, kind:'image', reason:'current processing consent required' }] }, { status:202 });
             }
-            if (String(url).endsWith('/input')) throw new TypeError('fixture send failure');
+            if (String(url).endsWith('/turns')) throw new TypeError('fixture send failure');
             return Response.json(c.session);
           };
           const { [locale]:copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
