@@ -190,9 +190,12 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
         // The receipt binds exact filenames, order, content bytes and base revision.
         const digest = createHash('sha256').update(JSON.stringify({ revision: rawRevision ?? null, files: files.map(f => ({ filename: f.originalName,
           hash: createHash('sha256').update(f.bytes).digest('hex') })) })).digest('hex');
+        // Refusal receipts need positions and reasons, not plaintext filenames.
+        // The byte-bound request supplies the same names again on replay.
+        const named = result => ({ ...result, refused: (result.refused ?? []).map(record => ({ ...record, name: files[record.index].originalName })) });
         if (storage.get(id).pauseReason === 'purpose') return json({ error: 'conversation-paused', reason: 'purpose' }, 409);
         const replay = storage.uploadReceipt(id, clientEventId, digest, guard);
-        if (replay) return json({ accepted: true, ...replay, uploads: replay.events.map(e => e.data), limits });
+        if (replay) return json({ accepted: true, ...named(replay), uploads: replay.events.map(e => e.data), limits });
         for (const image of [false, true]) {
           if (!files.some(file => (file.kind === 'image') === image)) continue;
           const availability = await (image ? runtime.imageInputAvailability : runtime.uploadAvailability)(session, { signal: request.signal, deadlineAt, now });
@@ -201,10 +204,12 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
           // An earlier file can finish during admission of the next batch. No receipt exists yet:
           // let the client retry against fresh admission rather than reporting a byte conflict.
           if (inputRevision(storage.get(id)) !== guard.revision) return json({ error: 'upload-rate-limit' }, 429);
-          if (files.some(file => file.kind === 'image') && storage.get(id).consentRevision !== session.consentRevision) return json({ error: 'uploads-unavailable', reason: 'current processing consent required' }, 403);
-          if (availability.reason) return json({ error: 'uploads-unavailable', reason: availability.reason }, 403);
+          if (image) {
+            const reason = storage.get(id).consentRevision !== session.consentRevision ? 'current processing consent required' : availability.reason;
+            if (reason) for (const file of files) if (file.kind === 'image') file.refusal = reason;
+          } else if (availability.reason) return json({ error: 'uploads-unavailable', reason: availability.reason }, 403);
         }
-        const result = storage.postUploads(id, clientEventId, digest, files, limits, { ...guard, revision });
+        const result = storage.postUploads(id, clientEventId, digest, files, limits, { ...guard, revision, partialImages: true });
         if (!result.replayed) {
           for (const event of result.events) publish(id, event);
           if (result.events.some(event => !stagedImage(event.data))) onInput(id, { pending: true });
@@ -214,7 +219,7 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
           Promise.allSettled(pending).then(releasePendingRequest);
           retained = true;
         }
-        return json({ accepted: true, ...result, uploads: result.events.map(e => e.data), limits }, result.replayed ? 200 : 202);
+        return json({ accepted: true, ...named(result), uploads: result.events.map(e => e.data), limits }, result.replayed ? 200 : 202);
       } finally {
         const remaining = requestsPerSession.get(id) - 1;
         if (remaining) requestsPerSession.set(id, remaining); else requestsPerSession.delete(id);

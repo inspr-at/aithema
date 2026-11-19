@@ -850,8 +850,8 @@ export class SQLiteStorage {
     const receipt = this.db.prepare('SELECT * FROM receipts WHERE session_id=? AND client_id=?').get(id, `upload:${clientId}`);
     if (!receipt) return null;
     if (receipt.bytes !== digest) throw new ConflictError('Upload client id has different bytes');
-    const { uploadIds } = JSON.parse(receipt.result);
-    return { replayed: true, events: uploadIds.map(uploadId => this.read(id).findLast(e => e.type === 'upload.state' && e.data.id === uploadId)) };
+    const { uploadIds, refused = [] } = JSON.parse(receipt.result);
+    return { replayed: true, refused, events: uploadIds.map(uploadId => this.read(id).findLast(e => e.type === 'upload.state' && e.data.id === uploadId)) };
   }
   postUploads(id, clientId, digest, files, limits, guard = {}) {
     limits = normalizeUploadLimits(limits);
@@ -859,19 +859,28 @@ export class SQLiteStorage {
       const replay = this.uploadReceipt(id, clientId, digest, guard); if (replay) return replay;
       const session = this.get(id); this.#check(session, guard);
       const current = session.uploads.filter(u => !u.erased && !u.withdrawn && !['withdrawn', 'staged-discarded', 'withheld'].includes(u.state));
-      const addingImages = files.filter(file => file.kind === 'image').length, images = current.filter(u => u.kind === 'image').length;
-      if (!files.length || files.length > limits.maxFilesPerRequest || current.length - images + files.length - addingImages > limits.maxDocumentsPerSession || images + addingImages > limits.maxImagesPerSession ||
-        current.reduce((n, u) => n + u.bytes, 0) + files.reduce((n, f) => n + f.bytes.length, 0) > limits.maxSessionBytes ||
+      const images = current.filter(u => u.kind === 'image').length, refused = [], admitted = [];
+      let imageSlots = Math.max(0, limits.maxImagesPerSession - images);
+      // Only HTTP intake opts into partial image admission. Keep direct storage
+      // callers' existing RangeError contract and enforce the quota atomically.
+      for (const [index, file] of files.entries()) {
+        const reason = guard.partialImages && file.kind === 'image' && (file.refusal || (imageSlots === 0 ? 'limit' : null));
+        if (reason) refused.push({ index, kind: 'image', reason });
+        else { admitted.push(file); if (file.kind === 'image') imageSlots--; }
+      }
+      const addingImages = admitted.filter(file => file.kind === 'image').length;
+      if (!files.length || files.length > limits.maxFilesPerRequest || current.length - images + admitted.length - addingImages > limits.maxDocumentsPerSession || images + addingImages > limits.maxImagesPerSession ||
+        current.reduce((n, u) => n + u.bytes, 0) + admitted.reduce((n, f) => n + f.bytes.length, 0) > limits.maxSessionBytes ||
         files.some(f => f.bytes.length > limits.maxBytes)) throw new RangeError('Upload limit');
-      const events = files.map(file => {
+      const events = admitted.map(file => {
         const uploadId = randomUUID(), event = this.#append(this.get(id), 'upload.state', { id: uploadId, state: file.kind === 'image' ? 'staged-pending' : 'pending',
           ...(file.kind === 'image' ? { kind: 'image', expiresAt: this.now() + 30 * 60 * 1000 } : {}),
           filename: file.filename, mediaType: file.mediaType, bytes: file.bytes.length, deadlineAt: file.deadlineAt, at: new Date(this.now()).toISOString() });
         this.db.prepare('INSERT INTO uploads VALUES (?,?,?,?,?,NULL)').run(uploadId, id, file.bytes, file.bytes.length, event.data.contentRef);
         return event;
       });
-      this.db.prepare('INSERT INTO receipts VALUES (?,?,?,?)').run(id, `upload:${clientId}`, digest, JSON.stringify({ uploadIds: events.map(e => e.data.id) }));
-      return { events, replayed: false };
+      this.db.prepare('INSERT INTO receipts VALUES (?,?,?,?)').run(id, `upload:${clientId}`, digest, JSON.stringify({ uploadIds: events.map(e => e.data.id), refused }));
+      return { events, refused, replayed: false };
     });
   }
   uploadBytes(id, uploadId) {

@@ -2124,13 +2124,25 @@ Document uploads use `POST /api/sessions/:id/uploads` with `multipart/form-data`
 one `clientEventId`, optional `inputRevision`, and `file` or repeated `files`.
 The same cookie/header ownership port as turns runs before body parsing and
 receipt lookup. A new upload returns HTTP 202 with
-`{accepted:true, uploads:[...], events:[...], replayed:false, limits}`; retries
+`{accepted:true, uploads:[...], events:[...], refused:[...], replayed:false, limits}`; retries
 return HTTP 200 and the current states with the original upload IDs. Receipts
 bind exact file bytes, names, order and the explicitly supplied revision;
 multipart boundary changes and client MIME labels do not change that identity.
 Different content under the same ID conflicts (409). Unauthorized or erased
 sessions return 404, invalid forms 400, oversized requests/files or session
 capacity 413, and unavailable upload processing 403 with a `reason`.
+
+Image admission refusals are per file (AIT-559): the additive `refused` array
+contains `{index,name,kind:'image',reason}`, where `index` is the zero-based file
+position in the request. Images unavailable for the current binding, normalizer
+or consent, and images exceeding the session image quota, are omitted from
+`uploads` and `events`; their original bytes are never staged. Eligible documents
+in the same request still attach. An entirely refused image request also returns
+202 with empty upload/event arrays. A receipt replays its refusals unchanged at
+200; a later consent grant requires a new request ID for the retained images.
+Request framing, ownership, document admission and other capacity failures keep
+their existing HTTP error responses. Direct `SQLiteStorage.postUploads` callers
+keep the image-limit `RangeError` unless they opt into `guard.partialImages`.
 
 `upload.state` is durable/SSE: `{id,state,at,contentRef,hash,...}` with hydrated
 metadata (`filename`, sniffed `mediaType`, source `bytes`, `deadlineAt`) while
@@ -2147,8 +2159,11 @@ must treat those flags as a tombstone. No original-byte download route exists.
 
 In `<aithema-session>` (B2), Attach opens the native picker (multiple files), and
 files dropped on the conversation upload the same way. Before sending, the client
-names refused types, oversized files and an overfull conversation in plain words,
-using the limits the route reports; files that fit are packed into requests under
+names refused types, oversized files and excess recognized images in plain words,
+using the limits the route reports. Initial document counts and session byte
+capacity are checked after server classification, so images that will be refused
+cannot hold eligible documents. Retained-file retry keeps its existing session
+capacity holds. Files that fit are packed into requests under
 the per-request ceilings. The request size counts the multipart body byte for byte
 (clientEventId, each part's headers with the escaped UTF-8 filename and type, and
 a boundary of the 70-character maximum); a host request limit too small for any
@@ -4322,7 +4337,7 @@ of `uploads.limits` also wins for image-capable composers unless the host suppli
 an explicit `uploads.limitsWithImages` override. Picker types and type refusals
 follow the current binding, including after a settings change.
 
-Refusals are bounded structured
+Refusals are structured per-file
 records, retained through typing until dismissed, a successful attach, or a
 successful send. The reason slot ranks pause/unavailability, send failure,
 attach-time consent, refusals, upload notices, then the shortcut hint. German UI
@@ -4360,6 +4375,14 @@ A successful document in a mixed pick keeps that pick's image refusal visible,
 including when the document waits for consent before uploading. Failures from
 the current selection also stay visible across upload acknowledgements; a later
 successful attachment clears older feedback.
+Detected images awaiting consent reuse the existing image consent action and
+retain their original files while document batches continue. Granting consent
+resumes only those images. Excess images receive the existing named image-limit
+refusal; the images that fit and eligible documents continue. Refusal lists keep
+every file, including duplicate filenames and selections exceeding eight files,
+inside the existing scroll area. Older whole-request failures name each affected
+file in a mixed selection, and later batches are still attempted; exhausted busy
+retries keep the existing retained-file controls.
 The reserved image-feedback width stays stable when consent becomes a shortcut.
 Its hidden measurement node is mounted only while image input is active, so
 hosts without image input retain the existing composer DOM and geometry.

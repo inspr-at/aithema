@@ -4,7 +4,7 @@ import { WARNING_ICON } from './concept-view.js';
 import { stagedImage } from '../../core/src/image-input.js';
 import { isImageFile } from './uploads.js';
 
-/** Owns erasable previews and bounded refusal records; never changes conversation input. */
+/** Owns erasable previews and per-file refusal records; never changes conversation input. */
 export class ImageInputView {
   #ports; #copy; #tiles; #records = []; #refusalVersion = 0; #urls = new Map(); #loads = new Map(); #epoch = 0; #reserve; #reserveObserver;
   constructor(ports) {
@@ -26,12 +26,14 @@ export class ImageInputView {
   get pending() { return this.#ports.session().uploads.some(u => stagedImage(u) && !u.erased && u.state === 'staged-pending'); }
   get attachments() { return this.#ports.session().uploads.filter(u => u.kind === 'image' && !u.erased && u.state === 'staged-ready').map(u => u.id); }
   refuse(records) {
+    const occurrences = new Map();
     for (const record of records) {
-      const key = `${record.id ?? record.name}:${record.reason}`;
+      const base = `${record.id ?? record.name}:${record.reason}`, occurrence = occurrences.get(base) ?? 0;
+      occurrences.set(base, occurrence + 1);
+      const key = `${base}:${occurrence}`;
       this.#records = this.#records.filter(prior => prior.key !== key);
       this.#records.push({ ...record, key, version: ++this.#refusalVersion });
     }
-    this.#records = this.#records.slice(-8);
   }
   clear(through = this.#refusalVersion) { this.#records = this.#records.filter(record => record.version > through); }
   receive(upload) {
