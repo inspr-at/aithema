@@ -413,6 +413,15 @@ export function heldRegressionCheck() {
             assert.ok(before[selector].width > 0 && before[selector].height > 0 && after[selector].width > 0 && after[selector].height > 0, `${selector}: non-zero boxes`);
             assert.deepEqual(after[selector], before[selector], `${selector}: 0 px shift`);
           }
+          if (scenario === 'mixed-refusals' && width === 390) {
+            await page.setViewport({ width, height: 568, hasTouch: true }); await settle();
+            const short = await inspect();
+            for (const box of short.visible) {
+              assert.ok(box.width > 0 && box.height > 0 && box.rects > 0, `${box.text}: short-phone visible box`);
+              assert.equal(box.clipped, false, `${box.text}: short-phone refusal and consent stay visible`);
+            }
+            if (evidence) await writeFile(join(evidence, `ait566-short-mixed-${locale}.json`), JSON.stringify({ boxes: await boxes(), result: short }, null, 2));
+          }
         }
       });
     });
