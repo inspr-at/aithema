@@ -23,6 +23,11 @@ export function mixedUploadCheck() {
       await page.exposeFunction('mixedConfigure', async (host, reason) => {
         await closeIntake();
         const storage = new SQLiteStorage(':memory:'), session = storage.create({ ownerToken: 'fixture', demo: true, locale });
+        // An established conversation isolates attachment geometry from START's
+        // intentional first-input reveal, as in the document-upload fixtures.
+        for (const [id, role, content] of [['intake-input', 'user', 'Project documents'], ['intake-reply', 'assistant', 'Which document should we clarify?']]) {
+          storage.append(session.id, 'turn.final', { id, role, content, at: new Date(storage.now()).toISOString() });
+        }
         const state = { storage, session, host, reason, granted: false };
         state.handlers = createUploadHandlers({ storage,
           runtime: {
@@ -59,7 +64,6 @@ export function mixedUploadCheck() {
       await preparePage(page, [locale]); await page.setViewport({ width, height: width === 390 ? 844 : 900 });
       await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
       await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
-      await startTyping(page);
       const evidence = process.env.AITHEMA_EVIDENCE_DIR;
       if (evidence) await mkdir(evidence, { recursive: true });
       for (const [host, reason] of [['document-only', 'image normalizer not configured'], ['default-batches', 'image normalizer not configured'], ['text-binding', 'image input not supported'],
