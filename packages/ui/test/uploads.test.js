@@ -868,3 +868,35 @@ for (const copy of [en, de]) for (const entrance of ['choice', 'combined']) for 
     assert.equal(root.querySelector('.upload-retry'), null);
     assert.equal(calls.filter(call => call.options.method === 'POST').length, attempts);
   });
+
+for (const copy of [en, de]) test(`AIT-561 Low 4: ${copy.display.locale} final failure after a successful batch names only unsent files`, async t => {
+  let requests = 0;
+  const { c, root, calls } = setup(t, { copy, limits: { ...UPLOAD_LIMITS, maxFilesPerRequest: 2 },
+    post: () => ++requests === 1 ? null : Response.json({ error: 'conversation-paused', reason: 'purpose' }, { status: 409 }) });
+  const names = Array.from({ length: 6 }, (_, i) => `document-${i}.pdf`);
+  await choose(root, names.map(name => new window.File(['%PDF-fixture'], name)));
+  assert.equal(calls.filter(call => call.options.method === 'POST').length, 2);
+  assert.deepEqual(c.session.uploads.map(upload => upload.filename), names.slice(0, 2));
+  const notice = root.querySelector('.composer-reason').textContent;
+  for (const name of names.slice(0, 2)) assert.equal(notice.includes(name), false);
+  for (const name of names.slice(2)) assert.equal(notice.split(name).length - 1, 1);
+  assert.equal(notice.split(copy.purposePaused).length - 1, 1);
+});
+
+for (const copy of [en, de]) for (const entrance of ['choice', 'combined'])
+  test(`AIT-561 Low 1: ${copy.display.locale}/${entrance} eight PDFs keep an ambiguous image available for retained retry`, async t => {
+    const schedule = globalThis.setTimeout; let busy = true;
+    t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => schedule(callback, [5000, 10000].includes(delay) ? 0 : delay, ...args));
+    const { root, calls } = setup(t, { copy, entrance, post: form => {
+      if (!form.getAll('files').some(file => file.name === 'scan.pdf')) return null;
+      return busy ? Response.json({ error: 'upload-rate-limit' }, { status: 429 })
+        : Response.json({ events: [], refused: [{ index: 0, kind: 'image', reason: 'image normalizer not configured' }] }, { status: 202 });
+    } });
+    await choose(root, [...Array.from({ length: 8 }, (_, i) => new window.File(['%PDF-fixture'], `eligible-${i}.pdf`)),
+      new window.File([new Uint8Array([255, 216, 255, 224])], 'scan.pdf', { type: 'application/pdf' })]);
+    for (let n = 0; n < 100 && !root.querySelector('.upload-retry'); n++) await new Promise(resolve => setTimeout(resolve, 0));
+    assert.ok(root.querySelector('.upload-retry'), 'an ambiguous retained file still needs server classification');
+    busy = false; root.querySelector('.upload-retry').click(); await tick(); await tick();
+    assert.equal(calls.filter(call => call.options.method === 'POST').length, 5);
+    assert.equal(root.querySelector('.composer-reason').textContent, copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'scan.pdf')));
+  });
