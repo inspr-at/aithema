@@ -966,8 +966,6 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .image-feedback-reserve { display:none; visibility:hidden; pointer-events:none; font-size:.72rem; line-height:1.3; }
 .composer:is([data-image-input], [data-document-input]) .image-feedback-reserve { display:grid; }
 .image-feedback-reserve > * { grid-area:1/1; }
-/* Whole pixels keep font-baseline rounding from moving a locale repaint. */
-.composer[data-document-input]:not([data-image-input]) .composer-feedback { min-height:var(--image-feedback-height,44px); }
 .image-feedback-document-reserve { overflow-wrap:anywhere; }
 /* Keep arbitrary refusal batches in their established two-line scroll area;
    accepted formats have their own fully wrapped row and never scroll away. */
@@ -984,7 +982,7 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .held-feedback-reserve { display:flex; flex-direction:column; line-height:1.25; }
 .held-feedback-reserve__facts { display:block; flex:none; max-height:3.75em; overflow:auto; }
 .held-feedback-reserve__line { display:block; min-height:0; max-height:44px; overflow:auto; }
-.held-feedback-reserve__action { display:inline-block; line-height:inherit; white-space:nowrap; }
+.held-feedback-reserve__action { display:inline; line-height:inherit; white-space:nowrap; }
 .held-feedback-reserve__narrow { display:none; }
 .held-upload-images { flex:none; min-height:0; }
 .held-upload-images .image-refusals { position:static; min-height:44px; max-height:44px; }
