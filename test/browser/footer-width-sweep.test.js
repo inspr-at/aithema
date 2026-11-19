@@ -159,9 +159,6 @@ test('AIT-281: actor role state matrix has exactly 0px movement at 1440/1024/390
         if (f && path.endsWith('/identity/role')) {
           f.command = JSON.parse(init.body);
           if (f.state === 'saving') return new Promise(() => {});
-          // HTTP completes after native radio activation; do not acknowledge
-          // inside the click dispatch's microtask checkpoints.
-          await new Promise(resolve => setTimeout(resolve, 0));
           if (f.state === 'error') return Response.json({ error: 'fixture-failure' }, { status: 500 });
           if (f.state === 'stale') { f.view = { ...f.view, role: 'representative', source: 'chosen', reasoning: null, revision: f.view.revision + 1 };
             return Response.json({ error: 'role-conflict', roleChoice: f.view }, { status: 409 }); }
