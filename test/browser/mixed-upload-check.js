@@ -22,7 +22,7 @@ export function mixedUploadCheck() {
       await inShadow(page, c => { window.mixedInitial = structuredClone(c.session); });
       const evidence = process.env.AITHEMA_EVIDENCE_DIR;
       if (evidence) await mkdir(evidence, { recursive: true });
-      for (const [host, reason] of [['document-only', 'image normalizer not configured'], ['text-binding', 'image input not supported'],
+      for (const [host, reason] of [['document-only', 'image normalizer not configured'], ['default-batches', 'image normalizer not configured'], ['text-binding', 'image input not supported'],
         ['consent', 'current processing consent required'], ['normalizer', 'image normalizer unavailable'], ['limit', 'limit'], ['recognised-limit', 'limit']]) {
         await t.test(host, async () => {
           await inShadow(page, async (c, { host, reason }) => {
@@ -35,7 +35,7 @@ export function mixedUploadCheck() {
             c.addEventListener('aithema-consent', event => { window.mixedAsks.push(event.detail); event.stopImmediatePropagation(); }, { capture: true, once: true });
             window.fetch = async (url, options = {}) => {
               if (String(url).endsWith('/uploads')) {
-                if (options.method !== 'POST') return Response.json({ uploads: c.session.uploads, limits: { maxFilesPerRequest: 2, maxImagesPerSession: host.endsWith('limit') ? 1 : 8 } });
+                if (options.method !== 'POST') return Response.json({ uploads: c.session.uploads, limits: { maxFilesPerRequest: host === 'default-batches' ? 8 : 2, maxImagesPerSession: host.endsWith('limit') ? 1 : 8 } });
                 const files = options.body.getAll('files'), events = [], refused = [];
                 window.mixedPosts.push(files.map(file => file.name));
                 for (const [index, file] of files.entries()) {
@@ -66,7 +66,7 @@ export function mixedUploadCheck() {
           if (evidence) await page.screenshot({ path: join(evidence, `${prefix}-before.png`) });
           await inShadow(page, c => {
             const transfer = new DataTransfer();
-            const picks = window.mixedHost === 'recognised-limit' ? [['first.png', 'image/png'], ['excess.png', 'image/png'], ['eligible.pdf', 'application/pdf'], ['eligible-later.pdf', 'application/pdf'], ['eligible-final.pdf', 'application/pdf']] : [['clipboard', 'application/octet-stream'], ['eligible.pdf', 'application/pdf'], ['typed.pdf', 'image/png'], ['eligible-typed.pdf', 'application/pdf'], ['scan.pdf', 'application/pdf'], ['eligible-later.pdf', 'application/pdf']];
+            const picks = window.mixedHost === 'default-batches' ? [['scan.pdf', 'application/pdf'], ...Array.from({ length: 8 }, (_, index) => [`eligible-${index}.pdf`, 'application/pdf'])] : window.mixedHost === 'recognised-limit' ? [['first.png', 'image/png'], ['excess.png', 'image/png'], ['eligible.pdf', 'application/pdf'], ['eligible-later.pdf', 'application/pdf'], ['eligible-final.pdf', 'application/pdf']] : [['clipboard', 'application/octet-stream'], ['eligible.pdf', 'application/pdf'], ['typed.pdf', 'image/png'], ['eligible-typed.pdf', 'application/pdf'], ['scan.pdf', 'application/pdf'], ['eligible-later.pdf', 'application/pdf']];
             for (const [name, type] of picks) transfer.items.add(new File([name === 'scan.pdf' ? new Uint8Array([255, 216, 255, 224, 0, 0]) : name.startsWith('eligible') ? '%PDF-fixture' : new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], name, { type }));
             const input = c.shadowRoot.querySelector('.attach-input'); input.files = transfer.files; input.dispatchEvent(new Event('change'));
           });
@@ -80,11 +80,11 @@ export function mixedUploadCheck() {
             await page.screenshot({ path: join(evidence, `${prefix}-after.png`) });
             await writeFile(join(evidence, `${prefix}.json`), JSON.stringify({ before, after, result }, null, 2));
           }
-          assert.deepEqual(result.posts, host === 'recognised-limit' ? [['eligible.pdf', 'eligible-later.pdf'], ['eligible-final.pdf']] : [['clipboard', 'eligible.pdf'], ['typed.pdf', 'eligible-typed.pdf'], ['scan.pdf', 'eligible-later.pdf']], 'later batches sent');
-          assert.deepEqual(result.documents, host === 'recognised-limit' ? ['eligible.pdf', 'eligible-later.pdf', 'eligible-final.pdf'] : ['eligible.pdf', 'eligible-typed.pdf', 'eligible-later.pdf']);
+          assert.deepEqual(result.posts, host === 'default-batches' ? [['scan.pdf', ...Array.from({ length: 7 }, (_, index) => `eligible-${index}.pdf`)], ['eligible-7.pdf']] : host === 'recognised-limit' ? [['eligible.pdf', 'eligible-later.pdf'], ['eligible-final.pdf']] : [['clipboard', 'eligible.pdf'], ['typed.pdf', 'eligible-typed.pdf'], ['scan.pdf', 'eligible-later.pdf']], 'later batches sent');
+          assert.deepEqual(result.documents, host === 'default-batches' ? Array.from({ length: 8 }, (_, index) => `eligible-${index}.pdf`) : host === 'recognised-limit' ? ['eligible.pdf', 'eligible-later.pdf', 'eligible-final.pdf'] : ['eligible.pdf', 'eligible-typed.pdf', 'eligible-later.pdf']);
           if (host === 'consent') { assert.deepEqual(result.asks, [['imageInput']]); assert.equal(result.consent, true); }
           else if (host.endsWith('limit')) assert.deepEqual(result.refusals, (host === 'recognised-limit' ? ['first.png', 'excess.png'] : ['clipboard', 'typed.pdf', 'scan.pdf']).map(name => `${name}: ${copy.imageRefusals.limit}`));
-          else assert.equal(result.notice, copy.uploads.refused.replace('{list}', ['clipboard', 'typed.pdf', 'scan.pdf'].map(name => copy.uploads.type.replace('{name}', name)).join(', ')));
+          else assert.equal(result.notice, copy.uploads.refused.replace('{list}', (host === 'default-batches' ? ['scan.pdf'] : ['clipboard', 'typed.pdf', 'scan.pdf']).map(name => copy.uploads.type.replace('{name}', name)).join(', ')));
           for (const selector of Object.keys(before)) {
             assert.ok(before[selector].width > 0 && before[selector].height > 0 && after[selector].width > 0 && after[selector].height > 0, `${selector} is visible`);
             assert.deepEqual(after[selector], before[selector], `${selector}: 0 px layout shift`);
