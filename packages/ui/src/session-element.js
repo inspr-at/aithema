@@ -2426,7 +2426,7 @@ export class AithemaSession extends HTMLElement {
       let stepsReserve = out.querySelector('.composer-out__steps-reserve');
       if (kind !== 'none') {
         if (!stepsReserve) {
-          stepsReserve = node('span', 'composer-out__steps-reserve');
+          stepsReserve = node('span', 'composer-out__steps composer-out__steps-reserve');
           stepsReserve.setAttribute('aria-hidden', 'true'); stepsReserve.inert = true;
           for (let i = 0; i < 3; i++) stepsReserve.append(node('span'));
           out.querySelector('.composer-out__steps').append(stepsReserve);
