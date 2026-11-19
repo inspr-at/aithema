@@ -292,3 +292,7 @@ test('AIT-281: actor role state matrix has exactly 0px movement at 1440/1024/390
     t.diagnostic(`PASS AIT-281: ${pass.length} state/viewport/theme/locale cases; exact 0px movement; one page`);
     if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, fonts: 'Chrome baseline UI/display stacks pinned', shots, pass, errors }, null, 2)+'\n');
   });
+
+import { footerDotCheck } from './footer-dot-check.js';
+test('AIT-562: footer dot pixels stay identical across production timer ticks, EN/DE, light/dark, 1440/390',
+  { timeout: 180_000 }, footerDotCheck);
