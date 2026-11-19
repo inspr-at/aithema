@@ -47,9 +47,9 @@ export const combinedEntranceStyles = `
 .workspace[data-entrance="combined"] .send { grid-area:send; align-self:end; }
 .workspace[data-entrance="combined"] .composer-feedback { grid-area:feedback; margin:0; font-size:.72rem; }
 /* Reserve wrapped document refusals only where document intake is configured. */
-.workspace[data-entrance="combined"] .composer[data-document-input] .composer-feedback { min-height:3.9em; }
+.workspace[data-entrance="combined"] .composer[data-document-input] .composer-feedback { min-height:3.75em; }
 /* Image refusals reserve the longest real localized reason before intake. */
-.workspace[data-entrance="combined"] .composer[data-image-input] .composer-feedback { min-height:max(44px,3.9em); }
+.workspace[data-entrance="combined"] .composer[data-image-input] .composer-feedback { min-height:44px; }
 .workspace[data-entrance="combined"] .composer-feedback .composer-reason { font-size:inherit; }
 .workspace[data-entrance="combined"] .composer-feedback .composer-reason[data-shortcut] { position:static; visibility:visible; width:auto; }
 .composer-notice-slot { grid-area:notice; position:relative; min-width:0; }

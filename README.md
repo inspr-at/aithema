@@ -4364,6 +4364,8 @@ holds after an image refusal or a switch to a binding without image input,
 even when the reserved image layout remains mounted. Combined
 composers with document intake reserve three lines of feedback capacity
 before intake, so a wrapped document-only refusal keeps the controls fixed.
+Capacity lines use the existing 44 px control row; their line spacing fits all
+three lines without raising the ordinary voice/composer row.
 That session reserve survives pause and consent changes; combined composers
 without uploads retain their natural feedback height. The expanded
 notice cap applies only to upload notices; long host-overridden image-consent
