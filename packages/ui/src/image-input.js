@@ -1,4 +1,6 @@
 import { resolveCopy } from './copy-resolve.js';
+import { featureConsentText } from './consent-line.js';
+import { reasonSeparator } from './reason-separator.js';
 import { node, setText } from './dom.js';
 import { WARNING_ICON } from './concept-view.js';
 import { stagedImage } from '../../core/src/image-input.js';
@@ -53,9 +55,9 @@ export class ImageInputView {
     return row;
   }
   #reserveFeedback() {
-    // Hosts without image input have no feedback slot to measure. Build its
-    // localized candidates only once that layout is active.
-    if (!this.#ports.form.hasAttribute('data-image-input')) {
+    // Reserve intake feedback before a selection, including document-only consent.
+    const images = this.#ports.form.hasAttribute('data-image-input');
+    if (!images && !this.#ports.form.hasAttribute('data-document-input')) {
       if (this.#reserve.parentElement) {
         this.#reserve.remove();
         this.#ports.form.style.removeProperty('--image-feedback-height');
@@ -68,18 +70,31 @@ export class ImageInputView {
     // localized sentence and accepted formats before intake can settle.
     const documentFacts = this.#copy.uploads.refused.replace('{list}', this.#copy.uploads.type.replace('{name}', 'filename.unknown'));
     const documentFormats = this.#text('uploadsSupported');
-    const key = JSON.stringify([reasons.map(reason => this.refusalText(reason)), this.#copy.uploads.discard, documentFacts, documentFormats]);
+    const feature = images ? 'imageInput' : 'uploads', sentence = featureConsentText(this.#copy, feature);
+    const key = JSON.stringify([images, reasons.map(reason => this.refusalText(reason)), this.#copy.uploads, this.#copy.featureConsent, documentFacts, documentFormats, sentence]);
     if (this.#reserve.dataset.copy !== key) {
       this.#reserve.dataset.copy = key;
       const documentNotice = node('span', 'image-feedback-document-reserve');
       documentNotice.append(node('span', 'upload-notice-facts', documentFacts), node('span', 'upload-notice-formats', documentFormats));
-      this.#reserve.replaceChildren(documentNotice, ...reasons.map(reason => {
+      const rows = reasons.map(reason => {
         const row = node('span', 'image-refusals-reserve__row');
         const icon = node('span', 'image-refusals__icon');
         const list = node('span', 'image-refusals__list'); list.append(this.#refusal({ name: 'file', reason }));
         row.append(icon, list, node('span', 'image-refusals__dismiss', this.#copy.uploads.discard));
         return row;
-      }));
+      });
+      const held = (facts, imageRow) => {
+        const candidate = node('span', 'held-feedback-reserve');
+        const line = node('span', 'held-upload-consent'), label = node('span', 'consent-line-copy');
+        label.append(node('span', 'held-consent-wide', `filename.pdf: ${sentence}${reasonSeparator}`),
+          node('span', 'held-consent-narrow', `filename.pdf: ${this.#copy.featureConsent.textNarrow}${reasonSeparator}`));
+        line.append(label, node('span', 'consent-action', this.#copy.featureConsent.action));
+        candidate.append(node('span', 'held-upload-notice', facts));
+        if (imageRow) candidate.append(imageRow.cloneNode(true));
+        candidate.append(line); return candidate;
+      };
+      this.#reserve.replaceChildren(...(images ? [documentNotice, ...rows, ...rows.map(row => held(documentFacts, row))] : []),
+        held(this.#copy.uploads.impossible));
     }
     const height = Math.ceil(this.#reserve.getBoundingClientRect().height);
     if (height > 0) this.#ports.form.style.setProperty('--image-feedback-height', `${height}px`);

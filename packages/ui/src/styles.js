@@ -961,10 +961,10 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .turn-image[data-withheld] { background:none; border-radius:0; overflow:visible; overflow-wrap:normal; word-break:normal; }
 /* Measure every real localized reason at the live width before any decoder result.
    The name has one line; the reason below it is never truncated. */
-.composer[data-image-input] .composer-feedback,
-.composer[data-image-input] .composer-feedback:has(.composer-reason[data-shortcut]) { position:relative; flex:1; }
+.composer:is([data-image-input], [data-document-input]) .composer-feedback,
+.composer:is([data-image-input], [data-document-input]) .composer-feedback:has(.composer-reason[data-shortcut]) { position:relative; flex:1; }
 .image-feedback-reserve { display:none; visibility:hidden; pointer-events:none; font-size:.72rem; line-height:1.3; }
-.composer[data-image-input] .image-feedback-reserve { display:grid; }
+.composer:is([data-image-input], [data-document-input]) .image-feedback-reserve { display:grid; }
 .image-feedback-reserve > * { grid-area:1/1; }
 .image-feedback-document-reserve { overflow-wrap:anywhere; }
 /* Keep arbitrary refusal batches in their established two-line scroll area;
@@ -978,7 +978,11 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .composer-reason[data-capacity-notice] { line-height:1.25; }
 .composer-reason[data-capacity-notice], .composer-reason[data-capacity-notice] .upload-notice-facts { max-height:3.75em; }
 .composer[data-image-input] .composer-reason[data-consent-feature="imageInput"] { overflow-y:auto; }
-/* Held consent shares the already measured feedback slot with current facts. */
+/* Measure held consent with its current facts before any intake occurs. */
+.held-feedback-reserve { display:flex; flex-direction:column; line-height:1.25; }
+.held-upload-images { flex:none; min-height:0; }
+.held-upload-images .image-refusals { position:static; min-height:44px; max-height:44px; }
+.held-upload-images .image-refusal__name { display:inline; white-space:normal; }
 .composer-feedback:has(.composer-reason[data-held-consent]) { position:relative; }
 .composer-reason[data-held-consent], .composer[data-image-input] .composer-reason[data-held-consent] { position:absolute; inset:0; display:flex; flex-direction:column; justify-content:center; max-height:none; line-height:1.25; overflow:visible; }
 .held-upload-notice { display:block; flex:none; max-height:3.75em; overflow:auto; overscroll-behavior:contain; }
@@ -1003,18 +1007,18 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .composer-reason:has(.image-refusals) { transition:none; position:absolute; inset:0; width:auto; height:auto; max-height:none; overflow:visible; }
 @media(max-width:600px) {
   /* Reserve the short phone reason slot with the declared input capability. */
-  .workspace[data-phone-short] .composer[data-image-input] { padding-top:calc(var(--image-feedback-height,60px) + 10px); }
-  .workspace[data-phone-short] .composer[data-image-input] .composer-feedback { position:absolute; top:4px; left:6px; right:6px; height:var(--image-feedback-height,60px); margin:0; }
-  .workspace[data-phone-short] .composer[data-image-input] .composer-reason { position:static; width:auto; height:auto; max-height:none; clip-path:none; overflow:auto; }
-  .workspace[data-phone-short] .composer[data-image-input] .composer-reason[data-held-consent] { position:absolute; inset:0; height:auto; line-height:1.25; overflow:visible; }
-  .workspace[data-phone-short] .composer[data-image-input] .composer-reason[data-held-consent][data-held-only] { position:static; max-height:44px; overflow-y:auto; }
-  .workspace[data-phone-short] .composer[data-image-input] .composer-reason:has(.image-refusals) { transition:none; position:absolute; inset:0; overflow:visible; }
+  .workspace[data-phone-short] .composer:is([data-image-input], [data-document-input]) { padding-top:calc(var(--image-feedback-height,60px) + 10px); }
+  .workspace[data-phone-short] .composer:is([data-image-input], [data-document-input]) .composer-feedback { position:absolute; top:4px; left:6px; right:6px; height:var(--image-feedback-height,60px); margin:0; }
+  .workspace[data-phone-short] .composer:is([data-image-input], [data-document-input]) .composer-reason { position:static; width:auto; height:auto; max-height:none; clip-path:none; overflow:auto; }
+  .workspace[data-phone-short] .composer:is([data-image-input], [data-document-input]) .composer-reason[data-held-consent] { position:absolute; inset:0; height:auto; line-height:1.25; overflow:visible; }
+  .workspace[data-phone-short] .composer:is([data-image-input], [data-document-input]) .composer-reason[data-held-consent][data-held-only] { position:static; max-height:44px; overflow-y:auto; }
+  .workspace[data-phone-short] .composer:is([data-image-input], [data-document-input]) .composer-reason:has(.image-refusals) { transition:none; position:absolute; inset:0; overflow:visible; }
   /* A selected thumbnail shares one row with its 44px control on short phones. */
   .workspace[data-phone-short] .turn-image:not([data-withheld]) { max-width:44px; max-height:44px; }
   .workspace[data-phone-short] .staged-images { height:46px; }
   .workspace[data-phone-short] .staged-image { flex-basis:220px; height:46px; grid-template-columns:44px minmax(0,1fr) 44px; grid-template-rows:44px; }
   .workspace[data-phone-short] .staged-image__status { grid-column:2; grid-row:1; align-self:center; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; }
   .workspace[data-phone-short] .staged-image__remove { grid-column:3; }
-  .workspace[data-phone-short] .composer[data-image-input] .composer-reason[data-shortcut] { visibility:hidden; }
+  .workspace[data-phone-short] .composer:is([data-image-input], [data-document-input]) .composer-reason[data-shortcut] { visibility:hidden; }
 }
 `;

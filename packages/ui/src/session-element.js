@@ -2267,16 +2267,21 @@ export class AithemaSession extends HTMLElement {
         if (!refusal) setText(action, copy.uploads.tryAgain);
         setText(discard, copy.uploads.discard);
       } else if (text.available && !this.#rail?.moved && !this.#sendFailed && this.#imageIntent) {
-        if (!reason.querySelector('.held-upload-notice')) reason.replaceChildren(node('span', 'held-upload-notice'), node('span', 'held-upload-consent'));
+        if (!reason.querySelector('.held-upload-notice')) reason.replaceChildren(node('span', 'held-upload-notice'), node('span', 'held-upload-images'), node('span', 'held-upload-consent'));
         // The formats remain in the attachment help; this slot keeps the current
         // refusal and the held files' consent action visible together.
         const supported = resolveCopy(copy, 'uploadsSupported', undefined, this.#session.locale);
         const notice = supported && this.#uploadNotice.endsWith(supported) ? this.#uploadNotice.slice(0, -supported.length).trim() : this.#uploadNotice;
         setText(reason.querySelector('.held-upload-notice'), notice);
+        const imageFacts = reason.querySelector('.held-upload-images');
+        if (this.#images.hasRefusals) this.#images.paintRefusals(imageFacts);
+        else imageFacts.replaceChildren();
+        imageFacts.hidden = !this.#images.hasRefusals;
       } else if (text.available && !this.#rail?.moved && !this.#sendFailed && this.#images?.hasRefusals) {
         this.#images.paintRefusals(reason);
       } else {
-        if (reason.querySelector('.upload-retry-copy')) reason.replaceChildren();
+        // Clear held descendants before the text painter looks for reusable nodes.
+        if (reason.querySelector('.upload-retry-copy, .held-upload-consent, .held-upload-notice')) reason.replaceChildren();
         paintConsentLine(reason, { copy, feature: 'text', text: words,
           verdict: text,
           open: opener => this.#dialog.openConsent('text', opener) });
@@ -2306,7 +2311,7 @@ export class AithemaSession extends HTMLElement {
         if (ended) { ended.remove(); delete reason.dataset.consentFeature; }
       }
       reason.toggleAttribute('data-held-consent', Boolean(reason.querySelector('.held-upload-consent')) && Boolean(this.#imageIntent));
-      reason.toggleAttribute('data-held-only', Boolean(this.#imageIntent) && !this.#uploadNotice && !this.#retryFiles.length);
+      reason.toggleAttribute('data-held-only', Boolean(this.#imageIntent) && !this.#uploadNotice && !this.#retryFiles.length && !this.#images?.hasRefusals);
       const capacityNotice = [copy.uploads.tooMany.replace('{files}', this.#limits.maxDocumentsPerSession),
         copy.uploads.sessionFull.replace('{size}', formatBytes(this.#limits.maxSessionBytes, this.#session.locale))].includes(this.#uploadNotice);
       reason.toggleAttribute('data-capacity-notice', capacityNotice && words === this.#uploadNotice && !this.#retryFiles.length
@@ -2346,8 +2351,8 @@ export class AithemaSession extends HTMLElement {
       this.#imageLayout ||= Boolean(this.#imageInputEnabled() && this.#imageIntent || this.#images?.attachments.length || this.#images?.hasRefusals);
       root.querySelector('.composer').toggleAttribute('data-image-input', this.#imageLayout);
       root.querySelector('.composer').toggleAttribute('data-image-state', Boolean(this.#imageInputEnabled() && this.#imageIntent || this.#images?.hasRefusals));
-      this.#images?.update(copy);
       this.#paintAttach();
+      this.#images?.update(copy);
       const out = root.querySelector('.composer-out'), usedUp = this.#composerUsedUp;
       const shell = root.querySelector('.composer-shell'), form = root.querySelector('form.composer'), u = copy.hostSurface.usedUp, credits = copy.hostSurface.credits;
       shell.toggleAttribute('data-used-up', usedUp); form.inert = usedUp; form.setAttribute('aria-hidden', String(usedUp));
@@ -3645,6 +3650,9 @@ export class AithemaSession extends HTMLElement {
       if (!files.length) return;
     }
     if (needsImages && !image.available && isConsentReason(image.rawReason ?? image.reason) || files.some(file => !this.#imageInputEnabled() || !this.#isImageFile(file)) && !documents.available && isConsentReason(documents.rawReason ?? documents.reason)) {
+      // An admitted new selection supersedes ended-hold feedback before asking again.
+      // Detected-image continuations keep their own selection's refusal facts.
+      if (!retry && !continuation) this.#uploadNotice = '';
       this.#holdImageIntent(files, [...new Set([...(needsImages ? ['imageInput'] : []), ...(!documents.available ? ['uploads', 'text'] : [])])], refusalVersion);
       this.#render('composer'); return;
     }
