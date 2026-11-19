@@ -165,10 +165,10 @@ export function uploadNoticeSheetCheck() {
           const name = reason.querySelector('.image-refusal');
           const range = document.createRange(); if (name) range.selectNodeContents(name); const ink = name ? range.getBoundingClientRect() : null;
           const r = action?.getBoundingClientRect();
-          return { text:reason.innerText, summary:Boolean(reason.querySelector('[data-summary]')), ink:ink && { y:ink.y, height:ink.height }, action:r && { x:r.x,y:r.y,width:r.width,height:r.height } };
+          return { text:reason.innerText, summary:Boolean(reason.querySelector('[data-summary]')), ink:ink && { y:ink.y, width:ink.width, height:ink.height }, action:r && { x:r.x,y:r.y,width:r.width,height:r.height } };
         });
         await save('lone-refusal', { idle, after:await boxes(), result }); unchanged(idle, await boxes());
-        if (width === 1440) { assert.equal(result.summary, false, 'a fitting lone image refusal never becomes a summary'); assert.ok(result.action?.height >= 44); assert.ok(result.ink.y >= result.action.y && result.ink.y + result.ink.height <= result.action.y + result.action.height, 'refusal and action share a line'); }
+        if (width === 1440) { assert.equal(result.summary, false, 'a fitting lone image refusal never becomes a summary'); assert.ok(result.action?.height >= 44 && result.action.width >= 44); assert.ok(result.ink.width > 0 && result.ink.height > 0); assert.ok(result.ink.y >= result.action.y && result.ink.y + result.ink.height <= result.action.y + result.action.height, 'refusal and action share a line'); }
       });
       for (const scenario of ['summary', 'mixed', 'rehold']) await t.test(scenario, async scene => {
         await configure(scenario); const idle = await boxes(); await save(`${scenario}-idle`, { boxes:idle });
@@ -209,7 +209,7 @@ export function uploadNoticeSheetCheck() {
               const range = document.createRange(); range.selectNodeContents(label); const ink = range.getBoundingClientRect(), a = action.getBoundingClientRect();
               return { summary:Boolean(reason.querySelector('[data-summary]')), label:label.innerText, ink:{ x:ink.x,y:ink.y,width:ink.width,height:ink.height }, action:{ x:a.x,y:a.y,width:a.width,height:a.height } };
             });
-            if (width === 1440) { assert.equal(line.summary, false, 'fitting held consent is shown in full'); assert.ok(line.action.height >= 44); assert.ok(line.ink.y >= line.action.y && line.ink.y + line.ink.height <= line.action.y + line.action.height, 'consent and action share a line'); }
+            if (width === 1440) { assert.equal(line.summary, false, 'fitting held consent is shown in full'); assert.ok(line.action.height >= 44 && line.action.width >= 44); assert.ok(line.ink.width > 0 && line.ink.height > 0); assert.ok(line.ink.y >= line.action.y && line.ink.y + line.ink.height <= line.action.y + line.action.height, 'consent and action share a line'); }
             else if (line.action.y >= line.ink.y + line.ink.height) { assert.equal(line.label.trim().endsWith('·'), false, 'a wrapped action has no dangling separator'); assert.ok(Math.abs(line.action.x-line.ink.x) <= .5, 'wrapped action aligns with its sentence'); }
           });
           await scene.test('r4 consent-only summary is honest', async () => {
