@@ -285,3 +285,135 @@ export function heldConsentFollowupCheck() {
       });
     });
 }
+
+// Regression scenes keep evidence before assertions, including on the red head.
+export function heldRegressionCheck() {
+  for (const width of [390, 1440]) for (const locale of ['en', 'de'])
+    test(`AIT-566: ${width}/${locale} held feedback regressions`, { timeout: 120000 }, async t => {
+      const theme = locale === 'en' ? 'light' : 'dark', copy = { en, de }[locale];
+      const directory = await mkdtemp(join(tmpdir(), 'aithema-held-regression-'));
+      const demo = await startDemo(directory), browser = await browserForFile(), page = await browser.newPage();
+      t.after(async () => { await page.close(); await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); });
+      await preparePage(page, [locale]); await page.setViewport({ width, height: width === 390 ? 844 : 900, hasTouch: width === 390 });
+      await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
+      await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
+      for (const scenario of ['rehold-decline', 'rehold-expiry', 'rehold-grant', 'mixed-refusals', 'document-only', 'text-block']) await t.test(scenario, async () => {
+        await inShadow(page, async (c, { locale, scenario }) => {
+          const session = structuredClone(c.session); session.id = crypto.randomUUID(); session.seq = 0; session.locale = locale; session.uploads = [];
+          session.transcript = [{ id: 'established', role: 'user', content: 'Project documents', at: new Date(0).toISOString() }];
+          session.settings.voice = 'off'; session.settings.origin = 'chosen';
+          const documentOnly = scenario === 'document-only';
+          session.featureMatrix = { best: { text: { available: true }, uploads: { available: !documentOnly, reason: documentOnly ? 'current processing consent required' : null },
+            imageInput: { available: scenario === 'mixed-refusals', reason: documentOnly ? 'image normalizer not configured' : 'current processing consent required' } } };
+          window.regression = { scenario, granted: false, textBlocked: false, asks: [], timers: [], posts: [], firstText: null };
+          if (!window.regressionSchedule) {
+            window.regressionSchedule = window.setTimeout;
+            window.setTimeout = (callback, delay, ...args) => {
+              if (delay === 180000) { window.regression.timers.push(callback); return window.regressionSchedule(() => {}, delay); }
+              return window.regressionSchedule(callback, delay, ...args);
+            };
+            c.addEventListener('aithema-consent', event => { window.regression.asks.push(event.detail); event.stopImmediatePropagation(); }, { capture: true });
+          }
+          window.fetch = async (url, options = {}) => {
+            const state = window.regression;
+            if (/\/events(?:\?|$)/u.test(String(url))) return new Response(new ReadableStream({ start(controller) { options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
+            if (String(url).endsWith('/uploads')) {
+              if (options.method !== 'POST') { state.limitsRead = true; return Response.json({ limits: scenario === 'document-only' ? { maxDocumentsPerSession: 0 } : {} }); }
+              const files = options.body.getAll('files'); state.posts.push(files.map(f => f.name));
+              if (scenario === 'mixed-refusals' && files.some(f => f.name === 'scan.pdf')) return Response.json({ refused: [{ index: 0, kind: 'image', reason: 'current processing consent required' }] }, { status: 202 });
+              return Response.json({ events: files.map((file, index) => ({ sessionId: c.session.id, seq: c.session.seq + index + 1, type: 'upload.state', data: {
+                id: `receipt-${index}`, filename: file.name, kind: 'image', state: 'staged-ready', bytes: file.size, at: new Date(0).toISOString() } })) }, { status: 202 });
+            }
+            if (String(url).endsWith('/consent')) return Response.json({ consentRevision: c.session.consentRevision, selected: [], features: { imageInput: ['image-input'] } });
+            const snapshot = c.session;
+            if (state.granted) snapshot.featureMatrix.best.imageInput = { available: true };
+            if (state.textBlocked) snapshot.featureMatrix.best.text = { available: false, reason: 'current processing consent required' };
+            return Response.json(snapshot);
+          };
+          const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+          c.configure({ session, copy, entrance: 'choice', sessionToken: 'fixture', voiceClient: {} });
+        }, { locale, scenario });
+        await startTyping(page);
+        const settle = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        const boxes = () => inShadow(page, c => Object.fromEntries(['.composer', '.send', 'textarea', '.composer-feedback'].map(selector => {
+          const r = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [selector, { x: r.x, y: r.y, width: r.width, height: r.height }];
+        })));
+        const pick = async names => {
+          await inShadow(page, (c, names) => {
+            const transfer = new DataTransfer();
+            for (const name of names) transfer.items.add(new File([name === 'oversized.png' ? new Uint8Array(21 * 1024 * 1024) : '%PDF-fixture'], name, { lastModified: 1234 }));
+            const input = c.shadowRoot.querySelector('.attach-input'); input.files = transfer.files; input.dispatchEvent(new Event('change'));
+          }, names);
+          await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer').hasAttribute('aria-busy')); await settle();
+        };
+        await settle(); const before = await boxes();
+        const heldName = scenario === 'document-only' || scenario === 'mixed-refusals' ? 'scan.pdf' : 'photo.png';
+        await pick([heldName]);
+        await page.waitForFunction(() => window.regression.asks.length > 0);
+        if (scenario.startsWith('rehold')) {
+          await page.evaluate(() => window.regression.asks.at(-1).cancel()); await pick([heldName]);
+        } else if (scenario === 'mixed-refusals') await pick(['newer.exe', 'oversized.png']);
+        else if (scenario === 'document-only') {
+          await inShadow(page, c => c.shadowRoot.querySelector('.attach').click());
+          await page.waitForFunction(() => window.regression.limitsRead); await settle();
+          await inShadow(page, c => c.shadowRoot.querySelector('.attach').click());
+        } else {
+          await inShadow(page, c => {
+            const reason = c.shadowRoot.querySelector('.composer-reason'), toggle = reason.toggleAttribute.bind(reason);
+            reason.toggleAttribute = (name, force) => {
+              if (name === 'data-held-consent' && !c.session.featureMatrix.best.text.available && !window.regression.firstText)
+                window.regression.firstText = { action: Boolean(reason.querySelector('.consent-action')), feature: reason.dataset.consentFeature, html: reason.innerHTML };
+              return toggle(name, force);
+            };
+            window.regression.textBlocked = true;
+            c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'settings.changed', data: { processingPreset: 'best', settings: { ...c.session.settings, revision: 2 } } });
+          });
+          await page.waitForFunction(() => window.regression.firstText);
+        }
+        await settle(); const after = await boxes();
+        const inspect = () => inShadow(page, c => {
+          const reason = c.shadowRoot.querySelector('.composer-reason'), feedback = c.shadowRoot.querySelector('.composer-feedback').getBoundingClientRect();
+          const visible = [...reason.querySelectorAll('.held-upload-notice, .held-upload-images .image-refusal__name, .held-upload-images .image-refusal__reason, .held-upload-consent .consent-line-copy, .held-upload-consent .consent-action')].filter(e => e.textContent).map(element => {
+            const r = element.getBoundingClientRect(), range = document.createRange(); range.selectNodeContents(element);
+            const rects = [...range.getClientRects()].filter(b => b.width > 0 && b.height > 0);
+            return { text: element.textContent, width: r.width, height: r.height, rects: rects.length,
+              clipped: rects.some(b => b.top < feedback.top - 1 || b.bottom > feedback.bottom + 1 || b.left < feedback.left - 1 || b.right > feedback.right + 1) };
+          });
+          return { notice: reason.textContent, visible, heldOnly: reason.hasAttribute('data-held-only'), imageLayout: c.shadowRoot.querySelector('.composer').hasAttribute('data-image-input'), firstText: window.regression.firstText };
+        });
+        const result = await inspect(), evidence = process.env.AITHEMA_EVIDENCE_DIR;
+        // A compact review packet: two re-hold states, four mixed scenes, two document-only scenes and first text renders.
+        const selected = scenario === 'mixed-refusals' || scenario === 'text-block' || (scenario === 'rehold-decline' || scenario === 'document-only') && (width === 390 && locale === 'de' || width === 1440 && locale === 'en');
+        const save = async (suffix, data) => {
+          if (!evidence || !selected) return;
+          await mkdir(evidence, { recursive: true }); const prefix = join(evidence, `ait566-${scenario}-${width}-${locale}-${theme}${suffix}`);
+          await page.screenshot({ path: `${prefix}.png` }); await writeFile(`${prefix}.json`, JSON.stringify(data, null, 2));
+        };
+        await save('', { before, after, result });
+        if (scenario.startsWith('rehold')) {
+          if (scenario === 'rehold-grant') {
+            await inShadow(page, c => { window.regression.granted = true; c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: ['imageInput'], removed: [] } }); });
+            await page.waitForFunction(() => document.querySelector('aithema-session').session.uploads.length === 1);
+          } else if (scenario === 'rehold-decline') await page.evaluate(() => window.regression.asks.at(-1).cancel());
+          else await page.evaluate(() => window.regression.timers.at(-1)());
+          await settle(); const ended = await inspect(); await save('-ended', { result: ended });
+          assert.equal(ended.notice.split(copy.uploadsReselect.one).length - 1, scenario === 'rehold-grant' ? 0 : 1, 'no duplicate or stale choose-again sentence');
+          assert.equal(result.notice.includes(copy.uploadsReselect.one), false, 're-hold supersedes the stale sentence');
+        } else if (scenario === 'text-block') {
+          assert.equal(result.firstText.action, true, 'text consent action exists on the first blocked render');
+          assert.equal(result.firstText.feature, 'text');
+        } else {
+          if (scenario === 'mixed-refusals') {
+            assert.ok(result.notice.includes(copy.uploads.type.replace('{name}', 'newer.exe')));
+            assert.ok(result.notice.includes('oversized.png') && result.notice.includes(copy.imageRefusals.size), 'image refusal remains visible beside held consent');
+          } else { assert.equal(result.imageLayout, false); assert.equal(result.heldOnly, false); }
+          assert.ok(result.visible.length >= 2);
+          for (const box of result.visible) { assert.ok(box.width > 0 && box.height > 0 && box.rects > 0, `${box.text}: non-zero visible box`); assert.equal(box.clipped, false, `${box.text}: unclipped`); }
+          for (const selector of Object.keys(before)) {
+            assert.ok(before[selector].width > 0 && before[selector].height > 0 && after[selector].width > 0 && after[selector].height > 0, `${selector}: non-zero boxes`);
+            assert.deepEqual(after[selector], before[selector], `${selector}: 0 px shift`);
+          }
+        }
+      });
+    });
+}

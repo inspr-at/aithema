@@ -64,15 +64,15 @@ for (const copy of [en, de]) test(`AIT-561 r2 Medium 1: ${copy.display.locale} e
 });
 
 // A detected image can share its first selection with a refused document.
-function followupFixture(t, copy, entrance = 'choice', detected = true) {
-  const f = fixture(t, copy, false, { entrance }), original = globalThis.fetch;
+function followupFixture(t, copy, entrance = 'choice', detected = true, available = false) {
+  const f = fixture(t, copy, available, { entrance }), original = globalThis.fetch;
   let receipt = 0;
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
     if (!url.endsWith('/uploads') || options.method !== 'POST') return original(url, options);
     const events = [], refused = [], files = options.body.getAll('files');
     for (const [index, file] of files.entries()) {
       const image = file.name === 'scan.pdf' || file.name === 'photo.png';
-      if (image && !f.c.session.featureMatrix.best.imageInput.available)
+      if (image && (!f.c.session.featureMatrix.best.imageInput.available || available))
         refused.push({ index, kind: 'image', reason: 'current processing consent required' });
       else events.push({ sessionId: f.c.session.id, seq: f.c.session.seq + events.length + 1, type: 'upload.state', data: {
         id: `receipt-${++receipt}`, filename: file.name, kind: image ? 'image' : 'document', state: image ? 'staged-ready' : 'accepted', bytes: file.size, at: new Date(0).toISOString() } });
@@ -183,4 +183,61 @@ test('AIT-563 Low 1 retry expiry: discarding newer retained documents keeps the 
   f.grantImages();
   for (let n = 0; n < 100 && !f.c.session.uploads.length; n++) await tick();
   assert.deepEqual(f.c.session.uploads.map(u => u.filename), ['scan.pdf']);
+});
+
+for (const copy of [en, de]) for (const ending of ['decline', 'expiry', 'grant'])
+  test(`AIT-566 L-b: ${copy.display.locale}/${ending} re-hold replaces choose-again feedback`, async t => {
+    const f = followupFixture(t, copy, 'choice', false), schedule = globalThis.setTimeout, timers = [];
+    t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
+      if (delay === 180000) { timers.push(callback); return schedule(() => {}, delay); }
+      return schedule(callback, delay, ...args);
+    });
+    await choose(f.root, [f.held()]); f.asks.at(-1).cancel();
+    assert.ok(f.root.querySelector('.composer-reason').textContent.includes(copy.uploadsReselect.one));
+    await choose(f.root, [f.held()]);
+    const during = f.root.querySelector('.composer-reason').textContent;
+    if (ending === 'decline') f.asks.at(-1).cancel();
+    else if (ending === 'expiry') timers.at(-1)();
+    else {
+      f.grantImages();
+      for (let n = 0; n < 100 && !f.c.session.uploads.length; n++) await tick();
+      assert.equal(f.c.session.uploads.length, 1);
+    }
+    const after = f.root.querySelector('.composer-reason').textContent;
+    assert.equal(after.split(copy.uploadsReselect.one).length - 1, ending === 'grant' ? 0 : 1, 'choose again occurs once after an ended hold and disappears after attachment');
+    assert.equal(during.includes(copy.uploadsReselect.one), false, 'the live consent line supersedes stale choose-again feedback');
+  });
+
+for (const copy of [en, de]) test(`AIT-566 L-a: ${copy.display.locale} text consent action exists on the first blocked render`, async t => {
+  const f = followupFixture(t, copy), original = globalThis.fetch;
+  await choose(f.root, [f.held()]);
+  const reason = f.root.querySelector('.composer-reason'), toggle = reason.toggleAttribute.bind(reason), renders = [];
+  t.mock.method(reason, 'toggleAttribute', (name, force) => {
+    if (name === 'data-held-consent' && !f.c.session.featureMatrix.best.text.available)
+      renders.push({ action: Boolean(reason.querySelector('.consent-action')), feature: reason.dataset.consentFeature });
+    return toggle(name, force);
+  });
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    if (url.endsWith(`/api/sessions/${f.c.session.id}`)) {
+      const snapshot = f.c.session;
+      snapshot.featureMatrix.best.text = { available: false, reason: 'current processing consent required' };
+      return Response.json(snapshot);
+    }
+    return original(url, options);
+  });
+  f.c.receive({ sessionId: f.c.session.id, seq: f.c.session.seq + 1, type: 'settings.changed', data: { processingPreset: 'best', settings: { ...f.c.session.settings, revision: 2 } } });
+  for (let n = 0; n < 100 && !renders.length; n++) await tick();
+  assert.deepEqual(renders[0], { action: true, feature: 'text' }, 'no extra render tick is allowed to restore the text consent action');
+});
+
+for (const copy of [en, de]) test(`AIT-566 L-c: ${copy.display.locale} newer image and document refusals share the held line`, async t => {
+  const f = followupFixture(t, copy, 'choice', true, true);
+  await choose(f.root, [f.held()]);
+  const large = new window.File(['pixels'], 'oversized.png'); Object.defineProperty(large, 'size', { value: 21 * 1024 * 1024 });
+  await choose(f.root, [new window.File(['x'], 'newer.exe'), large]);
+  const reason = f.root.querySelector('.composer-reason');
+  assert.ok(reason.textContent.includes(copy.uploads.type.replace('{name}', 'newer.exe')));
+  assert.ok(reason.textContent.includes('oversized.png'), 'the newer image refusal stays visible during the hold');
+  assert.ok(reason.textContent.includes(copy.imageRefusals.size));
+  assert.ok(reason.querySelector('.held-upload-consent .consent-action'));
 });

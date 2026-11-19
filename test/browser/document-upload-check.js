@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { uploadFollowupCheck, heldUploadCheck, heldConsentFollowupCheck } from './upload-followup-check.js';
+import { uploadFollowupCheck, heldUploadCheck, heldConsentFollowupCheck, heldRegressionCheck } from './upload-followup-check.js';
 import { mixedUploadCheck } from './mixed-upload-check.js';
 import { test } from 'node:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -22,6 +22,7 @@ export function documentUploadCheck() {
   uploadFollowupCheck();
   heldUploadCheck();
   heldConsentFollowupCheck();
+  heldRegressionCheck();
   for (const entrance of ['choice', 'combined']) for (const width of [390, 1440]) for (const locale of ['en', 'de']) {
     const theme = locale === 'en' ? 'light' : 'dark';
     test(`AIT-556: ${entrance}/${width}/${locale}/${theme} current binding preserves document uploads`, { timeout: 90000 }, async t => {
