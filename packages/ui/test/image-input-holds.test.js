@@ -134,3 +134,18 @@ test('AIT-563 Low 2: files with different metadata remain separate holds', async
   for (let n = 0; n < 100 && !f.c.session.uploads.length; n++) await tick();
   assert.equal(f.c.session.uploads.length, 3);
 });
+
+for (const copy of [en, de]) for (const entrance of ['choice', 'combined'])
+  test(`AIT-563 Low 1 retry: ${copy.display.locale}/${entrance} retained newer documents keep the held image consent action`, async t => {
+    const f = followupFixture(t, copy, entrance), original = globalThis.fetch, schedule = globalThis.setTimeout;
+    t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => schedule(callback, [5000, 10000].includes(delay) ? 0 : delay, ...args));
+    t.mock.method(globalThis, 'fetch', (url, options = {}) => url.endsWith('/uploads') && options.method === 'POST' && options.body.getAll('files').some(file => file.name === 'report.pdf')
+      ? Response.json({ error: 'upload-rate-limit' }, { status: 429 }) : original(url, options));
+    await choose(f.root, [f.held()]); await choose(f.root, [new window.File(['%PDF-fixture'], 'report.pdf')]);
+    for (let n = 0; n < 100 && !f.root.querySelector('.upload-retry'); n++) await new Promise(resolve => setTimeout(resolve, 0));
+    assert.ok(f.root.querySelector('.upload-retry'), 'the newer document retains its retry action');
+    assert.ok(f.root.querySelector('.upload-discard'), 'the newer document retains its discard action');
+    const consent = f.root.querySelector('[data-consent-feature="imageInput"]');
+    assert.equal(consent?.querySelector('.consent-action')?.textContent, copy.featureConsent.action, 'the held image retains its own consent action');
+    assert.ok(consent.textContent.includes('scan.pdf'));
+  });

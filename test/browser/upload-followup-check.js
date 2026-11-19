@@ -180,6 +180,9 @@ export function heldConsentFollowupCheck() {
           session.settings.voice = 'off'; session.settings.origin = 'chosen';
           session.featureMatrix = { best: Object.fromEntries(['text', 'uploads', 'imageInput'].map(key => [key, { available: key !== 'imageInput', reason: key === 'imageInput' ? 'current processing consent required' : null }])) };
           window.heldGranted = false; window.heldAsks = []; window.heldPosts = []; window.heldTimers = []; window.heldReceipt = 0;
+          const canvas = document.createElement('canvas'); canvas.width = 64; canvas.height = 32;
+          canvas.getContext('2d').fillRect(0, 0, 64, 32);
+          window.heldPNG = Uint8Array.from(atob(canvas.toDataURL('image/png').split(',')[1]), c => c.charCodeAt(0));
           if (!window.heldSchedule) {
             window.heldSchedule = window.setTimeout;
             window.setTimeout = (callback, delay, ...args) => {
@@ -190,13 +193,14 @@ export function heldConsentFollowupCheck() {
           }
           window.fetch = async (url, options = {}) => {
             if (/\/events(?:\?|$)/u.test(String(url))) return new Response(new ReadableStream({ start(controller) { options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
+            if (/\/uploads\/[^/]+\/image$/u.test(String(url))) return new Response(window.heldPNG, { headers: { 'content-type': 'image/png' } });
             if (String(url).endsWith('/uploads')) {
               if (options.method !== 'POST') return Response.json({ limits: scenario === 'bytes' ? { maxSessionBytes: 50 } : {} });
               const files = options.body.getAll('files'), events = [], refused = []; window.heldPosts.push(files.map(f => f.name));
               for (const [index, file] of files.entries()) {
                 if (file.name === 'scan.pdf' && !window.heldGranted) refused.push({ index, kind: 'image', reason: 'current processing consent required' });
                 else events.push({ sessionId: session.id, seq: c.session.seq + events.length + 1, type: 'upload.state', data: {
-                  id: `receipt-${++window.heldReceipt}`, filename: file.name, kind: file.name === 'scan.pdf' ? 'image' : 'document', state: file.name === 'scan.pdf' ? 'staged-pending' : 'accepted', bytes: file.size, at: new Date(0).toISOString() } });
+                  id: `receipt-${++window.heldReceipt}`, filename: file.name, kind: file.name === 'scan.pdf' ? 'image' : 'document', state: file.name === 'scan.pdf' ? 'staged-ready' : 'accepted', ...(file.name === 'scan.pdf' ? { mediaType: 'image/png', w: 64, h: 32, digest: 'fixture' } : {}), bytes: file.size, at: new Date(0).toISOString() } });
               }
               return Response.json({ events, refused }, { status: 202 });
             }
@@ -238,6 +242,7 @@ export function heldConsentFollowupCheck() {
           await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer').hasAttribute('aria-busy'));
         }
         await settle(); const after = await boxes();
+        await inShadow(page, async c => { await Promise.all([...c.shadowRoot.querySelectorAll('.image-thumbnail')].map(img => img.decode().catch(() => {}))); });
         const result = await inShadow(page, c => {
           const reason = c.shadowRoot.querySelector('.composer-reason'), feedback = c.shadowRoot.querySelector('.composer-feedback').getBoundingClientRect();
           const texts = [...reason.querySelectorAll('.held-upload-notice, .consent-line-copy, .consent-action')];
