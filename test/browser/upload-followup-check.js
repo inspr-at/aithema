@@ -359,7 +359,7 @@ export function heldRegressionCheck() {
       await preparePage(page, [locale]); await page.setViewport({ width, height: width === 390 ? 844 : 900, hasTouch: width === 390 });
       await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
       await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
-      for (const scenario of ['idle-image', 'idle-document', 'rehold-decline', 'rehold-expiry', 'rehold-grant', 'mixed-refusals', 'document-only', 'text-block']) await t.test(scenario, async () => {
+      for (const scenario of ['idle-image', 'idle-document', 'rehold-decline', 'rehold-expiry', 'rehold-grant', 'mixed-refusals', 'document-only', 'text-block']) await t.test(scenario, async scene => {
         await inShadow(page, async (c, { locale, scenario }) => {
           const session = structuredClone(c.session); session.id = crypto.randomUUID(); session.seq = 0; session.locale = locale; session.uploads = [];
           session.transcript = [{ id: 'established', role: 'user', content: 'Project documents', at: new Date(0).toISOString() }];
@@ -474,16 +474,16 @@ export function heldRegressionCheck() {
           await page.screenshot({ path: `${prefix}.png` }); await writeFile(`${prefix}.json`, JSON.stringify(data, null, 2));
         };
         await save('', { before, after, result, visibility });
-        await t.test(`${scenario}: slot and every text node`, () => assert.equal(visibility.unreachable, false, JSON.stringify(visibility)));
+        await scene.test(`${scenario}: slot and every text node`, () => assert.equal(visibility.unreachable, false, JSON.stringify(visibility)));
         if (scenario === 'mixed-refusals' || scenario === 'document-only') {
-          await t.test(`${scenario}: consent link treatment`, () => {
+          await scene.test(`${scenario}: consent link treatment`, () => {
             assert.ok(visibility.action.width > 0 && visibility.action.height > 0, 'consent has a positive visible box');
             assert.ok(visibility.action.decoration.includes('underline'), 'consent is underlined');
             assert.equal(visibility.action.colour, visibility.action.parentColour, 'consent inherits the sentence ink like the shared link');
             assert.equal(visibility.action.offset, '3px');
             assert.equal(visibility.action.underlineClipped, false, 'the underline has paint room inside its scroll port');
           });
-          if (scenario === 'mixed-refusals' && width === 1440) await t.test('mixed: no blank line before held filename', () => {
+          if (scenario === 'mixed-refusals' && width === 1440) await scene.test('mixed: no blank line before held filename', () => {
             assert.ok(visibility.heldGap <= 2, `held line follows current facts without an empty line: ${visibility.heldGap}px`);
           });
         }
@@ -495,7 +495,7 @@ export function heldRegressionCheck() {
           await settle();
           const scrolled = await inShadow(page, feedbackVisibility);
           await save('-scrolled', { before: scrollBefore, after: await boxes(), visibility: scrolled });
-          await t.test(`${scenario}: keyboard reaches the final words`, () => {
+          await scene.test(`${scenario}: keyboard reaches the final words`, () => {
             const port = scrolled.ports.find(p => p.className === 'composer-reason');
             assert.ok(port && port.scrollTop > 0, 'End scrolls the focused feedback region');
             assert.ok(visibility.ports.some(p => p.more && p.cue !== 'none'), 'overflow has a visible affordance');
