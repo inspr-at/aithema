@@ -440,7 +440,7 @@ for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} bytes of an e
     }, { status: 202 });
     return originalFetch(url, options);
   });
-  await choose(f.root, [new window.File(['large rejected image'], 'scan.pdf'), new window.File(['x'], 'eligible.pdf')]);
+  await choose(f.root, [new window.File([new Uint8Array([255, 216, 255, 224]), 'large rejected image'], 'scan.pdf', { type: 'application/pdf' }), new window.File(['x'], 'eligible.pdf')]);
   assert.deepEqual(f.c.session.uploads.map(upload => upload.filename), ['earlier.png', 'eligible.pdf']);
   assert.equal(f.root.querySelector('.image-refusal').textContent, `scan.pdf: ${copy.imageRefusals.limit}`);
 });
