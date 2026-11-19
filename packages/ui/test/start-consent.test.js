@@ -86,8 +86,14 @@ for (const active of [false, undefined]) test(`AIT-501: voice activation ${activ
   assert.equal(f.c.shadowRoot.activeElement, f.c.shadowRoot.querySelector('.voice-start'));
 });
 for (const action of ['expiry', 'settings', 'mode', 'session', 'new-conversation', 'withdrawal']) test(`AIT-501: ${action} cancels the intent`, async t => {
+  let currentTime = 1_000_000;
+  if (action === 'expiry') t.mock.method(Date, 'now', () => currentTime);
   const f = fixture(t, action === 'mode' ? 'voice' : 'type'); f.start();
-  if (action === 'expiry') { const now = Date.now(); t.mock.method(Date, 'now', () => now + 180_001); }
+  if (action === 'expiry') {
+    const { expiresAt } = JSON.parse(sessionStorage.getItem('aithema-start-intent'));
+    assert.equal(expiresAt, currentTime + 180_000);
+    currentTime = expiresAt + 1;
+  }
   if (action === 'settings') f.c.receive({ seq: f.c.session.seq + 1, type: 'settings.changed', data: { processingPreset: 'best', settings: { ...f.c.session.settings, revision: f.c.session.settings.revision + 1 } } });
   if (action === 'mode') f.c.shadowRoot.querySelector('[data-mode="type"]').click();
   if (action === 'session') { const snapshot = f.c.session; snapshot.id = 'another-session'; f.configure(f.c, snapshot); }
@@ -227,13 +233,25 @@ test('AIT-501 v2.2: storage exists inside the navigating host listener and clear
 test('AIT-501 v2.2: voice intent expires after 60 seconds', async t => {
   let currentTime = 1_000_000;
   t.mock.method(Date, 'now', () => currentTime);
-  const f = fixture(t, 'voice', true); const now = Date.now();
+  const f = fixture(t, 'voice', true);
   currentTime += 10; // Model work between the test's capture and the intent write.
   f.start();
   assert.ok(JSON.parse(sessionStorage.getItem('aithema-start-intent')).expiresAt <= Date.now() + 60_000);
-  currentTime = now + 60_001; await f.grant();
+  const { expiresAt } = JSON.parse(sessionStorage.getItem('aithema-start-intent'));
+  assert.equal(expiresAt, currentTime + 60_000);
+  currentTime = expiresAt + 1; await f.grant();
   assert.equal(f.starts.length, 0);
   assert.equal(f.c.shadowRoot.querySelector('.intro').hidden, false);
+});
+for (const [boundary, offset, starts] of [['just before', -1, 1], ['at', 0, 0]]) test(`AIT-501 v2.2: voice intent ${boundary} the 60-second deadline`, async t => {
+  let currentTime = 1_000_000;
+  t.mock.method(Date, 'now', () => currentTime);
+  const f = fixture(t, 'voice', true); f.start();
+  const { expiresAt } = JSON.parse(sessionStorage.getItem('aithema-start-intent'));
+  assert.equal(expiresAt, currentTime + 60_000);
+  currentTime = expiresAt + offset; await f.grant();
+  assert.equal(f.starts.length, starts);
+  assert.equal(f.c.shadowRoot.querySelector('.intro').hidden, starts === 1);
 });
 for (const mode of ['type', 'voice']) test(`AIT-501 v2.2: copied tab storage cannot auto-start ${mode}`, async t => {
   const f = fixture(t, mode, true); f.start();
