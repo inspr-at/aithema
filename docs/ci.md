@@ -81,11 +81,20 @@ exception: they accept skipped workers only on the first push attempt to main,
 after successful change detection provides a nonempty verified `duplicate-of`.
 Failures, cancellations and missing results always fail the result gate. PRs,
 merge groups, reruns and other refs never accept skipped workers. Required names and
-existing job caps stay unchanged. The lookup, npm cache warmer, fourteen cheap
+existing job caps stay unchanged. The lookup, npm and preview cache warmers, fourteen cheap
 browser workers and six aggregate jobs execute. The previous five-aggregate-only
 60/150 runner-second estimate no longer applies; no new runtime claim is made.
-The warmer preserves main-scoped npm caches with a script-free install only
+The npm warmer preserves main-scoped npm caches with a script-free install only
 on a cache miss, because PRs cannot restore caches scoped to merge-group refs.
+The non-required `preview-cache` warmer uses the same duplicate-main trigger and
+`ubuntu-24.04` image as `preview-security`. It looks up both exact Playwright
+browser and apt archive keys without downloading. Only missing caches run their
+producers and immediate saves; two hits skip Node setup and all installs. Its
+ten-minute cap allows a slow cold seed without changing qualification limits.
+PR saves support reuse within that PR; merge-group saves belong to a temporary
+queue branch. Main seeding makes the caches available to first PR and merge-group
+runs. Apt keys include the runner's `ImageVersion`, so image updates need a new
+seed; browser keys stay bound to the exact Playwright pin and engine list.
 Missing matches, failed runs, API errors, timeouts or untrusted metadata run
 full CI. PR and merge-group runs always retain their existing behavior. To
 force full CI on main, choose **Re-run all jobs**: attempts after the first never
