@@ -143,6 +143,7 @@ export async function footerDotCheck(t) {
             }
             assert.equal(frame.state, 'connected', label); assert.equal(frame.label, measurements[0].label, label);
             assert.ok(frame.unclipped, `${label}: timer text is not clipped`);
+            assert.deepEqual(frame.timer, measurements[0].timer, `${label}: timer slot stays fixed`);
             assert.deepEqual(frame.dot, measurements[0].dot, `${label}: dot box stays fixed`);
             assert.deepEqual(frame.others, measurements[0].others, `${label}: adjacent footer boxes stay fixed`);
             assert.deepEqual(frame.footer, measurements[0].footer, `${label}: footer box stays fixed`);
@@ -150,6 +151,8 @@ export async function footerDotCheck(t) {
               assert.equal(frame.statusClip, 'inset(50%)', `${label}: phone status remains intentionally clipped`);
               continue;
             }
+            assert.equal(frame.statusClip, 'none', `${label}: desktop dot is not clipped`);
+            assert.ok(pixels[i].some((value, channel) => channel % 4 !== 3 && Math.abs(value - pixels[i][channel % 4]) > 20), `${label}: dot clip contains painted contrast`);
             assert.deepEqual(pixels[i], pixels[0], `${label}: decoded dot pixels stay identical`);
             assert.equal(frame.dot.x, Math.round(frame.dot.x), `${label}: dot x is a whole pixel`);
             assert.equal(frame.dot.y, Math.round(frame.dot.y), `${label}: dot y is a whole pixel`);
