@@ -576,7 +576,7 @@ for (const copy of [en, de]) for (const entrance of ['choice', 'combined']) for 
           refused.push({ index, kind: 'image', reason: 'current processing consent required' });
         else events.push({ sessionId: f.c.session.id, seq: f.c.session.seq + events.length + 1, type: 'upload.state', data: {
           id: `held-${file.name}`, filename: file.name, kind: file.name === heldName || file.name === 'pasted.png' ? 'image' : 'document',
-          state: file.name === heldName || file.name === 'pasted.png' ? 'staged-pending' : 'accepted', bytes: file.size, at: new Date(0).toISOString() } });
+          state: file.name === heldName || file.name === 'pasted.png' ? 'staged-ready' : 'accepted', bytes: file.size, at: new Date(0).toISOString() } });
       }
       return Response.json({ events, refused }, { status: 202 });
     });

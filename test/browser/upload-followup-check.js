@@ -56,7 +56,7 @@ export function uploadFollowupCheck() {
         await settle(); const after = await boxes();
         const result = await inShadow(page, c => ({ posts: window.followupPosts, notice: c.shadowRoot.querySelector('.composer-reason').textContent }));
         const important = scenario === 'count' || scenario === 'bytes' ? result.notice
-          : scenario === 'purpose' ? copy.purposePaused : locale === 'en' ? 'The files could not be added.' : 'Die Dateien konnten nicht übernommen werden.';
+          : scenario === 'purpose' ? copy.purposePaused.split('. ')[0] + '.' : locale === 'en' ? 'The files could not be added.' : 'Die Dateien konnten nicht übernommen werden.';
         const visible = await inShadow(page, (c, important) => {
           const reason = c.shadowRoot.querySelector('.upload-notice-facts') ?? c.shadowRoot.querySelector('.composer-reason');
           const walker = document.createTreeWalker(reason, NodeFilter.SHOW_TEXT), node = walker.nextNode();
@@ -116,7 +116,7 @@ export function heldUploadCheck() {
               const image = file.name === 'photo.png' || file.name === 'scan.pdf';
               if (image && !window.heldGranted) refused.push({ index, kind: 'image', reason: 'current processing consent required' });
               else events.push({ sessionId: session.id, seq: c.session.seq + events.length + 1, type: 'upload.state', data: {
-                id: file.name, filename: file.name, kind: image ? 'image' : 'document', state: image ? 'staged-pending' : 'accepted', bytes: file.size, at: new Date(0).toISOString() } });
+                id: file.name, filename: file.name, kind: image ? 'image' : 'document', state: image ? 'staged-ready' : 'accepted', bytes: file.size, at: new Date(0).toISOString() } });
             }
             return Response.json({ events, refused }, { status: 202 });
           }
