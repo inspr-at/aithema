@@ -54,7 +54,7 @@ function feedbackVisibility(c) {
     while (parent !== slot && !/auto|scroll/u.test(getComputedStyle(parent).overflowY)) parent = parent.parentElement;
     const p = parent.getBoundingClientRect();
     treatment = { width: r.width, height: r.height, decoration: css.textDecorationLine, colour: css.color, parentColour: getComputedStyle(action.parentElement).color, offset: css.textUnderlineOffset,
-      underlineClipped: r.bottom + 3 > p.bottom + 1 && parent.scrollHeight <= parent.clientHeight };
+      underlineClipped: r.bottom + 3 > p.bottom + 1 && parent.scrollTop >= parent.scrollHeight - parent.clientHeight - 1 };
   }
   const heldGap = imageBottoms.length && heldTops.length ? Math.min(...heldTops) - Math.max(...imageBottoms) : 0;
   const slotOverflow = slot.scrollHeight > slot.clientHeight + 1;
@@ -507,6 +507,7 @@ export function heldRegressionCheck() {
             const last = scrolled.texts.at(-1), slot = scrolled.slot;
             assert.ok(last.rects.every(r => r.top >= slot.top - 1 && r.bottom <= slot.bottom + 1), 'the complete final action is in view');
             assert.equal(scrolled.unreachable, false);
+            assert.equal(scrolled.action.underlineClipped, false, 'the final action keeps its underline inside the scroll port');
           });
           assert.deepEqual(await boxes(), scrollBefore, 'keyboard scrolling never moves composer or controls');
           await page.keyboard.press('Home');
