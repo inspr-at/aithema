@@ -23,18 +23,19 @@ export function mixedUploadCheck() {
       const evidence = process.env.AITHEMA_EVIDENCE_DIR;
       if (evidence) await mkdir(evidence, { recursive: true });
       for (const [host, reason] of [['document-only', 'image normalizer not configured'], ['text-binding', 'image input not supported'],
-        ['consent', 'current processing consent required'], ['normalizer', 'image normalizer unavailable'], ['limit', 'limit']]) {
+        ['consent', 'current processing consent required'], ['normalizer', 'image normalizer unavailable'], ['limit', 'limit'], ['recognised-limit', 'limit']]) {
         await t.test(host, async () => {
           await inShadow(page, async (c, { host, reason }) => {
-            window.mixedPosts = []; window.mixedAsks = []; window.mixedGranted = false;
+            window.mixedPosts = []; window.mixedAsks = []; window.mixedGranted = false; window.mixedHost = host;
             const session = structuredClone(window.mixedInitial); session.uploads = [];
             session.settings.voice = 'off'; session.settings.origin = 'chosen';
+            if (host === 'recognised-limit') session.uploads.push({ id: 'already-sent', kind: 'image', state: 'sent', filename: 'earlier.png', bytes: 8, at: new Date(0).toISOString() });
             session.featureMatrix.best = Object.fromEntries(['text', 'analysis', 'uploads'].map(key => [key, { available: true }]));
-            session.featureMatrix.best.imageInput = { available: host === 'limit', reason: host === 'limit' ? null : reason };
+            session.featureMatrix.best.imageInput = { available: host.endsWith('limit'), reason: host.endsWith('limit') ? null : reason };
             c.addEventListener('aithema-consent', event => { window.mixedAsks.push(event.detail); event.stopImmediatePropagation(); }, { capture: true, once: true });
             window.fetch = async (url, options = {}) => {
               if (String(url).endsWith('/uploads')) {
-                if (options.method !== 'POST') return Response.json({ uploads: c.session.uploads, limits: { maxFilesPerRequest: 2, maxImagesPerSession: host === 'limit' ? 1 : 8 } });
+                if (options.method !== 'POST') return Response.json({ uploads: c.session.uploads, limits: { maxFilesPerRequest: 2, maxImagesPerSession: host.endsWith('limit') ? 1 : 8 } });
                 const files = options.body.getAll('files'), events = [], refused = [];
                 window.mixedPosts.push(files.map(file => file.name));
                 for (const [index, file] of files.entries()) {
@@ -65,7 +66,8 @@ export function mixedUploadCheck() {
           if (evidence) await page.screenshot({ path: join(evidence, `${prefix}-before.png`) });
           await inShadow(page, c => {
             const transfer = new DataTransfer();
-            for (const [name, type] of [['clipboard', 'application/octet-stream'], ['eligible.pdf', 'application/pdf'], ['typed.pdf', 'image/png'], ['eligible-typed.pdf', 'application/pdf'], ['scan.pdf', 'application/pdf'], ['eligible-later.pdf', 'application/pdf']]) transfer.items.add(new File([name === 'scan.pdf' ? new Uint8Array([255, 216, 255, 224, 0, 0]) : name.startsWith('eligible') ? '%PDF-fixture' : new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], name, { type }));
+            const picks = window.mixedHost === 'recognised-limit' ? [['first.png', 'image/png'], ['excess.png', 'image/png'], ['eligible.pdf', 'application/pdf'], ['eligible-later.pdf', 'application/pdf'], ['eligible-final.pdf', 'application/pdf']] : [['clipboard', 'application/octet-stream'], ['eligible.pdf', 'application/pdf'], ['typed.pdf', 'image/png'], ['eligible-typed.pdf', 'application/pdf'], ['scan.pdf', 'application/pdf'], ['eligible-later.pdf', 'application/pdf']];
+            for (const [name, type] of picks) transfer.items.add(new File([name === 'scan.pdf' ? new Uint8Array([255, 216, 255, 224, 0, 0]) : name.startsWith('eligible') ? '%PDF-fixture' : new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], name, { type }));
             const input = c.shadowRoot.querySelector('.attach-input'); input.files = transfer.files; input.dispatchEvent(new Event('change'));
           });
           await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer').hasAttribute('aria-busy'));
@@ -78,10 +80,10 @@ export function mixedUploadCheck() {
             await page.screenshot({ path: join(evidence, `${prefix}-after.png`) });
             await writeFile(join(evidence, `${prefix}.json`), JSON.stringify({ before, after, result }, null, 2));
           }
-          assert.deepEqual(result.posts, [['clipboard', 'eligible.pdf'], ['typed.pdf', 'eligible-typed.pdf'], ['scan.pdf', 'eligible-later.pdf']], 'later batches sent');
-          assert.deepEqual(result.documents, ['eligible.pdf', 'eligible-typed.pdf', 'eligible-later.pdf']);
+          assert.deepEqual(result.posts, host === 'recognised-limit' ? [['eligible.pdf', 'eligible-later.pdf'], ['eligible-final.pdf']] : [['clipboard', 'eligible.pdf'], ['typed.pdf', 'eligible-typed.pdf'], ['scan.pdf', 'eligible-later.pdf']], 'later batches sent');
+          assert.deepEqual(result.documents, host === 'recognised-limit' ? ['eligible.pdf', 'eligible-later.pdf', 'eligible-final.pdf'] : ['eligible.pdf', 'eligible-typed.pdf', 'eligible-later.pdf']);
           if (host === 'consent') { assert.deepEqual(result.asks, [['imageInput']]); assert.equal(result.consent, true); }
-          else if (host === 'limit') assert.deepEqual(result.refusals, ['clipboard', 'typed.pdf', 'scan.pdf'].map(name => `${name}: ${copy.imageRefusals.limit}`));
+          else if (host.endsWith('limit')) assert.deepEqual(result.refusals, (host === 'recognised-limit' ? ['first.png', 'excess.png'] : ['clipboard', 'typed.pdf', 'scan.pdf']).map(name => `${name}: ${copy.imageRefusals.limit}`));
           else assert.equal(result.notice, copy.uploads.refused.replace('{list}', ['clipboard', 'typed.pdf', 'scan.pdf'].map(name => copy.uploads.type.replace('{name}', name)).join(', ')));
           for (const selector of Object.keys(before)) {
             assert.ok(before[selector].width > 0 && before[selector].height > 0 && after[selector].width > 0 && after[selector].height > 0, `${selector} is visible`);
