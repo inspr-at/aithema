@@ -158,6 +158,7 @@ export function uploadNoticeSheetCheck() {
         await inShadow(page, c => {
           const data = new DataTransfer(); data.items.add(new File(['fixture'], 'photo.png', { type:'image/png', lastModified:1234 }));
           c.shadowRoot.querySelector('textarea').dispatchEvent(new ClipboardEvent('paste', { clipboardData:data, bubbles:true, cancelable:true }));
+          c.receive({ sessionId:c.session.id, seq:c.session.seq+1, type:'session.paused', data:{ paused:false } });
         }); await settle();
         const result = await inShadow(page, c => {
           const reason = c.shadowRoot.querySelector('.composer-feedback > .composer-reason'), action = reason.querySelector('.image-refusals__dismiss');
