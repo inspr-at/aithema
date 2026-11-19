@@ -24,8 +24,7 @@ export class UploadNotices {
     });
     this.#dialog.addEventListener('close', () => {
       this.#putRowsBack(); this.fit();
-      const target = this.#more.isConnected ? this.#more : form.querySelector('textarea');
-      target.focus({ preventScroll: true });
+      this.#focusFallback()?.focus({ preventScroll: true });
     });
     this.#dialog.addEventListener('keydown', event => {
       if (event.key !== 'Tab') return;
@@ -124,13 +123,20 @@ export class UploadNotices {
     }
     return this.#reason.scrollHeight <= this.#slot.clientHeight;
   }
+  #focusFallback() {
+    const candidates = [this.#more, this.#form.querySelector('textarea:not(:disabled)'), this.#form.querySelector('.attach'),
+      this.#reason.querySelector(':scope > .consent-action'), this.#form.getRootNode().querySelector('.settings-open')];
+    return candidates.find(element => {
+      if (!element?.isConnected || element.disabled || element.closest('[hidden], [inert], dialog:not([open])')) return false;
+      const box = element.getBoundingClientRect(); return box.width > 1 && box.height > 1;
+    });
+  }
   #retainFocus() {
     const focused = this.#focused; this.#focused = null;
     if (!focused || this.#form.getRootNode().activeElement === focused) return;
-    const retained = focused.isConnected && !focused.closest('[hidden], [inert]')
+    const retained = focused.isConnected && !focused.closest('[hidden], [inert], dialog:not([open])')
       && focused.matches('button, a[href], input, textarea, select, [tabindex]') && (!this.#dialog.open || this.#dialog.contains(focused));
-    (retained ? focused : this.#dialog.open ? this.#close : this.#more.isConnected ? this.#more
-      : this.#form.querySelector('textarea:not(:disabled)') ?? this.#form.querySelector('.attach')).focus({ preventScroll: true });
+    (retained ? focused : this.#dialog.open ? this.#close : this.#focusFallback())?.focus({ preventScroll: true });
   }
 
   fit() {
