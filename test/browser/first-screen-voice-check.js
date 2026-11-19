@@ -225,7 +225,7 @@ test('AIT-553 item 6: phone used-up confirmation stacks a one-line 44 px action 
     await open(page, server, { width: 390, height: 844, locale, theme: locale === 'de' ? 'dark' : 'light' });
     await creditFixture(page, locale, { address: 'visitor@example.test', delivery: true, spent: 0 });
     const before = (await observe(page)).geometry;
-    await page.evaluate(() => { a2.spent = 18_000_000; c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } }); });
+    await creditFixture(page, locale, { address: 'visitor@example.test', delivery: true, spent: 18_000_000 });
     await page.waitForFunction(() => c.shadowRoot.querySelector('.composer-shell').hasAttribute('data-used-up'));
     await observe(page);
     const record = await page.evaluate(() => {
@@ -234,7 +234,7 @@ test('AIT-553 item 6: phone used-up confirmation stacks a one-line 44 px action 
       const range = document.createRange(); range.selectNodeContents(label);
       const lines = [...range.getClientRects()].filter(b => b.width > 0 && b.height > 0);
       return { next: out.dataset.next, boxes: { text: box(text), button: box(button), label: box(label) },
-        lines: [...new Set(lines.map(b => b.y))].length, label: label.textContent, visible: button.checkVisibility({ checkVisibilityCSS: true }) };
+        lines: [...new Set(lines.map(b => b.y))].length, label: label.textContent, textVisible: text.checkVisibility({ checkVisibilityCSS: true }), visible: button.checkVisibility({ checkVisibilityCSS: true }) };
     });
     await retain(page, `390-${locale}-used-up-confirm`, record);
     records.push({ before, after: (await observe(page)).geometry, record });
@@ -242,7 +242,7 @@ test('AIT-553 item 6: phone used-up confirmation stacks a one-line 44 px action 
   for (const { before, after, record } of records) {
     positive(before); positive(after); positive(record.boxes);
     assert.deepEqual(after, before, 'used-up confirmation leaves composer, mic and Send pinned');
-    assert.equal(record.next, 'confirm'); assert.equal(record.visible, true);
+    assert.equal(record.next, 'confirm'); assert.equal(record.visible, true); assert.equal(record.textVisible, true);
     assert.ok(record.boxes.button[1] >= record.boxes.text[1] + record.boxes.text[3], `button below text: ${JSON.stringify(record)}`);
     assert.equal(record.lines, 1, 'full confirmation label stays on one line');
     assert.ok(record.boxes.button[3] >= 44);
