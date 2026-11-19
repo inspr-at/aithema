@@ -38,6 +38,15 @@ test('AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN', { timeo
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
   await page.evaluate(async () => {
     const { AudioRail } = await import('/packages/ui/src/audio-rail.js');
+    const { ConnectionTimer } = await import('/packages/ui/src/layout.js');
+    // This matrix depicts a fixed elapsed time. Replacing the timer's text on
+    // every capture re-rasterizes the adjacent fractional-position status dot.
+    // Pin the timer's own clock so its normal idempotent paint can settle.
+    const setConnected = ConnectionTimer.prototype.setConnected;
+    ConnectionTimer.prototype.setConnected = function (on) {
+      this.now = () => this.since ?? 0;
+      setConnected.call(this, on); this.paint();
+    };
     const render = AudioRail.prototype.render;
     AudioRail.prototype.render = function () { globalThis.presentationRail = this; return render.call(this); };
     globalThis.presentationSeed = document.querySelector('aithema-session').session;
@@ -67,24 +76,48 @@ test('AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN', { timeo
         rail.errorKey = rail.moved ? 'voiceMoved' : null;
         rail.usedUp = () => state === 'used-up'; rail.feature = () => ({ available: true, reason: null });
         rail.render(); rail.waveform.baseline();
-        c.shadowRoot.querySelector('.connection-timer').textContent = '0:00';
         c.shadowRoot.activeElement?.blur(); document.documentElement.lang = locale;
         document.querySelector('#locale').value = locale; paintUtilities(copy); scrollTo(0, 0);
       }, { locale, state });
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.status').hasAttribute('data-connected'));
       await page.mouse.move(0, 500); await settle();
       assert.equal(await shadow(page, c => c.getAttribute('motion')), 'off');
-      await shadow(page, c => { c.shadowRoot.querySelector('.connection-timer').textContent = '0:00'; });
       const name = `voice-${state}-${width}-${theme}-${locale}.png`;
       // Backdrop-filter layers can retain the preceding rail state for a frame.
       // Flush them and wait for consecutive stable viewport paints on both revisions.
-      let captured, previous = Buffer.from(await page.screenshot({ fullPage: false })), stable = false;
+      let captured, compared, previous = Buffer.from(await page.screenshot({ fullPage: false })), stable = false;
       for (let attempt = 0; attempt < 8; attempt++) {
         await settle();
-        await shadow(page, c => { c.shadowRoot.querySelector('.connection-timer').textContent = '0:00'; });
         captured = Buffer.from(await page.screenshot({ fullPage: false }));
+        compared = previous;
         if (samePaint(previous, captured)) { stable = true; break; }
         previous = captured;
+      }
+      if (!stable && evidence) {
+        // Retain the actual last comparison, before the assertion stops the matrix.
+        // Count raw changes as well as changes rejected by samePaint's existing rule.
+        const before = pixels(compared), after = pixels(captured);
+        let changedPixels = 0, rawChangedPixels = 0, maxChannelDelta = 0;
+        let left = after.width, top = after.height, right = -1, bottom = -1;
+        for (let offset = 0; offset < after.result.length; offset += after.channels) {
+          let delta = 0;
+          for (let channel = 0; channel < after.channels; channel++)
+            delta = Math.max(delta, Math.abs(after.result[offset + channel] - before.result[offset + channel]));
+          maxChannelDelta = Math.max(maxChannelDelta, delta);
+          if (delta > 0) rawChangedPixels++;
+          if (delta <= 1) continue;
+          changedPixels++;
+          const index = offset / after.channels, x = index % after.width, y = Math.floor(index / after.width);
+          left = Math.min(left, x); top = Math.min(top, y); right = Math.max(right, x); bottom = Math.max(bottom, y);
+        }
+        const stem = name.slice(0, -4), frames = [`${stem}-unstable-before.png`, `${stem}-unstable-after.png`];
+        const summary = { file: name, frames, attempts: 8, width: after.width, height: after.height,
+          tolerance: 1, changedPixels, rawChangedPixels, maxChannelDelta,
+          boundingBox: changedPixels ? { x: left, y: top, width: right - left + 1, height: bottom - top + 1 } : null };
+        await writeFile(join(evidence, frames[0]), compared);
+        await writeFile(join(evidence, frames[1]), captured);
+        await writeFile(join(evidence, `${stem}-unstable-diff.json`), JSON.stringify(summary, null, 2));
+        t.diagnostic(`Unstable paint: ${JSON.stringify(summary)}`);
       }
       assert.equal(stable, true, `${name}: stable backdrop paint`);
       if (evidence) await writeFile(join(evidence, name), captured);
