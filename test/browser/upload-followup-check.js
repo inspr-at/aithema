@@ -15,13 +15,15 @@ function feedbackVisibility(c) {
   const box = r => ({ top: r.top, bottom: r.bottom, left: r.left, right: r.right, width: r.width, height: r.height });
   const outside = (r, b) => r.top < b.top - 1 || r.bottom > b.bottom + 1 || r.left < b.left - 1 || r.right > b.right + 1;
   const ports = [slot, reason, ...reason.querySelectorAll('*')].filter(e => /auto|scroll/u.test(getComputedStyle(e).overflowY) && e.tabIndex >= 0);
-  const texts = [], walker = document.createTreeWalker(reason, NodeFilter.SHOW_TEXT);
+  const texts = [], imageBottoms = [], heldTops = [], walker = document.createTreeWalker(reason, NodeFilter.SHOW_TEXT);
   while (walker.nextNode()) {
     const node = walker.currentNode;
     if (!node.textContent.trim()) continue;
     const range = document.createRange(); range.selectNodeContents(node);
     const rects = [...range.getClientRects()].filter(r => r.width > 0 && r.height > 0);
     if (!rects.length) continue; // Responsive alternatives with display:none have no painted rect.
+    if (node.parentElement.closest('.held-upload-images')) imageBottoms.push(...rects.map(r => r.bottom));
+    if (node.parentElement.closest('.held-upload-consent')) heldTops.push(...rects.map(r => r.top));
     const port = ports.find(p => p.contains(node)), pr = port?.getBoundingClientRect();
     texts.push({ text: node.textContent, rects: rects.map(box), outside: rects.some(r => outside(r, bounds)),
       reachable: rects.every(r => !outside(r, bounds) || Boolean(port && pr.width > 0 && pr.height > 0 &&
@@ -39,8 +41,7 @@ function feedbackVisibility(c) {
     treatment = { decoration: css.textDecorationLine, colour: css.color, parentColour: getComputedStyle(action.parentElement).color, offset: css.textUnderlineOffset,
       underlineClipped: r.bottom + 3 > p.bottom + 1 && parent.scrollHeight <= parent.clientHeight };
   }
-  const line = reason.querySelector('.held-upload-consent'), image = reason.querySelector('.held-upload-images');
-  const heldGap = line && image ? line.getBoundingClientRect().top - image.getBoundingClientRect().bottom : 0;
+  const heldGap = imageBottoms.length && heldTops.length ? Math.min(...heldTops) - Math.max(...imageBottoms) : 0;
   const slotOverflow = slot.scrollHeight > slot.clientHeight + 1;
   return { slot: box(bounds), scrollHeight: slot.scrollHeight, clientHeight: slot.clientHeight, slotOverflow, texts, action: treatment, heldGap,
     ports: ports.map(p => ({ className: p.className, scrollHeight: p.scrollHeight, clientHeight: p.clientHeight, tabIndex: p.tabIndex })),
