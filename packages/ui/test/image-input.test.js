@@ -420,3 +420,9 @@ for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} every refusal
   assert.deepEqual([...f.root.querySelectorAll('.image-refusal')].map(row => row.textContent),
     Array.from({ length: 10 }, (_, index) => `excluded-${index}.heic: ${copy.imageRefusals.unsupported}`));
 });
+
+for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} duplicate filenames still have one refusal per file`, async t => {
+  const f = fixture(t, copy);
+  await choose(f.root, [1, 2].map(() => new window.File(['fixture'], 'same.heic', { type: 'image/heic' })));
+  assert.deepEqual([...f.root.querySelectorAll('.image-refusal')].map(row => row.textContent), [1, 2].map(() => `same.heic: ${copy.imageRefusals.unsupported}`));
+});
