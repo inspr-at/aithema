@@ -85,7 +85,7 @@ export class UploadNotices {
     // Layout-free consumers still use the original semantic tree.
     if (!(box.width > 1 && box.height > 1)) { this.#reason.inert = true; this.#retainFocus(); return; }
     const held = this.#reason.hasAttribute('data-held-consent'), images = this.#reason.querySelectorAll('.image-refusal-item');
-    if (!held && !images.length && this.#fits(box)) { this.#retainFocus(); return; }
+    if (!held && !images.length && !this.#dialog.open && this.#fits(box)) { this.#retainFocus(); return; }
     this.#reason.setAttribute('data-notice-layout', '');
     const sources = [...this.#reason.childNodes];
     const groups = [];
