@@ -668,12 +668,16 @@ test('AIT-450: full credential minutes never extend the remaining logical rollin
 });
 
 for (const reservationSeconds of [undefined, 30]) test(`AIT-450: open credentials retain full minutes through recovery and settle provider seconds (${reservationSeconds ?? 'nonrolling'})`, async t => {
+  // This duration scenario stays in one UTC day, including near wall-clock midnight.
+  const noon = new Date(); noon.setUTCHours(12, 0, 0, 0);
+  t.mock.timers.enable({ apis: ['Date'], now: noon.getTime() });
   const h = voiceFixture(t, { slowClosure: true, providerCeiling: true, leaseMs: 700_000,
     cap: { capMilliseconds: 1_200_000, perDayMilliseconds: 1_200_000 }, durationBinding: {
       maxDurationSeconds: 600, maxMicro: 600_000, reservationSeconds,
     } });
   h.presets.best.bindings.voice.legal.evidence.expiresAt = h.now() + 1_300_000;
-  const first = await h.start(); h.advance(540_000);
+  const advance = ms => { h.advance(ms); t.mock.timers.tick(ms); };
+  const first = await h.start(); advance(540_000);
   const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
   assert.equal(response.status, 200); const next = await response.json();
   assert.equal(next.spendDeadlineAt, first.spendDeadlineAt);
@@ -685,7 +689,7 @@ for (const reservationSeconds of [undefined, 30]) test(`AIT-450: open credential
   await h.waitForClosure(first.providerSessionId); h.endClient(first.providerSessionId); await h.handlers.idle();
   assert.equal(h.voiceCap.snapshot().spentMilliseconds, 540_000);
   assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 600_000, 'old closure cannot release the replacement credential');
-  h.advance(600_000);
+  advance(600_000);
   const terminal = await h.route(`/voice/${next.callId}/close`, { providerSessionId: next.providerSessionId }).then(r => r.json());
   assert.equal(terminal.usage.providerSeconds, 600, 'provider runs past the logical deadline');
   assert.equal(h.voiceCap.snapshot().spentMilliseconds, 1_140_000);
