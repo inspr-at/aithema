@@ -50,10 +50,12 @@ function feedbackVisibility(c) {
   let treatment = null;
   if (action) {
     const css = getComputedStyle(action), r = action.getBoundingClientRect();
+    const discard = reason.querySelector('.image-refusals__dismiss'), reference = discard ? getComputedStyle(discard) : null;
     let parent = action.parentElement;
     while (parent !== slot && !/auto|scroll/u.test(getComputedStyle(parent).overflowY)) parent = parent.parentElement;
     const p = parent.getBoundingClientRect();
-    treatment = { width: r.width, height: r.height, decoration: css.textDecorationLine, colour: css.color, parentColour: getComputedStyle(action.parentElement).color, offset: css.textUnderlineOffset,
+    treatment = { width: r.width, height: r.height, fontSize: css.fontSize, lineHeight: css.lineHeight,
+      referenceLeading: reference ? Number.parseFloat(reference.lineHeight) / Number.parseFloat(reference.fontSize) : 1.3, decoration: css.textDecorationLine, colour: css.color, parentColour: getComputedStyle(action.parentElement).color, offset: css.textUnderlineOffset,
       paintPort: { height: p.height, scrollHeight: parent.scrollHeight, clientHeight: parent.clientHeight, tabIndex: parent.tabIndex },
       underlineClipped: r.bottom + 3 > p.bottom + 1 && (parent.tabIndex < 0 || parent.scrollTop >= parent.scrollHeight - parent.clientHeight - 1) };
   }
@@ -487,6 +489,7 @@ export function heldRegressionCheck() {
             assert.ok(visibility.action.decoration.includes('underline'), 'consent is underlined');
             assert.equal(visibility.action.colour, visibility.action.parentColour, 'consent inherits the sentence ink like the shared link');
             assert.equal(visibility.action.offset, '3px');
+            assert.ok(Math.abs(Number.parseFloat(visibility.action.lineHeight) / Number.parseFloat(visibility.action.fontSize) - visibility.action.referenceLeading) < .01, 'consent keeps the shared Discard/L-a line box for its underline');
             assert.equal(visibility.action.underlineClipped, false, 'the underline has paint room inside its scroll port');
           });
           if (scenario === 'mixed-refusals' && width === 1440) await scene.test('mixed: no blank line before held filename', () => {
