@@ -783,7 +783,7 @@ export class AithemaSession extends HTMLElement {
             <span class="sr-only" id="attach-limits"></span><input class="attach-input" type="file" multiple hidden tabindex="-1" accept="${UPLOAD_ACCEPT}">
             <span class="composer-feedback"><span class="sr-only" id="upload-retry-reason"></span><small class="composer-reason" role="status" id="composer-reason"></small><small class="composer-saved-sizer" aria-hidden="true">${icon('check')}<span></span></small><small class="composer-saved" aria-hidden="true">${icon('check')}<span></span></small><small class="composer-saved-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></small>${this.#combined ? '<span class="composer-feedback-reserve" aria-hidden="true" inert></span>' : ''}</span>${this.#combined ? '<span class="composer-status-slot"><small class="composer-status" id="composer-status" role="status"></small><span class="composer-status-reserve" aria-hidden="true"></span></span><button class="composer-mic" type="button" aria-describedby="composer-status composer-notice"></button>' : ''}<button class="send" aria-describedby="ai-notice">${icon('arrowRight')}<span class="visually-hidden"></span></button></div></form>
           <div class="composer-out" aria-hidden="true" inert><p class="composer-out__title"><span></span></p><p class="composer-out__body"><span></span></p>
-            <div class="composer-out__bar"><span class="composer-out__steps"><span class="composer-out__give" data-next="give"></span><span class="composer-out__confirm" data-next="confirm"></span><span class="composer-out__none" data-next="none"></span></span>
+            <div class="composer-out__bar"><span class="composer-out__steps"><span class="composer-out__give" data-next="give"></span><span class="composer-out__confirm" data-next="confirm"></span><span class="composer-out__none" data-next="none"></span><span class="composer-out__steps-reserve" aria-hidden="true" inert><span></span><span></span><span></span></span></span>
               <span class="composer-out__actions"><button class="composer-out__upgrade" type="button" aria-haspopup="dialog"><span data-next="give"></span><span data-next="confirm"></span></button>
                 <a class="composer-out__export">${icon('download')}<span></span></a></span></div></div><button class="purpose-new" type="button" hidden></button></div>
         <div class="email-ask-dock"></div><p class="credit-announcement sr-only" role="status" aria-live="polite"></p><p class="email-ask-announcement sr-only" role="status" aria-live="polite"></p></div>
@@ -2377,6 +2377,9 @@ export class AithemaSession extends HTMLElement {
       out.dataset.next = kind; out.dataset.delivery = String(this.#host?.verification?.delivery === true);
       out.querySelector('.composer-out__bar').dataset.upgradeMeasure = out.dataset.delivery === 'true' ? credits.confirm : credits.give;
       out.querySelector('.composer-out__bar').dataset.exportMeasure = u.export;
+      const actions = out.querySelector('.composer-out__actions');
+      actions.dataset.upgradeMeasure = out.querySelector('.composer-out__bar').dataset.upgradeMeasure;
+      actions.dataset.exportMeasure = u.export;
       out.querySelector('.composer-out__title').dataset.hostTitle = credits.ended['host-limit'].title;
       setText(out.querySelector('.composer-out__title span'), limit.title);
       const delta = this.#host?.deltaCredits ?? '';
@@ -2418,7 +2421,12 @@ export class AithemaSession extends HTMLElement {
       const footer = out.querySelector('.composer-out__none');
       footer.hidden = limit.footer === false; setText(footer, limit.footer === false ? '' : u.none);
       setText(out.querySelector('.composer-out__upgrade [data-next="give"]'), credits.give); setText(out.querySelector('.composer-out__upgrade [data-next="confirm"]'), credits.confirm);
+      for (const [i, key] of ['give', 'confirm', 'none'].entries()) {
+        setText(out.querySelector('.composer-out__steps-reserve').children[i], out.querySelector(`.composer-out__${key}`).textContent);
+      }
       setText(out.querySelector('.composer-out__export span'), u.export);
+      out.querySelector('.composer-out__export').dataset.short = resolveCopy(copy, 'usedUpExportShort', undefined, this.#session.locale);
+      out.querySelector('.composer-out__export').setAttribute('aria-label', u.export);
       out.querySelector('.composer-out__export').href = `${this.#base}/api/sessions/${this.#session.id}/export`;
       for (const node of out.querySelectorAll('[data-next]')) { const shown = node.dataset.next === kind && !node.hidden; node.setAttribute('aria-hidden', String(!shown)); node.inert = !shown; }
       const exportLink = out.querySelector('.composer-out__export'), exportShown = !noAction;

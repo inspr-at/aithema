@@ -32,8 +32,8 @@ export const bandStyles = `
 .audio-rail button:hover:not(:disabled) { background:color-mix(in srgb,var(--aithema-surface) 50%,transparent); }
 .audio-rail .pause, .audio-rail .pause:hover:not(:disabled) { background:var(--aithema-ink); }
 /* Idle still offers the conversation pause, without the live call's filled treatment. */
-.audio-rail[data-call="none"] .pause[aria-pressed="false"],
-.audio-rail[data-call="none"] .pause[aria-pressed="false"]:hover:not(:disabled) {
+.audio-rail[data-state="idle"][data-call="none"] .pause[aria-pressed="false"]:not(:disabled),
+.audio-rail[data-state="idle"][data-call="none"] .pause[aria-pressed="false"]:not(:disabled):hover:not(:disabled) {
   background:transparent; color:var(--aithema-ink); border-color:var(--aithema-line); }
 /* Ownership stays a rail status, with Resume's ink fill during takeover. */
 .band .audio-rail:focus-visible { outline:none; }

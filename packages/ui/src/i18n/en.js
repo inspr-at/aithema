@@ -150,6 +150,7 @@ export const en = {
   voiceTakeover: 'Resume here', voiceMoved: 'Call is open in another tab',
   voiceResumeHereFirst: 'Resume here first', voiceInAnotherTab: 'In another tab',
   hostOpenerTitle: 'Welcome message', hostOpenerTextOnly: 'The full welcome message from the host.',
+  usedUpExportShort: 'Export',
   voiceReplayClose: 'Close',
   voiceReadFullReply: 'Read full reply', voiceReadText: 'Read text',
   voiceReplayStop: 'Stop replay',

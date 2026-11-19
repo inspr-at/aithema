@@ -152,6 +152,7 @@ export const de = {
   voiceTakeover: 'Hier fortsetzen', voiceMoved: 'Gespräch läuft in einem anderen Tab',
   voiceResumeHereFirst: 'Erst hier fortsetzen', voiceInAnotherTab: 'In einem anderen Tab',
   hostOpenerTitle: 'Begrüßung', hostOpenerTextOnly: 'Die vollständige Begrüßung des Hosts.',
+  usedUpExportShort: 'Exportieren',
   voiceReplayClose: 'Schließen',
   voiceReadFullReply: 'Ganze Antwort lesen', voiceReadText: 'Text lesen',
   voiceReplayStop: 'Wiederholung stoppen',

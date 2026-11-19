@@ -199,11 +199,9 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .composer-out[data-host-limit] .composer-out__actions > * { grid-area:auto; }
 .composer-out[data-host-limit] .composer-out__upgrade { padding:0; max-width:none; border-radius:0; background:none; color:var(--aithema-accent); font-size:13.5px; white-space:nowrap; text-decoration:underline; text-underline-offset:3px; text-align:start; }
 .composer-out[data-host-limit] .composer-out__export { max-width:none; color:var(--aithema-muted); }
+.composer-out__export::after { content:none; }
+.composer-out__steps-reserve { display:none; }
 .composer-out__export svg { width:14px; height:14px; flex:none; color:var(--aithema-muted); }
-/* Upgrade and export are both available: give each its own reserved cell. */
-.composer-out:not([data-host-limit]) .composer-out__actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px 14px; }
-.composer-out:not([data-host-limit]) .composer-out__upgrade { white-space:nowrap; }
-
 [data-used-up]:is(.qcard,.question-card) button { color:var(--aithema-muted); background:none; }
 [data-used-up]:is(.qcard,.question-card) :is(.go,.tag,.qhint) { visibility:hidden; }
 .composer-out__actions { position:relative; }
@@ -375,11 +373,6 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
   .composer-out__steps { min-height:4lh; }
   .composer-out__upgrade { max-width:132px; padding:4px 12px; line-height:1.2; text-align:center; white-space:normal; }
   .composer-out__export { line-height:1.25; }
-  /* Reserve the same stacked offer before exhaustion; the dock never moves
-     when the confirmation replaces the field. The full label owns one line. */
-  .composer-out:not([data-host-limit]) .composer-out__bar { flex-direction:column; align-items:stretch; gap:8px; }
-  .composer-out:not([data-host-limit]) .composer-out__actions { justify-content:flex-start; }
-  .composer-out:not([data-host-limit]) .composer-out__upgrade { max-width:none; min-height:44px; }
   .host-credits__used-up-full { display:none; } .host-credits__used-up-short { display:inline; }
 }
 @media(width < 360px) { .host-credits .host-credits__track { display:none; } }
@@ -426,4 +419,26 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 :host([theme="dark"]) .composer-out:not([data-host-limit]) .composer-out__upgrade { background:var(--aithema-accent-bright); }
 @media(prefers-color-scheme:dark) { :host(:not([theme="light"])) .composer-out:not([data-host-limit]) .composer-out__upgrade { background:var(--aithema-accent-bright); } }
 @media(prefers-reduced-motion:reduce) { .composer-shell *, .host-credits *, .audio-rail[data-used-up] * { transition:none; } }
+
+/* The normal credit panel retains its original measurement cells. The visible
+   offer uses the quiet space above the action row; host-limit keeps its own layout. */
+.composer-out:not([data-host-limit]) .composer-out__bar { position:relative; }
+.composer-out:not([data-host-limit]) .composer-out__steps-reserve { display:grid; visibility:hidden; }
+.composer-out__steps-reserve > * { grid-area:1/1; }
+.composer-out:not([data-host-limit]) .composer-out__steps > [data-next] { position:absolute; inset-inline:0; bottom:52px; }
+.composer-out:not([data-host-limit]) .composer-out__actions { position:static; }
+.composer-out:not([data-host-limit]) .composer-out__actions::before { content:attr(data-upgrade-measure); grid-area:1/1; visibility:hidden; box-sizing:border-box; min-height:44px; padding:0 16px; font-size:14px; font-weight:600; }
+.composer-out:not([data-host-limit]) .composer-out__actions::after { content:attr(data-export-measure); grid-area:1/1; visibility:hidden; min-height:44px; padding-inline-start:22px; font-size:13.5px; white-space:nowrap; }
+.composer-out:not([data-host-limit]) .composer-out__upgrade { position:absolute; bottom:0; inset-inline-start:0; max-width:none; width:max-content; white-space:nowrap; }
+.composer-out:not([data-host-limit]) .composer-out__export { position:absolute; bottom:0; inset-inline-end:0; }
+@media(max-width:600px) {
+  .composer-out:not([data-host-limit]) .composer-out__actions::before { width:132px; padding:4px 12px; line-height:1.2; }
+  .composer-out:not([data-host-limit]) .composer-out__export span { display:none; }
+  .composer-out:not([data-host-limit]) .composer-out__export::after { content:attr(data-short); }
+}
+@media(max-width:360px) {
+  .composer-out:not([data-host-limit]) .composer-out__upgrade { font-size:13px; padding-inline:8px; }
+  .composer-out:not([data-host-limit]) .composer-out__export { min-width:44px; justify-content:center; }
+  .composer-out:not([data-host-limit]) .composer-out__export::after { content:none; }
+}
 `;
