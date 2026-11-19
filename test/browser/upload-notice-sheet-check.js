@@ -269,6 +269,18 @@ export function uploadNoticeSheetCheck() {
             assert.equal(join.text.trim().endsWith('·'), false); assert.ok(Math.abs(join.action.x-join.label.x) <= .5);
           }
         });
+        if (scenario === 'mixed') await scene.test('r4 resizing a focused notice retains composer focus', async () => {
+          await page.keyboard.press('Escape'); await settle();
+          await inShadow(page, c => {
+            const more = c.shadowRoot.querySelector('.upload-notices-more'); more.focus();
+            const slot = c.shadowRoot.querySelector('.composer-feedback'); slot.style.height = '500px'; slot.style.maxWidth = '680px'; slot.style.width = '680px';
+          }); await settle();
+          assert.equal(await inShadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('textarea') || Boolean(c.shadowRoot.activeElement?.closest('.composer-reason'))), true, 'disappearing disclosure never drops focus to the document body');
+          await inShadow(page, c => {
+            const slot = c.shadowRoot.querySelector('.composer-feedback'); slot.style.cssText = '';
+          }); await settle();
+          await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-more').click()); await settle();
+        });
         await scene.test('r4 an open sheet survives a collapsed slot update', async () => {
           await inShadow(page, c => {
             const slot = c.shadowRoot.querySelector('.composer-feedback'); slot.style.cssText = 'width:1px!important;height:1px!important;flex:0 0 1px!important;max-width:1px!important';

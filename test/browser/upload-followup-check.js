@@ -46,9 +46,12 @@ export function feedbackVisibility(c) {
       underlineClipped:ink.bottom + 3 > p.bottom + 1 };
   }
   const rows = [...reason.querySelectorAll('.upload-notice-row')].filter(row => !row.hidden);
+  const heldRow = reason.querySelector('.held-upload-consent')?.closest('.upload-notice-row');
+  const imageRows = rows.filter(row => row.querySelector('.image-refusal-item'));
+  const heldGap = heldRow && imageRows.length ? heldRow.getBoundingClientRect().top - imageRows.at(-1).getBoundingClientRect().bottom : 0;
   const slotOverflow = slot.scrollHeight > slot.clientHeight + 1;
   return { slot:box(bounds), sheet:Boolean(sheet), scrollHeight:slot.scrollHeight, clientHeight:slot.clientHeight, slotOverflow, texts, action:treatment,
-    heldGap:0, ports:[],
+    heldGap, ports:[],
     unreachable:bounds.width <= 0 || bounds.height <= 0 || texts.some(text => !text.reachable)
       || !sheet && slotOverflow || rows.some(row => row.clientHeight <= 0 || row.scrollHeight > row.clientHeight) };
 }
@@ -346,8 +349,8 @@ export function heldConsentFollowupCheck() {
           await page.screenshot({ path: `${prefix}.png` }); await writeFile(`${prefix}.json`, JSON.stringify({ before, after, result, visibility }, null, 2));
         }
         if (['refused', 'count', 'bytes'].includes(scenario)) {
-          assert.equal(result.action, copy.featureConsent.action, 'held consent action stays visible with newer feedback');
-          assert.ok(result.notice.includes('scan.pdf'), 'held filename stays visible');
+          assert.equal(result.action, copy.featureConsent.action, 'held consent action remains in the notice tree with newer feedback');
+          assert.ok(result.notice.includes('scan.pdf'), 'held filename remains in the notice tree');
           if (width === 390) assert.ok(Math.max(result.tapHeight, visibility.action?.height ?? 0) >= 44, 'held consent keeps the existing 44 px phone target');
           const current = scenario === 'refused' ? copy.uploads.type.replace('{name}', 'newer.exe') : scenario === 'count' ? copy.uploads.tooMany.replace('{files}', '8') : copy.uploads.sessionFull.replace('{size}', '50 B');
           assert.ok(result.notice.includes(current), 'the current reason and capacity figure stay visible');
@@ -507,6 +510,9 @@ export function heldRegressionCheck() {
             assert.equal(visibility.action.offset, '3px');
             assert.ok(Math.abs(Number.parseFloat(visibility.action.lineHeight) / Number.parseFloat(visibility.action.fontSize) - visibility.action.referenceLeading) < .01, 'consent keeps the shared Discard/L-a line box for its underline');
             assert.equal(visibility.action.underlineClipped, false, 'the underline has paint room in its complete notice row');
+          });
+          if (scenario === 'mixed-refusals' && width === 1440) await scene.test('mixed: no blank line before held filename', () => {
+            assert.ok(visibility.heldGap <= 2, `held line follows current facts without an empty line: ${visibility.heldGap}px`);
           });
           await scene.test('each notice owns a nonempty row', () => {
             assert.ok(visibility.texts.every(text => text.rects.length > 0), 'each visible notice has painted text');
