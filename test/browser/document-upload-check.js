@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { uploadNoticeSheetCheck } from './upload-notice-sheet-check.js';
 import { uploadFollowupCheck, heldUploadCheck, heldConsentFollowupCheck, heldRegressionCheck } from './upload-followup-check.js';
 import { mixedUploadCheck } from './mixed-upload-check.js';
 import { test } from 'node:test';
@@ -18,6 +19,7 @@ const limitsWithImages = {
 };
 const accept = '.pdf,.docx,.xlsx,.pptx,.txt,.md,.csv,.json,.xml';
 export function documentUploadCheck() {
+  uploadNoticeSheetCheck();
   mixedUploadCheck();
   uploadFollowupCheck();
   heldUploadCheck();

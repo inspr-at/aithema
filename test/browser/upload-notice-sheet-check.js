@@ -1,0 +1,147 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { browserForFile } from './shared-browser.js';
+import { startDemo, stopDemo, preparePage, waitForShadow, startTyping, inShadow } from './demo-helpers.js';
+
+export function uploadNoticeSheetCheck() {
+  for (const [width, locale] of [[390, 'de'], [390, 'en'], [1440, 'en']])
+    test(`AIT-566 r3: ${width}/${locale} option A and ordinary feedback scope`, { timeout: 120000 }, async t => {
+      const theme = locale === 'de' ? 'dark' : 'light';
+      const directory = await mkdtemp(join(tmpdir(), 'aithema-notice-sheet-'));
+      const demo = await startDemo(directory), browser = await browserForFile(), page = await browser.newPage();
+      t.after(async () => { await browser.close(); await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); });
+      await preparePage(page, [locale]); await page.setViewport({ width, height: width === 390 ? 844 : 900, hasTouch: width === 390 });
+      await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
+      await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
+      const settle = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const boxes = () => inShadow(page, c => Object.fromEntries(['.composer', '.attach', '.send', 'textarea'].map(selector => {
+        const r = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [selector, { x:r.x, y:r.y, width:r.width, height:r.height }];
+      })));
+      const unchanged = (before, after) => {
+        for (const [selector, box] of Object.entries(before)) {
+          assert.ok(box.width > 0 && box.height > 0 && after[selector].width > 0 && after[selector].height > 0, `${selector}: positive boxes`);
+          for (const axis of Object.keys(box)) assert.ok(Math.abs(box[axis] - after[selector][axis]) <= .5, `${selector}.${axis}: unchanged within 0.5px`);
+        }
+      };
+      const save = async (state, data) => {
+        const evidence = process.env.AITHEMA_EVIDENCE_DIR; if (!evidence) return;
+        await mkdir(evidence, { recursive:true }); const prefix = join(evidence, `ait566-r3-${state}-${width}-${locale}-${theme}`);
+        await page.screenshot({ path:`${prefix}.png` }); await writeFile(`${prefix}.json`, JSON.stringify(data, null, 2));
+      };
+      const configure = async scenario => {
+        await inShadow(page, async (c, { locale, scenario }) => {
+          const session = structuredClone(c.session); session.id = crypto.randomUUID(); session.seq = 0; session.locale = locale; session.uploads = [];
+          session.transcript = [{ id:'established', role:'user', content:'Project documents', at:new Date(0).toISOString() }];
+          session.settings.voice = 'off'; session.settings.origin = 'chosen';
+          const held = scenario === 'summary' || scenario === 'mixed' || scenario === 'rehold';
+          session.featureMatrix = { best: { text:{ available:scenario !== 'text', reason:scenario === 'text' ? 'current processing consent required' : null },
+            uploads:{ available:!held || scenario !== 'summary', reason:scenario === 'summary' ? 'current processing consent required' : null },
+            imageInput:{ available:scenario === 'mixed', reason:scenario === 'summary' || !held ? 'image normalizer not configured' : 'current processing consent required' } } };
+          window.sheetFixture = { scenario, asks:[], posts:[], limitsRead:false };
+          if (!window.sheetListener) {
+            window.sheetListener = true;
+            c.addEventListener('aithema-consent', event => { window.sheetFixture.asks.push(event.detail); event.stopImmediatePropagation(); }, { capture:true });
+          }
+          window.fetch = async (url, options = {}) => {
+            if (/\/events(?:\?|$)/u.test(String(url))) return new Response(new ReadableStream({ start(controller) { options.signal?.addEventListener('abort', () => controller.close(), { once:true }); } }));
+            if (String(url).endsWith('/uploads')) {
+              if (options.method !== 'POST') { window.sheetFixture.limitsRead = true; return Response.json({ limits:scenario === 'summary' ? { maxRequestBytes:1 } : {} }); }
+              window.sheetFixture.posts.push(options.body.getAll('files').map(f => f.name));
+              if (scenario === 'failure') return Response.json({ error:'upload-rate-limit' }, { status:429 });
+              return Response.json({ refused:[{ index:0, kind:'image', reason:'current processing consent required' }] }, { status:202 });
+            }
+            if (String(url).endsWith('/input')) throw new TypeError('fixture send failure');
+            return Response.json(c.session);
+          };
+          const { [locale]:copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+          c.configure({ session, copy, entrance:'choice', sessionToken:'fixture', voiceClient:{} });
+        }, { locale, scenario });
+        await startTyping(page); await settle();
+      };
+      const pick = async names => {
+        await inShadow(page, (c, names) => {
+          const transfer = new DataTransfer();
+          for (const name of names) transfer.items.add(new File([name === 'oversized.png' ? new Uint8Array(21 * 1024 * 1024) : '%PDF-fixture'], name, { lastModified:1234 }));
+          const input = c.shadowRoot.querySelector('.attach-input'); input.files = transfer.files; input.dispatchEvent(new Event('change'));
+        }, names);
+        await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.attach').getAttribute('aria-disabled') === 'false'); await settle();
+      };
+      for (const scenario of ['refusal', 'text', 'failure']) await t.test(scenario, async () => {
+        await configure(scenario); const before = await boxes();
+        if (scenario === 'refusal') await pick(['x.heic']);
+        if (scenario === 'failure') {
+          await pick(['report.pdf']);
+          await inShadow(page, c => { c.shadowRoot.querySelector('textarea').value = 'Send fixture'; c.shadowRoot.querySelector('form.composer').requestSubmit(); });
+          await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('[data-send-failed]')); await settle();
+        }
+        const result = await inShadow(page, c => {
+          const reason = c.shadowRoot.querySelector('.composer-feedback > .composer-reason'), send = c.shadowRoot.querySelector('.send').getBoundingClientRect();
+          const css = getComputedStyle(reason), r = reason.getBoundingClientRect();
+          return { text:reason.textContent, center:r.y+r.height/2, referenceCenter:send.y+send.height/2, tabIndex:reason.getAttribute('tabindex'), overflow:css.overflowY, padding:css.paddingBottom,
+            target:reason.querySelector('.consent-action') ? getComputedStyle(reason.querySelector('.consent-action'), '::after').height : null };
+        });
+        const after = await boxes(); await save(scenario, { before, after, result });
+        unchanged(before, after);
+        assert.equal(result.tabIndex, null, 'plain feedback never receives a tabindex');
+        if (scenario === 'refusal') assert.ok(Math.abs(result.center-result.referenceCenter) <= .5, `ordinary refusal remains centred like main: ${JSON.stringify(result)}`);
+        if (scenario === 'text') { assert.equal(result.overflow, 'visible', 'text consent target is not clipped'); assert.ok(Number.parseFloat(result.target) >= 44); }
+        if (scenario === 'failure') assert.equal(result.padding, '8px', 'send failure retains 8px paint room');
+      });
+      for (const scenario of ['summary', 'mixed', 'rehold']) await t.test(scenario, async scene => {
+        await configure(scenario); const idle = await boxes(); await save(`${scenario}-idle`, { boxes:idle });
+        await pick([scenario === 'rehold' ? 'photo.png' : 'scan.pdf']);
+        await page.waitForFunction(() => window.sheetFixture.asks.length > 0);
+        if (scenario === 'mixed') await pick(['newer.exe', 'oversized.png']);
+        if (scenario === 'summary') {
+          await inShadow(page, c => c.shadowRoot.querySelector('.attach').click());
+          await page.waitForFunction(() => window.sheetFixture.limitsRead); await settle();
+          await inShadow(page, c => c.shadowRoot.querySelector('.attach').click()); await settle();
+        }
+        if (scenario === 'rehold') { await page.evaluate(() => window.sheetFixture.asks.at(-1).cancel()); await pick(['photo.png']); }
+        const before = await boxes();
+        const result = await inShadow(page, c => {
+          const reason = c.shadowRoot.querySelector('.composer-feedback > .composer-reason'), control = reason.querySelector('.upload-notices-more');
+          const r = control?.getBoundingClientRect();
+          return { text:reason.innerText, scrollHeight:reason.scrollHeight, clientHeight:reason.clientHeight, tabIndex:reason.getAttribute('tabindex'), control:control ? { text:control.textContent, width:r.width, height:r.height } : null,
+            rows:[...reason.querySelectorAll('.upload-notice-row')].filter(row => !row.hidden).map(row => { const r = row.getBoundingClientRect(); return { text:row.innerText, width:r.width, height:r.height, clientHeight:row.clientHeight, scrollHeight:row.scrollHeight }; }) };
+        });
+        await save(scenario, { idle, before, result }); unchanged(idle, before);
+        if (scenario === 'rehold') {
+          assert.equal(result.text.includes(locale === 'de' ? 'Bitte wähle' : 'Please choose'), false);
+          await page.evaluate(() => window.sheetFixture.asks.at(-1).cancel()); await settle();
+          await save('rehold-ended', { boxes:await boxes() }); unchanged(idle, await boxes()); return;
+        }
+        await scene.test('overflow is disclosed without a scroll region', () => {
+          assert.ok(result.control, 'overflow offers a labelled sheet control');
+          assert.ok(result.control.height >= 44 && result.control.width >= 44, 'control has a 44px target');
+          assert.equal(result.tabIndex, null); assert.ok(result.scrollHeight <= result.clientHeight, 'slot never clips or scrolls a partial notice');
+          for (const row of result.rows) assert.ok(row.width > 0 && row.height > 0 && row.scrollHeight <= row.clientHeight, 'every visible notice fits completely');
+          if (scenario === 'summary' && width === 390) assert.equal(result.text.trim(), locale === 'de' ? 'Hochladen nicht möglich · Details' : "Can't upload · Details");
+          else assert.match(result.control.text, locale === 'de' ? /\d+ weitere Meldung/u : /Show \d+ more notice/u);
+        });
+        if (!result.control) return;
+        await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-more').click()); await settle();
+        const opened = await inShadow(page, c => {
+          const dialog = c.shadowRoot.querySelector('.upload-notices-sheet'), r = dialog.getBoundingClientRect();
+          return { open:dialog.open, modal:dialog.matches(':modal'), title:dialog.getAttribute('aria-labelledby'), text:dialog.innerText, top:r.top, height:r.height,
+            rows:[...dialog.querySelectorAll('.upload-notice-row')].map(row => { const r = row.getBoundingClientRect(); return { text:row.innerText, width:r.width, height:r.height, clientHeight:row.clientHeight, scrollHeight:row.scrollHeight }; }),
+            actions:[...dialog.querySelectorAll('button')].map(b => { const r = b.getBoundingClientRect(); return { text:b.textContent, width:r.width, height:r.height }; }) };
+        });
+        await save(`${scenario}-sheet`, { before, after:await boxes(), opened }); unchanged(idle, await boxes());
+        assert.equal(opened.open, true); assert.equal(opened.modal, true); assert.ok(opened.title); assert.ok(opened.top <= 24);
+        assert.ok(opened.rows.length >= 2); for (const row of opened.rows) assert.ok(row.width > 0 && row.height > 0 && row.scrollHeight <= row.clientHeight);
+        for (const action of opened.actions) assert.ok(action.width >= 44 && action.height >= 44, `${action.text}: 44px target`);
+        if (width === 390) assert.ok(opened.height >= 840, 'phone sheet occupies the full viewport');
+        await page.keyboard.press('Tab'); await page.keyboard.down('Shift'); await page.keyboard.press('Tab'); await page.keyboard.up('Shift');
+        assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-sheet').contains(c.shadowRoot.activeElement)), true, 'focus stays in sheet');
+        await page.keyboard.press('Escape'); await settle();
+        assert.equal(await inShadow(page, c => c.shadowRoot.activeElement?.classList.contains('upload-notices-more')), true, 'Escape restores opener focus'); unchanged(idle, await boxes());
+        await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-more').click());
+        await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-close').click()); await settle();
+        assert.equal(await inShadow(page, c => c.shadowRoot.activeElement?.classList.contains('upload-notices-more')), true, 'Close restores opener focus'); unchanged(idle, await boxes());
+      });
+    });
+}
