@@ -966,6 +966,12 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .image-feedback-reserve { display:none; visibility:hidden; pointer-events:none; font-size:.72rem; line-height:1.3; }
 .composer:is([data-image-input], [data-document-input]) .image-feedback-reserve { display:grid; }
 .image-feedback-reserve > * { grid-area:1/1; }
+/* A document-only slot stays within the existing composer row budget, even
+   when a later snapshot first admits uploads. Five compact lines fit phones. */
+.composer[data-document-input]:not([data-image-input]) .image-feedback-reserve { height:44px; }
+@media(max-width:600px) {
+  .composer[data-document-input]:not([data-image-input]) .image-feedback-reserve { height:6em; }
+}
 .image-feedback-document-reserve { overflow-wrap:anywhere; }
 /* Keep arbitrary refusal batches in their established two-line scroll area;
    accepted formats have their own fully wrapped row and never scroll away. */
@@ -979,7 +985,7 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .composer-reason[data-capacity-notice], .composer-reason[data-capacity-notice] .upload-notice-facts { max-height:3.75em; }
 .composer[data-image-input] .composer-reason[data-consent-feature="imageInput"] { overflow-y:auto; }
 /* Measure held consent with its current facts before any intake occurs. */
-.held-feedback-reserve { display:flex; flex-direction:column; line-height:1.25; }
+.held-feedback-reserve { display:flex; flex-direction:column; line-height:1.2; }
 .held-feedback-reserve__facts { display:block; flex:none; max-height:3.75em; overflow:auto; }
 .held-feedback-reserve__line { display:block; min-height:0; max-height:44px; overflow:auto; }
 .held-feedback-reserve__action { display:inline; line-height:inherit; white-space:nowrap; }
@@ -988,7 +994,7 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .held-upload-images .image-refusals { position:static; min-height:44px; max-height:44px; }
 .held-upload-images .image-refusal__name { display:inline; white-space:normal; }
 .composer-feedback:has(.composer-reason[data-held-consent]) { position:relative; }
-.composer-reason[data-held-consent], .composer[data-image-input] .composer-reason[data-held-consent] { position:absolute; inset:0; display:flex; flex-direction:column; justify-content:center; max-height:none; line-height:1.25; overflow:visible; }
+.composer-reason[data-held-consent], .composer[data-image-input] .composer-reason[data-held-consent] { position:absolute; inset:0; display:flex; flex-direction:column; justify-content:center; max-height:none; line-height:1.2; overflow:visible; }
 .held-upload-notice { display:block; flex:none; max-height:3.75em; overflow:auto; overscroll-behavior:contain; }
 .held-upload-consent { display:block; min-height:0; max-height:44px; overflow:auto; overscroll-behavior:contain; }
 /* With no competing facts, retain the established long-copy scrolling cap. */
@@ -1014,7 +1020,7 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
   .workspace[data-phone-short] .composer:is([data-image-input], [data-document-input]) { padding-top:calc(var(--image-feedback-height,60px) + 10px); }
   .workspace[data-phone-short] .composer:is([data-image-input], [data-document-input]) .composer-feedback { position:absolute; top:4px; left:6px; right:6px; height:var(--image-feedback-height,60px); margin:0; }
   .workspace[data-phone-short] .composer:is([data-image-input], [data-document-input]) .composer-reason { position:static; width:auto; height:auto; max-height:none; clip-path:none; overflow:auto; }
-  .workspace[data-phone-short] .composer:is([data-image-input], [data-document-input]) .composer-reason[data-held-consent] { position:absolute; inset:0; height:auto; line-height:1.25; overflow:visible; }
+  .workspace[data-phone-short] .composer:is([data-image-input], [data-document-input]) .composer-reason[data-held-consent] { position:absolute; inset:0; height:auto; line-height:1.2; overflow:visible; }
   .workspace[data-phone-short] .composer:is([data-image-input], [data-document-input]) .composer-reason[data-held-consent][data-held-only] { position:static; max-height:44px; overflow-y:auto; }
   .workspace[data-phone-short] .composer:is([data-image-input], [data-document-input]) .composer-reason:has(.image-refusals) { transition:none; position:absolute; inset:0; overflow:visible; }
   /* The short phone keeps reading room by flowing concurrent facts across
