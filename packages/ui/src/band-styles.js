@@ -49,6 +49,8 @@ export const bandStyles = `
 @container (width < 184px) { .voice-wave { visibility:hidden; } }
 /* An empty status has no label or flanks: show the continuous calm baseline. */
 .voice-state:empty, .voice-caption:empty { display:none; }
+/* A quiet combined label retains its measurement cell without an invitation. */
+.workspace[data-entrance="combined"] .voice-state:empty { display:block; min-width:1px; min-height:1em; }
 .voice-signal:has(.voice-state:empty):has(.voice-caption:empty) .voice-wave { mask-image:none; visibility:visible; }
 .voice-state, .voice-caption { padding:3px 8px; border-radius:0; font-size:12px;
   background:none; box-shadow:none; }

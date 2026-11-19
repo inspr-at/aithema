@@ -233,7 +233,7 @@ test('AIT-553 item 6: phone used-up confirmation stacks a one-line 44 px action 
       const out = root.querySelector('.composer-out'), text = out.querySelector('.composer-out__steps [data-next="confirm"]'), button = out.querySelector('.composer-out__upgrade'), label = button.querySelector('[data-next="confirm"]');
       const range = document.createRange(); range.selectNodeContents(label);
       const lines = [...range.getClientRects()].filter(b => b.width > 0 && b.height > 0);
-      return { next: out.dataset.next, boxes: { text: box(text), button: box(button), label: box(label), export: box(out.querySelector('.composer-out__export')) },
+      return { next: out.dataset.next, boxes: { body: box(out.querySelector('.composer-out__body > [data-active="true"]')), text: box(text), button: box(button), label: box(label), export: box(out.querySelector('.composer-out__export')) },
         lines: [...new Set(lines.map(b => b.y))].length, label: label.textContent, textVisible: text.checkVisibility({ checkVisibilityCSS: true }), visible: button.checkVisibility({ checkVisibilityCSS: true }) };
     });
     await retain(page, `${width}-${locale}-used-up-confirm`, record);
@@ -246,6 +246,8 @@ test('AIT-553 item 6: phone used-up confirmation stacks a one-line 44 px action 
     assert.ok(record.boxes.button[1] >= record.boxes.text[1] + record.boxes.text[3], `button below text: ${JSON.stringify(record)}`);
     assert.equal(record.lines, 1, 'full confirmation label stays on one line');
     assert.ok(record.boxes.button[3] >= 44);
+    assert.ok(record.boxes.text[1] >= record.boxes.body[1] + record.boxes.body[3], `offer text clears saved-conversation copy: ${JSON.stringify(record)}`);
+    assert.ok(record.boxes.export[1] >= record.boxes.button[1] + record.boxes.button[3] + 12, 'export retains its separate 12 px phone row');
     assert.ok(record.boxes.button[0] + record.boxes.button[2] + 8 <= record.boxes.export[0], `independent phone actions have an 8 px gap: ${JSON.stringify(record)}`);
   }
 });

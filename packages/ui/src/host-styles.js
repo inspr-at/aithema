@@ -432,7 +432,11 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__upgrade { position:absolute; bottom:0; inset-inline-start:0; max-width:none; width:max-content; white-space:nowrap; }
 .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__export { position:absolute; bottom:0; inset-inline-end:0; }
 @media(max-width:600px) {
-  .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__upgrade { font-size:13px; padding-inline:8px; }
+  /* Fit both real action rows inside the existing four-line reservation.
+     Hidden body peers retain their original type and intrinsic measurements. */
+  .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__body > [data-active="true"] { font-size:12px; line-height:1.3; transform:translateY(-14px); }
+  .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__steps > [data-next] { bottom:108px; font-size:12px; line-height:1.35; }
+  .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__upgrade { bottom:56px; font-size:13px; padding-inline:8px; }
   .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__actions::before { width:132px; padding:4px 12px; line-height:1.2; }
   .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__export span { display:none; }
   .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__export::after { content:attr(data-short); }
