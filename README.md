@@ -4389,7 +4389,9 @@ even if that new selection is refused entirely. Granting consent attaches those
 held images once and preserves newer file notices. Re-picks of the same name,
 size and last-modified timestamp share one hold. The held filenames and existing
 consent action stay visible alongside the current refusal or capacity figure
-inside the reserved feedback slot; supported formats remain in attachment help.
+inside the reserved feedback slot; phones reuse the existing narrow consent
+wording, with the full file-specific sentence in the action’s accessible name.
+Supported formats remain in attachment help.
 Grant and expiry use only current feedback, so a cleared older notice stays cleared.
 Expiry appends the existing
 choose-again message to newer feedback; timers are fenced by intent identity.

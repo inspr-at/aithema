@@ -982,6 +982,11 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .composer-reason[data-held-consent], .composer[data-image-input] .composer-reason[data-held-consent] { position:absolute; inset:0; display:flex; flex-direction:column; justify-content:center; max-height:none; line-height:1.25; overflow:visible; }
 .held-upload-notice { display:block; flex:none; max-height:3.75em; overflow:auto; overscroll-behavior:contain; }
 .held-upload-consent { display:block; min-height:0; overflow:auto; overscroll-behavior:contain; }
+.held-consent-narrow { display:none; }
+@media(max-width:600px) {
+  .held-consent-wide { display:none; }
+  .held-consent-narrow { display:inline; }
+}
 .image-refusals, .image-refusals-reserve__row { display:flex; align-items:flex-start; gap:5px; min-height:44px; font-size:.72rem; line-height:1.3; }
 .image-refusals { position:absolute; inset:0; overflow:auto; color:var(--aithema-warning); }
 .image-refusals__icon { flex:none; width:14px; height:14px; margin-top:2px; }

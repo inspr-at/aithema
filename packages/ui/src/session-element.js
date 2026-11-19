@@ -6,7 +6,7 @@ import { serverEvents } from './session-events.js';
 import { emailOfferStyles } from './email-offer.js';
 import { hostOpenerTurn, openerTranscript } from './host-opener.js';
 import { consentTimeout } from './consent-timer.js';
-import { paintConsentLine, reasonAction, reasonSeparator } from './consent-line.js';
+import { paintConsentLine, featureConsentText, reasonAction, reasonSeparator } from './consent-line.js';
 import { ConceptView, WARNING_ICON, paintFailureLine } from './concept-view.js';
 import { guardConceptControls } from './concept-guards.js';
 import './html-preview.js'; // <aithema-html-preview>, the concept viewer's stage for drafts
@@ -2267,7 +2267,7 @@ export class AithemaSession extends HTMLElement {
         if (!refusal) setText(action, copy.uploads.tryAgain);
         setText(discard, copy.uploads.discard);
       } else if (text.available && !this.#rail?.moved && !this.#sendFailed && this.#imageIntent) {
-        if (!reason.querySelector('.held-upload-consent')) reason.replaceChildren(node('span', 'held-upload-notice'), node('span', 'held-upload-consent'));
+        if (!reason.querySelector('.held-upload-notice')) reason.replaceChildren(node('span', 'held-upload-notice'), node('span', 'held-upload-consent'));
         // The formats remain in the attachment help; this slot keeps the current
         // refusal and the held files' consent action visible together.
         const supported = resolveCopy(copy, 'uploadsSupported', undefined, this.#session.locale);
@@ -2291,9 +2291,19 @@ export class AithemaSession extends HTMLElement {
         const feature = this.#imageIntent.features.includes('imageInput') ? 'imageInput' : 'uploads';
         paintConsentLine(line, { copy, feature, verdict: { available: false, reason: CONSENT_REASON },
           open: opener => this.#dialog.openConsent(feature, opener) });
-        const label = line.querySelector('.consent-line-copy');
-        setText(label, `${this.#imageIntent.files.map(file => file.name).join(', ')}: ${label.textContent}`);
-        reason.dataset.consentFeature = feature;
+        const label = line.querySelector('.consent-line-copy'), names = this.#imageIntent.files.map(file => file.name).join(', ');
+        const sentence = featureConsentText(copy, feature);
+        const wide = node('span', 'held-consent-wide', `${names}: ${sentence}${reasonSeparator}`);
+        const narrow = node('span', 'held-consent-narrow', `${names}: ${copy.featureConsent.textNarrow}${reasonSeparator}`);
+        narrow.setAttribute('aria-hidden', 'true'); label.replaceChildren(wide, narrow);
+        line.querySelector('.consent-action').setAttribute('aria-label', `${copy.featureConsent.action}: ${names}. ${sentence}`);
+        // Retained controls have their own actions; only the held line names its
+        // image-consent group in that case. Keep the established root marker otherwise.
+        if (this.#retryFiles.length) delete reason.dataset.consentFeature;
+        else reason.dataset.consentFeature = feature;
+      } else {
+        const ended = reason.querySelector('.held-upload-consent');
+        if (ended) { ended.remove(); delete reason.dataset.consentFeature; }
       }
       reason.toggleAttribute('data-held-consent', Boolean(reason.querySelector('.held-upload-consent')) && Boolean(this.#imageIntent));
       const capacityNotice = [copy.uploads.tooMany.replace('{files}', this.#limits.maxDocumentsPerSession),
