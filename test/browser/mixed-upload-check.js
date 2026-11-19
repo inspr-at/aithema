@@ -34,7 +34,7 @@ export function mixedUploadCheck() {
             c.addEventListener('aithema-consent', event => { window.mixedAsks.push(event.detail); event.stopImmediatePropagation(); }, { capture: true, once: true });
             window.fetch = async (url, options = {}) => {
               if (String(url).endsWith('/uploads')) {
-                if (options.method !== 'POST') return Response.json({ uploads: c.session.uploads, limits: { maxFilesPerRequest: 2, maxImagesPerSession: 1 } });
+                if (options.method !== 'POST') return Response.json({ uploads: c.session.uploads, limits: { maxFilesPerRequest: 2, maxImagesPerSession: host === 'limit' ? 1 : 8 } });
                 const files = options.body.getAll('files'), events = [], refused = [];
                 window.mixedPosts.push(files.map(file => file.name));
                 for (const [index, file] of files.entries()) {
@@ -65,7 +65,7 @@ export function mixedUploadCheck() {
           if (evidence) await page.screenshot({ path: join(evidence, `${prefix}-before.png`) });
           await inShadow(page, c => {
             const transfer = new DataTransfer();
-            for (const [name, type] of [['clipboard', 'application/octet-stream'], ['eligible.pdf', 'application/pdf'], ['scan.pdf', 'application/pdf'], ['eligible-later.pdf', 'application/pdf']]) transfer.items.add(new File(['fixture'], name, { type }));
+            for (const [name, type] of [['clipboard', 'application/octet-stream'], ['eligible.pdf', 'application/pdf'], ['typed.pdf', 'image/png'], ['eligible-typed.pdf', 'application/pdf'], ['scan.pdf', 'application/pdf'], ['eligible-later.pdf', 'application/pdf']]) transfer.items.add(new File([name === 'scan.pdf' ? new Uint8Array([255, 216, 255, 224, 0, 0]) : name.startsWith('eligible') ? '%PDF-fixture' : new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], name, { type }));
             const input = c.shadowRoot.querySelector('.attach-input'); input.files = transfer.files; input.dispatchEvent(new Event('change'));
           });
           await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer').hasAttribute('aria-busy'));
@@ -78,19 +78,19 @@ export function mixedUploadCheck() {
             await page.screenshot({ path: join(evidence, `${prefix}-after.png`) });
             await writeFile(join(evidence, `${prefix}.json`), JSON.stringify({ before, after, result }, null, 2));
           }
-          assert.deepEqual(result.posts, [['clipboard', 'eligible.pdf'], ['scan.pdf', 'eligible-later.pdf']], 'later batches sent');
-          assert.deepEqual(result.documents, ['eligible.pdf', 'eligible-later.pdf']);
+          assert.deepEqual(result.posts, [['clipboard', 'eligible.pdf'], ['typed.pdf', 'eligible-typed.pdf'], ['scan.pdf', 'eligible-later.pdf']], 'later batches sent');
+          assert.deepEqual(result.documents, ['eligible.pdf', 'eligible-typed.pdf', 'eligible-later.pdf']);
           if (host === 'consent') { assert.deepEqual(result.asks, [['imageInput']]); assert.equal(result.consent, true); }
-          else if (host === 'limit') assert.deepEqual(result.refusals, ['clipboard', 'scan.pdf'].map(name => `${name}: ${copy.imageRefusals.limit}`));
-          else assert.equal(result.notice, copy.uploads.refused.replace('{list}', ['clipboard', 'scan.pdf'].map(name => copy.uploads.type.replace('{name}', name)).join(', ')));
+          else if (host === 'limit') assert.deepEqual(result.refusals, ['clipboard', 'typed.pdf', 'scan.pdf'].map(name => `${name}: ${copy.imageRefusals.limit}`));
+          else assert.equal(result.notice, copy.uploads.refused.replace('{list}', ['clipboard', 'typed.pdf', 'scan.pdf'].map(name => copy.uploads.type.replace('{name}', name)).join(', ')));
           for (const selector of Object.keys(before)) {
             assert.ok(before[selector].width > 0 && before[selector].height > 0 && after[selector].width > 0 && after[selector].height > 0, `${selector} is visible`);
             assert.deepEqual(after[selector], before[selector], `${selector}: 0 px layout shift`);
           }
           if (host === 'consent') {
             await inShadow(page, c => { window.mixedGranted = true; c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: ['imageInput'], removed: [] } }); });
-            await page.waitForFunction(() => window.mixedPosts.length === 3);
-            assert.deepEqual(await page.evaluate(() => window.mixedPosts[2]), ['clipboard', 'scan.pdf']);
+            await page.waitForFunction(() => window.mixedPosts.length === 5);
+            assert.deepEqual(await page.evaluate(() => window.mixedPosts.slice(3)), [['clipboard', 'typed.pdf'], ['scan.pdf']]);
           }
         });
       }

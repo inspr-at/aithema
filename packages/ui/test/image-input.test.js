@@ -376,7 +376,7 @@ for (const copy of [en, de]) for (const reason of ['image normalizer not configu
         const refused = [], events = [];
         for (const [index, file] of files.entries()) {
           const image = !file.name.startsWith('eligible');
-          if (image && !(consent && posts.length > 2)) refused.push({ index, name: file.name, kind: 'image', reason });
+          if (image && !(consent && posts.length > 3)) refused.push({ index, name: file.name, kind: 'image', reason });
           else events.push({ sessionId: f.c.session.id, seq: f.c.session.seq + events.length + 1, type: 'upload.state', data: {
             id: `attached-${file.name}`, filename: file.name, kind: image ? 'image' : 'document', state: image ? 'staged-pending' : 'accepted', bytes: file.size, at: new Date(0).toISOString() } });
         }
@@ -385,19 +385,20 @@ for (const copy of [en, de]) for (const reason of ['image normalizer not configu
       return originalFetch(url, options);
     });
     await choose(f.root, [new window.File(['png'], 'clipboard'), new window.File(['pdf'], 'eligible.pdf'),
+      new window.File(['png'], 'typed.pdf', { type: 'image/png' }), new window.File(['pdf'], 'eligible-typed.pdf'),
       new window.File(['jpeg'], 'scan.pdf'), new window.File(['pdf'], 'eligible-later.pdf')]);
-    assert.deepEqual(posts.slice(0, 2), [['clipboard', 'eligible.pdf'], ['scan.pdf', 'eligible-later.pdf']]);
-    assert.deepEqual(f.c.session.uploads.filter(upload => upload.kind === 'document').map(upload => upload.filename), ['eligible.pdf', 'eligible-later.pdf']);
+    assert.deepEqual(posts.slice(0, 3), [['clipboard', 'eligible.pdf'], ['typed.pdf', 'eligible-typed.pdf'], ['scan.pdf', 'eligible-later.pdf']]);
+    assert.deepEqual(f.c.session.uploads.filter(upload => upload.kind === 'document').map(upload => upload.filename), ['eligible.pdf', 'eligible-typed.pdf', 'eligible-later.pdf']);
     if (consent) {
       assert.equal(f.asks.length, 1); assert.deepEqual(f.asks[0].features, ['imageInput']);
       assert.ok(f.root.querySelector('.consent-action'), 'existing image consent action is visible');
       f.grantImages(); await tick(); await tick(); await tick();
-      assert.deepEqual(posts[2], ['clipboard', 'scan.pdf'], 'only detected images resume after consent');
-      assert.equal(f.c.session.uploads.filter(upload => upload.kind === 'image').length, 2);
+      assert.deepEqual(posts.slice(3), [['clipboard', 'typed.pdf'], ['scan.pdf']], 'only detected images resume after consent');
+      assert.equal(f.c.session.uploads.filter(upload => upload.kind === 'image').length, 3);
     } else if (reason === 'limit') {
-      assert.deepEqual([...f.root.querySelectorAll('.image-refusal')].map(row => row.textContent), ['clipboard', 'scan.pdf'].map(name => `${name}: ${copy.imageRefusals.limit}`));
+      assert.deepEqual([...f.root.querySelectorAll('.image-refusal')].map(row => row.textContent), ['clipboard', 'typed.pdf', 'scan.pdf'].map(name => `${name}: ${copy.imageRefusals.limit}`));
     } else {
-      const expected = copy.uploads.refused.replace('{list}', ['clipboard', 'scan.pdf'].map(name => copy.uploads.type.replace('{name}', name)).join(', '));
+      const expected = copy.uploads.refused.replace('{list}', ['clipboard', 'typed.pdf', 'scan.pdf'].map(name => copy.uploads.type.replace('{name}', name)).join(', '));
       assert.equal(f.root.querySelector('.composer-reason').textContent, expected);
       assert.equal(f.root.querySelector('.image-refusals'), null, 'documents-only surface keeps main type treatment');
     }
