@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { inputRevision, PluginError, operationScope, stagedImage } from '@inspr/aithema-core';
+import { inputRevision, PluginError, operationScope, stagedImage, isConsentReason } from '@inspr/aithema-core';
 import { sniffDocument, EXTRACTOR_LIMITS, TEXT_MEDIA_TYPES, EXTRACTOR_MEDIA_TYPES } from '@inspr/aithema-core/extractor';
 import { normalizeUploadLimits } from './upload-limits.js';
 import { scanUploadMultipart } from './upload-multipart.js';
@@ -205,7 +205,9 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
           // let the client retry against fresh admission rather than reporting a byte conflict.
           if (inputRevision(storage.get(id)) !== guard.revision) return json({ error: 'upload-rate-limit' }, 429);
           if (image) {
-            const reason = storage.get(id).consentRevision !== session.consentRevision ? 'current processing consent required' : availability.reason;
+            const unavailable = availability.reason && !isConsentReason(availability.reason);
+            const reason = unavailable ? availability.reason : storage.get(id).consentRevision !== session.consentRevision
+              ? 'current processing consent required' : availability.reason;
             if (reason) for (const file of files) if (file.kind === 'image') file.refusal = reason;
           } else if (availability.reason) return json({ error: 'uploads-unavailable', reason: availability.reason }, 403);
         }

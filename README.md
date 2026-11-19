@@ -2160,10 +2160,13 @@ must treat those flags as a tombstone. No original-byte download route exists.
 In `<aithema-session>` (B2), Attach opens the native picker (multiple files), and
 files dropped on the conversation upload the same way. Before sending, the client
 names refused types, oversized files and excess recognized images in plain words,
-using the limits the route reports. Initial document counts and session byte
-capacity are checked after server classification, so images that will be refused
-cannot hold eligible documents. Retained-file retry keeps its existing session
-capacity holds. Files that fit are packed into requests under
+using the limits the route reports. Classifiable selections keep the specific
+session document-count and byte-capacity notices, including their figures.
+Only selections with an uncertain document/image kind defer those checks to the
+server, so a disguised image that will be refused cannot hold eligible documents.
+The client reads at most 16 signature bytes per candidate document without
+decoding or retaining its contents. Retained-file retry preserves the same
+classification and capacity checks. Files that fit are packed into requests under
 the per-request ceilings. The request size counts the multipart body byte for byte
 (clientEventId, each part's headers with the escaped UTF-8 filename and type, and
 a boundary of the 70-character maximum); a host request limit too small for any
@@ -4377,12 +4380,17 @@ the current selection also stay visible across upload acknowledgements; a later
 successful attachment clears older feedback.
 Detected images awaiting consent reuse the existing image consent action and
 retain their original files while document batches continue. Granting consent
-resumes only those images. Excess images receive the existing named image-limit
+resumes only those images. Decline and expiry ask the visitor to choose again,
+preserving earlier file notices. A newer selection invalidates an older hold's
+timer; document-only hosts keep their type refusal through consent races.
+Excess images receive the existing named image-limit
 refusal; the images that fit and eligible documents continue. Refusal lists keep
 every file, including duplicate filenames and selections exceeding eight files,
 inside the existing scroll area. Older whole-request failures name each affected
-file in a mixed selection, and later batches are still attempted; exhausted busy
-retries keep the existing retained-file controls.
+file in a mixed selection, and later batches are still attempted for batch-local
+refusals. Final ownership, missing-session and conflict failures stop that
+selection with one notice naming all unsent files; exhausted busy retries keep
+the existing retained-file controls and backoff.
 The reserved image-feedback width stays stable when consent becomes a shortcut.
 Its hidden measurement node is mounted only while image input is active, so
 hosts without image input retain the existing composer DOM and geometry.

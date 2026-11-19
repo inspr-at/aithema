@@ -33,7 +33,7 @@ import { settingsStyles } from './settings-styles.js';
 import { SettingsDialog, ICONS, PRESET_ORDER, reasonText, engineView, catalogLabel } from './settings-dialog.js';
 import { LocalConnector } from './local-connector.js';
 import { postJson, postForm, sameOrigin } from './post-json.js';
-import { UPLOAD_LIMITS, UPLOAD_ACCEPT, DOCUMENT_UPLOAD_ACCEPT, UPLOAD_ICONS, uploadLimits, uploadRetryDelay, planUploads, refusalText, uploadStateText, uploadStateTexts, uploadsPossible, formatBytes, limitsText, dropText } from './uploads.js';
+import { UPLOAD_LIMITS, UPLOAD_ACCEPT, DOCUMENT_UPLOAD_ACCEPT, UPLOAD_ICONS, uploadLimits, uploadRetryDelay, unclassifiedUploads, planUploads, refusalText, uploadStateText, uploadStateTexts, uploadsPossible, formatBytes, limitsText, dropText } from './uploads.js';
 import { voiceJournal, tabStorage, closeVoiceCall, answerVoicePings, voiceCallAbandoned } from './voice-orphan.js';
 import { node, setText, reconcile } from './dom.js';
 import { HostSurface } from './host-surface.js';
@@ -126,7 +126,7 @@ export class AithemaSession extends HTMLElement {
   #overviewStatusSize; #summaryView; #summaryExpanded = false;
   #questionCard; #disposeVersion; #footerMedia; #footerListener; #brandObserver;
   #uploadAt = new Map(); #uploading = false; #uploadNotice = ''; #reading = ''; #limits = UPLOAD_LIMITS; #limitsLoad = null; #dragDepth = 0;
-  #images; #imageLayout = false; #imageIntent = null; #imageIntentTimer; #detectedImages = new WeakSet();
+  #images; #imageLayout = false; #imageIntent = null; #imageIntentTimer; #detectedImages = new WeakSet(); #unclassifiedUploads = new WeakSet();
   #uploadController; #uploadRetryTimer = null; #retryFiles = [];
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
@@ -1974,6 +1974,7 @@ export class AithemaSession extends HTMLElement {
         Date.now() >= expiresAt) return;
       this.#consentRequestId = null;
       if (intent === 'start' && startId && this.#startIntent?.tabId === startId) this.#clearStartIntent();
+      if (intent === 'attach') this.#endImageIntent(this.#imageIntent);
     };
     // The host's consent interface lies outside this modal dialog.
     this.#dialog.close();
@@ -3571,7 +3572,7 @@ export class AithemaSession extends HTMLElement {
   #retryRefusal() {
     const refusal = this.#attachRefusal();
     if (refusal) return refusal;
-    return refusalText(this.#copy, planUploads(this.#retryFiles, { limits: this.#limits, uploads: this.#session.uploads, images: this.#imageInputEnabled(), imageFile: this.#isImageFile }), this.#session.locale);
+    return refusalText(this.#copy, planUploads(this.#retryFiles, { limits: this.#limits, uploads: this.#session.uploads, images: this.#imageInputEnabled(), imageFile: this.#isImageFile, deferSessionLimits: this.#retryFiles.some(file => this.#unclassifiedUploads.has(file) && !this.#isImageFile(file)) }), this.#session.locale);
   }
   #uploadRefusal(text) {
     if (!this.#retryFiles.length) this.#uploadNotice = text;
@@ -3595,6 +3596,7 @@ export class AithemaSession extends HTMLElement {
   }
   async #attach(files, retry = false, refusalVersion, continuation = null) {
     if (!files.length || !this.isConnected) return;
+    if (!retry && !continuation) { clearTimeout(this.#imageIntentTimer); this.#imageIntent = null; }
     const consentRevision = this.#session.consentRevision;
     // A successful receipt clears older feedback, including across consent.
     // Decoder events from this selection may already have arrived.
@@ -3629,8 +3631,12 @@ export class AithemaSession extends HTMLElement {
       if (!uploadsPossible(this.#limits)) { this.#uploadNotice = [replacement, copy.uploads.impossible].filter(Boolean).join(reasonSeparator); return; }
       const images = this.#imageInputEnabled();
       // A renamed image can look like a ninth document or consume bytes despite
-      // an image refusal. Let the server classify before holding documents.
-      const plan = planUploads(files, { limits: this.#limits, uploads: this.#session.uploads, images, imageFile: this.#isImageFile, deferSessionLimits: true });
+      // an image refusal. Defer only ambiguous kinds; plain documents retain the
+      // specific count/byte notice, including on a later retained-file retry.
+      for (const file of await unclassifiedUploads(files, this.#isImageFile)) this.#unclassifiedUploads.add(file);
+      if (!current()) return;
+      const plan = planUploads(files, { limits: this.#limits, uploads: this.#session.uploads, images, imageFile: this.#isImageFile,
+        deferSessionLimits: files.some(file => this.#unclassifiedUploads.has(file) && !this.#isImageFile(file)) });
       const imageRefusals = images ? plan.refused.filter(record => /\.(?:png|jpe?g|webp|gif|heic|heif|bmp|tiff?|avif|svg)$/iu.test(record.name)) : [];
       // Image refusals have their own dismiss/send lifetime. Keep document notices
       // out of that lifecycle, including when one selection contains both kinds.
@@ -3643,6 +3649,11 @@ export class AithemaSession extends HTMLElement {
         for (const batch of plan.batches) {
           const result = await this.#postUploads(batch, controller.signal, refusalVersion);
           if (!current()) return;
+          if (result?.final) {
+            const names = plan.batches.flat().slice(attempted).map(file => file.name).join(', ');
+            notices.push([copy.uploads.refused.replace('{list}', names), result.failure].join(reasonSeparator));
+            break;
+          }
           if (typeof result === 'string' && result) {
             // Earlier batches are already attached; keep only the refused and unattempted files.
             if (result === 'upload-rate-limit') { this.#retryFiles = plan.batches.flat().slice(attempted); break; }
@@ -3653,8 +3664,8 @@ export class AithemaSession extends HTMLElement {
             const file = batch[record.index];
             if (!file || record.kind !== 'image') continue;
             this.#detectedImages.add(file);
-            if (isConsentReason(record.reason)) consentFiles.push(file);
-            else if (!images) documentPlan.refused.push({ name: file.name, reason: 'type' });
+            if (!images) documentPlan.refused.push({ name: file.name, reason: 'type' });
+            else if (isConsentReason(record.reason)) consentFiles.push(file);
             else detectedRefusals.push({ name: file.name, reason: record.reason === 'image input not supported' ? 'model'
               : record.reason === 'limit' ? 'limit' : 'unavailable' });
           }
@@ -3685,9 +3696,16 @@ export class AithemaSession extends HTMLElement {
   }
   #isImageFile = file => isImageFile(file) || this.#detectedImages.has(file);
   #holdImageIntent(files, features, refusalVersion, continuation = null) {
-    this.#imageIntent = { files, features, continuation, id: this.#session.id, refusalVersion }; clearTimeout(this.#imageIntentTimer);
-    this.#imageIntentTimer = setTimeout(() => { this.#imageIntent = null; this.#uploadNotice = [continuation?.notice, plural(resolveCopy(this.#copy, 'uploadsReselect', undefined, this.#session.locale), files.length)].filter(Boolean).join(reasonSeparator); this.#render('composer'); }, 180000);
+    const pending = this.#imageIntent = { files, features, continuation, id: this.#session.id, refusalVersion };
+    clearTimeout(this.#imageIntentTimer);
+    this.#imageIntentTimer = setTimeout(() => this.#endImageIntent(pending), 180000);
     this.#requestConsent('use', features, 'attach');
+  }
+  #endImageIntent(pending) {
+    if (!pending || this.#imageIntent !== pending || pending.id !== this.#session.id) return;
+    clearTimeout(this.#imageIntentTimer); this.#imageIntent = null;
+    this.#uploadNotice = [pending.continuation?.notice, plural(resolveCopy(this.#copy, 'uploadsReselect', undefined, this.#session.locale), pending.files.length)].filter(Boolean).join(reasonSeparator);
+    this.#render('composer');
   }
   async #removeImage(id) {
     const sessionId = this.#session.id;
@@ -3707,7 +3725,7 @@ export class AithemaSession extends HTMLElement {
     void this.#attach(pending.files, false, pending.refusalVersion, pending.continuation);
   }
   #cancelUploads() {
-    this.#detectedImages = new WeakSet();
+    this.#detectedImages = new WeakSet(); this.#unclassifiedUploads = new WeakSet();
     clearTimeout(this.#imageIntentTimer); this.#imageIntent = null;
     if (this.#session) for (const upload of this.#session.uploads ?? []) if (stagedImage(upload) && !upload.erased) {
       void this.#api(sameOrigin(this.ownerDocument.defaultView, `${this.#base}/api/sessions/${this.#session.id}/uploads/${encodeURIComponent(upload.id)}/withdraw`), {}, { sessionToken: this.#sessionToken, keepalive: true }).catch(() => {});
@@ -3756,7 +3774,8 @@ export class AithemaSession extends HTMLElement {
       for (const event of body.events ?? []) this.receive(event);
       return { refused: Array.isArray(body.refused) ? body.refused : [] };
     }
-    if (response.status === 409 && body?.reason === 'purpose') return copy.purposePaused;
+    if ([401, 404, 409, 410].includes(response.status) || response.status === 403 && !body?.reason) return { final: true,
+      failure: response.status === 409 && body?.reason === 'purpose' ? copy.purposePaused : copy.uploads.failed };
     if (response.status === 413) return copy.uploads.overLimit;
     if (response.status === 429) return 'upload-rate-limit';
     if (response.status === 403 && typeof body?.reason === 'string') return copy.uploads.unavailable.replace('{reason}', reasonText(copy, body.reason, 'uploads'));
