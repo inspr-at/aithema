@@ -1040,8 +1040,8 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .upload-notices-body { overflow:auto; min-height:0; padding:8px 20px max(20px,env(safe-area-inset-bottom)); font-size:.875rem; line-height:1.4; }
 .upload-notices-body .upload-notice-row { padding:12px 0; border-bottom:1px solid var(--aithema-line); }
 .upload-notices-body .upload-notice-row:last-child { border-bottom:0; }
-.upload-notices-body .held-consent-wide { display:inline; }
-.upload-notices-body .held-consent-narrow { display:none; }
+.upload-notice-row .held-consent-wide { display:inline; }
+.upload-notice-row .held-consent-narrow { display:none; }
 @media(max-width:600px) {
   .upload-notices-sheet { inset:0; margin:0; width:100vw; height:100dvh; max-height:100dvh; border:0; border-radius:0; }
 }

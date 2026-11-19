@@ -525,7 +525,7 @@ export function imageInputCheck(widths) {
           for (const edge of ['x', 'y', 'w', 'h', 'bottom']) assert.equal(r[edge], before[selector][edge], `${selector}.${edge}: latched refusal has zero frame shift`);
         }
       });
-      await t.test('AIT-510 r15: long host-overridden image consent keeps its scrolling cap', async () => {
+      await t.test('AIT-510 r15: long host-overridden image consent stays complete in the notice sheet', async () => {
         await inShadow(page, async c => {
           window.imageGranted = false; window.imageFixtureConsent = true; window.imageUnavailableReason = null;
           const session = c.session;
@@ -537,16 +537,22 @@ export function imageInputCheck(widths) {
         });
         await startTyping(page); await choose();
         await waitForShadow(page, '.composer-reason[data-consent-feature="imageInput"]');
+        const before = await boxes();
+        await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-more').click());
         const cap = await inShadow(page, c => {
-          const el = c.shadowRoot.querySelector('.composer-reason'), r = el.getBoundingClientRect(), css = getComputedStyle(el);
-          el.scrollTop = el.scrollHeight;
-          return { width: r.width, height: r.height, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight, scrollTop: el.scrollTop, maxHeight: css.maxHeight, overflowY: css.overflowY };
+          const dialog = c.shadowRoot.querySelector('.upload-notices-sheet'), row = dialog.querySelector('.upload-notice-row');
+          const r = row.getBoundingClientRect();
+          return { open:dialog.open, width:r.width, height:r.height, scrollHeight:row.scrollHeight, clientHeight:row.clientHeight,
+            text:row.textContent, full:dialog.querySelector('.held-consent-wide').textContent };
         });
         if (evidence) await writeFile(join(evidence, `${prefix}-long-image-consent.json`), JSON.stringify(cap, null, 2));
+        assert.equal(cap.open, true);
         assert.ok(cap.width > 0 && cap.height > 0, 'long consent has a positive box');
-        assert.equal(cap.maxHeight, '44px', 'upload notices alone lift the cap');
-        assert.ok(cap.height <= 44.5 && cap.scrollHeight > cap.clientHeight && cap.scrollTop > 0, `long consent stays inside its scrolling cap: ${JSON.stringify(cap)}`);
-        assert.match(cap.overflowY, /^(auto|scroll)$/u);
+        assert.ok(cap.scrollHeight <= cap.clientHeight, 'the complete host sentence has no internal clipping');
+        assert.ok(cap.full.length > 1000, 'the full override is painted, without truncation');
+        assert.deepEqual(await boxes(), before, 'opening the sheet preserves composer geometry');
+        await page.keyboard.press('Escape');
+        assert.deepEqual(await boxes(), before, 'closing the sheet preserves composer geometry');
       });
 
     });

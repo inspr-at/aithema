@@ -40,7 +40,7 @@ export class UploadNotices {
   /** Restore the painter's original tree before it updates any state or action. */
   prepare() {
     const active = this.#form.getRootNode().activeElement;
-    this.#focused = active && this.#reason.contains(active) ? active : null;
+    this.#focused = active && (this.#reason.contains(active) || this.#dialog.contains(active)) ? active : null;
     for (const { element, marker } of this.#placements) marker.replaceWith(element);
     this.#placements = [];
     for (const [element, hidden] of this.#sources) element.hidden = hidden;
@@ -94,12 +94,14 @@ export class UploadNotices {
     setText(this.#title, this.#text('noticesTitle')); setText(this.#close, this.#text('closeNotices'));
     this.fit();
     if (this.#dialog.open) this.#showRows();
-    if (this.#focused && (!this.#focused.isConnected || this.#focused.closest('[hidden]'))) {
-      (this.#more.isConnected ? this.#more : this.#form.querySelector('textarea')).focus({ preventScroll: true });
+    if (this.#focused && this.#form.getRootNode().activeElement !== this.#focused) {
+      const retained = this.#focused.isConnected && !this.#focused.closest('[hidden]') && (!this.#dialog.open || this.#dialog.contains(this.#focused));
+      (retained ? this.#focused : this.#dialog.open ? this.#close : this.#more.isConnected ? this.#more : this.#form.querySelector('textarea')).focus({ preventScroll: true });
     }
   }
   fit() {
     if (!this.#rows.length || this.#dialog.open) return;
+    const focused = this.#form.getRootNode().activeElement;
     for (const row of this.#rows) { row.hidden = false; row.inert = false; }
     this.#more.remove();
     const available = this.#slot.clientHeight;
@@ -120,6 +122,7 @@ export class UploadNotices {
       this.#reason.append(this.#more);
     }
     this.#putRowsBack();
+    if (focused?.isConnected && !focused.closest('[hidden]')) focused.focus({ preventScroll: true });
   }
   #showRows() {
     for (const row of this.#rows) { row.hidden = false; row.inert = false; this.#body.append(row); }
