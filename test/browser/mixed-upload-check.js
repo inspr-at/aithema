@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
+import { SQLiteStorage, createUploadHandlers, readBody } from '../../packages/server/src/index.js';
 import { browserForFile } from './shared-browser.js';
 import { startDemo, stopDemo, preparePage, waitForShadow, startTyping, inShadow } from './demo-helpers.js';
 
@@ -14,12 +15,45 @@ export function mixedUploadCheck() {
     test(`AIT-559: ${width}/${locale}/${theme} mixed intake never loses documents or per-file refusals`, { timeout: 120000 }, async t => {
       const directory = await mkdtemp(join(tmpdir(), 'aithema-mixed-upload-'));
       const demo = await startDemo(directory), browser = await browserForFile(), page = await browser.newPage();
-      t.after(async () => { await browser.close(); await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); });
+      let intake;
+      const closeIntake = async () => { if (intake) { await intake.handlers.close(); intake.storage.close(); intake = null; } };
+      t.after(async () => { await closeIntake(); await browser.close(); await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); });
+      // The browser submits real multipart files through the production handler
+      // and storage. Only availability and extraction are fixture ports.
+      await page.exposeFunction('mixedConfigure', async (host, reason) => {
+        await closeIntake();
+        const storage = new SQLiteStorage(':memory:'), session = storage.create({ ownerToken: 'fixture', demo: true, locale });
+        const state = { storage, session, host, reason, granted: false };
+        state.handlers = createUploadHandlers({ storage,
+          runtime: {
+            uploadAvailability: async () => ({}),
+            imageInputAvailability: async () => ({ reason: state.granted || host.endsWith('limit') ? null : reason }),
+            extractUpload: async () => ({ status: 'accepted', text: 'Document fixture', truncated: false }),
+            normalizeImageUpload: async () => ({ status: 'staged-ready', bytes: Buffer.from('normalized fixture'), mediaType: 'image/png', w: 1, h: 1 }),
+          }, ownership: { token: () => 'fixture' }, readBody, publish() {}, onInput() {}, onWithdraw() {}, signal: new AbortController().signal,
+          limits: { maxFilesPerRequest: host === 'default-batches' ? 8 : 2, maxImagesPerSession: host.endsWith('limit') ? 1 : 8 } });
+        if (host.endsWith('limit')) storage.postUploads(session.id, 'already-sent', 'already-sent', [{ kind: 'image', filename: 'earlier.png', mediaType: 'image/png', bytes: Buffer.from('fixture'), deadlineAt: Date.now() + 25000 }], { maxImagesPerSession: 1 });
+        intake = state;
+        return storage.get(session.id);
+      });
+      await page.exposeFunction('mixedUpload', async ({ files, clientEventId }) => {
+        const form = new FormData(), before = intake.storage.get(intake.session.id).seq;
+        form.append('clientEventId', clientEventId);
+        for (const file of files) form.append('files', new File([new Uint8Array(file.bytes)], file.name, { type: file.type }));
+        const response = await intake.handlers.handle(new Request(`http://localhost/api/sessions/${intake.session.id}/uploads`, { method: 'POST', body: form }));
+        const body = await response.json();
+        await intake.handlers.idle();
+        if (response.ok) body.events = intake.storage.read(intake.session.id, before);
+        return { status: response.status, body };
+      });
+      await page.exposeFunction('mixedGrant', () => {
+        intake.granted = true;
+        return intake.storage.reviseConsent(intake.session.id, true, {}, { conversationUnchanged: true, changed: ['imageInput'] });
+      });
       await preparePage(page, [locale]); await page.setViewport({ width, height: width === 390 ? 844 : 900 });
       await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
       await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
       await startTyping(page);
-      await inShadow(page, c => { window.mixedInitial = structuredClone(c.session); });
       const evidence = process.env.AITHEMA_EVIDENCE_DIR;
       if (evidence) await mkdir(evidence, { recursive: true });
       for (const [host, reason] of [['document-only', 'image normalizer not configured'], ['default-batches', 'image normalizer not configured'], ['text-binding', 'image input not supported'],
@@ -27,24 +61,20 @@ export function mixedUploadCheck() {
         await t.test(host, async () => {
           await inShadow(page, async (c, { host, reason }) => {
             window.mixedPosts = []; window.mixedAsks = []; window.mixedGranted = false; window.mixedHost = host;
-            const session = structuredClone(window.mixedInitial); session.uploads = [];
+            const session = await window.mixedConfigure(host, reason);
             session.settings.voice = 'off'; session.settings.origin = 'chosen';
-            if (host === 'recognised-limit') session.uploads.push({ id: 'already-sent', kind: 'image', state: 'sent', filename: 'earlier.png', bytes: 8, at: new Date(0).toISOString() });
+            if (host.endsWith('limit')) session.uploads[0].state = 'sent';
             session.featureMatrix.best = Object.fromEntries(['text', 'analysis', 'uploads'].map(key => [key, { available: true }]));
             session.featureMatrix.best.imageInput = { available: host.endsWith('limit'), reason: host.endsWith('limit') ? null : reason };
             c.addEventListener('aithema-consent', event => { window.mixedAsks.push(event.detail); event.stopImmediatePropagation(); }, { capture: true, once: true });
             window.fetch = async (url, options = {}) => {
               if (String(url).endsWith('/uploads')) {
                 if (options.method !== 'POST') return Response.json({ uploads: c.session.uploads, limits: { maxFilesPerRequest: host === 'default-batches' ? 8 : 2, maxImagesPerSession: host.endsWith('limit') ? 1 : 8 } });
-                const files = options.body.getAll('files'), events = [], refused = [];
+                const files = options.body.getAll('files');
                 window.mixedPosts.push(files.map(file => file.name));
-                for (const [index, file] of files.entries()) {
-                  const image = !file.name.startsWith('eligible');
-                  if (image && !window.mixedGranted) refused.push({ index, name: file.name, kind: 'image', reason });
-                  else events.push({ sessionId: session.id, seq: c.session.seq + events.length + 1, type: 'upload.state', data: {
-                    id: `mixed-${file.name}`, filename: file.name, kind: image ? 'image' : 'document', state: image ? 'staged-pending' : 'accepted', bytes: file.size, at: new Date(0).toISOString() } });
-                }
-                return Response.json({ events, refused }, { status: 202 });
+                const result = await window.mixedUpload({ clientEventId: options.body.get('clientEventId'),
+                  files: await Promise.all(files.map(async file => ({ name: file.name, type: file.type, bytes: [...new Uint8Array(await file.arrayBuffer())] }))) });
+                return Response.json(result.body, { status: result.status });
               }
               if (/\/events(?:\?|$)/u.test(String(url))) return new Response(new ReadableStream({ start(controller) { options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
               if (String(url).endsWith('/consent')) return Response.json({ selected: window.mixedGranted ? ['image-input'] : [], features: { imageInput: ['image-input'] } });
@@ -90,7 +120,7 @@ export function mixedUploadCheck() {
             assert.deepEqual(after[selector], before[selector], `${selector}: 0 px layout shift`);
           }
           if (host === 'consent') {
-            await inShadow(page, c => { window.mixedGranted = true; c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: ['imageInput'], removed: [] } }); });
+            await inShadow(page, async c => { window.mixedGranted = true; c.receive(await window.mixedGrant()); });
             await page.waitForFunction(() => window.mixedPosts.length === 5);
             assert.deepEqual(await page.evaluate(() => window.mixedPosts.slice(3)), [['clipboard', 'typed.pdf'], ['scan.pdf']]);
           }
