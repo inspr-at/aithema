@@ -60,6 +60,7 @@ export function feedbackText(c) {
 }
 
 export async function openFeedback(page) {
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   return inShadow(page, c => {
     const root = c.shadowRoot, more = root.querySelector('.upload-notices-more');
     if (more && !root.querySelector('.upload-notices-sheet').open) { more.click(); return true; }
@@ -137,7 +138,8 @@ export function uploadFollowupCheck() {
           : scenario === 'purpose' ? copy.purposePaused.split('. ')[0] + '.' : locale === 'en' ? 'The files could not be added.' : 'Die Dateien konnten nicht übernommen werden.';
         await openFeedback(page);
         const visible = await inShadow(page, (c, important) => {
-          const reason = c.shadowRoot.querySelector('.upload-notice-facts') ?? c.shadowRoot.querySelector('.composer-reason');
+          const reason = c.shadowRoot.querySelector('.upload-notices-sheet[open] .upload-notice-facts')
+            ?? c.shadowRoot.querySelector('.composer-reason .upload-notice-facts') ?? c.shadowRoot.querySelector('.composer-reason');
           const walker = document.createTreeWalker(reason, NodeFilter.SHOW_TEXT), node = walker.nextNode();
           if (!node || !node.textContent.startsWith(important)) return { startsWith: false };
           const range = document.createRange(); range.setStart(node, 0); range.setEnd(node, important.length);

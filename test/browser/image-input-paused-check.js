@@ -75,6 +75,13 @@ export function pausedImageInputCheck() {
       const expected = `${entrance}.png: ${en.imageRefusals.paused}`;
       await page.waitForFunction(expected => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason .image-refusal')?.textContent === expected, {}, expected);
       await openFeedback(page);
+      if (process.env.AITHEMA_EVIDENCE_DIR) {
+        await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive:true });
+        const paint = await page.$eval('aithema-session', c => ({ sheet:c.shadowRoot.querySelector('.upload-notices-sheet')?.open,
+          more:c.shadowRoot.querySelector('.upload-notices-more')?.textContent,
+          refusals:[...c.shadowRoot.querySelectorAll('.image-refusal')].map(row => { const r = row.getBoundingClientRect(); return { text:row.textContent, width:r.width, height:r.height, hidden:Boolean(row.closest('[hidden]')) }; }) }));
+        await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `ait556-r3-${entrance}-paint.json`), JSON.stringify(paint,null,2));
+      }
       await page.waitForSelector('aithema-session >>> .image-refusal', { visible: true });
       const refusal = await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.image-refusal').textContent);
       assert.equal(refusal, expected);

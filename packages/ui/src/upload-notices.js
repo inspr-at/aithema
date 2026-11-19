@@ -34,7 +34,15 @@ export class UploadNotices {
       else if (!event.shiftKey && active === last) { event.preventDefault(); first.focus(); }
     });
     const Observer = form.ownerDocument.defaultView?.ResizeObserver;
-    if (Observer) { this.#observer = new Observer(() => this.fit()); this.#observer.observe(this.#slot); }
+    if (Observer) {
+      this.#observer = new Observer(() => {
+        if (!this.#copy) return;
+        // A resumed or newly revealed composer may have had no layout at paint time.
+        if (!this.#rows.length) this.update(this.#copy, this.#locale);
+        else this.fit();
+      });
+      this.#observer.observe(this.#slot);
+    }
   }
   #text(key) { return resolveCopy(this.#copy, `uploads.${key}`, undefined, this.#locale); }
   /** Restore the painter's original tree before it updates any state or action. */
@@ -116,10 +124,11 @@ export class UploadNotices {
     return this.#reason.scrollHeight <= this.#slot.clientHeight;
   }
   #retainFocus() {
-    if (!this.#focused || this.#form.getRootNode().activeElement === this.#focused) return;
-    const retained = this.#focused.isConnected && !this.#focused.closest('[hidden], [inert]')
-      && this.#focused.matches('button, a[href], input, textarea, select, [tabindex]') && (!this.#dialog.open || this.#dialog.contains(this.#focused));
-    (retained ? this.#focused : this.#dialog.open ? this.#close : this.#more.isConnected ? this.#more
+    const focused = this.#focused; this.#focused = null;
+    if (!focused || this.#form.getRootNode().activeElement === focused) return;
+    const retained = focused.isConnected && !focused.closest('[hidden], [inert]')
+      && focused.matches('button, a[href], input, textarea, select, [tabindex]') && (!this.#dialog.open || this.#dialog.contains(focused));
+    (retained ? focused : this.#dialog.open ? this.#close : this.#more.isConnected ? this.#more
       : this.#form.querySelector('textarea:not(:disabled)') ?? this.#form.querySelector('.attach')).focus({ preventScroll: true });
   }
 
