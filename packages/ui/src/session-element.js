@@ -2423,10 +2423,11 @@ export class AithemaSession extends HTMLElement {
       const footer = out.querySelector('.composer-out__none');
       footer.hidden = limit.footer === false; setText(footer, limit.footer === false ? '' : u.none);
       setText(out.querySelector('.composer-out__upgrade [data-next="give"]'), credits.give); setText(out.querySelector('.composer-out__upgrade [data-next="confirm"]'), credits.confirm);
-      let stepsReserve = out.querySelector('.composer-out__steps-reserve');
+      let stepsReserve = out.querySelector('[data-credit-steps-reserve]');
       if (kind !== 'none') {
         if (!stepsReserve) {
-          stepsReserve = node('span', 'composer-out__steps composer-out__steps-reserve');
+          stepsReserve = node('span', 'composer-out__steps');
+          stepsReserve.dataset.creditStepsReserve = ''; stepsReserve.style.visibility = 'hidden';
           stepsReserve.setAttribute('aria-hidden', 'true'); stepsReserve.inert = true;
           for (let i = 0; i < 3; i++) stepsReserve.append(node('span'));
           out.querySelector('.composer-out__steps').append(stepsReserve);

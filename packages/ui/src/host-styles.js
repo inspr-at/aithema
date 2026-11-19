@@ -200,7 +200,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .composer-out[data-host-limit] .composer-out__upgrade { padding:0; max-width:none; border-radius:0; background:none; color:var(--aithema-accent); font-size:13.5px; white-space:nowrap; text-decoration:underline; text-underline-offset:3px; text-align:start; }
 .composer-out[data-host-limit] .composer-out__export { max-width:none; color:var(--aithema-muted); }
 .composer-out__export::after { content:none; }
-.composer-out__steps-reserve { display:none; }
+[data-credit-steps-reserve] { display:none; }
 .composer-out__export svg { width:14px; height:14px; flex:none; color:var(--aithema-muted); }
 [data-used-up]:is(.qcard,.question-card) button { color:var(--aithema-muted); background:none; }
 [data-used-up]:is(.qcard,.question-card) :is(.go,.tag,.qhint) { visibility:hidden; }
@@ -423,8 +423,8 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 /* The normal credit panel retains its original measurement cells. The visible
    offer uses the quiet space above the action row; host-limit keeps its own layout. */
 .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__bar { position:relative; }
-.composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__steps-reserve { display:grid; visibility:hidden; }
-.composer-out__steps-reserve > * { grid-area:1/1; }
+.composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) [data-credit-steps-reserve] { display:grid; visibility:hidden; }
+[data-credit-steps-reserve] > * { grid-area:1/1; }
 .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__steps > [data-next] { position:absolute; inset-inline:0; bottom:52px; }
 .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__actions { position:static; }
 .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__actions::before { content:attr(data-upgrade-measure); grid-area:1/1; visibility:hidden; box-sizing:border-box; min-height:44px; padding:0 16px; font-size:14px; font-weight:600; }
@@ -442,7 +442,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
   .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__export::after { content:attr(data-short); }
 }
 @media(max-width:389px) {
-  .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__upgrade { font-size:12px; padding-inline:8px; }
+  .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__upgrade { font-size:clamp(11.5px,3.6vw,12px); padding-inline:8px; }
   .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__export { min-width:44px; justify-content:center; }
   .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__export::after { content:none; }
 }
