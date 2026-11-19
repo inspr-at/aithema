@@ -12,7 +12,7 @@ import { installConsentClock } from './consent-clock.js';
 import { scopedConsentEdges } from './scoped-consent-edges.js';
 import { closeConsentFixture } from './consent-teardown.js';
 
-export async function partialConsentFrames(t, { isCI } = {}) {
+export async function partialConsentFrames(t) {
   const startedAt = performance.now();
   const root = new URL('../../', import.meta.url).pathname, streams = new Set(), preview = previewFixture();
   let session, selected, eventChanged, mints = 0;

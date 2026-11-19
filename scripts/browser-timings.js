@@ -110,7 +110,7 @@ export function assertTimingMainHistory(comparison, run) {
   }
 }
 
-export function parseTimingArtifact(text, expectedRun) {
+export function parseTimingArtifact(text, expectedRun, ownersForSource = () => []) {
   const records = text.trim().split('\n').map(line => JSON.parse(line));
   const header = records[0], summary = records.findLast(record => record.type === 'test:summary' && !record.file);
   if (expectedRun && (header.runId !== String(expectedRun.id) || header.sha !== expectedRun.head_sha || header.attempt !== expectedRun.run_attempt)) {
@@ -121,13 +121,18 @@ export function parseTimingArtifact(text, expectedRun) {
     throw new Error('Incomplete, failed, skipped or unsupported browser timing artifact');
   }
   const files = Object.keys(header.files), tests = new Map(files.map(file => [file, []]));
-  if (!files.length || files.some(file => !/^test\/browser\/[^/]+\.test\.js$/u.test(file) || !/^[a-f\d]{64}$/u.test(header.files[file]))) {
+  if (!files.length || files.some(file => !/^test\/browser\/[\w.-]+\.test\.js$/u.test(file) || !/^[a-f\d]{64}$/u.test(header.files[file]))) {
     throw new Error('Invalid browser timing file manifest');
   }
   for (const record of records.slice(1)) {
     if (!['test:pass', 'test:fail'].includes(record.type)) continue;
     const path = record.file?.replaceAll('\\', '/');
-    const file = files.find(file => path === file || path?.endsWith(`/${file}`));
+    const direct = files.find(file => path === file || path?.endsWith(`/${file}`));
+    // A helper's source location is not its owning test file. The importer
+    // supplies evidence from the trusted commit's import graph, scoped to this
+    // batch manifest. Missing or multiple owners remain unassigned.
+    const owners = direct ? [direct] : ownersForSource(path, files);
+    const file = owners.length === 1 && files.includes(owners[0]) ? owners[0] : undefined;
     if (!file || record.type !== 'test:pass' || record.skip || record.todo) throw new Error('Unsuccessful or unassigned browser timing');
     tests.get(file).push({ name: record.name, seconds: record.seconds });
   }

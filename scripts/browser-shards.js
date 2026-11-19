@@ -29,13 +29,6 @@ export function readBrowserTestWeights(files = discoverBrowserTests(), root = re
         typeof measurement.evidence !== 'string' || !measurement.evidence.trim()) {
       throw new Error(`Invalid browser test weight: ${weightPath}; seconds must be positive finite seconds and evidence must describe the measurement`);
     }
-    // AIT-557: both split workloads need matching CI history. Keep these
-    // file-specific provisional reservations until rolling-main timings replace them.
-    if ((file === 'test/browser/clarify-now.test.js' ||
-         file === 'test/browser/clarify-now-status.test.js') && measurement.provisional === true) {
-      weights[file] = measurement.seconds;
-      continue;
-    }
     try { assertMeasuredWeight(measurement); }
     catch (error) { throw new Error(`Invalid browser test weight: ${weightPath}; ${error.message}`); }
     weights[file] = measurement.seconds;
@@ -395,9 +388,11 @@ browserTestWeights['test/browser/start-look.test.js'] = Math.max(
 // double-counts moved work now covered by the 304s status reservation. Replace
 // only that source reservation with ceil(1.25 * max(240.438867151 CI work,
 // 211.436550292 complete lane seconds)) = 301s, explicitly provisional.
-// Both provisional reservations will be replaced by measured rolling-main
-// timings in a coordinator-filed follow-up, as in AIT-477. Preserve every
-// other floor, trusted sample, thirteen shards and both planning limits.
+// AIT-558 (2026-11-19): six matching trusted post-split CI samples replace
+// both provisional reservations: 285.158s clarify-now + 321.369s status,
+// 606.527s combined per-test rolling p95. Preserve every other floor, trusted
+// sample and both planning limits. The fourteen-shard capacity decision below
+// supersedes the original thirteen-shard plan.
 
 // AIT-510 r10: complete upload-capacity file, remote 86de69650a-20594,
 // head 86de69650a, 29/29 PASS including disclosure/email/short-phone states.

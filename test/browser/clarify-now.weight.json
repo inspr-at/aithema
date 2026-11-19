@@ -1,5 +1,515 @@
 {
-  "seconds": 301,
-  "provisional": true,
-  "evidence": "AIT-557 Round 3, 2026-11-18: remaining top-level work in trusted green merge-group Linux CI run 44318024909, head e2ce9bfb62f535a974bc1ea7370e0e1d31045568, browser shard 2/13: 483.337401097s pre-split minus 242.898533946s moved = 240.438867151s. Complete evidence-enabled mbp2606 run de133c7fc3-24460, head de133c7fc38ac59d1f2346abb40e787bc6f8aaf9: 51/51 pass, complete-file total 211.436550292s. Provisional reservation = ceil(1.25 * max(240.438867151, 211.436550292)) = 301s. Replaces the pre-split 378.094s reservation and obsolete workload-hash samples; moved work is covered separately by the 304s status reservation. Both provisional reservations will be replaced by measured rolling-main timings in a coordinator-filed follow-up, as in AIT-477. Remote diagnostics stay outside trusted rolling CI samples."
+  "seconds": 285.158,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 44371370170-1, 44375931233-1, 44399683830-1, 44475421367-1, 44484221831-1, 44500373409-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "timing": {
+    "schema": 1,
+    "window": 20,
+    "workload": "2bfe416a87920785f67270717edbe37f4c468a3f92a135cf27684441124a0fbe",
+    "samples": [
+      {
+        "runId": "44371370170",
+        "attempt": 1,
+        "sha": "0ded68d8b9df9d811b617195e453d3a74172dc4d",
+        "observedAt": "2026-11-18T18:35:48.269Z",
+        "tests": [
+          {
+            "name": "AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained focus and one retry",
+            "seconds": 37.88340659
+          },
+          {
+            "name": "AIT-503 MAC-LEAD: a typed chat answer removes its open question without Clarify",
+            "seconds": 3.454988713
+          },
+          {
+            "name": "AIT-503 RC24: bounded row recovery, positive stable controls, EN/DE light/dark 390/1440",
+            "seconds": 17.509401036
+          },
+          {
+            "name": "AIT-504 RC24: constant overview slot, positive boxes and five consecutive answers without tab changes",
+            "seconds": 8.377157542
+          },
+          {
+            "name": "AIT-504 follow-up: capture every overview state for the release design check",
+            "seconds": 109.824853101
+          },
+          {
+            "name": "AIT-504 follow-up: failure and idle Retry have no dangling separator or indent",
+            "seconds": 4.307703158000001
+          },
+          {
+            "name": "AIT-504 follow-up: fixed overview slot reserves exactly three reachable lines",
+            "seconds": 2.271030103
+          },
+          {
+            "name": "AIT-504 follow-up: long host consent keeps its action visible, focusable and fully described",
+            "seconds": 1.35986318
+          },
+          {
+            "name": "AIT-504 real handler/SSE: five typed answers repaint overview and readiness on one focused page",
+            "seconds": 7.083594949
+          },
+          {
+            "name": "AIT-504 shipped overview states fit the fixed slot at 390 and 1440 without clipping",
+            "seconds": 2.322509
+          },
+          {
+            "name": "AIT-514 height-aware clamp respects the pane budget and keeps controls stable",
+            "seconds": 27.72036517
+          },
+          {
+            "name": "AIT-514 r10 first signal clears the active pane fade",
+            "seconds": 2.9369926580000003
+          },
+          {
+            "name": "AIT-514 r10 stationary heading toggle",
+            "seconds": 7.66648356
+          },
+          {
+            "name": "AIT-514 r12 long host toggle preserves the heading",
+            "seconds": 4.372952248
+          },
+          {
+            "name": "AIT-514 r12 scroll-end clamp stays stable",
+            "seconds": 5.337591373
+          },
+          {
+            "name": "AIT-514 summary measured clamp, expansion, rewrites and responsive evidence",
+            "seconds": 15.410547012
+          },
+          {
+            "name": "AIT-515 mature signals clear the active pane fade across deferred toggle visibility",
+            "seconds": 4.571416991
+          },
+          {
+            "name": "AIT-516 counted and accessible headings: 0/1/n, overrides, erased locale, EN/DE light/dark 390/1440",
+            "seconds": 6.81707755
+          },
+          {
+            "name": "gate1 L3: MAC-LEAD EN/DE copy proof sheets",
+            "seconds": 0.737605116
+          }
+        ]
+      },
+      {
+        "runId": "44375931233",
+        "attempt": 1,
+        "sha": "83a097a9b5c26de79bd6325e75fd7a4fff5b099d",
+        "observedAt": "2026-11-18T19:01:19.229Z",
+        "tests": [
+          {
+            "name": "AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained focus and one retry",
+            "seconds": 35.696301422
+          },
+          {
+            "name": "AIT-503 MAC-LEAD: a typed chat answer removes its open question without Clarify",
+            "seconds": 2.755565948
+          },
+          {
+            "name": "AIT-503 RC24: bounded row recovery, positive stable controls, EN/DE light/dark 390/1440",
+            "seconds": 16.278581956
+          },
+          {
+            "name": "AIT-504 RC24: constant overview slot, positive boxes and five consecutive answers without tab changes",
+            "seconds": 6.416278975999999
+          },
+          {
+            "name": "AIT-504 follow-up: capture every overview state for the release design check",
+            "seconds": 105.964873308
+          },
+          {
+            "name": "AIT-504 follow-up: failure and idle Retry have no dangling separator or indent",
+            "seconds": 3.931891626
+          },
+          {
+            "name": "AIT-504 follow-up: fixed overview slot reserves exactly three reachable lines",
+            "seconds": 1.988433496
+          },
+          {
+            "name": "AIT-504 follow-up: long host consent keeps its action visible, focusable and fully described",
+            "seconds": 1.216620877
+          },
+          {
+            "name": "AIT-504 real handler/SSE: five typed answers repaint overview and readiness on one focused page",
+            "seconds": 5.618939149
+          },
+          {
+            "name": "AIT-504 shipped overview states fit the fixed slot at 390 and 1440 without clipping",
+            "seconds": 2.224539131
+          },
+          {
+            "name": "AIT-514 height-aware clamp respects the pane budget and keeps controls stable",
+            "seconds": 26.751245026
+          },
+          {
+            "name": "AIT-514 r10 first signal clears the active pane fade",
+            "seconds": 2.406096555
+          },
+          {
+            "name": "AIT-514 r10 stationary heading toggle",
+            "seconds": 6.98710142
+          },
+          {
+            "name": "AIT-514 r12 long host toggle preserves the heading",
+            "seconds": 3.765769918
+          },
+          {
+            "name": "AIT-514 r12 scroll-end clamp stays stable",
+            "seconds": 5.07906019
+          },
+          {
+            "name": "AIT-514 summary measured clamp, expansion, rewrites and responsive evidence",
+            "seconds": 13.834567662
+          },
+          {
+            "name": "AIT-515 mature signals clear the active pane fade across deferred toggle visibility",
+            "seconds": 4.218866874000001
+          },
+          {
+            "name": "AIT-516 counted and accessible headings: 0/1/n, overrides, erased locale, EN/DE light/dark 390/1440",
+            "seconds": 6.174846496
+          },
+          {
+            "name": "gate1 L3: MAC-LEAD EN/DE copy proof sheets",
+            "seconds": 0.70196265
+          }
+        ]
+      },
+      {
+        "runId": "44399683830",
+        "attempt": 1,
+        "sha": "7de34739a61754a39a887663f35b3983db29ae2f",
+        "observedAt": "2026-11-18T21:16:23.190Z",
+        "tests": [
+          {
+            "name": "AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained focus and one retry",
+            "seconds": 32.566032575
+          },
+          {
+            "name": "AIT-503 MAC-LEAD: a typed chat answer removes its open question without Clarify",
+            "seconds": 2.527343421
+          },
+          {
+            "name": "AIT-503 RC24: bounded row recovery, positive stable controls, EN/DE light/dark 390/1440",
+            "seconds": 16.112210697000002
+          },
+          {
+            "name": "AIT-504 RC24: constant overview slot, positive boxes and five consecutive answers without tab changes",
+            "seconds": 6.732801208
+          },
+          {
+            "name": "AIT-504 follow-up: capture every overview state for the release design check",
+            "seconds": 105.21521049500001
+          },
+          {
+            "name": "AIT-504 follow-up: failure and idle Retry have no dangling separator or indent",
+            "seconds": 3.836002629
+          },
+          {
+            "name": "AIT-504 follow-up: fixed overview slot reserves exactly three reachable lines",
+            "seconds": 2.310985025
+          },
+          {
+            "name": "AIT-504 follow-up: long host consent keeps its action visible, focusable and fully described",
+            "seconds": 1.2481341689999998
+          },
+          {
+            "name": "AIT-504 real handler/SSE: five typed answers repaint overview and readiness on one focused page",
+            "seconds": 5.595743908999999
+          },
+          {
+            "name": "AIT-504 shipped overview states fit the fixed slot at 390 and 1440 without clipping",
+            "seconds": 2.083798675
+          },
+          {
+            "name": "AIT-514 height-aware clamp respects the pane budget and keeps controls stable",
+            "seconds": 26.476736052
+          },
+          {
+            "name": "AIT-514 r10 first signal clears the active pane fade",
+            "seconds": 2.2818142619999997
+          },
+          {
+            "name": "AIT-514 r10 stationary heading toggle",
+            "seconds": 6.696155849
+          },
+          {
+            "name": "AIT-514 r12 long host toggle preserves the heading",
+            "seconds": 3.7673855979999997
+          },
+          {
+            "name": "AIT-514 r12 scroll-end clamp stays stable",
+            "seconds": 4.950812188
+          },
+          {
+            "name": "AIT-514 summary measured clamp, expansion, rewrites and responsive evidence",
+            "seconds": 13.677556081999999
+          },
+          {
+            "name": "AIT-515 mature signals clear the active pane fade across deferred toggle visibility",
+            "seconds": 4.6784321339999995
+          },
+          {
+            "name": "AIT-516 counted and accessible headings: 0/1/n, overrides, erased locale, EN/DE light/dark 390/1440",
+            "seconds": 5.749833112
+          },
+          {
+            "name": "gate1 L3: MAC-LEAD EN/DE copy proof sheets",
+            "seconds": 0.648407992
+          }
+        ]
+      },
+      {
+        "runId": "44475421367",
+        "attempt": 1,
+        "sha": "488a7b28c323d634998ac64d4abb38a2ee829dc3",
+        "observedAt": "2026-11-19T06:53:22.012Z",
+        "tests": [
+          {
+            "name": "AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained focus and one retry",
+            "seconds": 41.723833479
+          },
+          {
+            "name": "AIT-503 MAC-LEAD: a typed chat answer removes its open question without Clarify",
+            "seconds": 3.750821461
+          },
+          {
+            "name": "AIT-503 RC24: bounded row recovery, positive stable controls, EN/DE light/dark 390/1440",
+            "seconds": 18.710593984
+          },
+          {
+            "name": "AIT-504 RC24: constant overview slot, positive boxes and five consecutive answers without tab changes",
+            "seconds": 7.950781801
+          },
+          {
+            "name": "AIT-504 follow-up: capture every overview state for the release design check",
+            "seconds": 113.102085632
+          },
+          {
+            "name": "AIT-504 follow-up: failure and idle Retry have no dangling separator or indent",
+            "seconds": 4.427560621
+          },
+          {
+            "name": "AIT-504 follow-up: fixed overview slot reserves exactly three reachable lines",
+            "seconds": 2.282467863
+          },
+          {
+            "name": "AIT-504 follow-up: long host consent keeps its action visible, focusable and fully described",
+            "seconds": 1.412997008
+          },
+          {
+            "name": "AIT-504 real handler/SSE: five typed answers repaint overview and readiness on one focused page",
+            "seconds": 7.649179241
+          },
+          {
+            "name": "AIT-504 shipped overview states fit the fixed slot at 390 and 1440 without clipping",
+            "seconds": 2.449823228
+          },
+          {
+            "name": "AIT-514 height-aware clamp respects the pane budget and keeps controls stable",
+            "seconds": 29.042955268
+          },
+          {
+            "name": "AIT-514 r10 first signal clears the active pane fade",
+            "seconds": 3.100009846
+          },
+          {
+            "name": "AIT-514 r10 stationary heading toggle",
+            "seconds": 8.397706922
+          },
+          {
+            "name": "AIT-514 r12 long host toggle preserves the heading",
+            "seconds": 4.716502693000001
+          },
+          {
+            "name": "AIT-514 r12 scroll-end clamp stays stable",
+            "seconds": 5.698904702
+          },
+          {
+            "name": "AIT-514 summary measured clamp, expansion, rewrites and responsive evidence",
+            "seconds": 16.996703347
+          },
+          {
+            "name": "AIT-515 mature signals clear the active pane fade across deferred toggle visibility",
+            "seconds": 5.068172832
+          },
+          {
+            "name": "AIT-516 counted and accessible headings: 0/1/n, overrides, erased locale, EN/DE light/dark 390/1440",
+            "seconds": 7.393193942
+          },
+          {
+            "name": "gate1 L3: MAC-LEAD EN/DE copy proof sheets",
+            "seconds": 0.828045108
+          }
+        ]
+      },
+      {
+        "runId": "44484221831",
+        "attempt": 1,
+        "sha": "cf76a680942a36ce0be68ce84e92e8df1e8fd15a",
+        "observedAt": "2026-11-19T08:02:20.786Z",
+        "tests": [
+          {
+            "name": "AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained focus and one retry",
+            "seconds": 31.569016593
+          },
+          {
+            "name": "AIT-503 MAC-LEAD: a typed chat answer removes its open question without Clarify",
+            "seconds": 2.5814354330000002
+          },
+          {
+            "name": "AIT-503 RC24: bounded row recovery, positive stable controls, EN/DE light/dark 390/1440",
+            "seconds": 14.737597968
+          },
+          {
+            "name": "AIT-504 RC24: constant overview slot, positive boxes and five consecutive answers without tab changes",
+            "seconds": 5.366828407
+          },
+          {
+            "name": "AIT-504 follow-up: capture every overview state for the release design check",
+            "seconds": 103.243297496
+          },
+          {
+            "name": "AIT-504 follow-up: failure and idle Retry have no dangling separator or indent",
+            "seconds": 3.830103687
+          },
+          {
+            "name": "AIT-504 follow-up: fixed overview slot reserves exactly three reachable lines",
+            "seconds": 1.9613288640000002
+          },
+          {
+            "name": "AIT-504 follow-up: long host consent keeps its action visible, focusable and fully described",
+            "seconds": 1.1591360560000001
+          },
+          {
+            "name": "AIT-504 real handler/SSE: five typed answers repaint overview and readiness on one focused page",
+            "seconds": 5.195604846999999
+          },
+          {
+            "name": "AIT-504 shipped overview states fit the fixed slot at 390 and 1440 without clipping",
+            "seconds": 2.084352903
+          },
+          {
+            "name": "AIT-514 height-aware clamp respects the pane budget and keeps controls stable",
+            "seconds": 24.972910893
+          },
+          {
+            "name": "AIT-514 r10 first signal clears the active pane fade",
+            "seconds": 2.246841537
+          },
+          {
+            "name": "AIT-514 r10 stationary heading toggle",
+            "seconds": 6.278897295
+          },
+          {
+            "name": "AIT-514 r12 long host toggle preserves the heading",
+            "seconds": 3.608902693
+          },
+          {
+            "name": "AIT-514 r12 scroll-end clamp stays stable",
+            "seconds": 4.731295639
+          },
+          {
+            "name": "AIT-514 summary measured clamp, expansion, rewrites and responsive evidence",
+            "seconds": 12.418271816
+          },
+          {
+            "name": "AIT-515 mature signals clear the active pane fade across deferred toggle visibility",
+            "seconds": 3.732913966
+          },
+          {
+            "name": "AIT-516 counted and accessible headings: 0/1/n, overrides, erased locale, EN/DE light/dark 390/1440",
+            "seconds": 5.516945453
+          },
+          {
+            "name": "gate1 L3: MAC-LEAD EN/DE copy proof sheets",
+            "seconds": 0.659029187
+          }
+        ]
+      },
+      {
+        "runId": "44500373409",
+        "attempt": 1,
+        "sha": "f152e427e02e5bc390b909bde2a214c43bc0a402",
+        "observedAt": "2026-11-19T09:52:39.302Z",
+        "tests": [
+          {
+            "name": "AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained focus and one retry",
+            "seconds": 39.539462056999994
+          },
+          {
+            "name": "AIT-503 MAC-LEAD: a typed chat answer removes its open question without Clarify",
+            "seconds": 3.54182259
+          },
+          {
+            "name": "AIT-503 RC24: bounded row recovery, positive stable controls, EN/DE light/dark 390/1440",
+            "seconds": 18.539396375
+          },
+          {
+            "name": "AIT-504 RC24: constant overview slot, positive boxes and five consecutive answers without tab changes",
+            "seconds": 7.604594135999999
+          },
+          {
+            "name": "AIT-504 follow-up: capture every overview state for the release design check",
+            "seconds": 112.000678312
+          },
+          {
+            "name": "AIT-504 follow-up: failure and idle Retry have no dangling separator or indent",
+            "seconds": 4.373492778
+          },
+          {
+            "name": "AIT-504 follow-up: fixed overview slot reserves exactly three reachable lines",
+            "seconds": 2.288517643
+          },
+          {
+            "name": "AIT-504 follow-up: long host consent keeps its action visible, focusable and fully described",
+            "seconds": 1.409901083
+          },
+          {
+            "name": "AIT-504 real handler/SSE: five typed answers repaint overview and readiness on one focused page",
+            "seconds": 7.419120894
+          },
+          {
+            "name": "AIT-504 shipped overview states fit the fixed slot at 390 and 1440 without clipping",
+            "seconds": 2.438285074
+          },
+          {
+            "name": "AIT-514 height-aware clamp respects the pane budget and keeps controls stable",
+            "seconds": 28.999119138999998
+          },
+          {
+            "name": "AIT-514 r10 first signal clears the active pane fade",
+            "seconds": 3.039549298
+          },
+          {
+            "name": "AIT-514 r10 stationary heading toggle",
+            "seconds": 8.349143212000001
+          },
+          {
+            "name": "AIT-514 r12 long host toggle preserves the heading",
+            "seconds": 4.417469877
+          },
+          {
+            "name": "AIT-514 r12 scroll-end clamp stays stable",
+            "seconds": 5.618938600000001
+          },
+          {
+            "name": "AIT-514 summary measured clamp, expansion, rewrites and responsive evidence",
+            "seconds": 16.143401737
+          },
+          {
+            "name": "AIT-515 mature signals clear the active pane fade across deferred toggle visibility",
+            "seconds": 4.681962049
+          },
+          {
+            "name": "AIT-516 counted and accessible headings: 0/1/n, overrides, erased locale, EN/DE light/dark 390/1440",
+            "seconds": 7.335169957
+          },
+          {
+            "name": "gate1 L3: MAC-LEAD EN/DE copy proof sheets",
+            "seconds": 0.787322547
+          }
+        ]
+      }
+    ]
+  }
 }

@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { browserWorkload } from '../scripts/browser-timings.js';
 
@@ -14,6 +15,7 @@ const run = { id: 123, event: 'merge_group', head_branch: branch, head_sha: sha,
 for (const family of ['browser', 'unit']) test(`${family} collector imports only canonical CI on main history with matching artifact provenance`, t => {
   const root = mkdtempSync(join(tmpdir(), `merge-group-${family}-`));
   t.after(() => rmSync(root, { recursive: true, force: true }));
+  symlinkSync(fileURLToPath(new URL('../node_modules', import.meta.url)), join(root, 'node_modules'), 'dir');
   for (const path of ['scripts', 'test/browser']) mkdirSync(join(root, path), { recursive: true });
   mkdirSync(join(root, 'release/lib'), { recursive: true });
   writeFileSync(join(root, 'release/lib/exec.mjs'), readFileSync(new URL('../release/lib/exec.mjs', import.meta.url)));

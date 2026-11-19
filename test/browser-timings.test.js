@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -49,6 +49,16 @@ test('updates are deterministic, idempotent and keep only the latest twenty exec
   assert.deepEqual(updateMeasurement(weight, observations, workload), weight);
   assert.throws(() => updateMeasurement(weight, [{ workload, sample: sample('2', 99) }], workload), /Conflicting/u);
   assert.throws(() => assertMeasuredWeight({ ...weight, seconds: 21 }), /differs/u);
+});
+
+test('AIT-558: browser manifests reject URL metacharacters before source attribution', () => {
+  for (const suffix of ['?ref=other', '#fragment', '&ref=other', '%3Fref=other']) {
+    const unsafe = `test/browser/example${suffix}.test.js`;
+    assert.throws(() => parseTimingArtifact(artifact({
+      0: { files: { [unsafe]: workload } }, 1: { file: unsafe },
+    }), undefined, () => assert.fail('unsafe manifests must be rejected before source attribution')),
+    /Invalid browser timing file manifest/u, unsafe);
+  }
 });
 
 test('changed workloads retire the old series; changed test coverage cannot silently shrink a sample', () => {
@@ -153,6 +163,7 @@ test('updater verifies GitHub provenance before importing and rejects local or P
   const root = mkdtempSync(join(tmpdir(), 'timing-import-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, 'scripts'));
+  symlinkSync(fileURLToPath(new URL('../node_modules', import.meta.url)), join(root, 'node_modules'), 'dir');
   mkdirSync(join(root, 'test/browser'), { recursive: true });
   mkdirSync(join(root, 'release/lib'), { recursive: true });
   writeFileSync(join(root, 'release/lib/exec.mjs'), readFileSync(new URL('../release/lib/exec.mjs', import.meta.url)));
@@ -175,12 +186,27 @@ const reply = value => process.stdout.write(JSON.stringify(value));
 if (args[0] === 'api' && args[1] === 'repos/inspr-at/aithema/actions/runs/123') reply(run);
 else if (args[0] === 'api' && args[1] === 'repos/inspr-at/aithema/compare/${sha}...main') reply(${JSON.stringify(changes.comparison ?? { status: 'ahead', merge_base_commit: { sha } })});
 else if (args[0] === 'api' && args[1] === 'repos/inspr-at/aithema/actions/runs/123/artifacts?per_page=100') reply({ artifacts });
+else if (args[0] === 'api' && args[1].startsWith('repos/inspr-at/aithema/contents/') && args[1].endsWith('?ref=${sha}')) {
+  const encodedPath = args[1].slice('repos/inspr-at/aithema/contents/'.length, -'?ref=${sha}'.length);
+  const sources = ${JSON.stringify(changes.sources ?? {})};
+  const path = Object.keys(sources).find(file => file.split('/').map(encodeURIComponent).join('/') === encodedPath);
+  if (path === undefined) throw new Error('Unexpected source path: ' + encodedPath);
+  reply({ encoding: 'base64', content: Buffer.from(sources[path]).toString('base64') });
+}
 else if (args[0] === 'run' && args[1] === 'list' && args[args.indexOf('--repo') + 1] === 'inspr-at/aithema' && args[args.indexOf('--event') + 1] === 'push' && args[args.indexOf('--branch') + 1] === 'main') reply([{ databaseId: 123 }]);
 else if (args[0] === 'run' && args[1] === 'list' && args[args.indexOf('--event') + 1] === 'merge_group') reply([]);
 else if (args[0] === 'run' && args[1] === 'download' && args[2] === '123' && args[args.indexOf('--repo') + 1] === 'inspr-at/aithema' && JSON.stringify(args.filter((arg, i) => args[i - 1] === '--name')) === JSON.stringify(artifacts.map(a => a.name))) {
   const dir = args[args.indexOf('--dir') + 1]; mkdirSync(dir, { recursive: true });
   writeFileSync(dir + '/batch.jsonl', ${JSON.stringify(changes.payload ?? payload)});
 } else throw new Error('Unexpected gh command: ' + JSON.stringify(args));
+`, { mode: 0o755 });
+    writeFileSync(join(root, 'git'), `#!${process.execPath}
+const sources = ${JSON.stringify(changes.localSources ?? null)}, args = process.argv.slice(2);
+if (!sources) process.exit(128);
+if (args.length !== 3 || args[0] !== '--no-replace-objects' || args[1] !== 'show') throw new Error('Timing sources must disable replace objects');
+const key = args[2], prefix = '${sha}:';
+if (!key.startsWith(prefix) || !(key.slice(prefix.length) in sources)) throw new Error('Unexpected local timing source');
+process.stdout.write(sources[key.slice(prefix.length)]);
 `, { mode: 0o755 });
     return spawnSync(process.execPath, ['scripts/update-browser-timings.js', ...args], {
       cwd: root, encoding: 'utf8', env: { PATH: `${root}:${process.env.PATH}` },
@@ -288,6 +314,78 @@ else if (args[0] === 'run' && args[1] === 'download' && args[2] === '123' && arg
     assert.match(rejected.stderr, /incomplete or mixed/u);
     assert.equal(readFileSync(weightPath, 'utf8'), before, 'incomplete input writes no weights');
   }
+  await t.test('AIT-558: helper-defined top-level tests belong to the exact importing file in their batch', () => {
+    const helper = 'test/browser/shared-check.js';
+    // The named import reaches a transitive side-effect import. These sources
+    // are read from the trusted run's immutable commit, never the working tree.
+    writeFileSync(join(root, file), '// current source deliberately differs');
+    const sources = {
+      [file]: "import { check } from './bridge.js'; check(); // import './fake.js';\nconst fixture = \"import './fake.js';\";",
+      'test/browser/bridge.js': "import './shared-check.js'; export const check = () => {};",
+      [helper]: "import { test } from 'node:test'; test('first', () => {});",
+    };
+    const currentWorkload = browserWorkload(file, root);
+    const result = invoke({ sources, payload: artifact({
+      0: { files: { [file]: currentWorkload } }, 1: { file: `/checkout/${helper}` },
+    }) });
+    assert.equal(result.status, 0, result.stderr);
+    const imported = JSON.parse(readFileSync(weightPath));
+    assert.deepEqual(imported.timing.samples[0].tests, [{ name: 'first', seconds: 2 }]);
+    assert.equal(imported.timing.workload, currentWorkload, 'ownership does not rewrite the reported workload hash');
+  });
+  await t.test('AIT-558: contents fallback encodes every source path segment', () => {
+    const helper = 'test/browser/shared #?&%.js';
+    const sources = {
+      [file]: "import './shared #?&%.js';",
+      [helper]: "import { test } from 'node:test'; test('first', () => {});",
+    };
+    const result = invoke({ sources, payload: artifact({
+      0: { files: { [file]: browserWorkload(file, root) } }, 1: { file: `/checkout/${helper}` },
+    }) });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(weightPath)).timing.samples[0].tests, [{ name: 'first', seconds: 2 }]);
+  });
+  await t.test('AIT-558: local trusted source reads disable replace objects', () => {
+    const helper = 'test/browser/local-check.js';
+    const result = invoke({ localSources: {
+      [file]: "import './local-check.js';",
+      [helper]: "import { test } from 'node:test'; test('first', () => {});",
+    }, payload: artifact({
+      0: { files: { [file]: browserWorkload(file, root) } }, 1: { file: `/checkout/${helper}` },
+    }) });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(weightPath)).timing.samples[0].tests, [{ name: 'first', seconds: 2 }]);
+  });
+  await t.test('AIT-558: a single-file batch cannot claim an unrelated helper by its test name', () => {
+    const before = readFileSync(weightPath, 'utf8');
+    const rejected = invoke({ sources: { [file]: '// no imports' }, payload: artifact({
+      0: { files: { [file]: browserWorkload(file, root) } },
+      1: { file: '/checkout/test/browser/unrelated-check.js' },
+    }) });
+    assert.notEqual(rejected.status, 0, rejected.stdout);
+    assert.match(rejected.stderr, /unassigned/u);
+    assert.equal(readFileSync(weightPath, 'utf8'), before);
+  });
+  await t.test('AIT-558: a helper imported by two test files in one batch remains rejected', () => {
+    const other = 'test/browser/other.test.js', helper = 'test/browser/shared-check.js';
+    const sources = { [file]: "import './shared-check.js';", [other]: "import './shared-check.js';",
+      [helper]: "import { test } from 'node:test'; test('first', () => {});" };
+    const before = readFileSync(weightPath, 'utf8');
+    writeFileSync(join(root, file), '// distinct ambiguous fixture workload');
+    const records = artifact({
+      0: { files: { [file]: browserWorkload(file, root), [other]: workload } }, 1: { file: `/checkout/${helper}` },
+      2: { counts: { failed: 0, cancelled: 0, skipped: 0, todo: 0, topLevel: 3 } },
+    }).split('\n');
+    // Each file has direct coverage too: assigning the helper arbitrarily
+    // would otherwise produce a valid sample and must be rejected here.
+    records.splice(2, 0, ...[file, other].map(file => JSON.stringify({
+      type: 'test:pass', file: `/checkout/${file}`, name: 'own test', seconds: 1,
+    })));
+    const rejected = invoke({ sources, payload: records.join('\n') });
+    assert.notEqual(rejected.status, 0, rejected.stdout);
+    assert.match(rejected.stderr, /unassigned|ambiguous/u);
+    assert.equal(readFileSync(weightPath, 'utf8'), before, 'ambiguous helper ownership writes no weights');
+  });
   const local = invoke({}, ['--artifacts', root]);
   assert.notEqual(local.status, 0);
   assert.match(local.stderr, /only verified canonical main push/u);

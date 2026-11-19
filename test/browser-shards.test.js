@@ -4,7 +4,7 @@ import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { plannedSeconds } from '../scripts/browser-timings.js';
+import { plannedSeconds, assertMeasuredWeight } from '../scripts/browser-timings.js';
 import { readBrowserTestWeights, assertBrowserShardHeadroom, assertBrowserShardBudget, assertBrowserShardCoverage, browserShardCount, browserShards, browserTestWeights, browserShardTotals, packBrowserTests, discoverBrowserTests, selectBrowserTests } from '../scripts/browser-shards.js';
 
 const measuredWeight = (seconds = 90) => {
@@ -159,6 +159,16 @@ test('LPT fixture packing is complete and independent of file and weight inserti
   assert.ok(Math.max(...packed.totals) <= total / 4 + 3 * largest / 4);
 });
 
+test('AIT-558: the shard guard test runs without npm on PATH', () => {
+  const result = spawnSync(process.execPath, ['--test', '--test-name-pattern=^the shard guard command prints',
+    'test/browser-shards.test.js'], {
+    cwd: new URL('../', import.meta.url), encoding: 'utf8',
+    env: { PATH: '' },
+  });
+  assert.match(result.stdout, /the shard guard command prints/u, result.stdout + result.stderr);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+});
+
 test('per-file weights reject stale measurements after a test is removed or renamed', t => {
   const root = mkdtempSync(join(tmpdir(), 'browser-weights-stale-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -203,7 +213,7 @@ test('weights cannot replace observations with an estimate or a manually lowered
   }
 });
 
-for (const name of ['email-unlock-reply', 'identity-unlock']) {
+for (const name of ['email-unlock-reply', 'identity-unlock', 'clarify-now', 'clarify-now-status']) {
   test(`repository weights reject an unmeasured reservation for ${name}`, () => {
     // Patch only the child process's file reads: exercise repositoryRoot without
     // changing the real measurements or their trusted CI provenance.
@@ -219,6 +229,43 @@ for (const name of ['email-unlock-reply', 'identity-unlock']) {
     `], { cwd: new URL('../', import.meta.url), encoding: 'utf8' });
     assert.equal(result.status, 1, `${name}: an unmeasured repository weight must fail`);
     assert.match(result.stderr, /Missing rolling p95 CI timing samples/u);
+  });
+}
+
+test('AIT-558: both clarify halves use measured CI observations without provisional bypasses', () => {
+  for (const name of ['clarify-now', 'clarify-now-status']) {
+    const measurement = JSON.parse(readFileSync(new URL(`../test/browser/${name}.weight.json`, import.meta.url)));
+    assertMeasuredWeight(measurement);
+    assert.equal(measurement.provisional, undefined);
+  }
+});
+
+for (const state of ['stale', 'warming']) {
+  test(`AIT-558: ${state} clarify observations remain valid after a workload edit`, () => {
+    const setup = `
+      import fs from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      import { plannedSeconds } from ${JSON.stringify(new URL('../scripts/browser-timings.js', import.meta.url).href)};
+      const read = fs.readFileSync;
+      fs.readFileSync = (path, ...args) => {
+        const bytes = read(path, ...args);
+        if (!['clarify-now', 'clarify-now-status'].some(name => String(path).endsWith('/' + name + '.weight.json'))) return bytes;
+        const measurement = JSON.parse(bytes);
+        measurement.timing.workload = 'f'.repeat(64);
+        if (${state === 'warming'}) {
+          measurement.timing.samples = measurement.timing.samples.slice(-1);
+          measurement.seconds = plannedSeconds(measurement.timing.samples);
+        }
+        return JSON.stringify(measurement);
+      };
+      syncBuiltinESMExports();
+    `;
+    const result = spawnSync(process.execPath, ['--test', '--test-name-pattern=^AIT-558: both clarify halves',
+      '--import', `data:text/javascript,${encodeURIComponent(setup)}`, 'test/browser-shards.test.js'], {
+      cwd: new URL('../', import.meta.url), encoding: 'utf8', env: {},
+    });
+    assert.match(result.stdout, /AIT-558: both clarify halves/u, result.stdout + result.stderr);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
   });
 }
 
@@ -240,11 +287,14 @@ test('AIT-557: current measured workloads fit fourteen bins without changing eit
 
 test('AIT-557: fourteen bins retain 405s headroom with AIT-506 and AIT-524 measured growth', t => {
   const files = discoverBrowserTests();
-  // AIT-524's measured reservation at 48956966; never lower an existing weight.
-  // AIT-557 preserves that reservation across the split and covers the moved CI work.
+  // Reserve the moved pre-split CI work independently of the current weight's
+  // own samples, without the provisional 25% margin retired by AIT-558.
+  assert.ok(browserTestWeights['test/browser/clarify-now-status.test.js'] >= 242.898533946,
+    'the moved status work remains reserved at the pre-split measured floor');
   assert.ok(browserTestWeights['test/browser/clarify-now.test.js']
-    + browserTestWeights['test/browser/clarify-now-status.test.js'] >= 378.094);
-  assert.ok(browserTestWeights['test/browser/clarify-now-status.test.js'] >= 242.898533946 * 1.25);
+    + browserTestWeights['test/browser/clarify-now-status.test.js']
+    >= 378.094,
+    'the halves cover the inherited combined reservation');
   const weights = { ...browserTestWeights,
     'test/browser/start-journey.test.js': browserTestWeights['test/browser/start-journey.test.js'] + 180,
   };
@@ -255,6 +305,24 @@ test('AIT-557: fourteen bins retain 405s headroom with AIT-506 and AIT-524 measu
   assertBrowserShardBudget(packing.totals);
   t.diagnostic(`Growth fourteen-bin seconds: ${packing.totals.map(total => total.toFixed(3)).join(', ')}`);
   assertBrowserShardHeadroom(packing, weights);
+});
+
+test('AIT-558: the growth guard rejects measured status work below the independent moved-work floor', () => {
+  const setup = `
+    import fs from 'node:fs';
+    import { syncBuiltinESMExports } from 'node:module';
+    const read = fs.readFileSync;
+    fs.readFileSync = (path, ...args) => String(path).endsWith('/clarify-now-status.weight.json')
+      ? JSON.stringify(${JSON.stringify(measuredWeight(190))}) : read(path, ...args);
+    syncBuiltinESMExports();
+  `;
+  const result = spawnSync(process.execPath, ['--test', '--test-name-pattern=^AIT-557: fourteen bins retain',
+    '--import', `data:text/javascript,${encodeURIComponent(setup)}`, 'test/browser-shards.test.js'], {
+    cwd: new URL('../', import.meta.url), encoding: 'utf8', env: {},
+  });
+  assert.match(result.stdout, /AIT-557: fourteen bins retain/u, result.stdout + result.stderr);
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stdout, /the moved status work remains reserved/u);
 });
 
 test('headroom guard accepts 405s and reports overloaded totals and files below the hard ceiling', () => {
