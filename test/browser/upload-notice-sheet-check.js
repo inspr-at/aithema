@@ -245,6 +245,17 @@ export function uploadNoticeSheetCheck() {
           if (result.rows.length === 0) assert.equal(result.text.trim(), `${locale === 'de' ? 'Hochladen nicht möglich' : "Can't upload"}${reasonSeparator}Details`);
           else assert.match(result.control.text, locale === 'de' ? /\d+ weitere Meldung/u : /Show \d+ more notice/u);
         });
+        if (scenario === 'summary' && width === 390 && locale === 'de') await scene.test('r4 narrow German summary stays inside its cell', async () => {
+          await page.setViewport({ width:320, height:844, hasTouch:true }); await settle();
+          const narrow = await inShadow(page, c => {
+            const slot = c.shadowRoot.querySelector('.composer-feedback'), more = slot.querySelector('.upload-notices-more');
+            const s = slot.getBoundingClientRect(), m = more.getBoundingClientRect(), range = document.createRange(); range.selectNodeContents(more);
+            return { slot:{ x:s.x,y:s.y,width:s.width,height:s.height }, control:{ x:m.x,y:m.y,width:m.width,height:m.height }, ink:[...range.getClientRects()].map(r => ({ left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height })) };
+          });
+          await page.setViewport({ width,height:844,hasTouch:true }); await settle();
+          assert.ok(narrow.slot.width > 0 && narrow.slot.height > 0 && narrow.control.width >= 44 && narrow.control.height >= 44);
+          assert.ok(narrow.ink.every(r => r.width > 0 && r.height > 0 && r.left >= narrow.slot.x-.5 && r.right <= narrow.slot.x+narrow.slot.width+.5 && r.bottom <= narrow.slot.y+narrow.slot.height+.5), JSON.stringify(narrow));
+        });
         if (!result.control) return;
         await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-more').click()); await settle();
         const opened = await inShadow(page, c => {
