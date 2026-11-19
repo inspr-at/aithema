@@ -181,7 +181,10 @@ export class UploadNotices {
   #layoutActions(row) {
     for (const source of row.querySelectorAll('[data-notice-action]')) {
       source.removeAttribute('data-action-wrap');
-      source.toggleAttribute('data-action-wrap', source.scrollWidth > row.clientWidth + .5);
+      const join = source.querySelector(':scope > .upload-notice-join'); setText(join, reasonSeparator);
+      const wrapped = source.scrollWidth > row.clientWidth + .5;
+      source.toggleAttribute('data-action-wrap', wrapped);
+      if (wrapped) setText(join, '');
     }
   }
   #setMore(count, summary = false) {
@@ -223,7 +226,9 @@ export class UploadNotices {
         this.#setMore(this.#rows.length - count); last.append(this.#more);
         // Measure the join with the control; both keep a 44px row-height target.
         last.setAttribute('data-more-inline', '');
-        if (last.scrollWidth > last.clientWidth + .5) last.removeAttribute('data-more-inline');
+        if (last.scrollWidth > last.clientWidth + .5) {
+          last.removeAttribute('data-more-inline'); setText(this.#more.querySelector('.upload-notices-more-join'), '');
+        }
         if (this.#fits(bounds)) { this.#visible = count; break; }
       }
       if (!this.#visible) {
