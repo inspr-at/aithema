@@ -692,3 +692,38 @@ test('AIT-543: identity-only offer sent and failure matrix, EN/DE light/dark 390
     assert.equal(await page.evaluate(() => window.ait164.visitorReads), 0, 'explicit capability also avoids the unavailable read');
   });
 });
+
+
+test('AIT-568: reconfigure during an identity read never probes the replacement no-store host', { timeout: 60_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-late-identity-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
+  const browser = await browserForFile(), page = await browser.newPage();
+  t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
+  await page.evaluateOnNewDocument(() => {
+    const fetch = window.fetch.bind(window);
+    window.fetch = async (url, init) => {
+      const response = await fetch(url, init);
+      if (new URL(url, location.href).pathname.endsWith('/identity')) {
+        window.ait568IdentityCaller = new Error('initial host identity read').stack;
+        await new Promise(resolve => { window.ait568ReleaseIdentity = resolve; });
+        window.ait568Released = true;
+      }
+      return response;
+    };
+  });
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session && window.ait568ReleaseIdentity);
+  await fixture(page, 'en', { visitorStore: false, delivery: true, emailOffer: { afterMessages: 1 }, initialMessages: 0 });
+  await page.evaluate(() => { window.ait164.trigger = 'release identity after configure destroyed the initial host'; window.ait568ReleaseIdentity(); });
+  await until(page, () => window.ait568Released); await settle(page);
+  const evidence = await page.evaluate(() => ({ identityCaller: window.ait568IdentityCaller, visitorReadCalls: window.ait164.visitorReadCalls }));
+  t.diagnostic(JSON.stringify(evidence));
+  if (process.env.AITHEMA_EVIDENCE_DIR) {
+    await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+    await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'ait-568-callers.json'), JSON.stringify(evidence, null, 2));
+  }
+  assert.equal(await page.evaluate(() => window.ait164.visitorReads), 0, 'a replaced host must not read visitor email after its delayed identity response');
+  await page.evaluate(() => window.ait164.reply());
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-offer'));
+  assert.equal(await page.evaluate(() => window.ait164.visitorReads), 0, 'the explicit no-store capability survives offer repaint');
+});

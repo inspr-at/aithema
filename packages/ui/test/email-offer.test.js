@@ -355,3 +355,27 @@ test('AIT-541 r2: service refusal warns without marking a valid address invalid'
   assert.equal(row.querySelector('input').getAttribute('aria-invalid'), 'false');
   assert.equal(row.querySelector('.email-offer__message-text').textContent, en.hostSurface.email.failed);
 });
+
+
+for (const outcome of ['identity', 'unavailable', 'rejected']) test(`AIT-568: destroyed verification stops a delayed ${outcome} load before visitor reads`, async t => {
+  const window = new Window({ url: 'http://local/' }); globalThis.document = window.document;
+  const host = window.document.createElement('div'); window.document.body.append(host);
+  const root = host.attachShadow({ mode: 'open' });
+  const entry = window.document.createElement('section'), lock = window.document.createElement('section'), dialog = window.document.createElement('dialog');
+  root.append(entry, lock, dialog);
+  let release, reject;
+  const identity = new Promise((resolve, fail) => { release = resolve; reject = fail; });
+  const calls = [];
+  const verification = new Verification({ root, entry, lock, dialog, copy: en, demo: true,
+    request: async path => { calls.push(path); return path === 'identity' ? identity : { ok: false, status: 404 }; } });
+  t.after(async () => { verification.destroy(); delete globalThis.document; await window.happyDOM.close(); });
+  const loading = verification.load();
+  assert.deepEqual(calls, ['identity'], 'the old host has an identity read in flight');
+  verification.destroy();
+  if (outcome === 'rejected') reject(new Error('fixture identity read failed'));
+  else release(outcome === 'identity' ? { ok: true, body: { identity: { status: 'guest' } } } : { ok: false, status: 404 });
+  await loading;
+  assert.deepEqual(calls, ['identity'], 'a replaced host cannot issue an unavailable visitor read');
+  await verification.load();
+  assert.deepEqual(calls, ['identity'], 'a destroyed verifier cannot start another load');
+});
