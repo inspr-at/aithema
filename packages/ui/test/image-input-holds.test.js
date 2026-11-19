@@ -162,7 +162,7 @@ for (const copy of [en, de]) test(`AIT-563 Low 1 retry expiry: ${copy.display.lo
   for (let n = 0; n < 100 && !f.root.querySelector('.upload-retry'); n++) await new Promise(resolve => setTimeout(resolve, 0));
   assert.ok(f.root.querySelector('.held-upload-consent'));
   timers.at(-1)();
-  assert.equal(f.root.querySelector('.held-upload-consent'), null, 'expired files no longer offer a consent action');
+  assert.equal(f.root.querySelector('.held-upload-consent') === null, true, 'expired files no longer offer a consent action');
   assert.ok(f.root.querySelector('.upload-retry'));
   assert.ok(f.root.querySelector('.upload-discard'));
   assert.ok(f.root.querySelector('.composer-reason').textContent.includes(copy.uploadsReselect.one));
@@ -177,7 +177,7 @@ test('AIT-563 Low 1 retry expiry: discarding newer retained documents keeps the 
   for (let n = 0; n < 100 && !f.root.querySelector('.upload-retry'); n++) await new Promise(resolve => setTimeout(resolve, 0));
   assert.ok(f.root.querySelector('.upload-discard'));
   f.root.querySelector('.upload-discard').click();
-  assert.equal(f.root.querySelector('.upload-retry'), null);
+  assert.equal(f.root.querySelector('.upload-retry') === null, true);
   assert.equal(f.root.querySelector('.held-upload-consent .consent-action')?.textContent, en.featureConsent.action);
   assert.ok(f.root.querySelector('.held-upload-consent').textContent.includes('scan.pdf'));
   f.grantImages();
