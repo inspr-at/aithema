@@ -133,8 +133,8 @@ test('invalid weights and shard counts fail before packing', () => {
 });
 
 
-test('the shard guard command prints projected totals for every shard', t => {
-  const result = spawnSync('npm', ['run', 'test:browser-shards'], {
+test('the shard guard command prints projected totals for every shard', () => {
+  const result = spawnSync(process.execPath, ['scripts/browser-shards.js'], {
     cwd: new URL('../', import.meta.url), encoding: 'utf8',
   });
   assert.equal(result.status, 0, result.stderr);
@@ -142,7 +142,6 @@ test('the shard guard command prints projected totals for every shard', t => {
     assert.ok(result.stdout.includes(`Browser shard ${index + 1}/${browserShardCount}: projected file work ${total.toFixed(3)}s`));
   });
   assert.ok(result.stdout.includes(`${discoverBrowserTests().length} files, exactly once across ${browserShardCount} shards.`));
-  t.diagnostic(result.stdout.trim());
 });
 
 test('LPT fixture packing is complete and independent of file and weight insertion order', () => {
