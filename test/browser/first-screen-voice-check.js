@@ -23,9 +23,9 @@ async function harness(t) {
   return { page, server };
 }
 async function open(page, server, variant, entrance = 'combined') {
-  await page.setViewport({ width: variant.width, height: 1000 });
+  await page.setViewport({ width: variant.width, height: variant.height ?? 1000 });
   await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: variant.theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
-  await page.goto(`${server.url}/first-screen-fixture?locale=${variant.locale}&entrance=${entrance}`);
+  await page.goto(`${server.url}/first-screen-fixture?locale=${variant.locale}&entrance=${entrance}${variant.opener ? '&opener' : ''}`);
   await page.waitForFunction(() => globalThis.ready);
   await page.evaluate(theme => { c.setAttribute('theme', theme); c.style.setProperty('--aithema-height', '100dvh'); }, variant.theme);
 }
@@ -139,5 +139,109 @@ test('AIT-553 item 3: used-up upgrade copy has an exposed export link; the host 
     assert.equal(record.visible, true, 'used-up upgrade exposes the existing export control');
     assert.equal(record.hidden, 'false'); assert.equal(record.inert, false); assert.equal(record.focused, true);
     assert.match(record.href, /\/api\/sessions\/[^/]+\/export$/);
+  }
+});
+
+
+async function entranceGeometry(page) {
+  await observe(page);
+  return page.evaluate(() => {
+    const root = c.shadowRoot, box = n => { const r = n.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; };
+    const intro = root.querySelector('.intro'), card = root.querySelector('.ready'), scroller = root.querySelector('.conversation-scroll');
+    const opener = root.querySelector('[data-host-opener]'), text = opener.querySelector('.turn-text');
+    const range = document.createRange(); range.selectNodeContents(text);
+    const lines = [...range.getClientRects()].filter(r => r.width > 0 && r.height > 0);
+    const last = lines.at(-1);
+    return { boxes: { intro: box(intro), card: box(card), scroller: box(scroller), opener: box(opener), text: box(text),
+      lastLine: [last.x, last.y, last.width, last.height], composer: box(root.querySelector('.composer')) },
+      tracks: getComputedStyle(intro).gridTemplateRows, columns: getComputedStyle(intro).gridTemplateColumns,
+      padding: parseFloat(getComputedStyle(opener).paddingBottom), border: parseFloat(getComputedStyle(opener).borderBottomWidth),
+      scrollHeight: scroller.scrollHeight, clientHeight: scroller.clientHeight, overflow: getComputedStyle(scroller).overflowY };
+  });
+}
+
+const desktops = [
+  { width: 1366, height: 768, locale: 'en', theme: 'light', opener: true },
+  { width: 1440, height: 900, locale: 'en', theme: 'light', opener: true },
+  { width: 1280, height: 720, locale: 'en', theme: 'light', opener: true },
+  { width: 1366, height: 768, locale: 'de', theme: 'dark', opener: true },
+  { width: 1440, height: 900, locale: 'de', theme: 'dark', opener: true },
+  { width: 1280, height: 720, locale: 'de', theme: 'dark', opener: true }
+];
+async function openIntro(page, server, variant) {
+  await open(page, server, variant);
+  await page.evaluate(() => {
+    const session = structuredClone(c.session);
+    session.opener.text = session.locale === 'de'
+      ? 'Willkommen. Ihre KI-Assistenz ist für Sie bereit. Erzählen Sie uns von Ihrer Idee und Ihren Anforderungen. Gemeinsam können wir die Ziele, die verfügbaren Ressourcen und die nächsten Schritte besprechen. Sie können Ihre Fragen eingeben oder das Mikrofon verwenden, um das Gespräch zu beginnen.'
+      : 'Welcome. Your AI assistant is ready to help. Tell us about your idea and requirements. Together we can discuss your goals, available resources and next steps. You can type your questions or use the microphone to begin the conversation. Take your time and share whatever matters most to you.';
+    c.configure({ session });
+  });
+}
+
+test('AIT-553 item 4: combined readiness owns a readable grid track inside the scroll area above the pinned composer', { timeout: 120_000 }, async t => {
+  const { page, server } = await harness(t), records = [];
+  for (const variant of desktops) {
+    await openIntro(page, server, variant);
+    const initial = await entranceGeometry(page), pinned = (await observe(page)).geometry;
+    if (variant.locale === 'en' && variant.width !== 1280) await retain(page, `${variant.width}-${variant.height}-desktop-intro`, initial);
+    await page.evaluate(() => { const s = c.shadowRoot.querySelector('.conversation-scroll'); s.scrollTop = s.scrollHeight; });
+    const end = await entranceGeometry(page);
+    records.push({ variant, initial, end, pinned, after: (await observe(page)).geometry });
+  }
+  for (const { variant, initial, end, pinned, after } of records) {
+    const label = `${variant.width}/${variant.locale}: ${JSON.stringify({initial,end})}`;
+    positive(initial.boxes); positive(end.boxes); positive(pinned); positive(after);
+    assert.deepEqual(after, pinned, 'scrolling readiness does not move composer controls');
+    assert.ok(initial.tracks.split(' ').every(track => parseFloat(track) > 0), `intro track stays positive: ${label}`);
+    assert.ok(initial.boxes.card[2] >= 320, `readable card width: ${label}`);
+    assert.ok(end.boxes.card[1] + end.boxes.card[3] <= end.boxes.composer[1] - 8, `card clears composer by 8 px: ${label}`);
+    assert.ok(end.boxes.scroller[1] + end.boxes.scroller[3] <= end.boxes.composer[1] - 8, `scroll surface clears composer: ${label}`);
+    assert.ok(['auto','scroll'].includes(end.overflow));
+  }
+});
+
+test('AIT-553 item 5: desktop render-only opener ends at the last text line plus normal padding', { timeout: 120_000 }, async t => {
+  const { page, server } = await harness(t), records = [];
+  for (const variant of desktops.filter(v => v.width === 1440)) {
+    await openIntro(page, server, variant);
+    const record = await entranceGeometry(page);
+    await retain(page, `1440-${variant.locale}-opener`, record); records.push(record);
+  }
+  for (const record of records) {
+    positive(record.boxes);
+    const { opener, lastLine } = record.boxes;
+    const whitespace = opener[1] + opener[3] - lastLine[1] - lastLine[3];
+    assert.ok(whitespace <= record.padding + record.border + 8, `opener has only normal padding after text: ${JSON.stringify(record)}`);
+  }
+});
+
+test('AIT-553 item 6: phone used-up confirmation stacks a one-line 44 px action below its text without moving the dock', { timeout: 120_000 }, async t => {
+  const { page, server } = await harness(t), records = [];
+  for (const locale of ['en','de']) {
+    await open(page, server, { width: 390, height: 844, locale, theme: locale === 'de' ? 'dark' : 'light' });
+    await creditFixture(page, locale, { address: 'visitor@example.test', delivery: true, spent: 0 });
+    const before = (await observe(page)).geometry;
+    await page.evaluate(() => { a2.spent = 18_000_000; c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } }); });
+    await page.waitForFunction(() => c.shadowRoot.querySelector('.composer-shell').hasAttribute('data-used-up'));
+    await observe(page);
+    const record = await page.evaluate(() => {
+      const root = c.shadowRoot, box = n => { const b = n.getBoundingClientRect(); return [b.x,b.y,b.width,b.height]; };
+      const out = root.querySelector('.composer-out'), text = out.querySelector('.composer-out__steps [data-next="confirm"]'), button = out.querySelector('.composer-out__upgrade'), label = button.querySelector('[data-next="confirm"]');
+      const range = document.createRange(); range.selectNodeContents(label);
+      const lines = [...range.getClientRects()].filter(b => b.width > 0 && b.height > 0);
+      return { next: out.dataset.next, boxes: { text: box(text), button: box(button), label: box(label) },
+        lines: [...new Set(lines.map(b => b.y))].length, label: label.textContent, visible: button.checkVisibility({ checkVisibilityCSS: true }) };
+    });
+    await retain(page, `390-${locale}-used-up-confirm`, record);
+    records.push({ before, after: (await observe(page)).geometry, record });
+  }
+  for (const { before, after, record } of records) {
+    positive(before); positive(after); positive(record.boxes);
+    assert.deepEqual(after, before, 'used-up confirmation leaves composer, mic and Send pinned');
+    assert.equal(record.next, 'confirm'); assert.equal(record.visible, true);
+    assert.ok(record.boxes.button[1] >= record.boxes.text[1] + record.boxes.text[3], `button below text: ${JSON.stringify(record)}`);
+    assert.equal(record.lines, 1, 'full confirmation label stays on one line');
+    assert.ok(record.boxes.button[3] >= 44);
   }
 });
