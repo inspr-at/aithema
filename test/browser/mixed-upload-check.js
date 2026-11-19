@@ -31,7 +31,7 @@ export function mixedUploadCheck() {
             extractUpload: async () => ({ status: 'accepted', text: 'Document fixture', truncated: false }),
             normalizeImageUpload: async () => ({ status: 'staged-ready', bytes: Buffer.from('normalized fixture'), mediaType: 'image/png', w: 1, h: 1 }),
           }, ownership: { token: () => 'fixture' }, readBody, publish() {}, onInput() {}, onWithdraw() {}, signal: new AbortController().signal,
-          limits: { maxFilesPerRequest: host === 'default-batches' ? 8 : 2, maxImagesPerSession: host.endsWith('limit') ? 1 : 8 } });
+          limits: { maxFilesPerRequest: host === 'default-batches' ? 8 : 2, maxImagesPerSession: host.endsWith('limit') ? 1 : 8, ...(host.endsWith('limit') ? { maxSessionBytes: 43 } : {}) } });
         if (host.endsWith('limit')) storage.postUploads(session.id, 'already-sent', 'already-sent', [{ kind: 'image', filename: 'earlier.png', mediaType: 'image/png', bytes: Buffer.from('fixture'), deadlineAt: Date.now() + 25000 }], { maxImagesPerSession: 1 });
         intake = state;
         return storage.get(session.id);
@@ -75,7 +75,7 @@ export function mixedUploadCheck() {
             c.addEventListener('aithema-consent', event => { window.mixedAsks.push(event.detail); event.stopImmediatePropagation(); }, { capture: true, once: true });
             window.fetch = async (url, options = {}) => {
               if (String(url).endsWith('/uploads')) {
-                if (options.method !== 'POST') return Response.json({ uploads: c.session.uploads, limits: { maxFilesPerRequest: host === 'default-batches' ? 8 : 2, maxImagesPerSession: host.endsWith('limit') ? 1 : 8 } });
+                if (options.method !== 'POST') return Response.json({ uploads: c.session.uploads, limits: { maxFilesPerRequest: host === 'default-batches' ? 8 : 2, maxImagesPerSession: host.endsWith('limit') ? 1 : 8, ...(host.endsWith('limit') ? { maxSessionBytes: 43 } : {}) } });
                 const files = options.body.getAll('files');
                 window.mixedPosts.push(files.map(file => file.name));
                 const result = await window.mixedUpload({ clientEventId: options.body.get('clientEventId'),

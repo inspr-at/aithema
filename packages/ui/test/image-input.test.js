@@ -426,3 +426,20 @@ for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} duplicate fil
   await choose(f.root, [1, 2].map(() => new window.File(['fixture'], 'same.heic', { type: 'image/heic' })));
   assert.deepEqual([...f.root.querySelectorAll('.image-refusal')].map(row => row.textContent), [1, 2].map(() => `same.heic: ${copy.imageRefusals.unsupported}`));
 });
+
+for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} bytes of an excess detected image cannot hold an otherwise fitting document`, async t => {
+  const session = createSession({ demo: true, locale: copy.display.locale });
+  session.uploads = [{ id: 'earlier', kind: 'image', state: 'sent', filename: 'earlier.png', bytes: 1, at: new Date(0).toISOString() }];
+  const f = fixture(t, copy, true, { session }), originalFetch = globalThis.fetch;
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    if (url.endsWith('/uploads') && options.method !== 'POST') return Response.json({ limits: { maxImagesPerSession: 1, maxSessionBytes: 2 } });
+    if (url.endsWith('/uploads') && options.method === 'POST') return Response.json({
+      refused: [{ index: 0, name: 'scan.pdf', kind: 'image', reason: 'limit' }],
+      events: [{ sessionId: session.id, seq: f.c.session.seq + 1, type: 'upload.state', data: { id: 'eligible', filename: 'eligible.pdf', state: 'accepted', bytes: 1, at: new Date(0).toISOString() } }],
+    }, { status: 202 });
+    return originalFetch(url, options);
+  });
+  await choose(f.root, [new window.File(['large rejected image'], 'scan.pdf'), new window.File(['x'], 'eligible.pdf')]);
+  assert.deepEqual(f.c.session.uploads.map(upload => upload.filename), ['earlier.png', 'eligible.pdf']);
+  assert.equal(f.root.querySelector('.image-refusal').textContent, `scan.pdf: ${copy.imageRefusals.limit}`);
+});
