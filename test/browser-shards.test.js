@@ -234,6 +234,34 @@ test('AIT-558: both clarify halves use mature CI samples for their current workl
   }
 });
 
+for (const state of ['stale', 'warming']) {
+  test(`AIT-558: ${state} clarify observations remain valid after a workload edit`, () => {
+    const setup = `
+      import fs from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      import { plannedSeconds } from './scripts/browser-timings.js';
+      const read = fs.readFileSync;
+      fs.readFileSync = (path, ...args) => {
+        const bytes = read(path, ...args);
+        if (!/\/clarify-now(?:-status)?\\.weight\\.json$/.test(String(path))) return bytes;
+        const measurement = JSON.parse(bytes);
+        measurement.timing.workload = 'f'.repeat(64);
+        if (${state === 'warming'}) {
+          measurement.timing.samples = measurement.timing.samples.slice(-1);
+          measurement.seconds = plannedSeconds(measurement.timing.samples);
+        }
+        return JSON.stringify(measurement);
+      };
+      syncBuiltinESMExports();
+    `;
+    const result = spawnSync(process.execPath, ['--test', '--test-name-pattern=^AIT-558: both clarify halves',
+      '--import', `data:text/javascript,${encodeURIComponent(setup)}`, 'test/browser-shards.test.js'], {
+      cwd: new URL('../', import.meta.url), encoding: 'utf8',
+    });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+  });
+}
+
 test('current measured packing keeps every shard at or below the 405s headroom target', () => {
   assertBrowserShardHeadroom();
 });
