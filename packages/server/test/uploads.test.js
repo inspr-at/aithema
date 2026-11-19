@@ -761,7 +761,9 @@ for (const [host, reason] of [
 });
 
 test('AIT-559: an entirely refused image request has a replayable per-file receipt without staging bytes', async t => {
-  const f = setup(t), files = [['scan.pdf', Buffer.from([255, 216, 255, 224, 0, 0]), 'application/pdf']];
+  const presets = mockPresets(), f = setup(t, { presets }), files = [['scan.pdf', Buffer.from([255, 216, 255, 224, 0, 0]), 'application/pdf']];
+  delete presets.best.imageInput;
+  assert.equal((await f.runtime.imageInputAvailability(f.storage.get(f.session.id))).reason, 'image normalizer not configured');
   for (const status of [202, 200]) {
     const response = await f.handlers.handle(uploadRequest(f.session.id, 'only-refused', files));
     assert.equal(response.status, status);
