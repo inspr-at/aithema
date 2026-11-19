@@ -3659,7 +3659,9 @@ export class AithemaSession extends HTMLElement {
             const names = plan.batches.flat().slice(attempted).map(file => file.name).join(', ');
             const failure = result.failure === copy.uploads.failed && plan.batches.flat().length - attempted > 1
               ? resolveCopy(copy, 'uploads.failedMany', 'uploads.failed', this.#session.locale) : result.failure;
-            notices.push([failure, copy.uploads.refused.replace('{list}', names)].join(reasonSeparator));
+            // The terminal reason leads even when this pick also replaces retained files
+            // or has independent type refusals. Keep those facts below it.
+            notices.unshift([failure, copy.uploads.refused.replace('{list}', names)].join(reasonSeparator));
             break;
           }
           if (typeof result === 'string' && result) {
