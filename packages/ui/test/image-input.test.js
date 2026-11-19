@@ -549,7 +549,7 @@ for (const copy of [en, de]) for (const action of ['decline', 'expiry', 'new-sel
     else await choose(f.root, [new window.File(['x'], 'newer.exe')]);
     const expected = action === 'new-selection'
       ? copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'newer.exe')) + ' ' + copy.uploadsSupported
-      : copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'blocked.exe')) + reasonSeparator + copy.uploadsReselect.one;
+      : copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'blocked.exe')) + ' ' + copy.uploadsSupported + reasonSeparator + copy.uploadsReselect.one;
     assert.equal(f.root.querySelector('.composer-reason').textContent, expected);
     timers[0]();
     assert.equal(f.root.querySelector('.composer-reason').textContent, expected, 'even an already queued callback cannot overwrite current feedback');
