@@ -427,8 +427,13 @@ export function heldRegressionCheck() {
             const reference = idleGeometry.boxes[`${scenario.slice(5)}-${width}-${locale}`];
             for (const [selector, expectedBox] of Object.entries(reference)) {
               assert.ok(expectedBox.width > 0 && expectedBox.height > 0, `${selector}: positive main reference`);
-              for (const [axis, expectedValue] of Object.entries(expectedBox))
-                assert.ok(Math.abs(before[selector][axis] - expectedValue) <= .5, `${selector}.${axis}: idle matches main within 0.5 px (${before[selector][axis]} vs ${expectedValue})`);
+              for (const [axis, mainValue] of Object.entries(expectedBox)) {
+                // The hidden document feedback fills the existing row so later
+                // copy stays readable. Main's height and all control rects bind.
+                const expectedValue = scenario === 'idle-document' && selector === '.composer-feedback' && axis === 'width'
+                  ? reference['.send'].x - expectedBox.x - 8 : mainValue;
+                assert.ok(Math.abs(before[selector][axis] - expectedValue) <= .5, `${selector}.${axis}: idle target within 0.5 px (${before[selector][axis]} vs ${expectedValue})`);
+              }
             }
           }
           return;
