@@ -72,12 +72,9 @@ export async function scopedConsentEdges({ t, a, session, setSession, setSelecte
     setSelected(kind === 'html' ? ['models', 'images'] : ['models', 'drafts']);
     session().featureMatrix.best[kind === 'html' ? 'html' : 'images'] = { available: false, reason: 'current processing consent required' };
     a.holdSnapshot = true; a.heldSnapshots = [];
-    const immediate = await a.evaluate(({ e, kind, width }) => {
+    const immediate = await a.evaluate(({ e, kind }) => {
       const start = performance.now();
-      // RED PROOF: defer the event across each forbidden scheduling boundary.
-      if (kind === 'image') setTimeout(() => c.receive(e), 0);
-      else if (width === 390) requestAnimationFrame(() => c.receive(e));
-      else Promise.resolve().then(() => c.receive(e));
+      c.receive(e);
       const eventToRemovalMs = performance.now() - start;
       // Snapshot before returning from this call stack: even an already-resolved
       // await would leave revoked bytes here. No paint, microtask or timer runs.
@@ -86,7 +83,7 @@ export async function scopedConsentEdges({ t, a, session, setSession, setSelecte
         !atReturn.images.includes(kind) && !atReturn.ids.includes(kind) &&
         (kind !== 'html' || atReturn.iframeCount === 0);
       return { ...atReturn, removedBeforeReturn, eventToRemovalMs, geometry: scopedBoxes() };
-    }, { e, kind, width });
+    }, { e, kind });
     assert.equal(immediate.removedBeforeReturn, true, 'scoped removal completes before receive returns, without an await, frame or timer');
     assert.equal(immediate.open, false, 'scoped event closes the revoked viewer before returning');
     assert.equal(immediate.frames.includes(kind), false);
