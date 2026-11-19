@@ -900,3 +900,22 @@ for (const copy of [en, de]) for (const entrance of ['choice', 'combined'])
     assert.equal(calls.filter(call => call.options.method === 'POST').length, 5);
     assert.equal(root.querySelector('.composer-reason').textContent, copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'scan.pdf')));
   });
+
+for (const copy of [en, de]) for (const entrance of ['choice', 'combined']) for (const capacity of ['count', 'session'])
+  test(`AIT-561 Low 1: ${copy.display.locale}/${entrance}/${capacity} a known extensionless image on a document-only host cannot hold PDFs`, async t => {
+    const limits = { ...UPLOAD_LIMITS, ...(capacity === 'session' ? { maxSessionBytes: 50 } : {}) };
+    const { c, root, calls } = setup(t, { copy, entrance, limits, post: form => {
+      const events = [], refused = [];
+      for (const [index, file] of form.getAll('files').entries()) {
+        if (file.name === 'clipboard') refused.push({ index, kind: 'image', reason: 'image normalizer not configured' });
+        else events.push({ sessionId: c.session.id, seq: c.session.seq + events.length + 1, type: 'upload.state', data: pending(`doc-${file.name}`, { filename: file.name, bytes: file.size, state: 'accepted' }) });
+      }
+      return Response.json({ events, refused }, { status: 202 });
+    } });
+    const names = Array.from({ length: capacity === 'count' ? 8 : 1 }, (_, i) => `eligible-${i}.pdf`);
+    await choose(root, [...names.map(name => new window.File(['%PDF-' + 'x'.repeat(25)], name)),
+      new window.File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), 'x'.repeat(32)], 'clipboard', { type: 'image/png' })]);
+    assert.deepEqual(c.session.uploads.map(upload => upload.filename), names);
+    assert.equal(calls.filter(call => call.options.method === 'POST').length, capacity === 'count' ? 2 : 1);
+    assert.equal(root.querySelector('.composer-reason').textContent, copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'clipboard')));
+  });
