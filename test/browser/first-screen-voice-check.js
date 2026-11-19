@@ -29,7 +29,7 @@ async function open(page, server, variant, entrance = 'combined') {
   await page.waitForFunction(() => globalThis.ready);
   await page.evaluate(({ theme, entrance }) => {
     c.setAttribute('theme', theme); c.style.setProperty('--aithema-height', '100dvh');
-    const configure = c.configure.bind(c); c.configure = options => configure({ entrance, voiceClient: fixtureClient, ...options });
+    const configure = c.configure.bind(c); c.configure = options => configure({ entrance, ...options, voiceClient: options.voiceClient ?? fixtureClient });
   }, { theme: variant.theme, entrance });
 }
 async function observe(page) {
