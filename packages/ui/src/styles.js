@@ -979,7 +979,7 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .composer[data-image-input] .composer-reason[data-consent-feature="imageInput"] { overflow-y:auto; }
 /* Held consent shares the already measured feedback slot with current facts. */
 .composer-feedback:has(.composer-reason[data-held-consent]) { position:relative; }
-.composer-reason[data-held-consent] { position:absolute; inset:0; display:flex; flex-direction:column; justify-content:center; max-height:none; line-height:1.25; overflow:visible; }
+.composer-reason[data-held-consent], .composer[data-image-input] .composer-reason[data-held-consent] { position:absolute; inset:0; display:flex; flex-direction:column; justify-content:center; max-height:none; line-height:1.25; overflow:visible; }
 .held-upload-notice { display:block; flex:none; max-height:3.75em; overflow:auto; overscroll-behavior:contain; }
 .held-upload-consent { display:block; min-height:0; overflow:auto; overscroll-behavior:contain; }
 .image-refusals, .image-refusals-reserve__row { display:flex; align-items:flex-start; gap:5px; min-height:44px; font-size:.72rem; line-height:1.3; }

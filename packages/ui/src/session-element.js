@@ -2273,7 +2273,6 @@ export class AithemaSession extends HTMLElement {
         const supported = resolveCopy(copy, 'uploadsSupported', undefined, this.#session.locale);
         const notice = supported && this.#uploadNotice.endsWith(supported) ? this.#uploadNotice.slice(0, -supported.length).trim() : this.#uploadNotice;
         setText(reason.querySelector('.held-upload-notice'), notice);
-        delete reason.dataset.consentFeature;
       } else if (text.available && !this.#rail?.moved && !this.#sendFailed && this.#images?.hasRefusals) {
         this.#images.paintRefusals(reason);
       } else {
@@ -2294,6 +2293,7 @@ export class AithemaSession extends HTMLElement {
           open: opener => this.#dialog.openConsent(feature, opener) });
         const label = line.querySelector('.consent-line-copy');
         setText(label, `${this.#imageIntent.files.map(file => file.name).join(', ')}: ${label.textContent}`);
+        reason.dataset.consentFeature = feature;
       }
       reason.toggleAttribute('data-held-consent', Boolean(reason.querySelector('.held-upload-consent')) && Boolean(this.#imageIntent));
       const capacityNotice = [copy.uploads.tooMany.replace('{files}', this.#limits.maxDocumentsPerSession),
