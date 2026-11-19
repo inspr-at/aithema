@@ -2904,7 +2904,10 @@ export class AithemaSession extends HTMLElement {
     // row placement, so this fallback cannot oscillate.
     const reserved = style.getPropertyValue('--aithema-header-rail-row').trim();
     if (reserved) {
-      band.toggleAttribute('data-rail-row', reserved === '2' || this.ownerDocument.defaultView.innerWidth < voiceSingleRowMinWidth || railTrack < required);
+      // CSS already reserves responsive rows. Persist only a measured overflow
+      // beyond that contract: a phone's redundant flag otherwise survives the
+      // return to desktop until this observer runs, lifting the chooser 60 px.
+      band.toggleAttribute('data-rail-row', reserved === '1' && view.innerWidth >= voiceSingleRowMinWidth && railTrack < required);
       return;
     }
     const available = Math.min(railTrack, band.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
@@ -4164,7 +4167,9 @@ export class AithemaSession extends HTMLElement {
     // An erased conversation has no server snapshot: any read can only 404 (AIT-464).
     if (this.#erased || this.#session.processingPreset === 'device' || this.#session.tombstone) return;
     const sessionId = this.#session.id, startCursor = this.#cursor, voiceGeneration = this.#rail?.generation, revision = this.#session.consentRevision, pending = this.#consentRefresh;
-    const operationsAtRead = this.#session.operations;
+    // configure() can replace the view for the same session/cursor/revision.
+    // Its older reads own neither the new feature verdict nor its consent document.
+    const concept = this.#concept, operationsAtRead = this.#session.operations;
     // A read begun before the local listening acknowledgement cannot repaint
     // its cached paused verdict afterward, even within the same rail generation.
     const projectionRevision = this.#voiceResumeRevision, resume = this.#voiceResumeProjection;
@@ -4190,7 +4195,7 @@ export class AithemaSession extends HTMLElement {
         pending.timer.unref?.();
       }
     }
-    const active = () => !this.#erased && sessionId === this.#session.id && projectionRevision === this.#voiceResumeRevision &&
+    const active = () => !this.#erased && concept === this.#concept && sessionId === this.#session.id && projectionRevision === this.#voiceResumeRevision &&
       pending === this.#consentRefresh && (!pending || pending.attempt === attempt);
     const fail = () => { if (active()) { restorePaused(); this.#failConsentRefresh(pending); } };
     const repeat = (seq, differs) => {
