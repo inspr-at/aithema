@@ -170,7 +170,7 @@ export function heldConsentFollowupCheck() {
       const directory = await mkdtemp(join(tmpdir(), 'aithema-held-consent-'));
       const demo = await startDemo(directory), browser = await browserForFile(), page = await browser.newPage();
       t.after(async () => { await page.close(); await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); });
-      await preparePage(page, [locale]); await page.setViewport({ width, height: width === 390 ? 844 : 900 });
+      await preparePage(page, [locale]); await page.setViewport({ width, height: width === 390 ? 844 : 900, hasTouch: width === 390 });
       await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
       await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
       for (const scenario of ['refused', 'count', 'bytes', 'repick', 'cleared-grant', 'cleared-expiry']) await t.test(scenario, async () => {
@@ -251,7 +251,9 @@ export function heldConsentFollowupCheck() {
             return { text: element.textContent, width: r.width, height: r.height,
               clipped: [...range.getClientRects()].some(b => b.width <= 0 || b.height <= 0 || b.top < feedback.top - 1 || b.bottom > feedback.bottom + 1 || b.left < feedback.left - 1 || b.right > feedback.right + 1) };
           });
-          return { notice: reason.textContent, action: reason.querySelector('.consent-action')?.textContent, attached: c.session.uploads.map(u => u.filename), posts: window.heldPosts, visible };
+          const action = reason.querySelector('.consent-action');
+          const tapHeight = action ? Number.parseFloat(getComputedStyle(action, '::after').height) : 0;
+          return { notice: reason.textContent, action: action?.textContent, tapHeight, attached: c.session.uploads.map(u => u.filename), posts: window.heldPosts, visible };
         });
         if (process.env.AITHEMA_EVIDENCE_DIR && entrance === 'choice' && (scenario === 'refused' || width === 390 && !['count', 'bytes'].includes(scenario))) {
           const prefix = join(process.env.AITHEMA_EVIDENCE_DIR, `ait563-${scenario}-${width}-${locale}-${theme}`);
@@ -261,6 +263,7 @@ export function heldConsentFollowupCheck() {
         if (['refused', 'count', 'bytes'].includes(scenario)) {
           assert.equal(result.action, copy.featureConsent.action, 'held consent action stays visible with newer feedback');
           assert.ok(result.notice.includes('scan.pdf'), 'held filename stays visible');
+          if (width === 390) assert.ok(result.tapHeight >= 44, 'held consent keeps the existing 44 px phone target');
           const current = scenario === 'refused' ? copy.uploads.type.replace('{name}', 'newer.exe') : scenario === 'count' ? copy.uploads.tooMany.replace('{files}', '8') : copy.uploads.sessionFull.replace('{size}', '50 B');
           assert.ok(result.notice.includes(current), 'the current reason and capacity figure stay visible');
           assert.ok(result.visible.length >= 3);
