@@ -149,3 +149,21 @@ for (const copy of [en, de]) for (const entrance of ['choice', 'combined'])
     assert.equal(consent?.querySelector('.consent-action')?.textContent, copy.featureConsent.action, 'the held image retains its own consent action');
     assert.ok(consent.textContent.includes('scan.pdf'));
   });
+
+for (const copy of [en, de]) test(`AIT-563 Low 1 retry expiry: ${copy.display.locale} expiry removes the ended hold's consent action`, async t => {
+  const f = followupFixture(t, copy), original = globalThis.fetch, schedule = globalThis.setTimeout, timers = [];
+  t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
+    if (delay === 180000) { timers.push(callback); return schedule(() => {}, delay); }
+    return schedule(callback, [5000, 10000].includes(delay) ? 0 : delay, ...args);
+  });
+  t.mock.method(globalThis, 'fetch', (url, options = {}) => url.endsWith('/uploads') && options.method === 'POST' && options.body.getAll('files').some(file => file.name === 'report.pdf')
+    ? Response.json({ error: 'upload-rate-limit' }, { status: 429 }) : original(url, options));
+  await choose(f.root, [f.held()]); await choose(f.root, [new window.File(['%PDF-fixture'], 'report.pdf')]);
+  for (let n = 0; n < 100 && !f.root.querySelector('.upload-retry'); n++) await new Promise(resolve => setTimeout(resolve, 0));
+  assert.ok(f.root.querySelector('.held-upload-consent'));
+  timers.at(-1)();
+  assert.equal(f.root.querySelector('.held-upload-consent'), null, 'expired files no longer offer a consent action');
+  assert.ok(f.root.querySelector('.upload-retry'));
+  assert.ok(f.root.querySelector('.upload-discard'));
+  assert.ok(f.root.querySelector('.composer-reason').textContent.includes(copy.uploadsReselect.one));
+});
