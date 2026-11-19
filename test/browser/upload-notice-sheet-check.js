@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { reasonSeparator } from '../../packages/ui/src/reason-separator.js';
+import { en } from '../../packages/ui/src/i18n/en.js';
+import { de } from '../../packages/ui/src/i18n/de.js';
 import mainGeometry from '../fixtures/held-idle-geometry.json' with { type:'json' };
 import { test } from 'node:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -11,7 +13,7 @@ import { startDemo, stopDemo, preparePage, waitForShadow, startTyping, inShadow 
 export function uploadNoticeSheetCheck() {
   for (const [width, locale] of [[390, 'de'], [390, 'en'], [1440, 'en']])
     test(`AIT-566 r3: ${width}/${locale} option A and ordinary feedback scope`, { timeout: 120000 }, async t => {
-      const theme = locale === 'de' ? 'dark' : 'light';
+      const theme = locale === 'de' ? 'dark' : 'light', copy = { en, de }[locale];
       const directory = await mkdtemp(join(tmpdir(), 'aithema-notice-sheet-'));
       const demo = await startDemo(directory), browser = await browserForFile(), page = await browser.newPage();
       t.after(async () => { await browser.close(); await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); });
@@ -131,7 +133,7 @@ export function uploadNoticeSheetCheck() {
         await save(scenario, { idle, before, result }); unchanged(idle, before);
         if (scenario === 'rehold') {
           await inShadow(page, c => { const r = c.shadowRoot; (r.querySelector('.upload-notices-more') ?? r.querySelector('.held-upload-consent .consent-action')).focus({ preventScroll:true }); });
-          assert.equal(result.text.includes(locale === 'de' ? 'Bitte wähle' : 'Please choose'), false);
+          assert.equal(result.text.includes(copy.uploadsReselect.one), false);
           if (result.control) await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-more').click());
           await page.evaluate(() => window.sheetFixture.asks.at(-1).cancel()); await settle();
           if (result.control) {
@@ -139,7 +141,7 @@ export function uploadNoticeSheetCheck() {
               rows:[...c.shadowRoot.querySelectorAll('.upload-notices-sheet .upload-notice-row')].map(row => row.innerText) }));
             assert.equal(ended.open, true, 'ending a hold preserves the open review sheet');
             assert.equal(ended.rows.length, 1, 'the ended notice replaces held consent inside the open sheet');
-            assert.ok(ended.rows[0].includes(locale === 'de' ? 'Bitte wählen Sie' : 'Please choose'), 'the current choose-again notice is fully shown');
+            assert.ok(ended.rows[0].includes(copy.uploadsReselect.one), 'the current choose-again notice is fully shown');
             await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-close').click());
           }
           await save('rehold-ended', { boxes:await boxes() }); unchanged(idle, await boxes());
