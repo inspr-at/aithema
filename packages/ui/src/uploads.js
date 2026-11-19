@@ -3,7 +3,7 @@ import { resolveCopy } from './copy-resolve.js';
 
 // START document intake (scripts/v2.ts attachment management, lib/config.ts accepted types and
 // limits), ported to the AIT-100 B1 owner routes. The server stays authoritative: these checks only
-// say early and in plain words what it would refuse. File contents are never read here.
+// say early and in plain words what it would refuse. Only bounded signatures are read to defer ambiguous session-limit checks.
 
 // The route's defaults (packages/server/src/upload-limits.js): 20 MiB per document, 21 MiB per
 // request including framing. Hosts can only lower them; limits GET and successful POST report them.
@@ -32,6 +32,27 @@ export function formBytes(boundary = MAX_BOUNDARY) {
 export const isImageFile = file => /\.(?:png|jpe?g|webp|gif)$/iu.test(file.name) || !/\.[a-z0-9]+$/iu.test(file.name) && /^image\/(?:png|jpeg|webp|gif)$/u.test(file.type);
 const extension = name => /\.([a-z0-9]+)$/iu.exec(name)?.[1].toLowerCase() ?? null;
 const fill = (text, values) => text.replace(/\{(\w+)\}/gu, (match, key) => values[key] ?? match);
+
+/** Files whose document/image kind needs authoritative classification. Only a
+ * small signature is read; contents are never decoded or retained by the UI. */
+export async function unclassifiedUploads(files, imageFile = isImageFile) {
+  const unknown = await Promise.all(files.map(async file => {
+    if (imageFile(file)) return false;
+    const type = extension(file.name);
+    if (!type) return true;
+    if (!DOCUMENT_UPLOAD_EXTENSIONS.includes(type)) return false;
+    try {
+      const bytes = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+      const starts = signature => signature.every((byte, index) => bytes[index] === byte);
+      const ascii = (start, end) => String.fromCharCode(...bytes.subarray(start, end));
+      return starts([137, 80, 78, 71, 13, 10, 26, 10]) || starts([255, 216, 255])
+        || starts([82, 73, 70, 70]) && ascii(8, 12) === 'WEBP'
+        || /^GIF8[79]a$/u.test(ascii(0, 6))
+        || ascii(4, 8) === 'ftyp' && /^(?:heic|heix|hevc|hevx|heim|heis|hevm|hevs|mif1|msf1|avif|avis)$/u.test(ascii(8, 12));
+    } catch { return true; }
+  }));
+  return files.filter((file, index) => unknown[index]);
+}
 
 /** Server limits from a response, falling back to the defaults for anything missing or malformed. */
 export function uploadLimits(value) {
@@ -77,8 +98,11 @@ export function planUploads(files, { limits: raw, uploads = [], images = true, i
     if (imageSlots > 0) { imageSlots--; return true; }
     imageRefused.push({ name: file.name, reason: 'limit' }); return false;
   });
-  const used = active.reduce((sum, u) => sum + (u.bytes ?? 0), 0), adding = admitted.reduce((sum, f) => sum + f.size, 0);
-  const addingImages = images ? admitted.filter(imageFile).length : 0;
+  // Known images on a document-only host are refused by the server. They
+  // still occupy transport bytes, but cannot consume document/session slots.
+  const used = active.reduce((sum, u) => sum + (u.bytes ?? 0), 0);
+  const adding = admitted.filter(file => images || !imageFile(file)).reduce((sum, file) => sum + file.size, 0);
+  const addingImages = admitted.filter(imageFile).length;
   const blocked = !admitted.length ? imageRefused.length ? 'images' : null
     : !deferSessionLimits && active.length - imageCount + admitted.length - addingImages > limits.maxDocumentsPerSession ? 'count'
     : !deferSessionLimits && used + adding > limits.maxSessionBytes ? 'session' : null;

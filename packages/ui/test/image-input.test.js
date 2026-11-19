@@ -1,52 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Window } from 'happy-dom';
 import { createSession } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
+import { reasonSeparator } from '../src/reason-separator.js';
 import { planUploads, isImageFile } from '../src/uploads.js';
-const window = new Window({ url: 'http://localhost/' });
-for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent', 'FormData']) globalThis[key] = window[key];
-await import('../src/session-element.js');
-const tick = () => new Promise(resolve => setImmediate(resolve));
-function fixture(t, copy = en, available = true, options = {}) {
-  // Match runtime.matrix: paused imageInput projects only available/reason;
-  // consentPurposes belongs to generated visuals, not image input.
-  const c = document.createElement('aithema-session'), session = options.session ?? createSession({ demo: true, locale: copy === de ? 'de' : 'en' });
-  session.featureMatrix = { best: Object.fromEntries(['text', 'analysis', 'uploads', 'imageInput', 'images'].map(key => [key,
-    { available: key === 'imageInput' ? available : key === 'uploads' ? options.documentsAvailable ?? true : true, reason: key === 'imageInput' && !available ? options.imageReason ?? 'current processing consent required' : key === 'uploads' && options.documentsAvailable === false ? 'current processing consent required' : null,
-      ...(key === 'imageInput' && options.imageReason === 'session paused' ? { unpaused: { available: true, reason: null } } : {}) }])) };
-  const configuredImageReason = options.imageReason;
-  const calls = [], asks = []; let imageGranted = available, documentsGranted = options.documentsAvailable ?? true;
-  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
-    calls.push({ url, options });
-    if (url.endsWith('/events')) return new Response(new ReadableStream({ start(controller) { options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
-    if (url.endsWith('/uploads') && options.method === 'POST') {
-      const files = options.body.getAll('files');
-      return Response.json({ events: files.map((file, index) => ({ sessionId: session.id, seq: c.session.seq + index + 1, type: 'upload.state', data: {
-        id: `${isImageFile(file) ? 'fixture-image' : 'fixture-document'}${files.length > 1 ? '-' + index : ''}`, filename: file.name,
-        kind: isImageFile(file) ? 'image' : 'document', state: isImageFile(file) ? 'staged-pending' : 'accepted',
-        mediaType: file.type, bytes: file.size, at: new Date(0).toISOString() } })) }, { status: 202 });
-    }
-    if (url.endsWith('/uploads')) return Response.json({ uploads: [] });
-    if (url.endsWith('/turns') && options.method === 'POST') { const body = JSON.parse(options.body);
-      return Response.json({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content, attachments: body.attachments } }); }
-    const snapshot = c.session;
-    snapshot.featureMatrix.best.imageInput = { available: imageGranted, reason: imageGranted ? null : configuredImageReason ?? 'current processing consent required',
-      ...(configuredImageReason === 'session paused' ? { unpaused: { available: true, reason: null } } : {}) };
-    snapshot.featureMatrix.best.uploads = { available: documentsGranted, reason: documentsGranted ? null : 'current processing consent required' };
-    if (url.endsWith('/consent')) return Response.json({ consentRevision: snapshot.consentRevision, selected: imageGranted ? ['images', 'image-input'] : ['images'], features: { images: ['images'], imageInput: ['image-input'] } });
-    return Response.json(snapshot);
-  });
-  c.addEventListener('aithema-consent', event => asks.push(event.detail));
-  c.configure({ copy, session, sessionToken: 'fixture', ...options }); document.body.append(c); t.after(() => c.remove());
-  return { c, root: c.shadowRoot, calls, asks, grantDocuments() { documentsGranted = true; c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: ['uploads'], removed: [] } }); }, grantImages() { imageGranted = true; c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: ['imageInput'], removed: [] } }); } };
-}
-async function choose(root, files) {
-  const input = root.querySelector('.attach-input'), transfer = new window.DataTransfer();
-  for (const file of files) transfer.items.add(file);
-  input.files = transfer.files; input.dispatchEvent(new window.Event('change')); await tick(); await tick();
-}
+import { window, tick, fixture, choose } from './image-input-fixture.js';
 for (const copy of [en, de]) test(`AIT-510: ${copy === en ? 'EN' : 'DE'} start-granted image purposes stage with no consent line or ask`, async t => {
   const f = fixture(t, copy);
   await choose(f.root, [new window.File(['fixture'], 'fixture.png', { type: 'image/png' })]);
@@ -439,7 +398,7 @@ for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} bytes of an e
     }, { status: 202 });
     return originalFetch(url, options);
   });
-  await choose(f.root, [new window.File(['large rejected image'], 'scan.pdf'), new window.File(['x'], 'eligible.pdf')]);
+  await choose(f.root, [new window.File([new Uint8Array([255, 216, 255, 224]), 'large rejected image'], 'scan.pdf', { type: 'application/pdf' }), new window.File(['x'], 'eligible.pdf')]);
   assert.deepEqual(f.c.session.uploads.map(upload => upload.filename), ['earlier.png', 'eligible.pdf']);
   assert.equal(f.root.querySelector('.image-refusal').textContent, `scan.pdf: ${copy.imageRefusals.limit}`);
 });
@@ -522,3 +481,38 @@ for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} unavailable i
   assert.equal(f.root.querySelector('.composer-reason').textContent, copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'clipboard')));
   assert.equal(f.root.querySelector('.image-refusals'), null);
 });
+
+for (const copy of [en, de]) test(`AIT-561 Low 2: ${copy.display.locale} a document-only consent race keeps the type refusal`, async t => {
+  const f = fixture(t, copy, false, { imageReason: 'image normalizer not configured' }), original = globalThis.fetch;
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => url.endsWith('/uploads') && options.method === 'POST'
+    ? Response.json({ events: [], refused: [{ index: 0, kind: 'image', reason: 'current processing consent required' }] }, { status: 202 }) : original(url, options));
+  await choose(f.root, [new window.File(['pixels'], 'clipboard')]);
+  assert.deepEqual(f.asks, []);
+  assert.equal(f.root.querySelector('.composer-reason').textContent, copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'clipboard')));
+});
+
+for (const copy of [en, de]) for (const action of ['decline', 'expiry'])
+  test(`AIT-561 Low 3: ${copy.display.locale}/${action} detected-image consent ends visibly and old timers cannot replace a new notice`, async t => {
+    const f = fixture(t, copy, false), original = globalThis.fetch, schedule = globalThis.setTimeout, timers = [];
+    t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
+      if (delay === 180000) { timers.push(callback); return schedule(() => {}, delay); }
+      return schedule(callback, delay, ...args);
+    });
+    t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+      if (url.endsWith('/uploads') && options.method === 'POST') {
+        f.calls.push({ url, options });
+        return Response.json({ events: [], refused: [{ index: 0, kind: 'image', reason: 'current processing consent required' }] }, { status: 202 });
+      }
+      return original(url, options);
+    });
+    await choose(f.root, [new window.File(['pixels'], 'clipboard'), new window.File(['x'], 'blocked.exe')]);
+    assert.equal(f.asks.length, 1); assert.equal(timers.length, 1);
+    if (action === 'decline') f.asks[0].cancel();
+    else if (action === 'expiry') timers[0]();
+    const expected = copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'blocked.exe')) + ' ' + copy.uploadsSupported + reasonSeparator + copy.uploadsReselect.one;
+    assert.equal(f.root.querySelector('.composer-reason').textContent, expected);
+    timers[0]();
+    assert.equal(f.root.querySelector('.composer-reason').textContent, expected, 'even an already queued callback cannot overwrite current feedback');
+    assert.equal(f.root.querySelector('.composer-reason .consent-action'), null);
+    assert.equal(f.calls.filter(call => call.options.method === 'POST' && call.url.endsWith('/uploads')).length, 1);
+  });

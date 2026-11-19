@@ -549,7 +549,7 @@ export const en = {
     withdraw: 'Withdraw upload', withdrawn: 'Upload withdrawn', withdrawFailed: 'The upload could not be withdrawn. Try again.',
     refused: 'Not attached: {list}.', tooLarge: '{name} (too large, up to {size} per file)', type: '{name} (file type not accepted)',
     tooMany: 'No more files fit in this conversation (up to {files}).', sessionFull: 'These files do not fit in this conversation (up to {size} in total).',
-    overLimit: 'These files exceed the upload limits of this conversation.', failed: 'The file could not be added.',
+    overLimit: 'These files exceed the upload limits of this conversation.', failed: 'The file could not be added.', failedMany: 'The files could not be added.',
     notUploaded: { one: '1 file not uploaded: the server is busy right now', other: '{count} files not uploaded: the server is busy right now' },
     tryAgain: 'Try again', discard: 'Discard',
     replaced: 'The previously unuploaded files were replaced by the new selection.',

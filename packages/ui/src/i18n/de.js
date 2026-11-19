@@ -549,7 +549,7 @@ export const de = {
     withdraw: 'Datei zurückziehen', withdrawn: 'Datei zurückgezogen', withdrawFailed: 'Die Datei konnte nicht zurückgezogen werden. Versuchen Sie es erneut.',
     refused: 'Nicht angehängt: {list}.', tooLarge: '{name} (zu groß, höchstens {size} pro Datei)', type: '{name} (Dateityp wird nicht angenommen)',
     tooMany: 'In diesem Gespräch können keine weiteren Dateien hinzugefügt werden (höchstens {files}).', sessionFull: 'Diese Dateien passen nicht mehr in dieses Gespräch (höchstens {size} insgesamt).',
-    overLimit: 'Diese Dateien überschreiten die Grenzen für Dateien in diesem Gespräch.', failed: 'Die Datei konnte nicht übernommen werden.',
+    overLimit: 'Diese Dateien überschreiten die Grenzen für Dateien in diesem Gespräch.', failed: 'Die Datei konnte nicht übernommen werden.', failedMany: 'Die Dateien konnten nicht übernommen werden.',
     notUploaded: { one: '1 Datei nicht hochgeladen: Der Server ist gerade ausgelastet', other: '{count} Dateien nicht hochgeladen: Der Server ist gerade ausgelastet' },
     tryAgain: 'Erneut versuchen', discard: 'Verwerfen',
     replaced: 'Die zuvor nicht hochgeladenen Dateien wurden durch die neue Auswahl ersetzt.',

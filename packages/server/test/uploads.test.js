@@ -787,3 +787,14 @@ test('AIT-559: available image intake admits the images that fit and every PDF, 
   await f.handlers.idle();
   assert.deepEqual(f.storage.get(f.session.id).uploads.map(upload => upload.state), ['staged-ready', 'accepted']);
 });
+
+test('AIT-561 Low 2: a consent revision race preserves a document-only image refusal', async t => {
+  const f = setup(t);
+  t.mock.method(f.runtime, 'imageInputAvailability', async () => {
+    f.storage.reviseConsent(f.session.id, true, {}, { conversationUnchanged: true, changed: ['images'] });
+    return { reason: 'image normalizer not configured' };
+  });
+  const response = await f.handlers.handle(uploadRequest(f.session.id, 'race', [['scan.pdf', Buffer.from([255, 216, 255]), 'application/pdf']]));
+  assert.equal(response.status, 202);
+  assert.deepEqual((await response.json()).refused, [{ index: 0, name: 'scan.pdf', kind: 'image', reason: 'image normalizer not configured' }]);
+});

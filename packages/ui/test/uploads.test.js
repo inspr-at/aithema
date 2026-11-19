@@ -21,10 +21,10 @@ const at = second => new Date(Date.UTC(2026, 9, 10, 12, 0, second)).toISOString(
 const pending = (id, extra = {}) => ({ id, state: 'pending', filename: `${id}.txt`, mediaType: 'text/plain', bytes: 2048, at: at(10), ...extra });
 
 // A connected component on a fixture server: owner routes answer like the B1 handlers.
-function setup(t, { copy = en, baseUrl = '', uploads = [], transcript = [], feature = { available: true, reason: null }, limits = UPLOAD_LIMITS, get, post, withdraw } = {}) {
+function setup(t, { copy = en, baseUrl = '', uploads = [], transcript = [], feature = { available: true, reason: null }, limits = UPLOAD_LIMITS, get, post, withdraw, entrance = 'choice', images = false } = {}) {
   const c = document.createElement('aithema-session'), session = createSession({ demo: true, locale: copy === de ? 'de' : 'en' });
   session.transcript = transcript; session.uploads = uploads; session.inputRevision = transcript.length;
-  session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, uploads: feature } };
+  session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, uploads: feature, ...(images ? { imageInput: { available: true } } : {}) } };
   const calls = [];
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
     calls.push({ url, options });
@@ -47,7 +47,7 @@ function setup(t, { copy = en, baseUrl = '', uploads = [], transcript = [], feat
     }
     return Response.json(c.session);
   });
-  c.configure({ copy, copyForLocale: locale => ({ en, de })[locale], session, sessionToken: 'owner-fixture', baseUrl }); document.body.append(c); t.after(() => c.remove());
+  c.configure({ copy, copyForLocale: locale => ({ en, de })[locale], session, sessionToken: 'owner-fixture', baseUrl, entrance }); document.body.append(c); t.after(() => c.remove());
   return { c, root: c.shadowRoot, calls };
 }
 const choose = async (root, files) => {
@@ -821,8 +821,132 @@ for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} eight eligibl
     return Response.json({ events, refused }, { status: 202 });
   } });
   const names = ['scan.pdf', ...Array.from({ length: 8 }, (_, index) => `eligible-${index}.pdf`)];
-  await choose(root, names.map(name => file(name)));
+  await choose(root, names.map(name => name === 'scan.pdf' ? new window.File([new Uint8Array([255, 216, 255, 224])], name, { type: 'application/pdf' }) : file(name)));
   assert.deepEqual(calls.filter(call => call.options.method === 'POST').map(call => call.options.body.getAll('files').map(file => file.name)), [names.slice(0, 8), names.slice(8)]);
   assert.deepEqual(attached, names.slice(1));
   assert.equal(root.querySelector('.composer-reason').textContent, copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'scan.pdf')));
 });
+
+for (const copy of [en, de]) for (const entrance of ['choice', 'combined']) for (const images of [false, true]) for (const capacity of ['count', 'session'])
+  test(`AIT-561 Low 1: ${copy.display.locale}/${entrance}/${images}/${capacity} first pick keeps the specific capacity figure`, async t => {
+    const limits = { ...UPLOAD_LIMITS, ...(capacity === 'session' ? { maxSessionBytes: 50 } : {}) };
+    const { root, calls } = setup(t, { copy, entrance, images, limits });
+    const files = Array.from({ length: capacity === 'count' ? 9 : 2 }, (_, i) => new window.File(['%PDF-' + 'x'.repeat(25)], `document-${i}.pdf`, { type: 'application/pdf' }));
+    await choose(root, files);
+    assert.equal(calls.filter(call => call.options.method === 'POST').length, 0);
+    assert.equal(root.querySelector('.composer-reason').textContent, capacity === 'count'
+      ? copy.uploads.tooMany.replace('{files}', '8') : copy.uploads.sessionFull.replace('{size}', '50 B'));
+  });
+
+for (const copy of [en, de]) for (const entrance of ['choice', 'combined']) for (const status of [401, 403, 409])
+  test(`AIT-561 Low 4: ${copy.display.locale}/${entrance}/${status} final failure stops later batches and names every unsent file once`, async t => {
+    const { root, calls } = setup(t, { copy, entrance, limits: { ...UPLOAD_LIMITS, maxFilesPerRequest: 2 },
+      post: () => Response.json(status === 409 ? { error: 'conversation-paused', reason: 'purpose' } : { error: 'not-owner' }, { status }) });
+    const names = ['first.pdf', 'second.pdf', 'later.pdf', 'last.pdf'];
+    await choose(root, names.map(name => new window.File(['%PDF-fixture'], name)));
+    assert.equal(calls.filter(call => call.options.method === 'POST').length, 1);
+    const failure = status === 409 ? copy.purposePaused : copy === en ? 'The files could not be added.' : 'Die Dateien konnten nicht übernommen werden.';
+    const notice = root.querySelector('.composer-reason').textContent;
+    for (const name of names) assert.equal(notice.split(name).length - 1, 1, notice);
+    assert.equal(notice.split(failure).length - 1, 1, notice);
+    assert.equal(root.querySelector('.upload-retry'), null);
+  });
+
+for (const copy of [en, de]) for (const entrance of ['choice', 'combined']) for (const images of [false, true]) for (const capacity of ['count', 'session'])
+  test(`AIT-561 Low 1: ${copy.display.locale}/${entrance}/${images}/${capacity} retained retry keeps the specific capacity figure`, async t => {
+    const schedule = globalThis.setTimeout;
+    t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => schedule(callback, [5000, 10000].includes(delay) ? 0 : delay, ...args));
+    const { c, root, calls } = setup(t, { copy, entrance, images, limits: { ...UPLOAD_LIMITS, maxDocumentsPerSession: 2, maxSessionBytes: 100 },
+      post: () => Response.json({ error: 'upload-rate-limit' }, { status: 429 }) });
+    await choose(root, ['one.pdf', 'two.pdf'].map(name => new window.File(['%PDF-' + 'x'.repeat(25)], name)));
+    for (let n = 0; n < 100 && !root.querySelector('.upload-retry'); n++) await new Promise(resolve => setTimeout(resolve, 0));
+    assert.ok(root.querySelector('.upload-retry'));
+    const attempts = calls.filter(call => call.options.method === 'POST').length;
+    state(c, pending('other', { bytes: capacity === 'count' ? 1 : 50, kind: capacity === 'count' ? 'document' : 'image', state: 'accepted' }));
+    assert.equal(root.querySelector('.composer-reason').textContent.includes(capacity === 'count'
+      ? copy.uploads.tooMany.replace('{files}', '2') : copy.uploads.sessionFull.replace('{size}', '100 B')), true);
+    assert.equal(root.querySelector('.upload-retry'), null);
+    assert.equal(calls.filter(call => call.options.method === 'POST').length, attempts);
+  });
+
+for (const copy of [en, de]) test(`AIT-561 Low 4: ${copy.display.locale} final failure after a successful batch names only unsent files`, async t => {
+  let requests = 0;
+  const { c, root, calls } = setup(t, { copy, limits: { ...UPLOAD_LIMITS, maxFilesPerRequest: 2 },
+    post: () => ++requests === 1 ? null : Response.json({ error: 'conversation-paused', reason: 'purpose' }, { status: 409 }) });
+  const names = Array.from({ length: 6 }, (_, i) => `document-${i}.pdf`);
+  await choose(root, names.map(name => new window.File(['%PDF-fixture'], name)));
+  assert.equal(calls.filter(call => call.options.method === 'POST').length, 2);
+  assert.deepEqual(c.session.uploads.map(upload => upload.filename), names.slice(0, 2));
+  const notice = root.querySelector('.composer-reason').textContent;
+  for (const name of names.slice(0, 2)) assert.equal(notice.includes(name), false);
+  for (const name of names.slice(2)) assert.equal(notice.split(name).length - 1, 1);
+  assert.equal(notice.split(copy.purposePaused).length - 1, 1);
+});
+
+for (const copy of [en, de]) for (const entrance of ['choice', 'combined'])
+  test(`AIT-561 Low 1: ${copy.display.locale}/${entrance} eight PDFs keep an ambiguous image available for retained retry`, async t => {
+    const schedule = globalThis.setTimeout; let busy = true;
+    t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => schedule(callback, [5000, 10000].includes(delay) ? 0 : delay, ...args));
+    const { root, calls } = setup(t, { copy, entrance, post: form => {
+      if (!form.getAll('files').some(file => file.name === 'scan.pdf')) return null;
+      return busy ? Response.json({ error: 'upload-rate-limit' }, { status: 429 })
+        : Response.json({ events: [], refused: [{ index: 0, kind: 'image', reason: 'image normalizer not configured' }] }, { status: 202 });
+    } });
+    await choose(root, [...Array.from({ length: 8 }, (_, i) => new window.File(['%PDF-fixture'], `eligible-${i}.pdf`)),
+      new window.File([new Uint8Array([255, 216, 255, 224])], 'scan.pdf', { type: 'application/pdf' })]);
+    for (let n = 0; n < 100 && !root.querySelector('.upload-retry'); n++) await new Promise(resolve => setTimeout(resolve, 0));
+    assert.ok(root.querySelector('.upload-retry'), 'an ambiguous retained file still needs server classification');
+    busy = false; root.querySelector('.upload-retry').click(); await tick(); await tick();
+    assert.equal(calls.filter(call => call.options.method === 'POST').length, 5);
+    assert.equal(root.querySelector('.composer-reason').textContent, copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'scan.pdf')));
+  });
+
+for (const copy of [en, de]) for (const entrance of ['choice', 'combined']) for (const capacity of ['count', 'session'])
+  test(`AIT-561 Low 1: ${copy.display.locale}/${entrance}/${capacity} a known extensionless image on a document-only host cannot hold PDFs`, async t => {
+    const limits = { ...UPLOAD_LIMITS, ...(capacity === 'session' ? { maxSessionBytes: 50 } : {}) };
+    const { c, root, calls } = setup(t, { copy, entrance, limits, post: form => {
+      const events = [], refused = [];
+      for (const [index, file] of form.getAll('files').entries()) {
+        if (file.name === 'clipboard') refused.push({ index, kind: 'image', reason: 'image normalizer not configured' });
+        else events.push({ sessionId: c.session.id, seq: c.session.seq + events.length + 1, type: 'upload.state', data: pending(`doc-${file.name}`, { filename: file.name, bytes: file.size, state: 'accepted' }) });
+      }
+      return Response.json({ events, refused }, { status: 202 });
+    } });
+    const names = Array.from({ length: capacity === 'count' ? 8 : 1 }, (_, i) => `eligible-${i}.pdf`);
+    await choose(root, [...names.map(name => new window.File(['%PDF-' + 'x'.repeat(25)], name)),
+      new window.File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), 'x'.repeat(32)], 'clipboard', { type: 'image/png' })]);
+    assert.deepEqual(c.session.uploads.map(upload => upload.filename), names);
+    assert.equal(calls.filter(call => call.options.method === 'POST').length, capacity === 'count' ? 2 : 1);
+    assert.equal(root.querySelector('.composer-reason').textContent, copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'clipboard')));
+  });
+
+for (const copy of [en, de]) for (const status of [403, 409]) for (const count of [1, 4])
+  test(`AIT-561 r2 M1: ${copy.display.locale}/${status}/${count} final reason precedes the named unsent files with correct number`, async t => {
+    const { root } = setup(t, { copy, limits: { ...UPLOAD_LIMITS, maxFilesPerRequest: 2 },
+      post: () => Response.json(status === 409 ? { reason: 'purpose' } : { error: 'not-owner' }, { status }) });
+    const names = Array.from({ length: count }, (_, i) => `document-${i}.pdf`);
+    await choose(root, names.map(name => new window.File(['%PDF-fixture'], name)));
+    const failure = status === 409 ? copy.purposePaused : count === 1 ? copy.uploads.failed
+      : copy === en ? 'The files could not be added.' : 'Die Dateien konnten nicht übernommen werden.';
+    assert.equal(root.querySelector('.composer-reason').textContent,
+      failure + ' · ' + copy.uploads.refused.replace('{list}', names.join(', ')));
+  });
+
+for (const copy of [en, de]) for (const earlier of ['type', 'retained'])
+  test(`AIT-561 r2 M1: ${copy.display.locale}/${earlier} terminal reason leads the complete notice even with other file facts`, async t => {
+    const schedule = globalThis.setTimeout; let busy = earlier === 'retained';
+    t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => schedule(callback, [5000, 10000].includes(delay) ? 0 : delay, ...args));
+    const { root } = setup(t, { copy, limits: { ...UPLOAD_LIMITS, maxFilesPerRequest: 2 },
+      post: () => busy ? Response.json({ error: 'upload-rate-limit' }, { status: 429 }) : Response.json({ reason: 'purpose' }, { status: 409 }) });
+    if (busy) {
+      await choose(root, [new window.File(['%PDF-fixture'], 'retained.pdf')]);
+      for (let n = 0; n < 100 && !root.querySelector('.upload-retry'); n++) await new Promise(resolve => setTimeout(resolve, 0));
+      assert.ok(root.querySelector('.upload-retry')); busy = false;
+    }
+    await choose(root, [...(earlier === 'type' ? [new window.File(['x'], 'blocked.exe')] : []),
+      ...['first.pdf', 'later.pdf', 'last.pdf'].map(name => new window.File(['%PDF-fixture'], name))]);
+    const notice = root.querySelector('.composer-reason').textContent;
+    assert.ok(notice.startsWith(copy.purposePaused + ' · '), notice);
+    assert.ok(notice.includes(earlier === 'type' ? copy.uploads.type.replace('{name}', 'blocked.exe') : copy.uploads.replaced));
+    for (const name of ['first.pdf', 'later.pdf', 'last.pdf']) assert.equal(notice.split(name).length - 1, 1);
+  });
