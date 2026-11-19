@@ -2354,7 +2354,7 @@ export class AithemaSession extends HTMLElement {
       root.querySelector('.composer').toggleAttribute('data-image-input', this.#imageLayout);
       root.querySelector('.composer').toggleAttribute('data-image-state', Boolean(this.#imageInputEnabled() && this.#imageIntent || this.#images?.hasRefusals));
       this.#paintAttach();
-      reason.toggleAttribute('data-upload-feedback', text.available && !this.#rail?.moved && !this.#sendFailed && Boolean(this.#uploadNotice || this.#imageIntent || this.#images?.hasRefusals || this.#retryFiles.length));
+      reason.toggleAttribute('data-upload-feedback', text.available && !this.#rail?.moved && !this.#sendFailed && Boolean(this.#imageIntent || this.#images?.hasRefusals || this.#uploadNotice && !this.#retryFiles.length));
       this.#images?.update(copy);
       const out = root.querySelector('.composer-out'), usedUp = this.#composerUsedUp;
       const shell = root.querySelector('.composer-shell'), form = root.querySelector('form.composer'), u = copy.hostSurface.usedUp, credits = copy.hostSurface.credits;
