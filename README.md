@@ -718,6 +718,9 @@ The used-up upgrade offer exposes the existing export link, alongside the email
 action; host daily-cap action suppression still applies. On phones the email
 action sits below the offer text with its full label on one line. These rows
 remain reserved before exhaustion.
+The additive `copy.usedUpExportShort` key defaults to **Export** (EN) and
+**Exportieren** (DE) on phones; the export link retains its complete accessible
+name and uses the existing full label on larger screens.
 
 The attachment button is hidden in combined mode. Text feedback and microphone
 status have separate space reserved from first paint; send failures, consent
