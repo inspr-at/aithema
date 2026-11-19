@@ -76,7 +76,7 @@ async function fixture(t, touch = true) {
   page.on('request', async request => {
     const path = new URL(request.url()).pathname;
     if (page.holdSnapshot && request.method() === 'GET' && path === `/api/sessions/${page.snapshotId}`) {
-      const hold = page.holdSnapshot; hold.resolve(); await hold.release.promise;
+      const hold = page.holdSnapshot; hold.resolve(request); await hold.release.promise;
     }
     // Replayed voice snapshots reload through a host that still binds a local fake client.
     if (page.reloadSession && path === '/demo/config') return request.respond({ status: 200, contentType: 'application/json',
@@ -284,15 +284,24 @@ test('AIT-194: delayed pause snapshot must not disable the next replay composer'
   const hold = page.holdSnapshot = { ...Promise.withResolvers(), release: Promise.withResolvers() };
   t.after(() => hold.release.resolve());
   await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } }));
-  await hold.promise;
+  const heldSnapshot = await hold.promise;
   page.holdSnapshot = null;
   await voiceScene(page, 'de', 'dark', 393);
-  await page.evaluate(() => {
-    globalThis.pauseSnapshotApplied = new Promise(resolve => document.querySelector('aithema-session')
-      .addEventListener('aithema-features', resolve, { once: true }));
-  });
+  const configured = await shadow(page, c => ({
+    disabled: c.shadowRoot.querySelector('#message').disabled, featureMatrix: c.session.featureMatrix,
+  }));
+  assert.equal(configured.disabled, false, 'configure supplies the next replay composer with an enabled verdict');
+  // A discarded snapshot emits no features-applied event. Wait for the held
+  // transport to finish and cross the browser paint boundary instead.
+  const snapshot = page.waitForResponse(response => response.request() === heldSnapshot);
   hold.release.resolve();
-  await page.evaluate(() => globalThis.pauseSnapshotApplied.then(() => true));
+  await (await snapshot).json();
+  await frame(page);
+  const afterSnapshot = await shadow(page, c => ({
+    disabled: c.shadowRoot.querySelector('#message').disabled, featureMatrix: c.session.featureMatrix,
+  }));
+  assert.equal(afterSnapshot.disabled, false, 'the delayed pause snapshot leaves the next replay composer enabled');
+  assert.deepEqual(afterSnapshot.featureMatrix, configured.featureMatrix, 'the next replay keeps its configured verdict');
   await clickComposer(t, page, 'delayed-pause-snapshot');
   assert.equal((await metrics(page)).focused, 'message', 'a real pointer focuses the next replay composer');
 });
