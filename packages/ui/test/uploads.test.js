@@ -931,3 +931,22 @@ for (const copy of [en, de]) for (const status of [403, 409]) for (const count o
     assert.equal(root.querySelector('.composer-reason').textContent,
       failure + ' · ' + copy.uploads.refused.replace('{list}', names.join(', ')));
   });
+
+for (const copy of [en, de]) for (const earlier of ['type', 'retained'])
+  test(`AIT-561 r2 M1: ${copy.display.locale}/${earlier} terminal reason leads the complete notice even with other file facts`, async t => {
+    const schedule = globalThis.setTimeout; let busy = earlier === 'retained';
+    t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => schedule(callback, [5000, 10000].includes(delay) ? 0 : delay, ...args));
+    const { root } = setup(t, { copy, limits: { ...UPLOAD_LIMITS, maxFilesPerRequest: 2 },
+      post: () => busy ? Response.json({ error: 'upload-rate-limit' }, { status: 429 }) : Response.json({ reason: 'purpose' }, { status: 409 }) });
+    if (busy) {
+      await choose(root, [new window.File(['%PDF-fixture'], 'retained.pdf')]);
+      for (let n = 0; n < 100 && !root.querySelector('.upload-retry'); n++) await new Promise(resolve => setTimeout(resolve, 0));
+      assert.ok(root.querySelector('.upload-retry')); busy = false;
+    }
+    await choose(root, [...(earlier === 'type' ? [new window.File(['x'], 'blocked.exe')] : []),
+      ...['first.pdf', 'later.pdf', 'last.pdf'].map(name => new window.File(['%PDF-fixture'], name))]);
+    const notice = root.querySelector('.composer-reason').textContent;
+    assert.ok(notice.startsWith(copy.purposePaused + ' · '), notice);
+    assert.ok(notice.includes(earlier === 'type' ? copy.uploads.type.replace('{name}', 'blocked.exe') : copy.uploads.replaced));
+    for (const name of ['first.pdf', 'later.pdf', 'last.pdf']) assert.equal(notice.split(name).length - 1, 1);
+  });
