@@ -239,7 +239,7 @@ for (const state of ['stale', 'warming']) {
     const setup = `
       import fs from 'node:fs';
       import { syncBuiltinESMExports } from 'node:module';
-      import { plannedSeconds } from './scripts/browser-timings.js';
+      import { plannedSeconds } from ${JSON.stringify(new URL('../scripts/browser-timings.js', import.meta.url).href)};
       const read = fs.readFileSync;
       fs.readFileSync = (path, ...args) => {
         const bytes = read(path, ...args);
@@ -256,8 +256,9 @@ for (const state of ['stale', 'warming']) {
     `;
     const result = spawnSync(process.execPath, ['--test', '--test-name-pattern=^AIT-558: both clarify halves',
       '--import', `data:text/javascript,${encodeURIComponent(setup)}`, 'test/browser-shards.test.js'], {
-      cwd: new URL('../', import.meta.url), encoding: 'utf8',
+      cwd: new URL('../', import.meta.url), encoding: 'utf8', env: { ...process.env, NODE_TEST_CONTEXT: undefined },
     });
+    assert.match(result.stdout, /AIT-558: both clarify halves/u, result.stdout + result.stderr);
     assert.equal(result.status, 0, result.stdout + result.stderr);
   });
 }
