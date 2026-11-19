@@ -110,7 +110,9 @@ export function mixedUploadCheck() {
             for (const [name, type] of picks) transfer.items.add(new File([name === 'scan.pdf' ? new Uint8Array([255, 216, 255, 224, 0, 0]) : name.startsWith('eligible') ? '%PDF-fixture' : new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], name, { type }));
             const input = c.shadowRoot.querySelector('.attach-input'); input.files = transfer.files; input.dispatchEvent(new Event('change'));
           });
-          await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer').hasAttribute('aria-busy'));
+          // Attach is unavailable throughout the batch loop; the composer has
+          // no aria-busy attribute and cannot signal completion.
+          await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.attach').getAttribute('aria-disabled') === 'false');
           await settle(); const after = await boxes();
           const result = await inShadow(page, c => ({ posts: window.mixedPosts, asks: window.mixedAsks.map(ask => ask.features),
             documents: c.session.uploads.filter(upload => upload.kind !== 'image').map(upload => upload.filename),
