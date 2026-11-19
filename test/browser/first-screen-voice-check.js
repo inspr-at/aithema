@@ -187,9 +187,9 @@ test('AIT-553 item 4: combined readiness owns a readable grid track inside the s
   for (const variant of desktops) {
     await openIntro(page, server, variant);
     const initial = await entranceGeometry(page), pinned = (await observe(page)).geometry;
-    if (variant.locale === 'en' && variant.width !== 1280) await retain(page, `${variant.width}-${variant.height}-desktop-intro`, initial);
     await page.evaluate(() => { const s = c.shadowRoot.querySelector('.conversation-scroll'); s.scrollTop = s.scrollHeight; });
     const end = await entranceGeometry(page);
+    if (variant.locale === 'en' && variant.width !== 1280) await retain(page, `${variant.width}-${variant.height}-desktop-intro`, { initial, end });
     records.push({ variant, initial, end, pinned, after: (await observe(page)).geometry });
   }
   for (const { variant, initial, end, pinned, after } of records) {

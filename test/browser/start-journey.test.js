@@ -1,3 +1,4 @@
+import './first-screen-voice-check.js';
 import './host-opener-check.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
