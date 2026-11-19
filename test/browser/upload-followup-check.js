@@ -162,3 +162,126 @@ export function heldUploadCheck() {
       else assert.ok(result.notice.includes(laterName), 'the later refusal remains visible');
     });
 }
+
+export function heldConsentFollowupCheck() {
+  for (const width of [390, 1440]) for (const locale of ['en', 'de']) for (const entrance of ['choice', 'combined'])
+    test(`AIT-563: ${width}/${locale}/${entrance} held consent and current feedback`, { timeout: 120000 }, async t => {
+      const theme = locale === 'en' ? 'light' : 'dark', copy = { en, de }[locale];
+      const directory = await mkdtemp(join(tmpdir(), 'aithema-held-consent-'));
+      const demo = await startDemo(directory), browser = await browserForFile(), page = await browser.newPage();
+      t.after(async () => { await page.close(); await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); });
+      await preparePage(page, [locale]); await page.setViewport({ width, height: width === 390 ? 844 : 900, hasTouch: width === 390 });
+      await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
+      await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
+      for (const scenario of ['refused', 'count', 'bytes', 'repick', 'cleared-grant', 'cleared-expiry']) await t.test(scenario, async () => {
+        await inShadow(page, async (c, { locale, entrance, scenario }) => {
+          const session = structuredClone(c.session); session.id = crypto.randomUUID(); session.seq = 0; session.locale = locale; session.uploads = [];
+          session.transcript = [{ id: 'established', role: 'user', content: 'Project documents', at: new Date(0).toISOString() }];
+          session.settings.voice = 'off'; session.settings.origin = 'chosen';
+          session.featureMatrix = { best: Object.fromEntries(['text', 'uploads', 'imageInput'].map(key => [key, { available: key !== 'imageInput', reason: key === 'imageInput' ? 'current processing consent required' : null }])) };
+          window.heldGranted = false; window.heldAsks = []; window.heldPosts = []; window.heldTimers = []; window.heldReceipt = 0;
+          const canvas = document.createElement('canvas'); canvas.width = 64; canvas.height = 32;
+          canvas.getContext('2d').fillRect(0, 0, 64, 32);
+          window.heldPNG = Uint8Array.from(atob(canvas.toDataURL('image/png').split(',')[1]), c => c.charCodeAt(0));
+          if (!window.heldSchedule) {
+            window.heldSchedule = window.setTimeout;
+            window.setTimeout = (callback, delay, ...args) => {
+              if (delay === 180000) { window.heldTimers.push(callback); return window.heldSchedule(() => {}, delay); }
+              return window.heldSchedule(callback, delay, ...args);
+            };
+            c.addEventListener('aithema-consent', event => { window.heldAsks.push(event.detail); event.stopImmediatePropagation(); }, { capture: true });
+          }
+          window.fetch = async (url, options = {}) => {
+            if (/\/events(?:\?|$)/u.test(String(url))) return new Response(new ReadableStream({ start(controller) { options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
+            if (/\/uploads\/[^/]+\/image$/u.test(String(url))) return new Response(window.heldPNG, { headers: { 'content-type': 'image/png' } });
+            if (String(url).endsWith('/uploads')) {
+              if (options.method !== 'POST') return Response.json({ limits: scenario === 'bytes' ? { maxSessionBytes: 50 } : {} });
+              const files = options.body.getAll('files'), events = [], refused = []; window.heldPosts.push(files.map(f => f.name));
+              for (const [index, file] of files.entries()) {
+                if (file.name === 'scan.pdf' && !window.heldGranted) refused.push({ index, kind: 'image', reason: 'current processing consent required' });
+                else events.push({ sessionId: session.id, seq: c.session.seq + events.length + 1, type: 'upload.state', data: {
+                  id: `receipt-${++window.heldReceipt}`, filename: file.name, kind: file.name === 'scan.pdf' ? 'image' : 'document', state: file.name === 'scan.pdf' ? 'staged-ready' : 'accepted', ...(file.name === 'scan.pdf' ? { mediaType: 'image/png', w: 64, h: 32, digest: 'fixture' } : {}), bytes: file.size, at: new Date(0).toISOString() } });
+              }
+              return Response.json({ events, refused }, { status: 202 });
+            }
+            if (String(url).endsWith('/consent')) return Response.json({ consentRevision: c.session.consentRevision, selected: window.heldGranted ? ['image-input'] : [], features: { imageInput: ['image-input'] } });
+            const snapshot = c.session; snapshot.featureMatrix.best.imageInput = { available: window.heldGranted, reason: window.heldGranted ? null : 'current processing consent required' }; return Response.json(snapshot);
+          };
+          const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+          c.configure({ session, copy, entrance, sessionToken: 'fixture', voiceClient: {} });
+        }, { locale, entrance, scenario });
+        await startTyping(page);
+        const settle = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        const boxes = () => inShadow(page, c => Object.fromEntries(['.composer', '.send', 'textarea', '.composer-feedback'].map(selector => {
+          const r = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [selector, { x: r.x, y: r.y, width: r.width, height: r.height }];
+        })));
+        const pick = async names => {
+          await inShadow(page, (c, names) => {
+            const transfer = new DataTransfer();
+            for (const name of names) transfer.items.add(new File([name === 'scan.pdf' ? new Uint8Array([255, 216, 255, 224]) : '%PDF-' + 'x'.repeat(25)], name, { lastModified: 1234 }));
+            const input = c.shadowRoot.querySelector('.attach-input'); input.files = transfer.files; input.dispatchEvent(new Event('change'));
+          }, names);
+          await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer').hasAttribute('aria-busy'));
+          await settle();
+        };
+        await settle(); const before = await boxes();
+        await pick(scenario.startsWith('cleared') ? ['scan.pdf', 'older.exe'] : ['scan.pdf']);
+        await page.waitForFunction(() => window.heldAsks.length > 0);
+        if (scenario === 'repick') await pick(['scan.pdf']);
+        else if (scenario === 'count') await pick(Array.from({ length: 9 }, (_, i) => `document-${i}.pdf`));
+        else if (scenario === 'bytes') await pick(['first.pdf', 'second.pdf']);
+        else if (scenario.startsWith('cleared')) await pick(['report.pdf']);
+        else await pick(['newer.exe']);
+        if (scenario === 'cleared-expiry') await page.evaluate(() => window.heldTimers.at(-1)());
+        if (scenario === 'repick' || scenario === 'cleared-grant') {
+          await inShadow(page, c => {
+            window.heldGranted = true;
+            c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: ['imageInput'], removed: [] } });
+          });
+          await page.waitForFunction(() => document.querySelector('aithema-session').session.featureMatrix.best.imageInput.available);
+          await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer').hasAttribute('aria-busy'));
+        }
+        await settle(); const after = await boxes();
+        await inShadow(page, async c => { await Promise.all([...c.shadowRoot.querySelectorAll('.image-thumbnail')].map(img => img.decode().catch(() => {}))); });
+        const result = await inShadow(page, c => {
+          const reason = c.shadowRoot.querySelector('.composer-reason'), feedback = c.shadowRoot.querySelector('.composer-feedback').getBoundingClientRect();
+          const texts = [...reason.querySelectorAll('.held-upload-notice, .consent-line-copy, .consent-action')];
+          const visible = texts.map(element => {
+            const r = element.getBoundingClientRect(), range = document.createRange(); range.selectNodeContents(element);
+            return { text: element.textContent, width: r.width, height: r.height,
+              clipped: [...range.getClientRects()].some(b => b.width <= 0 || b.height <= 0 || b.top < feedback.top - 1 || b.bottom > feedback.bottom + 1 || b.left < feedback.left - 1 || b.right > feedback.right + 1) };
+          });
+          const action = reason.querySelector('.consent-action');
+          const tapHeight = action ? Number.parseFloat(getComputedStyle(action, '::after').height) : 0;
+          return { notice: reason.textContent, action: action?.textContent, tapHeight, attached: c.session.uploads.map(u => u.filename), posts: window.heldPosts, visible };
+        });
+        if (process.env.AITHEMA_EVIDENCE_DIR && entrance === 'choice' && (scenario === 'refused' || width === 390 && !['count', 'bytes'].includes(scenario))) {
+          const prefix = join(process.env.AITHEMA_EVIDENCE_DIR, `ait563-${scenario}-${width}-${locale}-${theme}`);
+          await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+          await page.screenshot({ path: `${prefix}.png` }); await writeFile(`${prefix}.json`, JSON.stringify({ before, after, result }, null, 2));
+        }
+        if (['refused', 'count', 'bytes'].includes(scenario)) {
+          assert.equal(result.action, copy.featureConsent.action, 'held consent action stays visible with newer feedback');
+          assert.ok(result.notice.includes('scan.pdf'), 'held filename stays visible');
+          if (width === 390) assert.ok(result.tapHeight >= 44, 'held consent keeps the existing 44 px phone target');
+          const current = scenario === 'refused' ? copy.uploads.type.replace('{name}', 'newer.exe') : scenario === 'count' ? copy.uploads.tooMany.replace('{files}', '8') : copy.uploads.sessionFull.replace('{size}', '50 B');
+          assert.ok(result.notice.includes(current), 'the current reason and capacity figure stay visible');
+          assert.ok(result.visible.length >= 3);
+          for (const box of result.visible) {
+            assert.ok(box.width > 0 && box.height > 0, `${box.text}: visible box`);
+            assert.equal(box.clipped, false, `${box.text}: fully visible in the reserved slot`);
+          }
+          for (const selector of Object.keys(before)) {
+            assert.ok(before[selector].width > 0 && before[selector].height > 0 && after[selector].width > 0 && after[selector].height > 0, `${selector}: visible box`);
+            assert.deepEqual(after[selector], before[selector], `${selector}: 0 px layout shift`);
+          }
+        } else if (scenario === 'repick') assert.equal(result.attached.filter(name => name === 'scan.pdf').length, 1);
+        else {
+          assert.equal(result.notice.includes('older.exe'), false, 'cleared feedback never resurrects');
+          assert.ok(result.attached.includes('report.pdf'));
+          if (scenario === 'cleared-grant') assert.equal(result.attached.filter(name => name === 'scan.pdf').length, 1);
+          else assert.ok(result.notice.includes(copy.uploadsReselect.one));
+        }
+      });
+    });
+}

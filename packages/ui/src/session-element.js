@@ -6,7 +6,7 @@ import { serverEvents } from './session-events.js';
 import { emailOfferStyles } from './email-offer.js';
 import { hostOpenerTurn, openerTranscript } from './host-opener.js';
 import { consentTimeout } from './consent-timer.js';
-import { paintConsentLine, reasonAction, reasonSeparator } from './consent-line.js';
+import { paintConsentLine, featureConsentText, reasonAction, reasonSeparator } from './consent-line.js';
 import { ConceptView, WARNING_ICON, paintFailureLine } from './concept-view.js';
 import { guardConceptControls } from './concept-guards.js';
 import './html-preview.js'; // <aithema-html-preview>, the concept viewer's stage for drafts
@@ -2266,11 +2266,13 @@ export class AithemaSession extends HTMLElement {
         if (consentCopy) consentCopy.tabIndex = 0; else retryLabel.tabIndex = 0;
         if (!refusal) setText(action, copy.uploads.tryAgain);
         setText(discard, copy.uploads.discard);
-      } else if (text.available && !this.#rail?.moved && !this.#sendFailed && this.#imageIntent
-        && (!this.#uploadNotice || this.#imageIntent.selection === this.#uploadSelection)) {
-        const feature = this.#imageIntent.features.includes('imageInput') ? 'imageInput' : 'uploads';
-        paintConsentLine(reason, { copy, feature, verdict: { available: false, reason: CONSENT_REASON },
-          open: opener => this.#dialog.openConsent(feature, opener) });
+      } else if (text.available && !this.#rail?.moved && !this.#sendFailed && this.#imageIntent) {
+        if (!reason.querySelector('.held-upload-notice')) reason.replaceChildren(node('span', 'held-upload-notice'), node('span', 'held-upload-consent'));
+        // The formats remain in the attachment help; this slot keeps the current
+        // refusal and the held files' consent action visible together.
+        const supported = resolveCopy(copy, 'uploadsSupported', undefined, this.#session.locale);
+        const notice = supported && this.#uploadNotice.endsWith(supported) ? this.#uploadNotice.slice(0, -supported.length).trim() : this.#uploadNotice;
+        setText(reason.querySelector('.held-upload-notice'), notice);
       } else if (text.available && !this.#rail?.moved && !this.#sendFailed && this.#images?.hasRefusals) {
         this.#images.paintRefusals(reason);
       } else {
@@ -2281,6 +2283,30 @@ export class AithemaSession extends HTMLElement {
         uploadNotice = this.#imageLayout && text.available && !this.#rail?.moved && !this.#sendFailed && Boolean(words) && words === this.#uploadNotice;
         if (uploadNotice) this.#images.paintNotice(reason, words);
       }
+      if (text.available && !this.#rail?.moved && !this.#sendFailed && this.#imageIntent) {
+        // A retained newer selection owns its retry/discard controls; the held
+        // files keep an independent consent opener alongside those controls.
+        let line = reason.querySelector('.held-upload-consent');
+        if (!line) { line = node('span', 'held-upload-consent'); reason.append(line); }
+        const feature = this.#imageIntent.features.includes('imageInput') ? 'imageInput' : 'uploads';
+        paintConsentLine(line, { copy, feature, verdict: { available: false, reason: CONSENT_REASON },
+          open: opener => this.#dialog.openConsent(feature, opener) });
+        const label = line.querySelector('.consent-line-copy'), names = this.#imageIntent.files.map(file => file.name).join(', ');
+        const sentence = featureConsentText(copy, feature);
+        const wide = node('span', 'held-consent-wide', `${names}: ${sentence}${reasonSeparator}`);
+        const narrow = node('span', 'held-consent-narrow', `${names}: ${copy.featureConsent.textNarrow}${reasonSeparator}`);
+        narrow.setAttribute('aria-hidden', 'true'); label.replaceChildren(wide, narrow);
+        line.querySelector('.consent-action').setAttribute('aria-label', `${copy.featureConsent.action}: ${names}. ${sentence}`);
+        // Retained controls have their own actions; only the held line names its
+        // image-consent group in that case. Keep the established root marker otherwise.
+        if (this.#retryFiles.length) delete reason.dataset.consentFeature;
+        else reason.dataset.consentFeature = feature;
+      } else {
+        const ended = reason.querySelector('.held-upload-consent');
+        if (ended) { ended.remove(); delete reason.dataset.consentFeature; }
+      }
+      reason.toggleAttribute('data-held-consent', Boolean(reason.querySelector('.held-upload-consent')) && Boolean(this.#imageIntent));
+      reason.toggleAttribute('data-held-only', Boolean(this.#imageIntent) && !this.#uploadNotice && !this.#retryFiles.length);
       const capacityNotice = [copy.uploads.tooMany.replace('{files}', this.#limits.maxDocumentsPerSession),
         copy.uploads.sessionFull.replace('{size}', formatBytes(this.#limits.maxSessionBytes, this.#session.locale))].includes(this.#uploadNotice);
       reason.toggleAttribute('data-capacity-notice', capacityNotice && words === this.#uploadNotice && !this.#retryFiles.length
@@ -3694,7 +3720,7 @@ export class AithemaSession extends HTMLElement {
         ? resolveCopy(copy, 'uploadsSupported', undefined, this.#session.locale) : '';
       notices.splice(1, 0, refusalText(copy, documentPlan, this.#session.locale));
       this.#uploadNotice = [notices.filter(Boolean).join(reasonSeparator), supported].filter(Boolean).join(' ');
-      if (consentFiles.length) this.#holdImageIntent(consentFiles, ['imageInput'], refusalVersion, { notice: this.#uploadNotice, consentRevision });
+      if (consentFiles.length) this.#holdImageIntent(consentFiles, ['imageInput'], refusalVersion, { consentRevision });
     } finally {
       if (this.#uploadController === controller) {
         if (current()) this.#retryFiles = [...retained, ...this.#retryFiles];
@@ -3710,12 +3736,14 @@ export class AithemaSession extends HTMLElement {
     // More consent-held selections share the same grant; replacing the timer must
     // neither replace the earlier files nor let its queued callback end this hold.
     if (previous) {
-      files = [...new Set([...previous.files, ...files])];
+      files = [...previous.files, ...files];
       features = [...new Set([...previous.features, ...features])];
       refusalVersion = Math.min(previous.refusalVersion, refusalVersion);
-      const notice = [...new Set([previous.continuation?.notice, continuation?.notice].filter(Boolean))].join(reasonSeparator);
-      if (previous.continuation || continuation) continuation = { ...previous.continuation, ...continuation, notice };
+      if (previous.continuation || continuation) continuation = { ...previous.continuation, ...continuation };
     }
+    // A re-pick creates new File objects for the same on-disk file. Keep the
+    // newest entry, while files with different metadata remain independent.
+    files = [...new Map(files.map(file => [JSON.stringify([file.name, file.size, file.lastModified]), file])).values()];
     const pending = this.#imageIntent = { files, features, continuation, id: this.#session.id, refusalVersion, selection: this.#uploadSelection };
     clearTimeout(this.#imageIntentTimer);
     this.#imageIntentTimer = setTimeout(() => this.#endImageIntent(pending), 180000);
@@ -3724,8 +3752,7 @@ export class AithemaSession extends HTMLElement {
   #endImageIntent(pending) {
     if (!pending || this.#imageIntent !== pending || pending.id !== this.#session.id) return;
     clearTimeout(this.#imageIntentTimer); this.#imageIntent = null;
-    const notice = [...new Set([pending.continuation?.notice,
-      pending.selection !== this.#uploadSelection ? this.#uploadNotice : ''].filter(Boolean))].join(reasonSeparator);
+    const notice = this.#uploadNotice;
     this.#uploadNotice = [notice, plural(resolveCopy(this.#copy, 'uploadsReselect', undefined, this.#session.locale), pending.files.length)].filter(Boolean).join(reasonSeparator);
     this.#render('composer');
   }
@@ -3744,7 +3771,7 @@ export class AithemaSession extends HTMLElement {
     if (pending.continuation && this.#session.consentRevision === pending.continuation.consentRevision) return;
     if (pending.features.includes('imageInput') && !this.#feature('imageInput').available || pending.features.includes('uploads') && !this.#feature('uploads').available) return;
     this.#imageIntent = null; clearTimeout(this.#imageIntentTimer);
-    const notice = [...new Set([pending.continuation?.notice, this.#uploadNotice].filter(Boolean))].join(reasonSeparator);
+    const notice = this.#uploadNotice;
     void this.#attach(pending.files, false, pending.refusalVersion, { ...pending.continuation, notice });
   }
   #cancelUploads() {

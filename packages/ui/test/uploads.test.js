@@ -950,3 +950,14 @@ for (const copy of [en, de]) for (const earlier of ['type', 'retained'])
     assert.ok(notice.includes(earlier === 'type' ? copy.uploads.type.replace('{name}', 'blocked.exe') : copy.uploads.replaced));
     for (const name of ['first.pdf', 'later.pdf', 'last.pdf']) assert.equal(notice.split(name).length - 1, 1);
   });
+
+for (const defaults of [en, de]) test(`AIT-563 Low 5: ${defaults.display.locale} custom uploads.failed wins over default failedMany for several files`, async t => {
+  const failure = 'Host upload failure.', copy = { ...defaults, uploads: { ...defaults.uploads, failed: failure } };
+  const { root, calls } = setup(t, { copy, post: () => Response.json({ error: 'not-owner' }, { status: 403 }) });
+  await choose(root, [file('first.pdf'), file('second.pdf')]);
+  const notice = root.querySelector('.composer-reason').textContent;
+  assert.equal(calls.filter(call => call.options.method === 'POST').length, 1);
+  assert.ok(notice.startsWith(failure));
+  assert.equal(notice.includes(defaults.uploads.failedMany), false);
+  for (const name of ['first.pdf', 'second.pdf']) assert.equal(notice.split(name).length - 1, 1);
+});
