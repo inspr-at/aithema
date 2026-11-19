@@ -798,3 +798,15 @@ for (const copy of [de, en]) for (const retained of [false, true])
     assert.equal(root.querySelector('.composer-saved-announcement').textContent, copy.saved);
     assert.equal(Boolean(root.querySelector('.upload-discard')), retained);
   });
+
+for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} legacy whole-request failure names its files and later batches continue`, async t => {
+  let requests = 0;
+  const { c, root, calls } = setup(t, { copy, limits: { ...UPLOAD_LIMITS, maxFilesPerRequest: 2 }, post: () => ++requests === 1
+    ? Response.json({ error: 'uploads-unavailable', reason: 'image input not supported' }, { status: 403 }) : null });
+  await choose(root, ['clipboard', 'eligible.pdf', 'eligible-later.pdf'].map(name => file(name)));
+  assert.deepEqual(calls.filter(call => call.options.method === 'POST').map(call => call.options.body.getAll('files').map(file => file.name)),
+    [['clipboard', 'eligible.pdf'], ['eligible-later.pdf']]);
+  assert.deepEqual(c.session.uploads.map(upload => upload.filename), ['eligible-later.pdf']);
+  const notice = root.querySelector('.composer-reason').textContent;
+  for (const name of ['clipboard', 'eligible.pdf']) assert.ok(notice.includes(`${name}: ${copy.uploads.unavailable.split('{reason}')[0]}`), notice);
+});

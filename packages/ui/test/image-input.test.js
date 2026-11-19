@@ -412,3 +412,10 @@ for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} only excess r
   assert.deepEqual(f.c.session.uploads.map(upload => upload.filename), ['first.png', 'eligible.pdf']);
   assert.equal(f.root.querySelector('.image-refusal').textContent, `excess.png: ${copy.imageRefusals.limit}`);
 });
+
+for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} every refusal remains visible beyond one batch`, async t => {
+  const f = fixture(t, copy);
+  await choose(f.root, Array.from({ length: 10 }, (_, index) => new window.File(['fixture'], `excluded-${index}.heic`, { type: 'image/heic' })));
+  assert.deepEqual([...f.root.querySelectorAll('.image-refusal')].map(row => row.textContent),
+    Array.from({ length: 10 }, (_, index) => `excluded-${index}.heic: ${copy.imageRefusals.unsupported}`));
+});
