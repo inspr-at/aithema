@@ -37,6 +37,19 @@ export function footerMode(width) {
     limit: width >= FOOTER_WIDTHS.compact, connected: width >= FOOTER_WIDTHS.compact, unit: width >= FOOTER_WIDTHS.number };
 }
 
+// Relative offsets change only the dot's paint position, never its grid footprint.
+// Recompute from the unshifted box so repeated layout passes cannot accumulate drift.
+function snapStatusDot(footer) {
+  const dot = footer.querySelector('.status__dot');
+  if (!dot) return;
+  const box = dot.getBoundingClientRect();
+  if (!(box.width > 0 && box.height > 0)) return;
+  const x = box.x - (parseFloat(dot.style.getPropertyValue('--status-dot-x')) || 0);
+  const y = box.y - (parseFloat(dot.style.getPropertyValue('--status-dot-y')) || 0);
+  dot.style.setProperty('--status-dot-x', `${Math.round(x) - x}px`);
+  dot.style.setProperty('--status-dot-y', `${Math.round(y) - y}px`);
+}
+
 function footerRowGeometry(footer) {
   const row = footer.querySelector('.display-foot__row'), bounds = row.getBoundingClientRect();
   const zones = [...row.children].map(zone => ({ hidden: zone.hidden, visible: Boolean(zone.getClientRects().length), box: zone.getBoundingClientRect() }));
@@ -397,6 +410,7 @@ export class PhoneComposerViewport {
         fitFooter(footer); this.footerFitKey = footerGeometry(footer, this).key;
         this.footerFitWidth = geometry.width;
       }
+      snapStatusDot(footer);
       this.footerTextKey = footerText(footer.querySelector('.display-foot__row'));
       // Recovery notices share transcript end reservation at every width.
       // A voice binding alone never consumes a concept-bar row.
