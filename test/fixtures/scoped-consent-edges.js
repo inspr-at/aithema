@@ -6,6 +6,7 @@ import { createSession, applyEvent } from '../../packages/core/src/index.js';
 export async function scopedConsentEdges({ t, a, session, setSession, setSelected, features, url, evidence }) {
   const checks = [], shots = [];
   const visibleBoxes = geometry => {
+    assert.ok(Object.keys(geometry).length > 0, 'layout check includes rendered boxes');
     for (const [selector, [, , width, height]] of Object.entries(geometry)) {
       assert.ok(width > 0 && height > 0, `${selector} has positive width and height`);
     }
@@ -33,7 +34,17 @@ export async function scopedConsentEdges({ t, a, session, setSession, setSelecte
     s.conceptStatus = { phase: 'ready' }; s.featureMatrix = { best: Object.fromEntries(Object.keys(features).map(f => [f, { available: true }])) };
     setSession(s); setSelected(['models', 'images', 'drafts']);
     await a.setViewport({ width, height: 900 }); await a.goto(url); await a.waitForFunction(() => window.ready);
-    await a.evaluate(async kind => { c.shadowRoot.querySelector('.fold').click(); await view.paintCanvas(); view.open(kind); }, kind);
+    await a.evaluate(async kind => {
+      // Folding intentionally hides the conversation. Compare the rendered
+      // selector set and positive boxes, rather than crediting hidden 0x0 boxes.
+      window.scopedBoxes = () => Object.fromEntries(['.transcript-shell', '.composer', '.concept-rail', '.band', '.concept-access', '.drafts-canvas'].flatMap(selector => {
+        const node = c.shadowRoot.querySelector(selector);
+        if (!node.getClientRects().length) return [];
+        const b = node.getBoundingClientRect();
+        return [[selector, [b.x, b.y, b.width, b.height]]];
+      }));
+      c.shadowRoot.querySelector('.fold').click(); await view.paintCanvas(); view.open(kind);
+    }, kind);
     await a.waitForFunction(kind => c.shadowRoot.querySelector('.canvas-html').state === 'ready' &&
       (kind === 'html' ? c.shadowRoot.querySelector('.concept-html').state === 'ready' : c.shadowRoot.querySelector('.concept-image').hasAttribute('src')), {}, kind);
   };
@@ -53,7 +64,7 @@ export async function scopedConsentEdges({ t, a, session, setSession, setSelecte
   };
   for (const [width, kind] of [[1440, 'html'], [390, 'html'], [1440, 'image']]) await t.test(`AIT-365 E1 ${width}/${kind}`, async () => {
     await init(width, kind);
-    const before = await a.evaluate(() => ({ ...inspect(), geometry: boxes() }));
+    const before = await a.evaluate(() => ({ ...inspect(), geometry: scopedBoxes() }));
     assert.equal(before.open, true, 'the revoked viewer starts open');
     assert.ok((kind === 'html' ? before.frames : before.images).includes(kind), 'the revoked surface starts populated');
     const baseline = visibleBoxes(before.geometry);
@@ -74,7 +85,7 @@ export async function scopedConsentEdges({ t, a, session, setSession, setSelecte
       const removedBeforeReturn = !atReturn.open && !atReturn.frames.includes(kind) &&
         !atReturn.images.includes(kind) && !atReturn.ids.includes(kind) &&
         (kind !== 'html' || atReturn.iframeCount === 0);
-      return { ...atReturn, removedBeforeReturn, eventToRemovalMs, geometry: boxes() };
+      return { ...atReturn, removedBeforeReturn, eventToRemovalMs, geometry: scopedBoxes() };
     }, { e, kind, width });
     assert.equal(immediate.removedBeforeReturn, true, 'scoped removal completes before receive returns, without an await, frame or timer');
     assert.equal(immediate.open, false, 'scoped event closes the revoked viewer before returning');
@@ -87,7 +98,7 @@ export async function scopedConsentEdges({ t, a, session, setSession, setSelecte
     assert.deepEqual(visibleBoxes(immediate.geometry), baseline, 'event moves thread/composer/rail/header/access/canvas 0 px');
     await capture(width, `scoped-${kind}`);
     await releaseSnapshots(); await a.waitForFunction(() => window.verifiedRevision === c.session.consentRevision);
-    const confirmed = await a.evaluate(() => ({ ...inspect(), geometry: boxes() }));
+    const confirmed = await a.evaluate(() => ({ ...inspect(), geometry: scopedBoxes() }));
     assert.equal(confirmed.notice, immediate.notice, 'refresh keeps the same withdrawal notice');
     assert.deepEqual(confirmed.ids, immediate.ids); assert.deepEqual(visibleBoxes(confirmed.geometry), baseline, 'confirmation moves 0 px');
     checks.push({ width, theme: 'light', locale: 'de', edge: 'E1', kind, ...immediate, confirmed, movementPx: 0, sameNotice: true, viewportOnly: true });
