@@ -8,7 +8,7 @@ import { browserForFile } from './shared-browser.js';
 import { fixture as combinedFixture } from './combined-entrance-check.js';
 import { fixture as creditFixture } from './visitor-credit-tiers-helpers.js';
 
-const html = combinedFixture.replace("entrance:'combined'", "entrance:new URL(location.href).searchParams.get('entrance')||'combined'");
+const html = combinedFixture.replace('globalThis.mount=', 'globalThis.fixtureClient=client;globalThis.mount=').replace("entrance:'combined'", "entrance:new URL(location.href).searchParams.get('entrance')||'combined'");
 const variants = [{ width: 390, locale: 'de', theme: 'dark' }, { width: 1440, locale: 'en', theme: 'light' }];
 async function harness(t) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-first-screen-'));
@@ -29,7 +29,7 @@ async function open(page, server, variant, entrance = 'combined') {
   await page.waitForFunction(() => globalThis.ready);
   await page.evaluate(({ theme, entrance }) => {
     c.setAttribute('theme', theme); c.style.setProperty('--aithema-height', '100dvh');
-    const configure = c.configure.bind(c); c.configure = options => configure({ entrance, ...options });
+    const configure = c.configure.bind(c); c.configure = options => configure({ entrance, voiceClient: fixtureClient, ...options });
   }, { theme: variant.theme, entrance });
 }
 async function observe(page) {
