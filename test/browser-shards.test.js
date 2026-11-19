@@ -243,7 +243,7 @@ for (const state of ['stale', 'warming']) {
       const read = fs.readFileSync;
       fs.readFileSync = (path, ...args) => {
         const bytes = read(path, ...args);
-        if (!/\/clarify-now(?:-status)?\\.weight\\.json$/.test(String(path))) return bytes;
+        if (!['clarify-now', 'clarify-now-status'].some(name => String(path).endsWith('/' + name + '.weight.json'))) return bytes;
         const measurement = JSON.parse(bytes);
         measurement.timing.workload = 'f'.repeat(64);
         if (${state === 'warming'}) {
