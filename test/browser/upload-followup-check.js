@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
+import idleGeometry from '../fixtures/held-idle-geometry.json' with { type: 'json' };
 import { browserForFile } from './shared-browser.js';
 import { startDemo, stopDemo, preparePage, waitForShadow, startTyping, inShadow } from './demo-helpers.js';
 
@@ -21,15 +22,29 @@ function feedbackVisibility(c) {
     if (!node.textContent.trim()) continue;
     const range = document.createRange(); range.selectNodeContents(node);
     const rects = [...range.getClientRects()].filter(r => r.width > 0 && r.height > 0);
-    if (!rects.length) continue; // Responsive alternatives with display:none have no painted rect.
+    if (!rects.length) {
+      const alternative = node.parentElement.closest('.held-consent-wide, .held-consent-narrow, .consent-wide, .consent-narrow');
+      if (alternative && getComputedStyle(alternative).display === 'none' || reason.hasAttribute('data-shortcut')) continue;
+      texts.push({ text: node.textContent, rects: [], outside: true, reachable: false }); continue;
+    }
     if (node.parentElement.closest('.held-upload-images')) imageBottoms.push(...rects.map(r => r.bottom));
     if (node.parentElement.closest('.held-upload-consent')) heldTops.push(...rects.map(r => r.top));
-    const port = ports.find(p => p.contains(node)), pr = port?.getBoundingClientRect();
+    const port = ports.find(p => p.contains(node));
+    const clippers = [];
+    for (let e = node.parentElement; e && e !== slot; e = e.parentElement) {
+      const css = getComputedStyle(e);
+      if (/auto|scroll|hidden|clip/u.test(css.overflowY)) clippers.push(e);
+    }
+    const reaches = (r, p) => {
+      const b = p.getBoundingClientRect();
+      return p.tabIndex >= 0 && /auto|scroll/u.test(getComputedStyle(p).overflowY) && b.width > 0 && b.height > 0
+        && b.top >= bounds.top - 1 && b.bottom <= bounds.bottom + 1
+        && r.left >= b.left - 1 && r.right <= b.right + 1
+        && r.top >= b.top - p.scrollTop - 1 && r.bottom <= b.top - p.scrollTop + p.scrollHeight + 1;
+    };
     texts.push({ text: node.textContent, rects: rects.map(box), outside: rects.some(r => outside(r, bounds)),
-      reachable: rects.every(r => !outside(r, bounds) || Boolean(port && pr.width > 0 && pr.height > 0 &&
-        pr.top >= bounds.top - 1 && pr.bottom <= bounds.bottom + 1 &&
-        r.left >= pr.left - 1 && r.right <= pr.right + 1 &&
-        r.top >= pr.top - port.scrollTop - 1 && r.bottom <= pr.top - port.scrollTop + port.scrollHeight + 1)) });
+      reachable: rects.every(r => (!outside(r, bounds) || Boolean(port && reaches(r, port)))
+        && clippers.every(p => !outside(r, p.getBoundingClientRect()) || reaches(r, p))) });
   }
   const action = reason.querySelector('.held-upload-consent .consent-action') ?? reason.querySelector('.consent-action');
   let treatment = null;
@@ -38,14 +53,22 @@ function feedbackVisibility(c) {
     let parent = action.parentElement;
     while (parent !== slot && !/auto|scroll/u.test(getComputedStyle(parent).overflowY)) parent = parent.parentElement;
     const p = parent.getBoundingClientRect();
-    treatment = { decoration: css.textDecorationLine, colour: css.color, parentColour: getComputedStyle(action.parentElement).color, offset: css.textUnderlineOffset,
+    treatment = { width: r.width, height: r.height, decoration: css.textDecorationLine, colour: css.color, parentColour: getComputedStyle(action.parentElement).color, offset: css.textUnderlineOffset,
       underlineClipped: r.bottom + 3 > p.bottom + 1 && parent.scrollHeight <= parent.clientHeight };
   }
   const heldGap = imageBottoms.length && heldTops.length ? Math.min(...heldTops) - Math.max(...imageBottoms) : 0;
   const slotOverflow = slot.scrollHeight > slot.clientHeight + 1;
   return { slot: box(bounds), scrollHeight: slot.scrollHeight, clientHeight: slot.clientHeight, slotOverflow, texts, action: treatment, heldGap,
-    ports: ports.map(p => ({ className: p.className, scrollHeight: p.scrollHeight, clientHeight: p.clientHeight, tabIndex: p.tabIndex })),
-    unreachable: texts.some(t => !t.reachable) || slotOverflow && !ports.some(p => p === slot) };
+    ports: ports.map(p => ({ className: p.className, scrollHeight: p.scrollHeight, clientHeight: p.clientHeight, scrollTop: p.scrollTop, tabIndex: p.tabIndex,
+      more: p.hasAttribute('data-feedback-more'), cue: getComputedStyle(p).boxShadow })),
+    unreachable: bounds.width <= 0 || bounds.height <= 0 || texts.some(t => !t.reachable) || slotOverflow && !ports.some(p => p === slot) };
+}
+
+function feedbackBoxes(visibility) {
+  return visibility.texts.map(text => ({ text: text.text,
+    width: text.rects.length ? Math.max(...text.rects.map(r => r.right)) - Math.min(...text.rects.map(r => r.left)) : 0,
+    height: text.rects.length ? Math.max(...text.rects.map(r => r.bottom)) - Math.min(...text.rects.map(r => r.top)) : 0,
+    rects: text.rects.length, outside: text.outside, clipped: !text.reachable }));
 }
 
 export function uploadFollowupCheck() {
@@ -106,6 +129,8 @@ export function uploadFollowupCheck() {
           return { startsWith: true, width: r.width, height: r.height, lines: rects.length,
             clipped: rects.some(b => b.width <= 0 || b.height <= 0 || b.top < r.top - 1 || b.bottom > r.bottom + 1 || b.left < r.left - 1 || b.right > r.right + 1) };
         }, important);
+        const visibility = await inShadow(page, feedbackVisibility);
+        assert.equal(visibility.unreachable, false, JSON.stringify(visibility));
         const evidence = process.env.AITHEMA_EVIDENCE_DIR, prefix = `ait561-${scenario}-${width}-${locale}-${theme}`;
         if (evidence) { await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, `${prefix}.png`) }); await writeFile(join(evidence, `${prefix}.json`), JSON.stringify({ before, after, result, visible }, null, 2)); }
         if (scenario === 'count' || scenario === 'bytes') {
@@ -284,21 +309,18 @@ export function heldConsentFollowupCheck() {
         await settle(); const after = await boxes();
         await inShadow(page, async c => { await Promise.all([...c.shadowRoot.querySelectorAll('.image-thumbnail')].map(img => img.decode().catch(() => {}))); });
         const result = await inShadow(page, c => {
-          const reason = c.shadowRoot.querySelector('.composer-reason'), feedback = c.shadowRoot.querySelector('.composer-feedback').getBoundingClientRect();
-          const texts = [...reason.querySelectorAll('.held-upload-notice, .consent-line-copy, .consent-action')];
-          const visible = texts.map(element => {
-            const r = element.getBoundingClientRect(), range = document.createRange(); range.selectNodeContents(element);
-            return { text: element.textContent, width: r.width, height: r.height,
-              clipped: [...range.getClientRects()].some(b => b.width <= 0 || b.height <= 0 || b.top < feedback.top - 1 || b.bottom > feedback.bottom + 1 || b.left < feedback.left - 1 || b.right > feedback.right + 1) };
-          });
+          const reason = c.shadowRoot.querySelector('.composer-reason');
           const action = reason.querySelector('.consent-action');
           const tapHeight = action ? Number.parseFloat(getComputedStyle(action, '::after').height) : 0;
-          return { notice: reason.textContent, action: action?.textContent, tapHeight, attached: c.session.uploads.map(u => u.filename), posts: window.heldPosts, visible };
+          return { notice: reason.textContent, action: action?.textContent, tapHeight, attached: c.session.uploads.map(u => u.filename), posts: window.heldPosts };
         });
+        const visibility = await inShadow(page, feedbackVisibility);
+        result.visible = feedbackBoxes(visibility);
+        assert.equal(visibility.unreachable, false, JSON.stringify(visibility));
         if (process.env.AITHEMA_EVIDENCE_DIR && entrance === 'choice' && (scenario === 'refused' || width === 390 && !['count', 'bytes'].includes(scenario))) {
           const prefix = join(process.env.AITHEMA_EVIDENCE_DIR, `ait563-${scenario}-${width}-${locale}-${theme}`);
           await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
-          await page.screenshot({ path: `${prefix}.png` }); await writeFile(`${prefix}.json`, JSON.stringify({ before, after, result }, null, 2));
+          await page.screenshot({ path: `${prefix}.png` }); await writeFile(`${prefix}.json`, JSON.stringify({ before, after, result, visibility }, null, 2));
         }
         if (['refused', 'count', 'bytes'].includes(scenario)) {
           assert.equal(result.action, copy.featureConsent.action, 'held consent action stays visible with newer feedback');
@@ -399,6 +421,16 @@ export function heldRegressionCheck() {
           assert.ok(Math.abs(before['.composer'].height - expected) <= .5, `idle composer matches main within 0.5 px: ${before['.composer'].height} vs ${expected}`);
           if (width === 390 && scenario === 'idle-document')
             assert.ok(Math.abs(before['.send'].y - 716.40625) <= .5, 'document-only idle Send matches main within 0.5 px');
+          // Native font widths differ by platform; these complete rects come
+          // from the macOS lane's c6153be8 capture. Height checks above are portable.
+          if (process.platform === idleGeometry.platform) {
+            const reference = idleGeometry.boxes[`${scenario.slice(5)}-${width}-${locale}`];
+            for (const [selector, expectedBox] of Object.entries(reference)) {
+              assert.ok(expectedBox.width > 0 && expectedBox.height > 0, `${selector}: positive main reference`);
+              for (const [axis, expectedValue] of Object.entries(expectedBox))
+                assert.ok(Math.abs(before[selector][axis] - expectedValue) <= .5, `${selector}.${axis}: idle matches main within 0.5 px (${before[selector][axis]} vs ${expectedValue})`);
+            }
+          }
           return;
         }
         const heldName = scenario === 'document-only' || scenario === 'mixed-refusals' ? 'scan.pdf' : 'photo.png';
@@ -425,17 +457,15 @@ export function heldRegressionCheck() {
           await page.waitForFunction(() => window.regression.firstText);
         }
         await settle(); const after = await boxes();
-        const inspect = () => inShadow(page, c => {
-          const reason = c.shadowRoot.querySelector('.composer-reason'), feedback = c.shadowRoot.querySelector('.composer-feedback').getBoundingClientRect();
-          const visible = [...reason.querySelectorAll('.held-upload-notice, .held-upload-images .image-refusal__name, .held-upload-images .image-refusal__reason, .held-upload-consent .consent-line-copy, .held-upload-consent .consent-action')].filter(e => e.textContent).map(element => {
-            const r = element.getBoundingClientRect(), range = document.createRange(); range.selectNodeContents(element);
-            const rects = [...range.getClientRects()].filter(b => b.width > 0 && b.height > 0);
-            return { text: element.textContent, width: r.width, height: r.height, rects: rects.length,
-              clipped: rects.some(b => b.top < feedback.top - 1 || b.bottom > feedback.bottom + 1 || b.left < feedback.left - 1 || b.right > feedback.right + 1) };
+        const inspect = async () => {
+          const state = await inShadow(page, c => {
+            const reason = c.shadowRoot.querySelector('.composer-reason');
+            return { notice: reason.textContent, heldOnly: reason.hasAttribute('data-held-only'), imageLayout: c.shadowRoot.querySelector('.composer').hasAttribute('data-image-input'), firstText: window.regression.firstText };
           });
-          return { notice: reason.textContent, visible, heldOnly: reason.hasAttribute('data-held-only'), imageLayout: c.shadowRoot.querySelector('.composer').hasAttribute('data-image-input'), firstText: window.regression.firstText };
-        });
-        const result = await inspect(), visibility = await inShadow(page, feedbackVisibility), evidence = process.env.AITHEMA_EVIDENCE_DIR;
+          const visibility = await inShadow(page, feedbackVisibility);
+          return { ...state, visibility, visible: feedbackBoxes(visibility) };
+        };
+        const result = await inspect(), visibility = result.visibility, evidence = process.env.AITHEMA_EVIDENCE_DIR;
         // A compact review packet: two re-hold states, four mixed scenes, two document-only scenes and first text renders.
         const selected = scenario === 'mixed-refusals' || scenario === 'text-block' || (scenario === 'rehold-decline' || scenario === 'document-only') && (width === 390 && locale === 'de' || width === 1440 && locale === 'en');
         const save = async (suffix, data) => {
@@ -447,6 +477,7 @@ export function heldRegressionCheck() {
         await t.test(`${scenario}: slot and every text node`, () => assert.equal(visibility.unreachable, false, JSON.stringify(visibility)));
         if (scenario === 'mixed-refusals' || scenario === 'document-only') {
           await t.test(`${scenario}: consent link treatment`, () => {
+            assert.ok(visibility.action.width > 0 && visibility.action.height > 0, 'consent has a positive visible box');
             assert.ok(visibility.action.decoration.includes('underline'), 'consent is underlined');
             assert.equal(visibility.action.colour, visibility.action.parentColour, 'consent inherits the sentence ink like the shared link');
             assert.equal(visibility.action.offset, '3px');
@@ -456,6 +487,27 @@ export function heldRegressionCheck() {
             assert.ok(visibility.heldGap <= 2, `held line follows current facts without an empty line: ${visibility.heldGap}px`);
           });
         }
+        if (['mixed-refusals', 'document-only'].includes(scenario) && visibility.ports.some(p => p.className === 'composer-reason' && p.scrollHeight > p.clientHeight + 1)) {
+          const scrollBefore = await boxes();
+          await inShadow(page, c => c.shadowRoot.querySelector('[data-feedback-scroll]')?.focus({ preventScroll: true }));
+          await page.keyboard.press('End');
+          await page.waitForFunction(() => { const r = document.querySelector('aithema-session').shadowRoot.querySelector('[data-feedback-scroll]'); return r && r.scrollTop >= r.scrollHeight - r.clientHeight - 1; }, { timeout: 5000 });
+          await settle();
+          const scrolled = await inShadow(page, feedbackVisibility);
+          await save('-scrolled', { before: scrollBefore, after: await boxes(), visibility: scrolled });
+          await t.test(`${scenario}: keyboard reaches the final words`, () => {
+            const port = scrolled.ports.find(p => p.className === 'composer-reason');
+            assert.ok(port && port.scrollTop > 0, 'End scrolls the focused feedback region');
+            assert.ok(visibility.ports.some(p => p.more && p.cue !== 'none'), 'overflow has a visible affordance');
+            const last = scrolled.texts.at(-1), slot = scrolled.slot;
+            assert.ok(last.rects.every(r => r.top >= slot.top - 1 && r.bottom <= slot.bottom + 1), 'the complete final action is in view');
+            assert.equal(scrolled.unreachable, false);
+          });
+          assert.deepEqual(await boxes(), scrollBefore, 'keyboard scrolling never moves composer or controls');
+          await page.keyboard.press('Home');
+          await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('[data-feedback-scroll]').scrollTop === 0, { timeout: 5000 });
+          await settle();
+        }
         if (scenario.startsWith('rehold')) {
           if (scenario === 'rehold-grant') {
             await inShadow(page, c => { window.regression.granted = true; c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, conversationUnchanged: true, changed: ['imageInput'], removed: [] } }); });
@@ -463,6 +515,7 @@ export function heldRegressionCheck() {
           } else if (scenario === 'rehold-decline') await page.evaluate(() => window.regression.asks.at(-1).cancel());
           else await page.evaluate(() => window.regression.timers.at(-1)());
           await settle(); const ended = await inspect(); await save('-ended', { result: ended });
+          assert.equal(ended.visibility.unreachable, false, 'every ended-hold word remains reachable');
           assert.equal(ended.notice.split(copy.uploadsReselect.one).length - 1, scenario === 'rehold-grant' ? 0 : 1, 'no duplicate or stale choose-again sentence');
           assert.equal(result.notice.includes(copy.uploadsReselect.one), false, 're-hold supersedes the stale sentence');
         } else if (scenario === 'text-block') {
