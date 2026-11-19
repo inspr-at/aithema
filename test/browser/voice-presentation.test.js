@@ -38,6 +38,15 @@ test('AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN', { timeo
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
   await page.evaluate(async () => {
     const { AudioRail } = await import('/packages/ui/src/audio-rail.js');
+    const { ConnectionTimer } = await import('/packages/ui/src/layout.js');
+    // This matrix depicts a fixed elapsed time. Replacing the timer's text on
+    // every capture re-rasterizes the adjacent fractional-position status dot.
+    // Pin the timer's own clock so its normal idempotent paint can settle.
+    const setConnected = ConnectionTimer.prototype.setConnected;
+    ConnectionTimer.prototype.setConnected = function (on) {
+      this.now = () => this.since ?? 0;
+      setConnected.call(this, on); this.paint();
+    };
     const render = AudioRail.prototype.render;
     AudioRail.prototype.render = function () { globalThis.presentationRail = this; return render.call(this); };
     globalThis.presentationSeed = document.querySelector('aithema-session').session;
@@ -67,21 +76,18 @@ test('AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN', { timeo
         rail.errorKey = rail.moved ? 'voiceMoved' : null;
         rail.usedUp = () => state === 'used-up'; rail.feature = () => ({ available: true, reason: null });
         rail.render(); rail.waveform.baseline();
-        c.shadowRoot.querySelector('.connection-timer').textContent = '0:00';
         c.shadowRoot.activeElement?.blur(); document.documentElement.lang = locale;
         document.querySelector('#locale').value = locale; paintUtilities(copy); scrollTo(0, 0);
       }, { locale, state });
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.status').hasAttribute('data-connected'));
       await page.mouse.move(0, 500); await settle();
       assert.equal(await shadow(page, c => c.getAttribute('motion')), 'off');
-      await shadow(page, c => { c.shadowRoot.querySelector('.connection-timer').textContent = '0:00'; });
       const name = `voice-${state}-${width}-${theme}-${locale}.png`;
       // Backdrop-filter layers can retain the preceding rail state for a frame.
       // Flush them and wait for consecutive stable viewport paints on both revisions.
       let captured, compared, previous = Buffer.from(await page.screenshot({ fullPage: false })), stable = false;
       for (let attempt = 0; attempt < 8; attempt++) {
         await settle();
-        await shadow(page, c => { c.shadowRoot.querySelector('.connection-timer').textContent = '0:00'; });
         captured = Buffer.from(await page.screenshot({ fullPage: false }));
         compared = previous;
         if (samePaint(previous, captured)) { stable = true; break; }
