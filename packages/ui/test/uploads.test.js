@@ -810,3 +810,19 @@ for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} legacy whole-
   const notice = root.querySelector('.composer-reason').textContent;
   for (const name of ['clipboard', 'eligible.pdf']) assert.ok(notice.includes(`${name}: ${copy.uploads.unavailable.split('{reason}')[0]}`), notice);
 });
+
+for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} eight eligible PDFs plus a detected image reach both default-sized batches`, async t => {
+  const attached = [], { c, root, calls } = setup(t, { copy, post: form => {
+    const events = [], refused = [];
+    for (const [index, file] of form.getAll('files').entries()) {
+      if (file.name === 'scan.pdf') refused.push({ index, name: file.name, kind: 'image', reason: 'image normalizer not configured' });
+      else { attached.push(file.name); events.push({ sessionId: c.session.id, seq: c.session.seq + events.length + 1, type: 'upload.state', data: pending(`doc-${file.name}`, { filename: file.name, state: 'accepted' }) }); }
+    }
+    return Response.json({ events, refused }, { status: 202 });
+  } });
+  const names = ['scan.pdf', ...Array.from({ length: 8 }, (_, index) => `eligible-${index}.pdf`)];
+  await choose(root, names.map(name => file(name)));
+  assert.deepEqual(calls.filter(call => call.options.method === 'POST').map(call => call.options.body.getAll('files').map(file => file.name)), [names.slice(0, 8), names.slice(8)]);
+  assert.deepEqual(attached, names.slice(1));
+  assert.equal(root.querySelector('.composer-reason').textContent, copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'scan.pdf')));
+});
