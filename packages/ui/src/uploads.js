@@ -98,8 +98,11 @@ export function planUploads(files, { limits: raw, uploads = [], images = true, i
     if (imageSlots > 0) { imageSlots--; return true; }
     imageRefused.push({ name: file.name, reason: 'limit' }); return false;
   });
-  const used = active.reduce((sum, u) => sum + (u.bytes ?? 0), 0), adding = admitted.reduce((sum, f) => sum + f.size, 0);
-  const addingImages = images ? admitted.filter(imageFile).length : 0;
+  // Known images on a document-only host are refused by the server. They
+  // still occupy transport bytes, but cannot consume document/session slots.
+  const used = active.reduce((sum, u) => sum + (u.bytes ?? 0), 0);
+  const adding = admitted.filter(file => images || !imageFile(file)).reduce((sum, file) => sum + file.size, 0);
+  const addingImages = admitted.filter(imageFile).length;
   const blocked = !admitted.length ? imageRefused.length ? 'images' : null
     : !deferSessionLimits && active.length - imageCount + admitted.length - addingImages > limits.maxDocumentsPerSession ? 'count'
     : !deferSessionLimits && used + adding > limits.maxSessionBytes ? 'session' : null;
