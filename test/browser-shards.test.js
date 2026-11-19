@@ -304,6 +304,24 @@ test('AIT-557: fourteen bins retain 405s headroom with AIT-506 and AIT-524 measu
   assertBrowserShardHeadroom(packing, weights);
 });
 
+test('AIT-558: the growth guard rejects measured status work below the independent moved-work floor', () => {
+  const setup = `
+    import fs from 'node:fs';
+    import { syncBuiltinESMExports } from 'node:module';
+    const read = fs.readFileSync;
+    fs.readFileSync = (path, ...args) => String(path).endsWith('/clarify-now-status.weight.json')
+      ? JSON.stringify(${JSON.stringify(measuredWeight(190))}) : read(path, ...args);
+    syncBuiltinESMExports();
+  `;
+  const result = spawnSync(process.execPath, ['--test', '--test-name-pattern=^AIT-557: fourteen bins retain',
+    '--import', `data:text/javascript,${encodeURIComponent(setup)}`, 'test/browser-shards.test.js'], {
+    cwd: new URL('../', import.meta.url), encoding: 'utf8', env: { ...process.env, NODE_TEST_CONTEXT: undefined },
+  });
+  assert.match(result.stdout, /AIT-557: fourteen bins retain/u, result.stdout + result.stderr);
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stdout, /the moved status work remains reserved/u);
+});
+
 test('headroom guard accepts 405s and reports overloaded totals and files below the hard ceiling', () => {
   const weights = { 'a.test.js': 200, 'b.test.js': 205, 'c.test.js': 0.001 };
   assert.doesNotThrow(() => assertBrowserShardHeadroom({ shards: [['a.test.js', 'b.test.js']], totals: [405] }, weights));
