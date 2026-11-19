@@ -1,4 +1,5 @@
 import { node, setText } from './dom.js';
+import { reasonSeparator } from './reason-separator.js';
 import { plural, resolveCopy } from './copy-resolve.js';
 
 /** Fits complete notices into the existing cell; the same nodes own sheet actions. */
@@ -150,7 +151,7 @@ export class UploadNotices {
       const count = this.#rows.length - this.#visible;
       this.#more.replaceChildren(); this.#more.toggleAttribute('data-summary', this.#visible === 0);
       if (!this.#visible) {
-        this.#more.append(node('span', '', this.#text('summaryUnavailable')), ' · ', node('span', 'upload-notices-details', this.#text('detailsAction')));
+        this.#more.append(node('span', '', this.#text('summaryUnavailable')), reasonSeparator, node('span', 'upload-notices-details', this.#text('detailsAction')));
       } else setText(this.#more, plural(this.#text('moreNotices'), count));
       this.#reason.append(this.#more);
     }
