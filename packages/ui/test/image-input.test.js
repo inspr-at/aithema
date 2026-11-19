@@ -443,3 +443,36 @@ for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} bytes of an e
   assert.deepEqual(f.c.session.uploads.map(upload => upload.filename), ['earlier.png', 'eligible.pdf']);
   assert.equal(f.root.querySelector('.image-refusal').textContent, `scan.pdf: ${copy.imageRefusals.limit}`);
 });
+
+for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} detected-image consent preserves the selection's document refusal and busy retained files`, async t => {
+  const f = fixture(t, copy, false), originalFetch = globalThis.fetch, originalTimeout = globalThis.setTimeout, posts = [];
+  let busy = true;
+  t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => originalTimeout(callback, [5000, 10000].includes(delay) ? 0 : delay, ...args));
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    if (url.endsWith('/uploads') && options.method !== 'POST') return Response.json({ limits: { maxFilesPerRequest: 2 } });
+    if (url.endsWith('/uploads') && options.method === 'POST') {
+      const files = options.body.getAll('files'); posts.push(files.map(file => file.name));
+      if (busy && files.some(file => file.name === 'eligible-later.pdf')) return Response.json({ error: 'upload-rate-limit' }, { status: 429 });
+      const events = [], refused = [];
+      for (const [index, file] of files.entries()) {
+        const image = file.name === 'clipboard';
+        if (image && !f.c.session.featureMatrix.best.imageInput.available) refused.push({ index, name: file.name, kind: 'image', reason: 'current processing consent required' });
+        else events.push({ sessionId: f.c.session.id, seq: f.c.session.seq + events.length + 1, type: 'upload.state', data: {
+          id: `continued-${file.name}`, filename: file.name, kind: image ? 'image' : 'document', state: image ? 'staged-pending' : 'accepted', bytes: file.size, at: new Date(0).toISOString() } });
+      }
+      return Response.json({ events, refused }, { status: 202 });
+    }
+    return originalFetch(url, options);
+  });
+  const until = async predicate => { for (let attempt = 0; attempt < 100 && !predicate(); attempt++) await new Promise(resolve => setTimeout(resolve, 0)); assert.ok(predicate()); };
+  await choose(f.root, ['clipboard', 'eligible.pdf', 'eligible-later.pdf', 'blocked.exe'].map(name => new window.File(['fixture'], name)));
+  await until(() => f.asks.length === 1 && f.root.querySelector('.upload-retry'));
+  f.grantImages();
+  await until(() => f.c.session.uploads.some(upload => upload.filename === 'clipboard'));
+  assert.ok(f.root.querySelector('.upload-retry'), 'image continuation preserves retained documents');
+  assert.ok(f.root.querySelector('.composer-reason').textContent.includes(copy.uploads.type.replace('{name}', 'blocked.exe')), 'the same selection keeps its per-file document reason');
+  busy = false; f.root.querySelector('.upload-retry').click();
+  await until(() => f.c.session.uploads.some(upload => upload.filename === 'eligible-later.pdf'));
+  assert.deepEqual(posts.at(-1), ['eligible-later.pdf'], 'the document remains available for explicit retry');
+  assert.equal(f.c.session.uploads.filter(upload => upload.filename === 'eligible.pdf').length, 1);
+});
