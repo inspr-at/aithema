@@ -396,7 +396,7 @@ for (const copy of [en, de]) for (const reason of ['image normalizer not configu
       assert.deepEqual(posts.slice(3), [['clipboard', 'typed.pdf'], ['scan.pdf']], 'only detected images resume after consent');
       assert.equal(f.c.session.uploads.filter(upload => upload.kind === 'image').length, 3);
     } else if (reason === 'limit') {
-      assert.deepEqual([...f.root.querySelectorAll('.image-refusal')].map(row => row.textContent), ['clipboard', 'typed.pdf', 'scan.pdf'].map(name => `${name}: ${copy.imageRefusals.limit}`));
+      assert.deepEqual([...f.root.querySelectorAll('.image-refusals .image-refusal')].map(row => row.textContent), ['clipboard', 'typed.pdf', 'scan.pdf'].map(name => `${name}: ${copy.imageRefusals.limit}`));
     } else {
       const expected = copy.uploads.refused.replace('{list}', ['clipboard', 'typed.pdf', 'scan.pdf'].map(name => copy.uploads.type.replace('{name}', name)).join(', '));
       assert.equal(f.root.querySelector('.composer-reason').textContent, expected);
@@ -417,14 +417,14 @@ for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} only excess r
 for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} every refusal remains visible beyond one batch`, async t => {
   const f = fixture(t, copy);
   await choose(f.root, Array.from({ length: 10 }, (_, index) => new window.File(['fixture'], `excluded-${index}.heic`, { type: 'image/heic' })));
-  assert.deepEqual([...f.root.querySelectorAll('.image-refusal')].map(row => row.textContent),
+  assert.deepEqual([...f.root.querySelectorAll('.image-refusals .image-refusal')].map(row => row.textContent),
     Array.from({ length: 10 }, (_, index) => `excluded-${index}.heic: ${copy.imageRefusals.unsupported}`));
 });
 
 for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} duplicate filenames still have one refusal per file`, async t => {
   const f = fixture(t, copy);
   await choose(f.root, [1, 2].map(() => new window.File(['fixture'], 'same.heic', { type: 'image/heic' })));
-  assert.deepEqual([...f.root.querySelectorAll('.image-refusal')].map(row => row.textContent), [1, 2].map(() => `same.heic: ${copy.imageRefusals.unsupported}`));
+  assert.deepEqual([...f.root.querySelectorAll('.image-refusals .image-refusal')].map(row => row.textContent), [1, 2].map(() => `same.heic: ${copy.imageRefusals.unsupported}`));
 });
 
 for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} bytes of an excess detected image cannot hold an otherwise fitting document`, async t => {

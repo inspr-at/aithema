@@ -115,7 +115,7 @@ export function mixedUploadCheck() {
           const result = await inShadow(page, c => ({ posts: window.mixedPosts, asks: window.mixedAsks.map(ask => ask.features),
             documents: c.session.uploads.filter(upload => upload.kind !== 'image').map(upload => upload.filename),
             notice: c.shadowRoot.querySelector('.composer-reason').textContent,
-            refusals: [...c.shadowRoot.querySelectorAll('.image-refusal')].map(row => row.textContent), consent: Boolean(c.shadowRoot.querySelector('.consent-action')) }));
+            refusals: [...c.shadowRoot.querySelectorAll('.image-refusals .image-refusal')].map(row => row.textContent), consent: Boolean(c.shadowRoot.querySelector('.composer-reason[data-consent-feature="imageInput"] .consent-action')) }));
           if (evidence) {
             await page.screenshot({ path: join(evidence, `${prefix}-after.png`) });
             await writeFile(join(evidence, `${prefix}.json`), JSON.stringify({ before, after, result }, null, 2));
