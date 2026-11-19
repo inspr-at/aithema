@@ -4,7 +4,7 @@ import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { plannedSeconds } from '../scripts/browser-timings.js';
+import { plannedSeconds, assertMeasuredWeight, browserWorkload, timingMinimumSamples } from '../scripts/browser-timings.js';
 import { readBrowserTestWeights, assertBrowserShardHeadroom, assertBrowserShardBudget, assertBrowserShardCoverage, browserShardCount, browserShards, browserTestWeights, browserShardTotals, packBrowserTests, discoverBrowserTests, selectBrowserTests } from '../scripts/browser-shards.js';
 
 const measuredWeight = (seconds = 90) => {
@@ -203,7 +203,7 @@ test('weights cannot replace observations with an estimate or a manually lowered
   }
 });
 
-for (const name of ['email-unlock-reply', 'identity-unlock']) {
+for (const name of ['email-unlock-reply', 'identity-unlock', 'clarify-now', 'clarify-now-status']) {
   test(`repository weights reject an unmeasured reservation for ${name}`, () => {
     // Patch only the child process's file reads: exercise repositoryRoot without
     // changing the real measurements or their trusted CI provenance.
@@ -221,6 +221,17 @@ for (const name of ['email-unlock-reply', 'identity-unlock']) {
     assert.match(result.stderr, /Missing rolling p95 CI timing samples/u);
   });
 }
+
+test('AIT-558: both clarify halves use mature CI samples for their current workloads', () => {
+  for (const name of ['clarify-now', 'clarify-now-status']) {
+    const file = `test/browser/${name}.test.js`;
+    const measurement = JSON.parse(readFileSync(new URL(`../test/browser/${name}.weight.json`, import.meta.url)));
+    assertMeasuredWeight(measurement);
+    assert.ok(measurement.timing.samples.length >= timingMinimumSamples, `${name}: at least five matching CI samples`);
+    assert.equal(measurement.timing.workload, browserWorkload(file));
+    assert.equal(measurement.provisional, undefined);
+  }
+});
 
 test('current measured packing keeps every shard at or below the 405s headroom target', () => {
   assertBrowserShardHeadroom();
