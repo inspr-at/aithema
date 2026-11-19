@@ -363,3 +363,162 @@ for (const copy of [en, de]) test(`AIT-556: ${copy.display.locale} additive imag
   const oldBundle = { ...copy, uploads: { ...copy.uploads } }; delete oldBundle.uploads.limitsWithImages;
   assert.equal(limitsText(oldBundle, UPLOAD_LIMITS, locale, true), copy.uploads.limitsWithImages.replace('{files}', '8').replace('{size}', '20 MB'));
 });
+
+for (const copy of [en, de]) for (const reason of ['image normalizer not configured', 'image input not supported', 'image normalizer unavailable', 'current processing consent required', 'limit']) {
+  test(`AIT-559: ${copy.display.locale}/${reason} detected images have per-file outcomes and later documents continue`, async t => {
+    const consent = reason === 'current processing consent required';
+    const f = fixture(t, copy, reason === 'limit', { imageReason: reason });
+    const originalFetch = globalThis.fetch, posts = [];
+    t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+      if (url.endsWith('/uploads') && options.method !== 'POST') return Response.json({ limits: { maxFilesPerRequest: 2 } });
+      if (url.endsWith('/uploads') && options.method === 'POST') {
+        const files = options.body.getAll('files'); posts.push(files.map(file => file.name));
+        const refused = [], events = [];
+        for (const [index, file] of files.entries()) {
+          const image = !file.name.startsWith('eligible');
+          if (image && !(consent && posts.length > 3)) refused.push({ index, name: file.name, kind: 'image', reason });
+          else events.push({ sessionId: f.c.session.id, seq: f.c.session.seq + events.length + 1, type: 'upload.state', data: {
+            id: `attached-${file.name}`, filename: file.name, kind: image ? 'image' : 'document', state: image ? 'staged-pending' : 'accepted', bytes: file.size, at: new Date(0).toISOString() } });
+        }
+        return Response.json({ events, refused }, { status: 202 });
+      }
+      return originalFetch(url, options);
+    });
+    await choose(f.root, [new window.File(['png'], 'clipboard'), new window.File(['pdf'], 'eligible.pdf'),
+      new window.File(['png'], 'typed.pdf', { type: 'image/png' }), new window.File(['pdf'], 'eligible-typed.pdf'),
+      new window.File(['jpeg'], 'scan.pdf'), new window.File(['pdf'], 'eligible-later.pdf')]);
+    assert.deepEqual(posts.slice(0, 3), [['clipboard', 'eligible.pdf'], ['typed.pdf', 'eligible-typed.pdf'], ['scan.pdf', 'eligible-later.pdf']]);
+    assert.deepEqual(f.c.session.uploads.filter(upload => upload.kind === 'document').map(upload => upload.filename), ['eligible.pdf', 'eligible-typed.pdf', 'eligible-later.pdf']);
+    if (consent) {
+      assert.equal(f.asks.length, 1); assert.deepEqual(f.asks[0].features, ['imageInput']);
+      assert.ok(f.root.querySelector('.consent-action'), 'existing image consent action is visible');
+      f.grantImages(); await tick(); await tick(); await tick();
+      assert.deepEqual(posts.slice(3), [['clipboard', 'typed.pdf'], ['scan.pdf']], 'only detected images resume after consent');
+      assert.equal(f.c.session.uploads.filter(upload => upload.kind === 'image').length, 3);
+    } else if (reason === 'limit') {
+      assert.deepEqual([...f.root.querySelectorAll('.image-refusals .image-refusal')].map(row => row.textContent), ['clipboard', 'typed.pdf', 'scan.pdf'].map(name => `${name}: ${copy.imageRefusals.limit}`));
+    } else {
+      const expected = copy.uploads.refused.replace('{list}', ['clipboard', 'typed.pdf', 'scan.pdf'].map(name => copy.uploads.type.replace('{name}', name)).join(', '));
+      assert.equal(f.root.querySelector('.composer-reason').textContent, expected);
+      assert.equal(f.root.querySelector('.image-refusals'), null, 'documents-only surface keeps main type treatment');
+    }
+  });
+}
+
+for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} only excess recognised images are refused while documents continue`, async t => {
+  const f = fixture(t, copy), originalFetch = globalThis.fetch;
+  t.mock.method(globalThis, 'fetch', (url, options = {}) => url.endsWith('/uploads') && options.method !== 'POST'
+    ? Promise.resolve(Response.json({ limits: { maxImagesPerSession: 1 } })) : originalFetch(url, options));
+  await choose(f.root, ['first.png', 'excess.png', 'eligible.pdf'].map(name => new window.File(['fixture'], name)));
+  assert.deepEqual(f.c.session.uploads.map(upload => upload.filename), ['first.png', 'eligible.pdf']);
+  assert.equal(f.root.querySelector('.image-refusal').textContent, `excess.png: ${copy.imageRefusals.limit}`);
+});
+
+for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} every refusal remains visible beyond one batch`, async t => {
+  const f = fixture(t, copy);
+  await choose(f.root, Array.from({ length: 10 }, (_, index) => new window.File(['fixture'], `excluded-${index}.heic`, { type: 'image/heic' })));
+  assert.deepEqual([...f.root.querySelectorAll('.image-refusals .image-refusal')].map(row => row.textContent),
+    Array.from({ length: 10 }, (_, index) => `excluded-${index}.heic: ${copy.imageRefusals.unsupported}`));
+});
+
+for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} duplicate filenames still have one refusal per file`, async t => {
+  const f = fixture(t, copy);
+  await choose(f.root, [1, 2].map(() => new window.File(['fixture'], 'same.heic', { type: 'image/heic' })));
+  assert.deepEqual([...f.root.querySelectorAll('.image-refusals .image-refusal')].map(row => row.textContent), [1, 2].map(() => `same.heic: ${copy.imageRefusals.unsupported}`));
+});
+
+for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} bytes of an excess detected image cannot hold an otherwise fitting document`, async t => {
+  const session = createSession({ demo: true, locale: copy.display.locale });
+  session.uploads = [{ id: 'earlier', kind: 'image', state: 'sent', filename: 'earlier.png', bytes: 1, at: new Date(0).toISOString() }];
+  const f = fixture(t, copy, true, { session }), originalFetch = globalThis.fetch;
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    if (url.endsWith('/uploads') && options.method !== 'POST') return Response.json({ limits: { maxImagesPerSession: 1, maxSessionBytes: 2 } });
+    if (url.endsWith('/uploads') && options.method === 'POST') return Response.json({
+      refused: [{ index: 0, name: 'scan.pdf', kind: 'image', reason: 'limit' }],
+      events: [{ sessionId: session.id, seq: f.c.session.seq + 1, type: 'upload.state', data: { id: 'eligible', filename: 'eligible.pdf', state: 'accepted', bytes: 1, at: new Date(0).toISOString() } }],
+    }, { status: 202 });
+    return originalFetch(url, options);
+  });
+  await choose(f.root, [new window.File(['large rejected image'], 'scan.pdf'), new window.File(['x'], 'eligible.pdf')]);
+  assert.deepEqual(f.c.session.uploads.map(upload => upload.filename), ['earlier.png', 'eligible.pdf']);
+  assert.equal(f.root.querySelector('.image-refusal').textContent, `scan.pdf: ${copy.imageRefusals.limit}`);
+});
+
+for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} detected-image consent preserves the selection's document refusal and busy retained files`, async t => {
+  const f = fixture(t, copy, false), originalFetch = globalThis.fetch, originalTimeout = globalThis.setTimeout, posts = [];
+  let busy = true;
+  t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => originalTimeout(callback, [5000, 10000].includes(delay) ? 0 : delay, ...args));
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    if (url.endsWith('/uploads') && options.method !== 'POST') return Response.json({ limits: { maxFilesPerRequest: 2 } });
+    if (url.endsWith('/uploads') && options.method === 'POST') {
+      const files = options.body.getAll('files'); posts.push(files.map(file => file.name));
+      if (busy && files.some(file => file.name === 'eligible-later.pdf')) return Response.json({ error: 'upload-rate-limit' }, { status: 429 });
+      const events = [], refused = [];
+      for (const [index, file] of files.entries()) {
+        const image = file.name === 'clipboard';
+        if (image && !f.c.session.featureMatrix.best.imageInput.available) refused.push({ index, name: file.name, kind: 'image', reason: 'current processing consent required' });
+        else events.push({ sessionId: f.c.session.id, seq: f.c.session.seq + events.length + 1, type: 'upload.state', data: {
+          id: `continued-${file.name}`, filename: file.name, kind: image ? 'image' : 'document', state: image ? 'staged-pending' : 'accepted', bytes: file.size, at: new Date(0).toISOString() } });
+      }
+      return Response.json({ events, refused }, { status: 202 });
+    }
+    return originalFetch(url, options);
+  });
+  const until = async predicate => { for (let attempt = 0; attempt < 100 && !predicate(); attempt++) await new Promise(resolve => setTimeout(resolve, 0)); assert.ok(predicate()); };
+  await choose(f.root, ['clipboard', 'eligible.pdf', 'eligible-later.pdf', 'blocked.exe'].map(name => new window.File(['fixture'], name)));
+  await until(() => f.asks.length === 1 && f.root.querySelector('.upload-retry'));
+  f.grantImages();
+  await until(() => f.c.session.uploads.some(upload => upload.filename === 'clipboard'));
+  assert.ok(f.root.querySelector('.upload-retry'), 'image continuation preserves retained documents');
+  assert.ok(f.root.querySelector('.composer-reason').textContent.includes(copy.uploads.type.replace('{name}', 'blocked.exe')), 'the same selection keeps its per-file document reason');
+  busy = false; f.root.querySelector('.upload-retry').click();
+  await until(() => f.c.session.uploads.some(upload => upload.filename === 'eligible-later.pdf'));
+  assert.deepEqual(posts.at(-1), ['eligible-later.pdf'], 'the document remains available for explicit retry');
+  assert.equal(f.c.session.uploads.filter(upload => upload.filename === 'eligible.pdf').length, 1);
+});
+
+for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} a detected consent refusal fences a stale available feature until a grant`, async t => {
+  const f = fixture(t, copy, true), originalFetch = globalThis.fetch, posts = [];
+  let granted = false;
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    if (url.endsWith('/uploads') && options.method === 'POST') {
+      const files = options.body.getAll('files'); posts.push(files.map(file => file.name));
+      // Bound a broken continuation so the regression fails without a request loop.
+      if (!granted && posts.length > 1) return Response.json({ error: 'uploads-unavailable', reason: 'current processing consent required' }, { status: 403 });
+      const refused = [], events = [];
+      for (const [index, file] of files.entries()) {
+        if (file.name === 'scan.pdf' && !granted) refused.push({ index, name: file.name, kind: 'image', reason: 'current processing consent required' });
+        else events.push({ sessionId: f.c.session.id, seq: f.c.session.seq + events.length + 1, type: 'upload.state', data: {
+          id: `fenced-${file.name}`, filename: file.name, kind: file.name === 'scan.pdf' ? 'image' : 'document', state: file.name === 'scan.pdf' ? 'staged-pending' : 'accepted', bytes: file.size, at: new Date(0).toISOString() } });
+      }
+      return Response.json({ events, refused }, { status: 202 });
+    }
+    return originalFetch(url, options);
+  });
+  await choose(f.root, ['scan.pdf', 'eligible.pdf'].map(name => new window.File(['fixture'], name)));
+  await tick(); await tick();
+  assert.equal(f.asks.length, 1); assert.deepEqual(f.asks[0].features, ['imageInput']);
+  assert.deepEqual(posts, [['scan.pdf', 'eligible.pdf']], 'a stale available feature cannot resubmit refused images');
+  assert.deepEqual(f.c.session.uploads.map(upload => upload.filename), ['eligible.pdf']);
+  granted = true; f.grantImages(); await tick(); await tick(); await tick();
+  assert.deepEqual(posts[1], ['scan.pdf']);
+  assert.deepEqual(f.c.session.uploads.map(upload => upload.filename), ['eligible.pdf', 'scan.pdf']);
+});
+
+for (const copy of [en, de]) test(`AIT-559: ${copy.display.locale} unavailable image intake keeps main type refusal despite an existing full image quota`, async t => {
+  const session = createSession({ demo: true, locale: copy.display.locale });
+  session.uploads = [{ id: 'earlier', kind: 'image', state: 'sent', filename: 'earlier.png', bytes: 1, at: new Date(0).toISOString() }];
+  const f = fixture(t, copy, false, { session, imageReason: 'image normalizer not configured' }), originalFetch = globalThis.fetch;
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    if (url.endsWith('/uploads') && options.method !== 'POST') return Response.json({ limits: { maxImagesPerSession: 1 } });
+    if (url.endsWith('/uploads') && options.method === 'POST') return Response.json({
+      refused: [{ index: 0, name: 'clipboard', kind: 'image', reason: 'image normalizer not configured' }],
+      events: [{ sessionId: session.id, seq: f.c.session.seq + 1, type: 'upload.state', data: { id: 'eligible', filename: 'eligible.pdf', state: 'accepted', bytes: 1, at: new Date(0).toISOString() } }],
+    }, { status: 202 });
+    return originalFetch(url, options);
+  });
+  await choose(f.root, [new window.File(['pixels'], 'clipboard', { type: 'image/png' }), new window.File(['x'], 'eligible.pdf')]);
+  assert.deepEqual(f.c.session.uploads.map(upload => upload.filename), ['earlier.png', 'eligible.pdf']);
+  assert.equal(f.root.querySelector('.composer-reason').textContent, copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'clipboard')));
+  assert.equal(f.root.querySelector('.image-refusals'), null);
+});

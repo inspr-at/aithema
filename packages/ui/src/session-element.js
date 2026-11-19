@@ -126,7 +126,7 @@ export class AithemaSession extends HTMLElement {
   #overviewStatusSize; #summaryView; #summaryExpanded = false;
   #questionCard; #disposeVersion; #footerMedia; #footerListener; #brandObserver;
   #uploadAt = new Map(); #uploading = false; #uploadNotice = ''; #reading = ''; #limits = UPLOAD_LIMITS; #limitsLoad = null; #dragDepth = 0;
-  #images; #imageLayout = false; #imageIntent = null; #imageIntentTimer;
+  #images; #imageLayout = false; #imageIntent = null; #imageIntentTimer; #detectedImages = new WeakSet();
   #uploadController; #uploadRetryTimer = null; #retryFiles = [];
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
@@ -2266,7 +2266,7 @@ export class AithemaSession extends HTMLElement {
         if (!refusal) setText(action, copy.uploads.tryAgain);
         setText(discard, copy.uploads.discard);
       } else if (text.available && !this.#rail?.moved && !this.#sendFailed && this.#imageIntent) {
-        const feature = this.#imageInputEnabled() && this.#imageIntent.files.some(isImageFile) ? 'imageInput' : 'uploads';
+        const feature = this.#imageIntent.features.includes('imageInput') ? 'imageInput' : 'uploads';
         paintConsentLine(reason, { copy, feature, verdict: { available: false, reason: CONSENT_REASON },
           open: opener => this.#dialog.openConsent(feature, opener) });
       } else if (text.available && !this.#rail?.moved && !this.#sendFailed && this.#images?.hasRefusals) {
@@ -3571,7 +3571,7 @@ export class AithemaSession extends HTMLElement {
   #retryRefusal() {
     const refusal = this.#attachRefusal();
     if (refusal) return refusal;
-    return refusalText(this.#copy, planUploads(this.#retryFiles, { limits: this.#limits, uploads: this.#session.uploads, images: this.#imageInputEnabled() }), this.#session.locale);
+    return refusalText(this.#copy, planUploads(this.#retryFiles, { limits: this.#limits, uploads: this.#session.uploads, images: this.#imageInputEnabled(), imageFile: this.#isImageFile }), this.#session.locale);
   }
   #uploadRefusal(text) {
     if (!this.#retryFiles.length) this.#uploadNotice = text;
@@ -3593,26 +3593,25 @@ export class AithemaSession extends HTMLElement {
     this.#limitsLoad = load;
     return load;
   }
-  async #attach(files, retry = false, refusalVersion) {
+  async #attach(files, retry = false, refusalVersion, continuation = null) {
     if (!files.length || !this.isConnected) return;
+    const consentRevision = this.#session.consentRevision;
     // A successful receipt clears older feedback, including across consent.
     // Decoder events from this selection may already have arrived.
     refusalVersion ??= this.#images.refusalVersion;
-    let needsImages = this.#imageInputEnabled() && files.some(isImageFile);
+    let needsImages = this.#imageInputEnabled() && files.some(this.#isImageFile);
     const image = this.#feature('imageInput', true), documents = this.#feature('uploads', true);
     if (needsImages && !image.available && !isConsentReason(image.rawReason ?? image.reason)) {
       const rawReason = image.rawReason ?? image.reason;
       const reason = this.#session.paused || this.#session.pauseReason === 'purpose' || rawReason === 'session paused' || rawReason === 'paused' ? 'paused'
         : rawReason === 'image input not supported' ? 'model' : 'unavailable';
-      this.#images.refuse(files.filter(isImageFile).map(file => ({ name: file.name, reason })));
-      files = files.filter(file => !isImageFile(file)); needsImages = false;
+      this.#images.refuse(files.filter(this.#isImageFile).map(file => ({ name: file.name, reason })));
+      files = files.filter(file => !this.#isImageFile(file)); needsImages = false;
       this.#render('composer');
       if (!files.length) return;
     }
-    if (needsImages && !image.available && isConsentReason(image.rawReason ?? image.reason) || files.some(file => !this.#imageInputEnabled() || !isImageFile(file)) && !documents.available && isConsentReason(documents.rawReason ?? documents.reason)) {
-      this.#imageIntent = { files, id: this.#session.id, refusalVersion }; clearTimeout(this.#imageIntentTimer);
-      this.#imageIntentTimer = setTimeout(() => { this.#imageIntent = null; this.#uploadNotice = plural(resolveCopy(this.#copy, 'uploadsReselect', undefined, this.#session.locale), files.length); this.#render('composer'); }, 180000);
-      this.#requestConsent('use', [...new Set([...(needsImages ? ['imageInput'] : []), ...(!documents.available ? ['uploads', 'text'] : [])])], 'attach');
+    if (needsImages && !image.available && isConsentReason(image.rawReason ?? image.reason) || files.some(file => !this.#imageInputEnabled() || !this.#isImageFile(file)) && !documents.available && isConsentReason(documents.rawReason ?? documents.reason)) {
+      this.#holdImageIntent(files, [...new Set([...(needsImages ? ['imageInput'] : []), ...(!documents.available ? ['uploads', 'text'] : [])])], refusalVersion);
       this.#render('composer'); return;
     }
     const copy = this.#copy, sessionId = this.#session.id, refusal = retry ? this.#retryRefusal() : this.#attachRefusal();
@@ -3620,7 +3619,8 @@ export class AithemaSession extends HTMLElement {
     const controller = new AbortController(); this.#uploadController = controller;
     const current = () => !controller.signal.aborted && sessionId === this.#session.id && this.isConnected;
     // An admitted new pick replaces the retained set explicitly; a retry reuses that set.
-    const replacement = !retry && this.#retryFiles.length ? copy.uploads.replaced : '';
+    const retained = continuation ? this.#retryFiles : [];
+    const replacement = [!retry && !continuation && this.#retryFiles.length ? copy.uploads.replaced : '', continuation?.notice].filter(Boolean).join(reasonSeparator);
     this.#retryFiles = []; this.#uploading = true; this.#uploadNotice = replacement; this.#render('composer');
     try {
       await this.#loadLimits();
@@ -3628,43 +3628,66 @@ export class AithemaSession extends HTMLElement {
       // The host's limits may have arrived just now and leave no room: nothing is sent.
       if (!uploadsPossible(this.#limits)) { this.#uploadNotice = [replacement, copy.uploads.impossible].filter(Boolean).join(reasonSeparator); return; }
       const images = this.#imageInputEnabled();
-      const plan = planUploads(files, { limits: this.#limits, uploads: this.#session.uploads, images });
+      // A renamed image can look like a ninth document or consume bytes despite
+      // an image refusal. Let the server classify before holding documents.
+      const plan = planUploads(files, { limits: this.#limits, uploads: this.#session.uploads, images, imageFile: this.#isImageFile, deferSessionLimits: true });
       const imageRefusals = images ? plan.refused.filter(record => /\.(?:png|jpe?g|webp|gif|heic|heif|bmp|tiff?|avif|svg)$/iu.test(record.name)) : [];
       // Image refusals have their own dismiss/send lifetime. Keep document notices
       // out of that lifecycle, including when one selection contains both kinds.
       const documentPlan = { ...plan, refused: plan.refused.filter(record => !imageRefusals.includes(record)),
-        blocked: plan.blocked === 'images' || (needsImages && files.every(isImageFile)) ? null : plan.blocked };
-      const notices = [replacement, refusalText(copy, documentPlan, this.#session.locale)], count = plan.batches.flat().length;
+        blocked: plan.blocked === 'images' || (needsImages && files.every(this.#isImageFile)) ? null : plan.blocked };
+      const notices = [replacement], count = plan.batches.flat().length, consentFiles = [], detectedRefusals = [];
       if (count) {
         this.#status(plural(copy.uploads.uploading, count));
-        let sent = 0;
+        let sent = 0, attempted = 0;
         for (const batch of plan.batches) {
-          const failure = await this.#postUploads(batch, controller.signal, refusalVersion);
+          const result = await this.#postUploads(batch, controller.signal, refusalVersion);
           if (!current()) return;
-          if (failure) {
+          if (typeof result === 'string' && result) {
             // Earlier batches are already attached; keep only the refused and unattempted files.
-            if (failure === 'upload-rate-limit') this.#retryFiles = plan.batches.flat().slice(sent);
-            else notices.push(failure);
-            break;
+            if (result === 'upload-rate-limit') { this.#retryFiles = plan.batches.flat().slice(attempted); break; }
+            notices.push(plan.batches.length === 1 && batch.length === 1 ? result : batch.map(file => `${file.name}: ${result}`).join(' '));
+            attempted += batch.length; continue;
           }
-          sent += batch.length;
+          for (const record of result.refused ?? []) {
+            const file = batch[record.index];
+            if (!file || record.kind !== 'image') continue;
+            this.#detectedImages.add(file);
+            if (isConsentReason(record.reason)) consentFiles.push(file);
+            else if (!images) documentPlan.refused.push({ name: file.name, reason: 'type' });
+            else detectedRefusals.push({ name: file.name, reason: record.reason === 'image input not supported' ? 'model'
+              : record.reason === 'limit' ? 'limit' : 'unavailable' });
+          }
+          sent += batch.length - (result.refused?.length ?? 0); attempted += batch.length;
         }
         if (sent && this.#session.uploads.some(u => u.state === 'pending')) { this.#reading = plural(copy.uploads.received, sent); this.#status(this.#reading); }
         else this.#clearNotice();
       }
-      if (imageRefusals.length || plan.blocked && needsImages) this.#images.refuse([...imageRefusals.map(record => ({ ...record, reason: record.reason === 'type' ? 'unsupported' : record.reason })),
-        ...(plan.blocked && needsImages ? [{ reason: plan.blocked === 'images' || plan.blocked === 'count' ? 'limit' : 'session' }] : [])]);
+      if (imageRefusals.length || plan.imageRefused.length || detectedRefusals.length || plan.blocked && needsImages) this.#images.refuse([
+        ...imageRefusals.map(record => ({ ...record, reason: record.reason === 'type' ? 'unsupported' : record.reason })),
+        ...plan.imageRefused, ...detectedRefusals,
+        ...(plan.blocked && plan.blocked !== 'images' && needsImages ? [{ reason: plan.blocked === 'count' ? 'limit' : 'session' }] : [])]);
       // Retained-file retry facts keep their established copy and action order.
       const supported = this.#imageLayout && this.#imageInputEnabled()
         && !this.#retryFiles.length && documentPlan.refused.some(record => record.reason === 'type')
         ? resolveCopy(copy, 'uploadsSupported', undefined, this.#session.locale) : '';
+      notices.splice(1, 0, refusalText(copy, documentPlan, this.#session.locale));
       this.#uploadNotice = [notices.filter(Boolean).join(reasonSeparator), supported].filter(Boolean).join(' ');
+      if (consentFiles.length) this.#holdImageIntent(consentFiles, ['imageInput'], refusalVersion, { notice: this.#uploadNotice, consentRevision });
     } finally {
       if (this.#uploadController === controller) {
+        if (current()) this.#retryFiles = [...retained, ...this.#retryFiles];
         this.#uploadController = null; this.#uploading = false;
         if (this.isConnected) this.#render('composer');
+        this.#consumeImageIntent();
       }
     }
+  }
+  #isImageFile = file => isImageFile(file) || this.#detectedImages.has(file);
+  #holdImageIntent(files, features, refusalVersion, continuation = null) {
+    this.#imageIntent = { files, features, continuation, id: this.#session.id, refusalVersion }; clearTimeout(this.#imageIntentTimer);
+    this.#imageIntentTimer = setTimeout(() => { this.#imageIntent = null; this.#uploadNotice = [continuation?.notice, plural(resolveCopy(this.#copy, 'uploadsReselect', undefined, this.#session.locale), files.length)].filter(Boolean).join(reasonSeparator); this.#render('composer'); }, 180000);
+    this.#requestConsent('use', features, 'attach');
   }
   async #removeImage(id) {
     const sessionId = this.#session.id;
@@ -3676,12 +3699,15 @@ export class AithemaSession extends HTMLElement {
   }
   #consumeImageIntent() {
     const pending = this.#imageIntent;
-    if (!pending || pending.id !== this.#session.id || !this.isConnected) return;
-    if (this.#imageInputEnabled() && pending.files.some(isImageFile) && !this.#feature('imageInput').available || pending.files.some(file => !this.#imageInputEnabled() || !isImageFile(file)) && !this.#feature('uploads').available) return;
+    if (!pending || pending.id !== this.#session.id || !this.isConnected || this.#uploading) return;
+    // The POST's consent refusal outranks a stale available feature projection.
+    if (pending.continuation && this.#session.consentRevision === pending.continuation.consentRevision) return;
+    if (pending.features.includes('imageInput') && !this.#feature('imageInput').available || pending.features.includes('uploads') && !this.#feature('uploads').available) return;
     this.#imageIntent = null; clearTimeout(this.#imageIntentTimer);
-    void this.#attach(pending.files, false, pending.refusalVersion);
+    void this.#attach(pending.files, false, pending.refusalVersion, pending.continuation);
   }
   #cancelUploads() {
+    this.#detectedImages = new WeakSet();
     clearTimeout(this.#imageIntentTimer); this.#imageIntent = null;
     if (this.#session) for (const upload of this.#session.uploads ?? []) if (stagedImage(upload) && !upload.erased) {
       void this.#api(sameOrigin(this.ownerDocument.defaultView, `${this.#base}/api/sessions/${this.#session.id}/uploads/${encodeURIComponent(upload.id)}/withdraw`), {}, { sessionToken: this.#sessionToken, keepalive: true }).catch(() => {});
@@ -3728,7 +3754,7 @@ export class AithemaSession extends HTMLElement {
       this.#images?.clear(refusalVersion);
       if (body.limits) this.#limits = uploadLimits(body.limits);
       for (const event of body.events ?? []) this.receive(event);
-      return '';
+      return { refused: Array.isArray(body.refused) ? body.refused : [] };
     }
     if (response.status === 409 && body?.reason === 'purpose') return copy.purposePaused;
     if (response.status === 413) return copy.uploads.overLimit;

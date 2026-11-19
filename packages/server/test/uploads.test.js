@@ -725,3 +725,65 @@ test('expiry cancels only expired pending uploads and preserves newer and other-
   assert.equal(f.storage.get(other.id).uploads[0].state, 'accepted');
   assert.equal(observer.activeCount(), 0);
 });
+
+// AIT-559: intake classifications are authoritative, including when the picker
+// cannot identify image bytes. A refusal must never swallow an eligible PDF.
+for (const [host, reason] of [
+  ['document-only', 'image normalizer not configured'],
+  ['text-only reaction', 'image input not supported'],
+  ['text-only understanding', 'image input not supported'],
+  ['pending consent', 'current processing consent required'],
+  ['normalizer unavailable', 'image normalizer unavailable'],
+  ['image limit', null],
+]) for (const [name, content, type] of [
+  ['clipboard', Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), 'application/octet-stream'],
+  ['typed.pdf', Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), 'image/png'],
+  ['scan.pdf', Buffer.from([255, 216, 255, 224, 0, 0]), 'application/pdf'],
+  ['photo.heic', Buffer.from('excluded'), 'image/heic'],
+  ['photo.avif', Buffer.from('excluded'), 'image/avif'],
+]) test(`AIT-559: ${host}/${name} refuses only the detected image and attaches PDFs across requests`, async t => {
+  const f = setup(t, { limits: { maxImagesPerSession: 1 } });
+  t.mock.method(f.runtime, 'imageInputAvailability', async () => ({ reason }));
+  if (!reason) f.storage.postUploads(f.session.id, 'existing-image', 'existing-image', [{ kind: 'image', filename: 'existing.png', mediaType: 'image/png', bytes: bytes('fixture'), deadlineAt: Date.now() + 25000 }], { maxImagesPerSession: 1 });
+  const files = [[name, content, type], ['eligible.pdf', pdf(), 'application/pdf']];
+  const response = await f.handlers.handle(uploadRequest(f.session.id, 'mixed', files));
+  assert.equal(response.status, 202, 'no whole-POST refusal');
+  const result = await response.json();
+  assert.deepEqual(result.refused, [{ index: 0, name, kind: 'image', reason: reason ?? 'limit' }]);
+  assert.deepEqual(result.uploads.map(upload => upload.filename), ['eligible.pdf']);
+  await f.handlers.idle();
+  assert.equal(f.storage.get(f.session.id).uploads.find(upload => upload.filename === 'eligible.pdf').state, 'accepted');
+  const replay = await f.handlers.handle(uploadRequest(f.session.id, 'mixed', files));
+  assert.equal(replay.status, 200); assert.deepEqual((await replay.json()).refused, result.refused, 'receipt preserves per-file outcomes');
+  await post(f, 'later', [['later.pdf', pdf(), 'application/pdf']]); await f.handlers.idle();
+  assert.equal(f.storage.get(f.session.id).uploads.find(upload => upload.filename === 'later.pdf').state, 'accepted');
+  assert.equal(f.storage.get(f.session.id).uploads.some(upload => upload.filename === name), false, 'refused original bytes are never staged');
+});
+
+test('AIT-559: an entirely refused image request has a replayable per-file receipt without staging bytes', async t => {
+  const presets = mockPresets(), f = setup(t, { presets }), files = [['scan.pdf', Buffer.from([255, 216, 255, 224, 0, 0]), 'application/pdf']];
+  delete presets.best.imageInput;
+  assert.equal((await f.runtime.imageInputAvailability(f.storage.get(f.session.id))).reason, 'image normalizer not configured');
+  for (const status of [202, 200]) {
+    const response = await f.handlers.handle(uploadRequest(f.session.id, 'only-refused', files));
+    assert.equal(response.status, status);
+    const body = await response.json();
+    assert.deepEqual(body.refused, [{ index: 0, name: 'scan.pdf', kind: 'image', reason: 'image normalizer not configured' }]);
+    assert.deepEqual(body.events, []); assert.deepEqual(body.uploads, []);
+  }
+  assert.deepEqual(f.storage.get(f.session.id).uploads, []);
+  assert.equal(f.storage.db.prepare('SELECT COUNT(*) AS n FROM uploads').get().n, 0);
+  assert.equal(JSON.stringify(f.storage.db.prepare('SELECT result FROM receipts').all()).includes('scan.pdf'), false, 'refusal receipts do not retain plaintext filenames');
+});
+
+test('AIT-559: available image intake admits the images that fit and every PDF, refusing only excess images', async t => {
+  const f = setup(t, { limits: { maxImagesPerSession: 1 } });
+  t.mock.method(f.runtime, 'imageInputAvailability', async () => ({}));
+  t.mock.method(f.runtime, 'normalizeImageUpload', async () => ({ status: 'staged-ready', bytes: bytes('normalized fixture'), mediaType: 'image/png', digest: 'fixture', w: 1, h: 1 }));
+  const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  const result = await post(f, 'partial-images', [['clipboard', png, 'application/octet-stream'], ['eligible.pdf', pdf(), 'application/pdf'], ['scan.pdf', png, 'image/png']]);
+  assert.deepEqual(result.uploads.map(upload => upload.filename), ['clipboard', 'eligible.pdf']);
+  assert.deepEqual(result.refused, [{ index: 2, name: 'scan.pdf', kind: 'image', reason: 'limit' }]);
+  await f.handlers.idle();
+  assert.deepEqual(f.storage.get(f.session.id).uploads.map(upload => upload.state), ['staged-ready', 'accepted']);
+});

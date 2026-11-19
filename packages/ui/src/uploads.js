@@ -56,10 +56,10 @@ export const uploadsPossible = limits => fileCeiling(uploadLimits(limits)) > 0;
 
 /**
  * Splits chosen files into what is sent and what is refused before sending. Files that pass go in
- * as few requests as the per-request ceilings allow; a batch that would overfill the conversation
- * (count or total size) is refused as a whole, since only the person can choose which files matter.
+ * as few requests as the per-request ceilings allow. Excess images are refused individually;
+ * document count and total-byte holds can be deferred to authoritative server classification.
  */
-export function planUploads(files, { limits: raw, uploads = [], images = true } = {}) {
+export function planUploads(files, { limits: raw, uploads = [], images = true, imageFile = isImageFile, deferSessionLimits = false } = {}) {
   const limits = uploadLimits(raw), refused = [], fitting = [], possible = uploadsPossible(limits);
   for (const file of files) {
     // The whole request one file would need on its own (form, its part's headers and its bytes) is checked
@@ -70,18 +70,25 @@ export function planUploads(files, { limits: raw, uploads = [], images = true } 
     else fitting.push(file);
   }
   const active = uploads.filter(u => !['withdrawn', 'staged-discarded', 'withheld'].includes(u.state) && !u.erased);
-  const used = active.reduce((sum, u) => sum + (u.bytes ?? 0), 0), adding = fitting.reduce((sum, f) => sum + f.size, 0);
-  const imageCount = active.filter(u => u.kind === 'image').length, addingImages = fitting.filter(isImageFile).length;
-  const blocked = !fitting.length ? null : imageCount + addingImages > limits.maxImagesPerSession ? 'images'
-    : active.length - imageCount + fitting.length - addingImages > limits.maxDocumentsPerSession ? 'count'
-    : used + adding > limits.maxSessionBytes ? 'session' : null;
+  const imageCount = active.filter(u => u.kind === 'image').length, imageRefused = [];
+  let imageSlots = Math.max(0, limits.maxImagesPerSession - imageCount);
+  const admitted = fitting.filter(file => {
+    if (!images || !imageFile(file)) return true;
+    if (imageSlots > 0) { imageSlots--; return true; }
+    imageRefused.push({ name: file.name, reason: 'limit' }); return false;
+  });
+  const used = active.reduce((sum, u) => sum + (u.bytes ?? 0), 0), adding = admitted.reduce((sum, f) => sum + f.size, 0);
+  const addingImages = images ? admitted.filter(imageFile).length : 0;
+  const blocked = !admitted.length ? imageRefused.length ? 'images' : null
+    : !deferSessionLimits && active.length - imageCount + admitted.length - addingImages > limits.maxDocumentsPerSession ? 'count'
+    : !deferSessionLimits && used + adding > limits.maxSessionBytes ? 'session' : null;
   const batches = [];
-  if (!blocked) for (const file of fitting) {
+  if (!blocked) for (const file of admitted) {
     const last = batches.at(-1), size = filePartBytes(file) + file.size;
     if (last && last.files.length < limits.maxFilesPerRequest && last.bytes + size <= limits.maxRequestBytes) { last.files.push(file); last.bytes += size; }
     else batches.push({ files: [file], bytes: formBytes() + size });
   }
-  return { batches: batches.map(batch => batch.files), refused, blocked, limits };
+  return { batches: batches.map(batch => batch.files), refused, imageRefused, blocked, limits };
 }
 
 /** A byte count in the page language: "820 B", "12 KB", "1.4 MB" ("1,4 MB" in German). */
