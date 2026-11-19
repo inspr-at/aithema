@@ -488,7 +488,8 @@ export class PhoneComposerViewport {
     this.observer?.disconnect();
     if (Observer) {
       this.observer = new Observer(this.paint);
-      for (const selector of ['.band', '.display-foot', '.composer-dock', '.audio-rail .voice-state']) {
+      // Slotted legal copy and status labels can move the dot without resizing the footer.
+      for (const selector of ['.band', '.display-foot', '.footer-right', '.status__group', '.composer-dock', '.audio-rail .voice-state']) {
         const node = this.root.querySelector(selector);
         if (node) this.observer.observe(node);
       }
