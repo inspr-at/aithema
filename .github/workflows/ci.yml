@@ -333,6 +333,9 @@ jobs:
     # Move this runner pin forward together with Playwright.
     runs-on: ubuntu-24.04
     timeout-minutes: 6
+    env:
+      PLAYWRIGHT_VERSION: '1.56.1'
+      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/preview-browsers
     steps:
       - name: Docs-only success
         if: github.event_name == 'pull_request' && needs.changes.result == 'success' && needs.changes.outputs.docs-only == 'true'
@@ -346,11 +349,38 @@ jobs:
           cache: npm
       - run: npm ci
         if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
-      - name: Install pinned qualification engines outside the workspace
+      - name: Cache pinned qualification browser binaries
+        id: preview_browsers
+        if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
+          key: preview-browsers-v1-ubuntu-24.04-${{ runner.arch }}-playwright-${{ env.PLAYWRIGHT_VERSION }}-chromium-webkit-firefox
+      # AIT-564: apt mirror stalls dominated the cancelled jobs, not browser downloads.
+      # Cache only downloaded packages; apt still resolves and installs the full dep set.
+      - name: Cache qualification OS dependency downloads
+        id: preview_apt
+        if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ runner.temp }}/preview-apt-archives/*.deb
+          key: preview-apt-v1-ubuntu-24.04-${{ runner.arch }}-playwright-${{ env.PLAYWRIGHT_VERSION }}-chromium-webkit-firefox
+      - name: Install pinned qualification core outside the workspace
+        id: preview_core
         if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
         run: |
-          npm install --prefix "$RUNNER_TEMP/preview-engines" --no-save --ignore-scripts --no-audit --no-fund playwright-core@1.56.1
-          node "$RUNNER_TEMP/preview-engines/node_modules/playwright-core/cli.js" install --with-deps chromium webkit firefox
+          npm install --prefix "$RUNNER_TEMP/preview-engines" --no-save --ignore-scripts --no-audit --no-fund "playwright-core@$PLAYWRIGHT_VERSION"
+      - name: Install qualification OS dependencies on cold and warm runs
+        id: preview_deps
+        if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+        run: |
+          mkdir -p "$RUNNER_TEMP/preview-apt-archives"
+          printf 'Dir::Cache::archives "%s";\nBinary::apt-get::APT::Keep-Downloaded-Packages "true";\n' "$RUNNER_TEMP/preview-apt-archives" | sudo tee /etc/apt/apt.conf.d/99-preview-security-cache > /dev/null
+          node "$RUNNER_TEMP/preview-engines/node_modules/playwright-core/cli.js" install-deps chromium webkit firefox
+      - name: Download pinned qualification browsers on cache miss
+        id: preview_download
+        if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') && steps.preview_browsers.outputs.cache-hit != 'true'
+        run: node "$RUNNER_TEMP/preview-engines/node_modules/playwright-core/cli.js" install chromium webkit firefox
       - name: Qualify the strict host and demo with local fixtures
         if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
         timeout-minutes: 2
