@@ -2898,7 +2898,10 @@ export class AithemaSession extends HTMLElement {
     // row placement, so this fallback cannot oscillate.
     const reserved = style.getPropertyValue('--aithema-header-rail-row').trim();
     if (reserved) {
-      band.toggleAttribute('data-rail-row', reserved === '2' || this.ownerDocument.defaultView.innerWidth < voiceSingleRowMinWidth || railTrack < required);
+      // CSS already reserves responsive rows. Persist only a measured overflow
+      // beyond that contract: a phone's redundant flag otherwise survives the
+      // return to desktop until this observer runs, lifting the chooser 60 px.
+      band.toggleAttribute('data-rail-row', reserved === '1' && view.innerWidth >= voiceSingleRowMinWidth && railTrack < required);
       return;
     }
     const available = Math.min(railTrack, band.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)

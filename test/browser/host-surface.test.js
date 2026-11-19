@@ -1452,8 +1452,8 @@ test('AIT-569: delayed host reads and header fit never move a visible chooser', 
         sameBox(beforeReads, await box(page, selector), 'late identity and credits');
 
         // B2 checks Continue at phone width, then returns to desktop before
-        // resting its pointer. Let the phone fit finish, then withhold only
-        // the callback for that return. At phone width CSS owns the row.
+        // resting its pointer. Let the phone fit finish, then withhold the
+        // fit write for that return. At phone width CSS owns the row.
         const sourceWidth = width === 1440 ? 400 : 1440;
         await page.setViewport({ width: sourceWidth, height: sourceWidth === 400 ? 800 : 1000 });
         await until(page, expected => window.chooserFitProbe.lastWidth === expected, sourceWidth);
