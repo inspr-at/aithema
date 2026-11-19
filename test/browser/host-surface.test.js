@@ -1392,3 +1392,92 @@ test('AIT-506 combined offer: a saved address keeps the capture row stable', { t
 test('AIT-507 integration: persisted opener alone exposes no email action or lock', { timeout: 180_000 }, openerEmailCheck);
 test('AIT-517: pinned contact preserves the combined inline email offer', { timeout: 180_000 }, contactOfferCheck);
 test('AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, and stable controls', { timeout: 240_000 }, inlineOfferCheck);
+
+// Hold only the header-fit observer, keeping native viewport layout and all
+// other observers live. This reproduces a busy frame without a timed sleep.
+test('AIT-569: delayed host reads and header fit never move a visible chooser', { timeout: 180_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-chooser-fit-'));
+  const demo = await startDemo(directory, { AITHEMA_DEMO_VERIFY: '1' });
+  const browser = await launch(directory, 'chooser-fit');
+  t.after(async () => { await browser.close(); await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); });
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [];
+  if (evidence) await mkdir(evidence, { recursive: true });
+  for (const width of [1440, 400]) for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) {
+    await t.test(`${width} ${locale} ${theme}`, async () => {
+      const page = await browser.newPage(), problems = [];
+      try {
+        await preparePage(page, [locale], problems);
+        await page.setViewport({ width, height: width === 400 ? 800 : 1000 });
+        await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
+        await page.evaluateOnNewDocument(() => {
+          const probe = window.chooserFitProbe = { hold: false, pending: [], lastWidth: null, reads: [], landed: [] };
+          const Observer = window.ResizeObserver;
+          window.ResizeObserver = class extends Observer {
+            constructor(callback) {
+              super((entries, observer) => {
+                const deliver = () => { callback(entries, observer); probe.lastWidth = innerWidth; };
+                if (entries.some(entry => entry.target.matches('.band')) && probe.hold) probe.pending.push(deliver);
+                else deliver();
+              });
+            }
+          };
+          let release;
+          probe.lateReads = new Promise(resolve => { release = resolve; });
+          probe.releaseReads = release;
+          const fetch = window.fetch.bind(window);
+          window.fetch = async (url, init) => {
+            const response = await fetch(url, init), path = new URL(url, location.href).pathname;
+            if (/\/api\/sessions\/[^/]+\/(identity|credits)$/u.test(path) && (!init?.method || init.method === 'GET')) {
+              probe.reads.push(path); await probe.lateReads; probe.landed.push(path);
+            }
+            return response;
+          };
+        });
+        await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+        await visible(page, '.chooser__continue');
+        await until(page, () => ['identity', 'credits'].every(kind => window.chooserFitProbe.reads.some(path => path.endsWith(`/${kind}`))));
+        await page.evaluate(async () => { await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
+        const selector = '.chooser-option[data-preset="device"]';
+        const beforeReads = await rest(page, selector);
+        await page.evaluate(() => window.chooserFitProbe.releaseReads());
+        await until(page, () => ['identity', 'credits'].every(kind => window.chooserFitProbe.landed.some(path => path.endsWith(`/${kind}`))));
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        sameBox(beforeReads, await box(page, selector), 'late identity and credits');
+
+        // B2 checks Continue at phone width, then returns to desktop before
+        // resting its pointer. Let the phone fit finish, then withhold only
+        // the callback for that return. At phone width CSS owns the row.
+        const sourceWidth = width === 1440 ? 400 : 1440;
+        await page.setViewport({ width: sourceWidth, height: sourceWidth === 400 ? 800 : 1000 });
+        await until(page, expected => window.chooserFitProbe.lastWidth === expected, sourceWidth);
+        await page.evaluate(() => { window.chooserFitProbe.hold = true; window.chooserFitProbe.pending = []; });
+        await page.setViewport({ width, height: width === 400 ? 800 : 1000 });
+        await until(page, () => window.chooserFitProbe.pending.length > 0);
+        await page.evaluate(() => window.scrollTo(0, 0));
+        const before = await rest(page, selector);
+        const snapshot = () => inShadow(page, c => {
+          const band = c.shadowRoot.querySelector('.band'), rect = band.getBoundingClientRect();
+          return { scrollY, band: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+            railRow: band.hasAttribute('data-rail-row'), reservedRow: getComputedStyle(band).getPropertyValue('--aithema-header-rail-row').trim() };
+        });
+        const initial = await snapshot();
+        const capture = evidence && ((width === 1440 && locale === 'en' && theme === 'light') || (width === 400 && locale === 'de' && theme === 'dark'));
+        if (capture) await page.screenshot({ path: join(evidence, `ait-569-${width}-${locale}-${theme}-before.png`) });
+        await page.evaluate(() => {
+          const probe = window.chooserFitProbe; probe.hold = false;
+          for (const deliver of probe.pending.splice(0)) deliver();
+        });
+        const after = await box(page, selector), settled = await snapshot();
+        checks.push({ width, locale, theme, beforeReads, before, after, initial, settled });
+        if (capture) await page.screenshot({ path: join(evidence, `ait-569-${width}-${locale}-${theme}-after.png`) });
+        // Keep viewport AND document geometry: native page scrolling cannot
+        // disguise a header layout change, or be mistaken for one.
+        sameBox(before, after, 'chooser under a resting pointer after delayed header fit');
+        sameBox({ ...before, y: before.y + initial.scrollY }, { ...after, y: after.y + settled.scrollY }, 'chooser document geometry');
+        sameBox(initial.band, settled.band, 'reserved header');
+        assert.deepEqual(problems, []);
+      } finally { await page.close(); }
+    });
+  }
+  if (evidence) await writeFile(join(evidence, 'ait-569-geometry.json'), JSON.stringify(checks, null, 2));
+});
