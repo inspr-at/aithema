@@ -213,11 +213,16 @@ export function uploadNoticeSheetCheck() {
             else if (line.action.y >= line.ink.y + line.ink.height) { assert.equal(line.label.trim().endsWith('·'), false, 'a wrapped action has no dangling separator'); assert.ok(Math.abs(line.action.x-line.ink.x) <= .5, 'wrapped action aligns with its sentence'); }
           });
           await scene.test('r4 consent-only summary is honest', async () => {
-            await inShadow(page, c => { c.shadowRoot.querySelector('.composer-feedback').style.maxWidth = '100px'; }); await settle();
+            await inShadow(page, (c, width) => {
+              if (width === 1440) c.shadowRoot.querySelector('.held-upload-consent .consent-action').focus();
+              c.shadowRoot.querySelector('.composer-feedback').style.cssText = 'width:100px;max-width:100px;height:44px;max-height:44px;min-height:44px;flex:0 0 100px';
+            }, width); await settle();
             const summary = await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-more[data-summary]')?.innerText);
+            const focus = await inShadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('.upload-notices-more'));
             await save('consent-summary', { summary, boxes:await boxes() });
-            await inShadow(page, c => { c.shadowRoot.querySelector('.composer-feedback').style.maxWidth = ''; }); await settle();
+            await inShadow(page, c => { c.shadowRoot.querySelector('.composer-feedback').style.cssText = ''; }); await settle();
             assert.equal(summary, `${locale === 'de' ? 'Einwilligung nötig' : 'Consent needed'}${reasonSeparator}Details`);
+            if (width === 1440) assert.equal(focus, true, 'a hidden focused action transfers focus to disclosure');
           });
           await inShadow(page, c => { const r = c.shadowRoot; (r.querySelector('.upload-notices-more') ?? r.querySelector('.held-upload-consent .consent-action')).focus({ preventScroll:true }); });
           assert.equal(result.text.includes(copy.uploadsReselect.one), false);
