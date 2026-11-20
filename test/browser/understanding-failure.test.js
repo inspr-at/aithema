@@ -313,9 +313,28 @@ for (const kind of ['live voice', 'waiting voice', 'facade pending', 'spoken fac
       const response = await fetch('/seed', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...session, inert: true }) });
       if (!response.ok) throw new Error('Fixture setup failed: ' + await response.text());
       const sessionToken = response.headers.get('x-aithema-session-token');
+      // AIT-585: the fixture holds this session's initial stream events until
+      // the test releases them, so their order against the injected failure is fixed.
+      const hold = await fetch(`/hold-stream?id=${encodeURIComponent(session.id)}`);
+      if (!hold.ok) throw new Error('Stream hold failed: ' + await hold.text());
+      window.streamSessionId = session.id; window.streamStatusApplied = false;
+      // Observe the element's own public delivery path: receive() applies an
+      // event synchronously, so this flag means the stream's status has landed.
+      const receive = c.receive.bind(c);
+      c.receive = event => { receive(event); if (event.type === 'lane.status' && event.sessionId === session.id) window.streamStatusApplied = true; };
       c.setAttribute('motion', 'off'); c.setAttribute('theme', 'light'); c.configure({ session, sessionToken, copy, voiceClient: session.voiceLifecycle ? {} : undefined });
       window.reactionFailureCopy = copy.replyFailed;
     }, locale, kind);
+    const releaseStream = async () => {
+      await shadow(page, async () => {
+        const release = await fetch(`/release-stream?id=${encodeURIComponent(window.streamSessionId)}`);
+        if (!release.ok) throw new Error('Stream release failed: ' + await release.text());
+      });
+      await until(page, () => window.streamStatusApplied === true);
+    };
+    // The stream's initial status is the element's starting state. Inject the
+    // recorded failure only after the element has applied it (AIT-585).
+    await releaseStream();
     await settle(page);
     const pending = await shadow(page, c => ({ notice: c.shadowRoot.querySelector('.notice').textContent,
       inlineHidden: c.shadowRoot.querySelector('.overview-retry').hidden, footerHidden: c.shadowRoot.querySelector('.retry').hidden }));
