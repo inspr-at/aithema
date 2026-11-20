@@ -55,40 +55,52 @@ must have the same normalized member digest; exact archive hashes remain specifi
 to the candidate or published set.
 
 Every tarball is checked for cross-package imports (AIT-582,
-`release/lib/package-imports.mjs`). `verifyRelease` opens each archive and parses
-its `.js`, `.mjs`, `.cjs`, `.ts`, `.mts`, `.cts` and `.d.ts` members with
-TypeScript's parser (the pinned `typescript` devDependency; JavaScript and
-TypeScript script kinds), then walks the syntax tree for module specifiers:
+`release/lib/package-imports.mjs`). The check is a tripwire for packing mistakes
+in repository code, such as a relative import into a sibling package that only
+works inside the monorepo. It is not a validator of adversarial input and does
+not decide whether a file is valid JavaScript. `verifyRelease` opens each archive
+and parses its `.js`, `.mjs`, `.cjs`, `.ts`, `.mts`, `.cts` and `.d.ts` members
+with TypeScript's parser (the pinned `typescript` devDependency; JavaScript and
+TypeScript script kinds). A member with any parse error fails closed as "could
+not be scanned completely". The one exception is an escape error inside a closed
+string or template literal: it fails only when that literal is part of a
+specifier. An unterminated string or template always fails the member.
+
+The scan walks the syntax tree without recursion and follows these forms:
 `import`/`export … from` (including `import type` and `export type`), bare
 `import '…'`, `import(…)` and TypeScript `import('…')` types,
 `import x = require('…')`, `require(…)`, `require.resolve(…)`,
 `import.meta.resolve(…)`, `new URL(…, base)` when the base mentions
-`import.meta.url`, and `/// <reference path>`. Comments, ordinary strings and
-regular expressions are never specifiers. The check reads what is written
-literally. One literal, literals joined by `+` (through any parentheses) or a
-template without substitutions is the specifier. A template with substitutions or
-`literal + expression` is checked by its static prefix (`` `../../${name}` ``
-fails, `` `./${name}` `` passes; a prefix ending in `.` or `..` counts one more
-level up), and fails when a later literal part contains a `..` segment
-(`` `./${dir}/../x` ``). Any other argument is checked through every literal inside
+`import.meta.url`, and `/// <reference path>`. Callees and receivers are read
+through parentheses and TypeScript `as`, `satisfies`, `!` and `<T>` wrappers, so
+`(require)('…')` and `new URL('…', (import.meta).url)` count. Comments, ordinary
+strings and regular expressions are never specifiers. The check reads what is
+written literally. One literal, literals joined by `+` (through any parentheses)
+or a template without substitutions is the specifier. A template with
+substitutions or `literal + expression` is checked by its static prefix
+(`` `../../${name}` `` fails, `` `./${name}` `` passes; a prefix ending in `.` or
+`..` counts one more level up), and fails when a later literal part contains a
+`..` segment (`` `./${dir}/../x` ``), with `%2e` read as `.` and `%2f` and `%5c`
+read as separators. Any other argument is checked through every literal inside
 it, so `import(flag ? '../../a.js' : './b.js')` fails. Not followed: a computed
 path without a literal, an alias (`const load = require`), `createRequire`,
-`module.require`, and `new URL` bases that do not mention `import.meta.url`.
+`module.require`, element access such as `require['resolve']`, and `new URL`
+bases that do not mention `import.meta.url`.
+
 `require`, `require.resolve`, `import = require` and reference paths resolve as
 file paths (`?`, `#` and `%2e` are literal; a `\` that stays inside fails, because
 it is a separator only on Windows); the ES module forms, `import.meta.resolve`
 and `new URL` resolve as URLs. Bare package names and other URL schemes are
-skipped. Every absolute specifier (`/…`, `//…`) and every `file:` URL fails, in
-every form. A specifier with a malformed escape (in any part of a template) or an
-invalid URL fails as unreadable. A member with any syntax error fails as "could
-not be scanned completely", because its tree may not be what the engine runs; an
-escape error inside a literal is not a syntax error here and fails only when that
-literal is part of a specifier. Any specifier that resolves outside the archive's
-`package/` root fails the run, after every tarball has been scanned, so one run
-names all failing tarballs. The check runs at the end of `release:pack`, in
-`release:verify` (and so in `release:candidate`) and in normalization, so a
-downloaded set is checked as well. The failure names the tarball, member,
-specifier and target, for example `Cross-package import in
+skipped. Every absolute specifier (`/…`, `//…`, a drive letter such as `C:/` or
+`C:\`) and every `file:` URL fails, in every form. This is decided on the whole
+static text, so a template prefix or folded literal such as `` `file:${name}` ``
+or `'C:' + '/x.js'` fails too. A specifier with a malformed escape (in any part
+of a template) or an invalid URL fails as unreadable. Any specifier that resolves
+outside the archive's `package/` root fails the run, after every tarball has
+been scanned, so one run names all failing tarballs. The check runs at the end of
+`release:pack`, in `release:verify` (and so in `release:candidate`) and in
+normalization, so a downloaded set is checked as well. The failure names the
+tarball, member, specifier and target, for example `Cross-package import in
 inspr-aithema-ui-VERSION.tgz: package/src/a.js from '../../core/src/x.js'
 resolves to core/src/x.js, outside package/`. `release:verify` prints one
 `import check: TARBALL scanned N files, 0 cross-package imports` line per
