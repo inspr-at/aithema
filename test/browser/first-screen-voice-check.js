@@ -255,7 +255,9 @@ async function bandRecord(page, state) {
     const status = root.querySelector('.voice-state'), signal = root.querySelector('.voice-signal');
     return { state, railState: rail.dataset.state, call: rail.dataset.call, band: box(band), rail: box(rail), cells, visibleControls,
       signal: box(signal), status: { text: status.textContent, box: box(status), visible: status.checkVisibility({ checkVisibilityCSS: true }),
-        scrollWidth: status.scrollWidth, clientWidth: status.clientWidth, overflow: getComputedStyle(status).overflowX },
+        scrollWidth: status.scrollWidth, clientWidth: status.clientWidth, overflow: getComputedStyle(status).overflowX,
+        textOverflow: getComputedStyle(status).textOverflow, clipped: status.hasAttribute('data-clipped'), mask: getComputedStyle(status).maskImage,
+        wave: getComputedStyle(root.querySelector('.voice-wave')).visibility },
       rowAttr: band.hasAttribute('data-rail-row'), scrollY, bandTop: top };
   }, state);
 }
@@ -327,6 +329,14 @@ test('AIT-553 slice 2 item 1: the call band keeps one row in every voice state o
       }
       // The middle line yields: it ends inside its signal track, never across a control.
       if (s.status.visible) assert.ok(s.status.box[0] >= s.signal[0] - .5 && s.status.box[0] + s.status.box[2] <= s.signal[0] + s.signal[2] + .5, `status stays in its track: ${where}`);
+      // AIT-239: a cut line clips and fades (8 px fade plus 8 px clear space), never an ellipsis, with no waveform under it.
+      if (s.status.visible) assert.notEqual(s.status.textOverflow, 'ellipsis', `status never ends in an ellipsis: ${where}`);
+      if (s.status.visible && s.status.scrollWidth > s.status.clientWidth) {
+        assert.equal(s.status.textOverflow, 'clip', `cut status clips: ${where}`);
+        assert.equal(s.status.clipped, true, `cut status is marked for its fade: ${where}`);
+        assert.match(s.status.mask, /linear-gradient.*calc\(100% - 16px\).*calc\(100% - 8px\)/, `cut status ends in the 8 px fade plus 8 px clear space: ${where}`);
+        assert.equal(s.status.wave, 'hidden', `no waveform under the cut status: ${where}`);
+      } else assert.equal(s.status.clipped, false, `a whole status keeps every glyph unfaded: ${where}`);
     }
   }
 });
