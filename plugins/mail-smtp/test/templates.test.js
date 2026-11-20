@@ -17,7 +17,7 @@ for (const locale of ['de', 'en']) {
     assert.equal(message.text, ['Aithema', c.lead, c.explanation.replace('{tier}', tierAfter), c.action + ':\n' + link, c.validity, c.unsolicited,
       '-- \n' + c.host.replace('{host}', 'host.example.test'), c.privacy + (privacyUrl ? '\n' + c.privacyLabel + ': ' + privacyUrl : ''), c.retention].join('\n\n'));
     assert.ok(message.html.includes(c.linkLabel));
-    assert.ok(message.html.includes(tierAfter + (locale === 'de' ? ' Credits' : ' credits')));
+    assert.ok(message.html.includes(tierAfter + ' Credits'));
     assert.doesNotMatch(message.html + message.text, /2[.,]400|lena\.gruber|12 (?:Minuten|minutes)|start2\.augmentoring/u);
   });
   test(`C2 ${locale} mail has the approved no-tier fallback`, () => {
@@ -35,8 +35,7 @@ for (const locale of ['de', 'en']) {
         expiresAt: Date.now() + 1_800_000, confirmedAllowanceMicro: 23_456_789, privacyDocumentConfigured });
       for (const [i, message] of sent.entries()) {
         const tier = locale === 'de' ? '2.345' : '2,345';
-        const unit = locale === 'de' ? ' Credits' : ' credits';
-        assert.ok(message.html.includes(tier + unit)); assert.ok(message.text.includes(tier + unit));
+        assert.ok(message.html.includes(tier + ' Credits')); assert.ok(message.text.includes(tier + ' Credits'));
         assertConfirmationMail(message, { locale, link: `https://host.example.test/confirm-email?token=opaque&lang=${locale}`,
           privacyUrl: i === 0 ? `https://host.example.test/privacy?locale=${locale}` : undefined });
       }

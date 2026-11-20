@@ -156,7 +156,7 @@ for (const copy of [de, en]) test(`AIT-135 A2 C: inline save, edit and normal de
   assert.ok(savedReads > 0, 'saving a higher tier refreshes features below the ceiling');
   assert.deepEqual(calls.find(call => call.method === 'PUT').body, { address: 'reader@example.test', noticeVersion: 'ait-135-v1' });
   assert.equal(section.dataset.emailState, 'saved');
-  assert.match(section.querySelector('.m-tier').textContent, copy === de ? /Guthaben: 1\.800\u00a0Credits/u : /Credit: 1,800\u00a0Credits/u);
+  assert.match(section.querySelector('.m-tier').textContent, copy === de ? /Guthaben: 1\.800\u00a0Credits/u : /Credit: 1,800\u00a0credits/u);
   assert.doesNotMatch(section.querySelector('.m-tier').textContent, /1[.,]455/u, 'Settings shows the tier only');
   assert.equal(root.activeElement, section.querySelector('.m-change'));
   const select = t.mock.method(input, 'select'); section.querySelector('.m-change').click();
@@ -531,7 +531,7 @@ for (const copy of [de, en]) test(`AIT-395: owner-wide exhausted copy snapshot (
   const { root } = setup(t, { copy, host: { credits: true }, routes: {
     'GET /credits': () => Response.json({ balance, exhausted: true }),
   } }); await tick(8);
-  assert.equal(root.querySelector('.host-credits__scope').textContent, copy === de ? 'Ihre 500\u00a0Credits sind aufgebraucht, für alle Ihre Gespräche.' : 'Your 500\u00a0Credits are used up, for all your conversations.');
+  assert.equal(root.querySelector('.host-credits__scope').textContent, copy === de ? 'Ihre 500\u00a0Credits sind aufgebraucht, für alle Ihre Gespräche.' : 'Your 500\u00a0credits are used up, for all your conversations.');
 });
 
 for (const copy of [de, en]) test(`AIT-395: exhaustion offers exactly the conversation's +750 confirmation delta (${copy.display.locale})`, async t => {
