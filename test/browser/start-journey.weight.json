@@ -1,55 +1,811 @@
 {
-  "seconds": 21.599,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 42947874534-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "seconds": 356.22,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 44688985679-1, 44707193689-1, 44725948096-1, 44736662387-1, 44742965802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "ef8b50c8524b40919de140c4b9aac393c0e029c908e37d3b7391501195e9a6a6",
+    "workload": "0054c10916fdd3ca04dd7d4328c4df70a1f701ed1ddd0ad7b5a405760b1b89d9",
     "samples": [
       {
-        "runId": "42947874534",
+        "runId": "44688985679",
         "attempt": 1,
-        "sha": "0c4c4b1af999e4a3163e3676123e99140120bb89",
-        "observedAt": "2026-11-11T02:43:05.987Z",
+        "sha": "5d507e04ee24aba5b308eff6c60ee5a0d26d8f61",
+        "observedAt": "2026-11-20T06:36:47.684Z",
         "tests": [
           {
             "name": "AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict",
-            "seconds": 2.626089663
+            "seconds": 2.8594919180000002
           },
           {
             "name": "AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes",
-            "seconds": 2.0537800390000003
+            "seconds": 2.400811426
           },
           {
             "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
-            "seconds": 2.588864948
+            "seconds": 2.847405115
           },
           {
             "name": "AIT-129: failed and stale saves remain on consent; unsafe return targets go home",
-            "seconds": 2.377066332
+            "seconds": 2.4404853600000003
           },
           {
             "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
-            "seconds": 7.632549021
+            "seconds": 8.566214583999999
+          },
+          {
+            "name": "AIT-501 v2.2: the real host open/adopt/configure return resumes typing from its granted snapshot",
+            "seconds": 4.19373391
+          },
+          {
+            "name": "AIT-501: consent continuation in the browser, including default gesture policy and navigation",
+            "seconds": 9.698681075
+          },
+          {
+            "name": "AIT-505: opener EN/DE light/dark at 390/1024/1440; stable composer, persistence and first send",
+            "seconds": 22.504309191
+          },
+          {
+            "name": "AIT-506: combined entrance states retain positive composer boxes in EN/DE, light/dark, 390/1024/1440",
+            "seconds": 99.890935925
+          },
+          {
+            "name": "AIT-540 M1: readable compact notice and one consent owner",
+            "seconds": 12.351320659999999
+          },
+          {
+            "name": "AIT-540 M2: readable compact notice and one consent owner",
+            "seconds": 18.697267591
+          },
+          {
+            "name": "AIT-541 look 10: RC26 visitor presentation",
+            "seconds": 3.00325787
+          },
+          {
+            "name": "AIT-541 look 11: RC26 visitor presentation",
+            "seconds": 3.928095199
+          },
+          {
+            "name": "AIT-541 look 12: RC26 visitor presentation",
+            "seconds": 8.105445851
+          },
+          {
+            "name": "AIT-541 look 13: RC26 visitor presentation",
+            "seconds": 7.980089432
+          },
+          {
+            "name": "AIT-541 look 7: RC26 visitor presentation",
+            "seconds": 8.889282548999999
+          },
+          {
+            "name": "AIT-541 look 8: RC26 visitor presentation",
+            "seconds": 6.671594887
+          },
+          {
+            "name": "AIT-541 look 9: RC26 visitor presentation",
+            "seconds": 9.002895537
+          },
+          {
+            "name": "AIT-541 r2 10: changed visitor states",
+            "seconds": 2.654834926
+          },
+          {
+            "name": "AIT-541 r2 12: changed visitor states",
+            "seconds": 15.006643448
+          },
+          {
+            "name": "AIT-541 r2 email: changed visitor states",
+            "seconds": 4.491740235
+          },
+          {
+            "name": "AIT-542: host cancellation settles within one frame with pinned controls and a retained draft",
+            "seconds": 35.943701265
+          },
+          {
+            "name": "AIT-553 M1: keyboard End keeps focus on the composer mic in combined and on Start in choice",
+            "seconds": 3.2194439950000002
+          },
+          {
+            "name": "AIT-553 gate2c: an asynchronous mic-unavailable failure leaves focus on the control the user moved to",
+            "seconds": 1.867308534
+          },
+          {
+            "name": "AIT-553 item 1: idle pause is neutral and unpressed in both entrances; call transitions pin the combined composer",
+            "seconds": 2.803240663
+          },
+          {
+            "name": "AIT-553 item 2: combined idle and ended screens expose only the composer mic; choice keeps its Start mic",
+            "seconds": 2.0702754420000002
+          },
+          {
+            "name": "AIT-553 item 3: used-up upgrade copy has an exposed export link; the host can still suppress daily-cap actions",
+            "seconds": 3.539913908
+          },
+          {
+            "name": "AIT-553 item 4: combined readiness owns a readable grid track inside the scroll area above the pinned composer",
+            "seconds": 3.693243507
+          },
+          {
+            "name": "AIT-553 item 5: desktop render-only opener ends at the last text line plus normal padding",
+            "seconds": 1.546264269
+          },
+          {
+            "name": "AIT-553 item 6: phone used-up confirmation stacks a one-line 44 px action below its text without moving the dock",
+            "seconds": 7.314196734
+          },
+          {
+            "name": "AIT-553 slice 2 item 1: the call band keeps one row in every voice state on short desktops with host chrome",
+            "seconds": 5.315122929
+          },
+          {
+            "name": "AIT-553 slice 2 item 2: on short desktops the readiness card is whole at first paint above the pinned composer",
+            "seconds": 3.607166435
+          },
+          {
+            "name": "AIT-553 slice 2 r3: an important band notice is never clipped, faded or hidden on short desktops with host chrome",
+            "seconds": 4.965339871
+          },
+          {
+            "name": "AIT-553 slice 3 M1: beside a host header the opener playback row keeps one band row",
+            "seconds": 3.912312241
+          },
+          {
+            "name": "AIT-553 slice 3 M2: beside a host header the compact readiness clears the pinned composer with its whole outline",
+            "seconds": 2.618605692
+          },
+          {
+            "name": "AIT-553 slice 3 r2: with the opt-in a 384-543 px rail track keeps an ordinary line in one band row; without it the same geometry takes two",
+            "seconds": 3.08162426
+          },
+          {
+            "name": "AIT-553 slice 3 r2: with the opt-in at a 384-543 px track an overflowing consent action and an important notice take two rows, whole",
+            "seconds": 3.629622937
+          },
+          {
+            "name": "AIT-553 slice 3 r2: with the opt-in the first-paint placeholder band equals the mounted band and mount shifts nothing",
+            "seconds": 2.21804864
+          }
+        ]
+      },
+      {
+        "runId": "44707193689",
+        "attempt": 1,
+        "sha": "81da7bef5ad3f181bc68e1a6d2bc2df8f039c463",
+        "observedAt": "2026-11-20T09:01:48.438Z",
+        "tests": [
+          {
+            "name": "AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict",
+            "seconds": 2.830132815
+          },
+          {
+            "name": "AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes",
+            "seconds": 2.3085042039999997
+          },
+          {
+            "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
+            "seconds": 2.826618827
+          },
+          {
+            "name": "AIT-129: failed and stale saves remain on consent; unsafe return targets go home",
+            "seconds": 2.500108166
+          },
+          {
+            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
+            "seconds": 8.367439411
+          },
+          {
+            "name": "AIT-501 v2.2: the real host open/adopt/configure return resumes typing from its granted snapshot",
+            "seconds": 4.289010516
+          },
+          {
+            "name": "AIT-501: consent continuation in the browser, including default gesture policy and navigation",
+            "seconds": 9.738653661
+          },
+          {
+            "name": "AIT-505: opener EN/DE light/dark at 390/1024/1440; stable composer, persistence and first send",
+            "seconds": 22.250201284
+          },
+          {
+            "name": "AIT-506: combined entrance states retain positive composer boxes in EN/DE, light/dark, 390/1024/1440",
+            "seconds": 101.870863999
+          },
+          {
+            "name": "AIT-540 M1: readable compact notice and one consent owner",
+            "seconds": 12.315052214
+          },
+          {
+            "name": "AIT-540 M2: readable compact notice and one consent owner",
+            "seconds": 18.660641872
+          },
+          {
+            "name": "AIT-541 look 10: RC26 visitor presentation",
+            "seconds": 3.143981583
+          },
+          {
+            "name": "AIT-541 look 11: RC26 visitor presentation",
+            "seconds": 3.9574672150000003
+          },
+          {
+            "name": "AIT-541 look 12: RC26 visitor presentation",
+            "seconds": 8.091413558000001
+          },
+          {
+            "name": "AIT-541 look 13: RC26 visitor presentation",
+            "seconds": 7.996894828
+          },
+          {
+            "name": "AIT-541 look 7: RC26 visitor presentation",
+            "seconds": 8.949173133
+          },
+          {
+            "name": "AIT-541 look 8: RC26 visitor presentation",
+            "seconds": 6.807204154
+          },
+          {
+            "name": "AIT-541 look 9: RC26 visitor presentation",
+            "seconds": 9.197701439000001
+          },
+          {
+            "name": "AIT-541 r2 10: changed visitor states",
+            "seconds": 2.606099526
+          },
+          {
+            "name": "AIT-541 r2 12: changed visitor states",
+            "seconds": 14.905306212
+          },
+          {
+            "name": "AIT-541 r2 email: changed visitor states",
+            "seconds": 4.532014436000001
+          },
+          {
+            "name": "AIT-542: host cancellation settles within one frame with pinned controls and a retained draft",
+            "seconds": 37.317475198
+          },
+          {
+            "name": "AIT-553 M1: keyboard End keeps focus on the composer mic in combined and on Start in choice",
+            "seconds": 3.163578598
+          },
+          {
+            "name": "AIT-553 gate2c: an asynchronous mic-unavailable failure leaves focus on the control the user moved to",
+            "seconds": 1.833263777
+          },
+          {
+            "name": "AIT-553 item 1: idle pause is neutral and unpressed in both entrances; call transitions pin the combined composer",
+            "seconds": 2.933824909
+          },
+          {
+            "name": "AIT-553 item 2: combined idle and ended screens expose only the composer mic; choice keeps its Start mic",
+            "seconds": 2.000871289
+          },
+          {
+            "name": "AIT-553 item 3: used-up upgrade copy has an exposed export link; the host can still suppress daily-cap actions",
+            "seconds": 3.511869762
+          },
+          {
+            "name": "AIT-553 item 4: combined readiness owns a readable grid track inside the scroll area above the pinned composer",
+            "seconds": 3.818083355
+          },
+          {
+            "name": "AIT-553 item 5: desktop render-only opener ends at the last text line plus normal padding",
+            "seconds": 1.568432974
+          },
+          {
+            "name": "AIT-553 item 6: phone used-up confirmation stacks a one-line 44 px action below its text without moving the dock",
+            "seconds": 6.968392511
+          },
+          {
+            "name": "AIT-553 slice 2 item 1: the call band keeps one row in every voice state on short desktops with host chrome",
+            "seconds": 5.257910258
+          },
+          {
+            "name": "AIT-553 slice 2 item 2: on short desktops the readiness card is whole at first paint above the pinned composer",
+            "seconds": 3.443680277
+          },
+          {
+            "name": "AIT-553 slice 2 r3: an important band notice is never clipped, faded or hidden on short desktops with host chrome",
+            "seconds": 4.979528677
+          },
+          {
+            "name": "AIT-553 slice 3 M1: beside a host header the opener playback row keeps one band row",
+            "seconds": 3.770250557
+          },
+          {
+            "name": "AIT-553 slice 3 M2: beside a host header the compact readiness clears the pinned composer with its whole outline",
+            "seconds": 2.478046639
+          },
+          {
+            "name": "AIT-553 slice 3 r2: with the opt-in a 384-543 px rail track keeps an ordinary line in one band row; without it the same geometry takes two",
+            "seconds": 2.983217918
+          },
+          {
+            "name": "AIT-553 slice 3 r2: with the opt-in at a 384-543 px track an overflowing consent action and an important notice take two rows, whole",
+            "seconds": 3.558586345
+          },
+          {
+            "name": "AIT-553 slice 3 r2: with the opt-in the first-paint placeholder band equals the mounted band and mount shifts nothing",
+            "seconds": 2.2233487019999996
+          }
+        ]
+      },
+      {
+        "runId": "44725948096",
+        "attempt": 1,
+        "sha": "2f1001c51c3a9a585b3233762f3cc8cca6ef23a9",
+        "observedAt": "2026-11-20T11:14:46.133Z",
+        "tests": [
+          {
+            "name": "AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict",
+            "seconds": 3.645193157
+          },
+          {
+            "name": "AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes",
+            "seconds": 2.354259378
+          },
+          {
+            "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
+            "seconds": 3.7277482920000002
+          },
+          {
+            "name": "AIT-129: failed and stale saves remain on consent; unsafe return targets go home",
+            "seconds": 3.896744675
+          },
+          {
+            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
+            "seconds": 9.269358376
+          },
+          {
+            "name": "AIT-501 v2.2: the real host open/adopt/configure return resumes typing from its granted snapshot",
+            "seconds": 4.0893204139999995
+          },
+          {
+            "name": "AIT-501: consent continuation in the browser, including default gesture policy and navigation",
+            "seconds": 9.665797323000001
+          },
+          {
+            "name": "AIT-505: opener EN/DE light/dark at 390/1024/1440; stable composer, persistence and first send",
+            "seconds": 19.482059103
+          },
+          {
+            "name": "AIT-506: combined entrance states retain positive composer boxes in EN/DE, light/dark, 390/1024/1440",
+            "seconds": 84.081910735
+          },
+          {
+            "name": "AIT-540 M1: readable compact notice and one consent owner",
+            "seconds": 10.63720169
+          },
+          {
+            "name": "AIT-540 M2: readable compact notice and one consent owner",
+            "seconds": 16.259909997
+          },
+          {
+            "name": "AIT-541 look 10: RC26 visitor presentation",
+            "seconds": 2.872011618
+          },
+          {
+            "name": "AIT-541 look 11: RC26 visitor presentation",
+            "seconds": 3.523062668
+          },
+          {
+            "name": "AIT-541 look 12: RC26 visitor presentation",
+            "seconds": 7.146510606
+          },
+          {
+            "name": "AIT-541 look 13: RC26 visitor presentation",
+            "seconds": 6.8769104930000005
+          },
+          {
+            "name": "AIT-541 look 7: RC26 visitor presentation",
+            "seconds": 8.097220127
+          },
+          {
+            "name": "AIT-541 look 8: RC26 visitor presentation",
+            "seconds": 6.048616787
+          },
+          {
+            "name": "AIT-541 look 9: RC26 visitor presentation",
+            "seconds": 8.301534623
+          },
+          {
+            "name": "AIT-541 r2 10: changed visitor states",
+            "seconds": 2.713304849
+          },
+          {
+            "name": "AIT-541 r2 12: changed visitor states",
+            "seconds": 13.167965724
+          },
+          {
+            "name": "AIT-541 r2 email: changed visitor states",
+            "seconds": 3.9380677989999997
+          },
+          {
+            "name": "AIT-542: host cancellation settles within one frame with pinned controls and a retained draft",
+            "seconds": 30.163880131000003
+          },
+          {
+            "name": "AIT-553 M1: keyboard End keeps focus on the composer mic in combined and on Start in choice",
+            "seconds": 3.182730903
+          },
+          {
+            "name": "AIT-553 gate2c: an asynchronous mic-unavailable failure leaves focus on the control the user moved to",
+            "seconds": 1.680811232
+          },
+          {
+            "name": "AIT-553 item 1: idle pause is neutral and unpressed in both entrances; call transitions pin the combined composer",
+            "seconds": 2.605425136
+          },
+          {
+            "name": "AIT-553 item 2: combined idle and ended screens expose only the composer mic; choice keeps its Start mic",
+            "seconds": 1.684401946
+          },
+          {
+            "name": "AIT-553 item 3: used-up upgrade copy has an exposed export link; the host can still suppress daily-cap actions",
+            "seconds": 3.0891489809999997
+          },
+          {
+            "name": "AIT-553 item 4: combined readiness owns a readable grid track inside the scroll area above the pinned composer",
+            "seconds": 3.647723499
+          },
+          {
+            "name": "AIT-553 item 5: desktop render-only opener ends at the last text line plus normal padding",
+            "seconds": 1.295423582
+          },
+          {
+            "name": "AIT-553 item 6: phone used-up confirmation stacks a one-line 44 px action below its text without moving the dock",
+            "seconds": 6.595891042
+          },
+          {
+            "name": "AIT-553 slice 2 item 1: the call band keeps one row in every voice state on short desktops with host chrome",
+            "seconds": 4.4325581860000005
+          },
+          {
+            "name": "AIT-553 slice 2 item 2: on short desktops the readiness card is whole at first paint above the pinned composer",
+            "seconds": 3.050450153
+          },
+          {
+            "name": "AIT-553 slice 2 r3: an important band notice is never clipped, faded or hidden on short desktops with host chrome",
+            "seconds": 4.429824576
+          },
+          {
+            "name": "AIT-553 slice 3 M1: beside a host header the opener playback row keeps one band row",
+            "seconds": 3.579803223
+          },
+          {
+            "name": "AIT-553 slice 3 M2: beside a host header the compact readiness clears the pinned composer with its whole outline",
+            "seconds": 2.5931728229999997
+          },
+          {
+            "name": "AIT-553 slice 3 r2: with the opt-in a 384-543 px rail track keeps an ordinary line in one band row; without it the same geometry takes two",
+            "seconds": 3.2545810540000004
+          },
+          {
+            "name": "AIT-553 slice 3 r2: with the opt-in at a 384-543 px track an overflowing consent action and an important notice take two rows, whole",
+            "seconds": 3.8589964979999998
+          },
+          {
+            "name": "AIT-553 slice 3 r2: with the opt-in the first-paint placeholder band equals the mounted band and mount shifts nothing",
+            "seconds": 1.8345786800000001
+          }
+        ]
+      },
+      {
+        "runId": "44736662387",
+        "attempt": 1,
+        "sha": "d24d320fb50018e9b3d2984fc6e964d336bc045d",
+        "observedAt": "2026-11-20T12:32:58.778Z",
+        "tests": [
+          {
+            "name": "AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict",
+            "seconds": 1.982126871
+          },
+          {
+            "name": "AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes",
+            "seconds": 1.54708618
+          },
+          {
+            "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
+            "seconds": 1.971320013
+          },
+          {
+            "name": "AIT-129: failed and stale saves remain on consent; unsafe return targets go home",
+            "seconds": 1.686394878
+          },
+          {
+            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
+            "seconds": 6.072449465
+          },
+          {
+            "name": "AIT-501 v2.2: the real host open/adopt/configure return resumes typing from its granted snapshot",
+            "seconds": 3.123676308
+          },
+          {
+            "name": "AIT-501: consent continuation in the browser, including default gesture policy and navigation",
+            "seconds": 8.313105294000001
+          },
+          {
+            "name": "AIT-505: opener EN/DE light/dark at 390/1024/1440; stable composer, persistence and first send",
+            "seconds": 16.811000081
+          },
+          {
+            "name": "AIT-506: combined entrance states retain positive composer boxes in EN/DE, light/dark, 390/1024/1440",
+            "seconds": 73.30697917399999
+          },
+          {
+            "name": "AIT-540 M1: readable compact notice and one consent owner",
+            "seconds": 8.534172113
+          },
+          {
+            "name": "AIT-540 M2: readable compact notice and one consent owner",
+            "seconds": 12.962315671
+          },
+          {
+            "name": "AIT-541 look 10: RC26 visitor presentation",
+            "seconds": 2.195877303
+          },
+          {
+            "name": "AIT-541 look 11: RC26 visitor presentation",
+            "seconds": 2.954731769
+          },
+          {
+            "name": "AIT-541 look 12: RC26 visitor presentation",
+            "seconds": 6.159639069
+          },
+          {
+            "name": "AIT-541 look 13: RC26 visitor presentation",
+            "seconds": 5.944868856
+          },
+          {
+            "name": "AIT-541 look 7: RC26 visitor presentation",
+            "seconds": 6.807239622
+          },
+          {
+            "name": "AIT-541 look 8: RC26 visitor presentation",
+            "seconds": 5.1867460229999995
+          },
+          {
+            "name": "AIT-541 look 9: RC26 visitor presentation",
+            "seconds": 7.082396427
+          },
+          {
+            "name": "AIT-541 r2 10: changed visitor states",
+            "seconds": 1.923411706
+          },
+          {
+            "name": "AIT-541 r2 12: changed visitor states",
+            "seconds": 11.246082915
+          },
+          {
+            "name": "AIT-541 r2 email: changed visitor states",
+            "seconds": 3.40295982
+          },
+          {
+            "name": "AIT-542: host cancellation settles within one frame with pinned controls and a retained draft",
+            "seconds": 26.93720006
+          },
+          {
+            "name": "AIT-553 M1: keyboard End keeps focus on the composer mic in combined and on Start in choice",
+            "seconds": 2.4429449570000004
+          },
+          {
+            "name": "AIT-553 gate2c: an asynchronous mic-unavailable failure leaves focus on the control the user moved to",
+            "seconds": 1.400009771
+          },
+          {
+            "name": "AIT-553 item 1: idle pause is neutral and unpressed in both entrances; call transitions pin the combined composer",
+            "seconds": 1.9907541659999999
+          },
+          {
+            "name": "AIT-553 item 2: combined idle and ended screens expose only the composer mic; choice keeps its Start mic",
+            "seconds": 1.437788135
+          },
+          {
+            "name": "AIT-553 item 3: used-up upgrade copy has an exposed export link; the host can still suppress daily-cap actions",
+            "seconds": 2.821853184
+          },
+          {
+            "name": "AIT-553 item 4: combined readiness owns a readable grid track inside the scroll area above the pinned composer",
+            "seconds": 2.593592183
+          },
+          {
+            "name": "AIT-553 item 5: desktop render-only opener ends at the last text line plus normal padding",
+            "seconds": 1.060691673
+          },
+          {
+            "name": "AIT-553 item 6: phone used-up confirmation stacks a one-line 44 px action below its text without moving the dock",
+            "seconds": 5.683999205
+          },
+          {
+            "name": "AIT-553 slice 2 item 1: the call band keeps one row in every voice state on short desktops with host chrome",
+            "seconds": 3.854579748
+          },
+          {
+            "name": "AIT-553 slice 2 item 2: on short desktops the readiness card is whole at first paint above the pinned composer",
+            "seconds": 2.433998379
+          },
+          {
+            "name": "AIT-553 slice 2 r3: an important band notice is never clipped, faded or hidden on short desktops with host chrome",
+            "seconds": 3.816148558
+          },
+          {
+            "name": "AIT-553 slice 3 M1: beside a host header the opener playback row keeps one band row",
+            "seconds": 2.741669676
+          },
+          {
+            "name": "AIT-553 slice 3 M2: beside a host header the compact readiness clears the pinned composer with its whole outline",
+            "seconds": 1.721763095
+          },
+          {
+            "name": "AIT-553 slice 3 r2: with the opt-in a 384-543 px rail track keeps an ordinary line in one band row; without it the same geometry takes two",
+            "seconds": 2.1252079680000002
+          },
+          {
+            "name": "AIT-553 slice 3 r2: with the opt-in at a 384-543 px track an overflowing consent action and an important notice take two rows, whole",
+            "seconds": 2.710424678
+          },
+          {
+            "name": "AIT-553 slice 3 r2: with the opt-in the first-paint placeholder band equals the mounted band and mount shifts nothing",
+            "seconds": 1.554932376
+          }
+        ]
+      },
+      {
+        "runId": "44742965802",
+        "attempt": 1,
+        "sha": "ddb1e06dbf1a3ebb8fea75cfffd86401ea9c1fab",
+        "observedAt": "2026-11-20T13:17:25.573Z",
+        "tests": [
+          {
+            "name": "AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict",
+            "seconds": 2.574108947
+          },
+          {
+            "name": "AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes",
+            "seconds": 2.082118189
+          },
+          {
+            "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
+            "seconds": 2.547573434
+          },
+          {
+            "name": "AIT-129: failed and stale saves remain on consent; unsafe return targets go home",
+            "seconds": 2.2185621230000003
+          },
+          {
+            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
+            "seconds": 7.713073261
+          },
+          {
+            "name": "AIT-501 v2.2: the real host open/adopt/configure return resumes typing from its granted snapshot",
+            "seconds": 3.964936862
+          },
+          {
+            "name": "AIT-501: consent continuation in the browser, including default gesture policy and navigation",
+            "seconds": 9.317060558
+          },
+          {
+            "name": "AIT-505: opener EN/DE light/dark at 390/1024/1440; stable composer, persistence and first send",
+            "seconds": 20.788463963999998
+          },
+          {
+            "name": "AIT-506: combined entrance states retain positive composer boxes in EN/DE, light/dark, 390/1024/1440",
+            "seconds": 92.863612183
+          },
+          {
+            "name": "AIT-540 M1: readable compact notice and one consent owner",
+            "seconds": 11.204355049
+          },
+          {
+            "name": "AIT-540 M2: readable compact notice and one consent owner",
+            "seconds": 16.991826663
+          },
+          {
+            "name": "AIT-541 look 10: RC26 visitor presentation",
+            "seconds": 2.8390382549999997
+          },
+          {
+            "name": "AIT-541 look 11: RC26 visitor presentation",
+            "seconds": 3.599637205
+          },
+          {
+            "name": "AIT-541 look 12: RC26 visitor presentation",
+            "seconds": 7.528645075
+          },
+          {
+            "name": "AIT-541 look 13: RC26 visitor presentation",
+            "seconds": 7.442060349
+          },
+          {
+            "name": "AIT-541 look 7: RC26 visitor presentation",
+            "seconds": 8.221262853
+          },
+          {
+            "name": "AIT-541 look 8: RC26 visitor presentation",
+            "seconds": 6.287547282
+          },
+          {
+            "name": "AIT-541 look 9: RC26 visitor presentation",
+            "seconds": 8.415139822999999
+          },
+          {
+            "name": "AIT-541 r2 10: changed visitor states",
+            "seconds": 2.437714034
+          },
+          {
+            "name": "AIT-541 r2 12: changed visitor states",
+            "seconds": 13.996113660999999
+          },
+          {
+            "name": "AIT-541 r2 email: changed visitor states",
+            "seconds": 4.189749011
+          },
+          {
+            "name": "AIT-542: host cancellation settles within one frame with pinned controls and a retained draft",
+            "seconds": 33.115401497
+          },
+          {
+            "name": "AIT-553 M1: keyboard End keeps focus on the composer mic in combined and on Start in choice",
+            "seconds": 2.9824885180000003
+          },
+          {
+            "name": "AIT-553 gate2c: an asynchronous mic-unavailable failure leaves focus on the control the user moved to",
+            "seconds": 1.746774973
+          },
+          {
+            "name": "AIT-553 item 1: idle pause is neutral and unpressed in both entrances; call transitions pin the combined composer",
+            "seconds": 2.5905011030000002
+          },
+          {
+            "name": "AIT-553 item 2: combined idle and ended screens expose only the composer mic; choice keeps its Start mic",
+            "seconds": 1.865035233
+          },
+          {
+            "name": "AIT-553 item 3: used-up upgrade copy has an exposed export link; the host can still suppress daily-cap actions",
+            "seconds": 3.309497868
+          },
+          {
+            "name": "AIT-553 item 4: combined readiness owns a readable grid track inside the scroll area above the pinned composer",
+            "seconds": 3.409487179
+          },
+          {
+            "name": "AIT-553 item 5: desktop render-only opener ends at the last text line plus normal padding",
+            "seconds": 1.442624779
+          },
+          {
+            "name": "AIT-553 item 6: phone used-up confirmation stacks a one-line 44 px action below its text without moving the dock",
+            "seconds": 6.915119614
+          },
+          {
+            "name": "AIT-553 slice 2 item 1: the call band keeps one row in every voice state on short desktops with host chrome",
+            "seconds": 4.999291799
+          },
+          {
+            "name": "AIT-553 slice 2 item 2: on short desktops the readiness card is whole at first paint above the pinned composer",
+            "seconds": 3.258574333
+          },
+          {
+            "name": "AIT-553 slice 2 r3: an important band notice is never clipped, faded or hidden on short desktops with host chrome",
+            "seconds": 4.731143367
+          },
+          {
+            "name": "AIT-553 slice 3 M1: beside a host header the opener playback row keeps one band row",
+            "seconds": 3.551230752
+          },
+          {
+            "name": "AIT-553 slice 3 M2: beside a host header the compact readiness clears the pinned composer with its whole outline",
+            "seconds": 2.364371052
+          },
+          {
+            "name": "AIT-553 slice 3 r2: with the opt-in a 384-543 px rail track keeps an ordinary line in one band row; without it the same geometry takes two",
+            "seconds": 2.816290044
+          },
+          {
+            "name": "AIT-553 slice 3 r2: with the opt-in at a 384-543 px track an overflowing consent action and an important notice take two rows, whole",
+            "seconds": 3.406631913
+          },
+          {
+            "name": "AIT-553 slice 3 r2: with the opt-in the first-paint placeholder band equals the mounted band and mount shifts nothing",
+            "seconds": 2.062142299
           }
         ]
       }
     ]
-  },
-  "diagnostic": {
-    "seconds": 205,
-    "evidence": "AIT-506 visual workload redistribution after AIT-505 integration. Remote Linux wrapper run ait-8ad0d13e381d4f4caa5bb6e7, SHA cdb7b3cb626b085c78adfd396d9e1080a0115af2: complete start-journey passed 29/29, whole-file duration 163.865562696s. Apply ceil(file seconds * 1.25) = 205s. The short-phone matrix moved from start-journey into existing start-look with every assertion retained. Trusted rolling-main timing values and all capacity limits remain unchanged.",
-    "runId": "ait-8ad0d13e381d4f4caa5bb6e7",
-    "attempt": 1,
-    "sha": "cdb7b3cb626b085c78adfd396d9e1080a0115af2",
-    "workload": "a9b7a2050194c312a97dccab95c0a3fdd7d73cfa9d2f6d6cd12cc143d9aa059f",
-    "previousWorkload": {
-      "seconds": 245,
-      "evidence": "AIT-506/AIT-505 integrated entrance workload. Remote Linux wrapper run ait-565db5af12bc415f9e956e49 at c5ca38826a075fc82b110322ae76f30c211bb209, complete start-journey 50/50 tests and targeted set312/312 PASS. Whole file195.957015649s from unit-timings/timings.jsonl; ceil(file seconds *1.25) =245s. Retains the prior180s diagnostic floor. Remote timing is excluded from trusted rolling-main samples; existing timing history and seconds are unchanged.",
-      "runId": "ait-565db5af12bc415f9e956e49",
-      "attempt": 1,
-      "sha": "c5ca38826a075fc82b110322ae76f30c211bb209",
-      "workload": "a848c577132636229c343558b5c17ea8261ba8d9a033b19c27ff7fcb380dfd7a"
-    }
   }
 }

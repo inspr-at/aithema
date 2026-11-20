@@ -1,35 +1,487 @@
 {
-  "seconds": 41.053,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 42947874534-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "seconds": 243.118,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 44650109778-1, 44682541019-1, 44688985679-1, 44707193689-1, 44725948096-1, 44736662387-1, 44742965802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "823218e1ffc10cd311e72da5d1595396254d4e5d4446a1c80dadec713de4ecda",
+    "workload": "846c4118ec8df074d16dc51970d58274f0b97a9066b870ae2fa1669fe3a4af02",
     "samples": [
       {
-        "runId": "42947874534",
+        "runId": "44650109778",
         "attempt": 1,
-        "sha": "0c4c4b1af999e4a3163e3676123e99140120bb89",
-        "observedAt": "2026-11-11T02:43:02.049Z",
+        "sha": "09a22c5713ac3f96033f1b4bee8300132c3ac45e",
+        "observedAt": "2026-11-20T00:59:14.903Z",
         "tests": [
           {
             "name": "AIT-307: readiness reserves only the input slot without voice; no empty card/header runs over 24 px",
-            "seconds": 7.757184038
+            "seconds": 8.606954836000002
+          },
+          {
+            "name": "AIT-510: choice 1024 de dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 3.9950250019999998
+          },
+          {
+            "name": "AIT-510: choice 1024 de light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 3.893193045
+          },
+          {
+            "name": "AIT-510: choice 1024 en dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 3.5729189860000004
+          },
+          {
+            "name": "AIT-510: choice 1024 en light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 3.55826572
+          },
+          {
+            "name": "AIT-510: combined 1024 de dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 4.955923450999999
+          },
+          {
+            "name": "AIT-510: combined 1024 de light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 5.055066762
+          },
+          {
+            "name": "AIT-510: combined 1024 en dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 4.838027875
+          },
+          {
+            "name": "AIT-510: combined 1024 en light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 5.211037913
+          },
+          {
+            "name": "AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/focus and stable frame EN/DE light/dark 390/1024/1440",
+            "seconds": 35.576159197
+          },
+          {
+            "name": "AIT-517 r12: contact rail defaults and host widths agree before upgrade",
+            "seconds": 1.081409018
+          },
+          {
+            "name": "AIT-517 r12: short desktops retain contact and the footer; localized host dialog and About reveal",
+            "seconds": 36.289568681999995
+          },
+          {
+            "name": "AIT-517 r15: row-only, launcher-only and paired host contact stay complete through entrance",
+            "seconds": 13.087610618000001
+          },
+          {
+            "name": "AIT-517: combined entrance contact geometry with host opener and short phones",
+            "seconds": 34.955581717
           },
           {
             "name": "START look on the reference host: entrance, consent page, readiness, conversation with understanding and the voice rail at three sizes, light and dark (AIT-128)",
-            "seconds": 25.084064165
+            "seconds": 30.454499508
+          }
+        ]
+      },
+      {
+        "runId": "44682541019",
+        "attempt": 1,
+        "sha": "29bf20c22fbd533dca879c382810a704e0f090e8",
+        "observedAt": "2026-11-20T05:40:28.988Z",
+        "tests": [
+          {
+            "name": "AIT-307: readiness reserves only the input slot without voice; no empty card/header runs over 24 px",
+            "seconds": 10.23370214
+          },
+          {
+            "name": "AIT-510: choice 1024 de dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 4.051825059
+          },
+          {
+            "name": "AIT-510: choice 1024 de light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 4.097751352
+          },
+          {
+            "name": "AIT-510: choice 1024 en dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 4.1001245740000005
+          },
+          {
+            "name": "AIT-510: choice 1024 en light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 4.065009584
+          },
+          {
+            "name": "AIT-510: combined 1024 de dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 6.116888897
+          },
+          {
+            "name": "AIT-510: combined 1024 de light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 6.242659073
+          },
+          {
+            "name": "AIT-510: combined 1024 en dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 5.973025017
+          },
+          {
+            "name": "AIT-510: combined 1024 en light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 5.948891456999999
+          },
+          {
+            "name": "AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/focus and stable frame EN/DE light/dark 390/1024/1440",
+            "seconds": 38.65346635
+          },
+          {
+            "name": "AIT-517 r12: contact rail defaults and host widths agree before upgrade",
+            "seconds": 1.396276458
+          },
+          {
+            "name": "AIT-517 r12: short desktops retain contact and the footer; localized host dialog and About reveal",
+            "seconds": 43.78453687099999
+          },
+          {
+            "name": "AIT-517 r15: row-only, launcher-only and paired host contact stay complete through entrance",
+            "seconds": 16.325331304
+          },
+          {
+            "name": "AIT-517: combined entrance contact geometry with host opener and short phones",
+            "seconds": 38.797727862
+          },
+          {
+            "name": "START look on the reference host: entrance, consent page, readiness, conversation with understanding and the voice rail at three sizes, light and dark (AIT-128)",
+            "seconds": 33.105323804
+          }
+        ]
+      },
+      {
+        "runId": "44688985679",
+        "attempt": 1,
+        "sha": "5d507e04ee24aba5b308eff6c60ee5a0d26d8f61",
+        "observedAt": "2026-11-20T06:36:37.437Z",
+        "tests": [
+          {
+            "name": "AIT-307: readiness reserves only the input slot without voice; no empty card/header runs over 24 px",
+            "seconds": 8.366684962999999
+          },
+          {
+            "name": "AIT-510: choice 1024 de dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 2.918541431
+          },
+          {
+            "name": "AIT-510: choice 1024 de light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 2.963177081
+          },
+          {
+            "name": "AIT-510: choice 1024 en dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 2.896930403
+          },
+          {
+            "name": "AIT-510: choice 1024 en light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 2.872028414
+          },
+          {
+            "name": "AIT-510: combined 1024 de dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 4.146016694
+          },
+          {
+            "name": "AIT-510: combined 1024 de light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 4.2940660930000005
+          },
+          {
+            "name": "AIT-510: combined 1024 en dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 4.224367128
+          },
+          {
+            "name": "AIT-510: combined 1024 en light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 4.110161013
+          },
+          {
+            "name": "AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/focus and stable frame EN/DE light/dark 390/1024/1440",
+            "seconds": 33.37428315299999
+          },
+          {
+            "name": "AIT-517 r12: contact rail defaults and host widths agree before upgrade",
+            "seconds": 0.928837973
+          },
+          {
+            "name": "AIT-517 r12: short desktops retain contact and the footer; localized host dialog and About reveal",
+            "seconds": 31.658472212
+          },
+          {
+            "name": "AIT-517 r15: row-only, launcher-only and paired host contact stay complete through entrance",
+            "seconds": 11.490507143999999
+          },
+          {
+            "name": "AIT-517: combined entrance contact geometry with host opener and short phones",
+            "seconds": 32.033506048999996
+          },
+          {
+            "name": "START look on the reference host: entrance, consent page, readiness, conversation with understanding and the voice rail at three sizes, light and dark (AIT-128)",
+            "seconds": 28.160344045000002
+          }
+        ]
+      },
+      {
+        "runId": "44707193689",
+        "attempt": 1,
+        "sha": "81da7bef5ad3f181bc68e1a6d2bc2df8f039c463",
+        "observedAt": "2026-11-20T09:01:44.830Z",
+        "tests": [
+          {
+            "name": "AIT-307: readiness reserves only the input slot without voice; no empty card/header runs over 24 px",
+            "seconds": 7.773747942
+          },
+          {
+            "name": "AIT-510: choice 1024 de dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 2.901037411
+          },
+          {
+            "name": "AIT-510: choice 1024 de light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 3.0131073379999997
+          },
+          {
+            "name": "AIT-510: choice 1024 en dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 2.898879509
+          },
+          {
+            "name": "AIT-510: choice 1024 en light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 2.956425332
+          },
+          {
+            "name": "AIT-510: combined 1024 de dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 4.225598248
+          },
+          {
+            "name": "AIT-510: combined 1024 de light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 4.19783262
+          },
+          {
+            "name": "AIT-510: combined 1024 en dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 4.096944118000001
+          },
+          {
+            "name": "AIT-510: combined 1024 en light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 4.285251711
+          },
+          {
+            "name": "AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/focus and stable frame EN/DE light/dark 390/1024/1440",
+            "seconds": 33.589190326
+          },
+          {
+            "name": "AIT-517 r12: contact rail defaults and host widths agree before upgrade",
+            "seconds": 0.9093024759999999
+          },
+          {
+            "name": "AIT-517 r12: short desktops retain contact and the footer; localized host dialog and About reveal",
+            "seconds": 32.041326155
+          },
+          {
+            "name": "AIT-517 r15: row-only, launcher-only and paired host contact stay complete through entrance",
+            "seconds": 10.790689884999999
+          },
+          {
+            "name": "AIT-517: combined entrance contact geometry with host opener and short phones",
+            "seconds": 31.88839565
+          },
+          {
+            "name": "START look on the reference host: entrance, consent page, readiness, conversation with understanding and the voice rail at three sizes, light and dark (AIT-128)",
+            "seconds": 28.681370249
+          }
+        ]
+      },
+      {
+        "runId": "44725948096",
+        "attempt": 1,
+        "sha": "2f1001c51c3a9a585b3233762f3cc8cca6ef23a9",
+        "observedAt": "2026-11-20T11:14:45.598Z",
+        "tests": [
+          {
+            "name": "AIT-307: readiness reserves only the input slot without voice; no empty card/header runs over 24 px",
+            "seconds": 10.127834171
+          },
+          {
+            "name": "AIT-510: choice 1024 de dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 4.0821261159999995
+          },
+          {
+            "name": "AIT-510: choice 1024 de light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 4.124823559
+          },
+          {
+            "name": "AIT-510: choice 1024 en dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 4.121297515
+          },
+          {
+            "name": "AIT-510: choice 1024 en light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 4.065621619
+          },
+          {
+            "name": "AIT-510: combined 1024 de dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 6.207001287
+          },
+          {
+            "name": "AIT-510: combined 1024 de light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 6.296121303
+          },
+          {
+            "name": "AIT-510: combined 1024 en dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 6.052923288
+          },
+          {
+            "name": "AIT-510: combined 1024 en light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 5.9619677840000005
+          },
+          {
+            "name": "AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/focus and stable frame EN/DE light/dark 390/1024/1440",
+            "seconds": 38.602802372999996
+          },
+          {
+            "name": "AIT-517 r12: contact rail defaults and host widths agree before upgrade",
+            "seconds": 1.394640766
+          },
+          {
+            "name": "AIT-517 r12: short desktops retain contact and the footer; localized host dialog and About reveal",
+            "seconds": 43.142231301
+          },
+          {
+            "name": "AIT-517 r15: row-only, launcher-only and paired host contact stay complete through entrance",
+            "seconds": 16.089164124
+          },
+          {
+            "name": "AIT-517: combined entrance contact geometry with host opener and short phones",
+            "seconds": 38.960383471
+          },
+          {
+            "name": "START look on the reference host: entrance, consent page, readiness, conversation with understanding and the voice rail at three sizes, light and dark (AIT-128)",
+            "seconds": 33.710882444
+          }
+        ]
+      },
+      {
+        "runId": "44736662387",
+        "attempt": 1,
+        "sha": "d24d320fb50018e9b3d2984fc6e964d336bc045d",
+        "observedAt": "2026-11-20T12:33:03.324Z",
+        "tests": [
+          {
+            "name": "AIT-307: readiness reserves only the input slot without voice; no empty card/header runs over 24 px",
+            "seconds": 11.397066513
+          },
+          {
+            "name": "AIT-510: choice 1024 de dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 4.126473476
+          },
+          {
+            "name": "AIT-510: choice 1024 de light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 4.179655123
+          },
+          {
+            "name": "AIT-510: choice 1024 en dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 4.15243618
+          },
+          {
+            "name": "AIT-510: choice 1024 en light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 4.195661009
+          },
+          {
+            "name": "AIT-510: combined 1024 de dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 6.3133123079999995
+          },
+          {
+            "name": "AIT-510: combined 1024 de light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 6.516601789999999
+          },
+          {
+            "name": "AIT-510: combined 1024 en dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 6.201645874
+          },
+          {
+            "name": "AIT-510: combined 1024 en light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 6.158420876999999
+          },
+          {
+            "name": "AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/focus and stable frame EN/DE light/dark 390/1024/1440",
+            "seconds": 38.852752082
+          },
+          {
+            "name": "AIT-517 r12: contact rail defaults and host widths agree before upgrade",
+            "seconds": 1.547177992
+          },
+          {
+            "name": "AIT-517 r12: short desktops retain contact and the footer; localized host dialog and About reveal",
+            "seconds": 51.538070592
+          },
+          {
+            "name": "AIT-517 r15: row-only, launcher-only and paired host contact stay complete through entrance",
+            "seconds": 18.216950966
+          },
+          {
+            "name": "AIT-517: combined entrance contact geometry with host opener and short phones",
+            "seconds": 43.656524734
+          },
+          {
+            "name": "START look on the reference host: entrance, consent page, readiness, conversation with understanding and the voice rail at three sizes, light and dark (AIT-128)",
+            "seconds": 35.635351187
+          }
+        ]
+      },
+      {
+        "runId": "44742965802",
+        "attempt": 1,
+        "sha": "ddb1e06dbf1a3ebb8fea75cfffd86401ea9c1fab",
+        "observedAt": "2026-11-20T13:17:29.399Z",
+        "tests": [
+          {
+            "name": "AIT-307: readiness reserves only the input slot without voice; no empty card/header runs over 24 px",
+            "seconds": 10.127252607
+          },
+          {
+            "name": "AIT-510: choice 1024 de dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 4.022803436
+          },
+          {
+            "name": "AIT-510: choice 1024 de light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 4.213136918
+          },
+          {
+            "name": "AIT-510: choice 1024 en dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 4.338649183
+          },
+          {
+            "name": "AIT-510: choice 1024 en light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 4.325918459
+          },
+          {
+            "name": "AIT-510: combined 1024 de dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 6.071400875999999
+          },
+          {
+            "name": "AIT-510: combined 1024 de light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 6.079684223999999
+          },
+          {
+            "name": "AIT-510: combined 1024 en dark fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 5.919464823999999
+          },
+          {
+            "name": "AIT-510: combined 1024 en light fixed image tiles, refusal reasons, consent and image-only send",
+            "seconds": 5.8545739590000005
+          },
+          {
+            "name": "AIT-515 signals: newest five, expanded, assistant basis, deferred pointer/focus and stable frame EN/DE light/dark 390/1024/1440",
+            "seconds": 38.93182162
+          },
+          {
+            "name": "AIT-517 r12: contact rail defaults and host widths agree before upgrade",
+            "seconds": 1.44680543
+          },
+          {
+            "name": "AIT-517 r12: short desktops retain contact and the footer; localized host dialog and About reveal",
+            "seconds": 44.346724512
+          },
+          {
+            "name": "AIT-517 r15: row-only, launcher-only and paired host contact stay complete through entrance",
+            "seconds": 17.202244838
+          },
+          {
+            "name": "AIT-517: combined entrance contact geometry with host opener and short phones",
+            "seconds": 39.355059214
+          },
+          {
+            "name": "START look on the reference host: entrance, consent page, readiness, conversation with understanding and the voice rail at three sizes, light and dark (AIT-128)",
+            "seconds": 34.523226924
           }
         ]
       }
     ]
-  },
-  "diagnostic": {
-    "seconds": 112,
-    "evidence": "AIT-506 visual workload redistribution after AIT-505 integration. Remote Linux wrapper run ait-8ad0d13e381d4f4caa5bb6e7, SHA cdb7b3cb626b085c78adfd396d9e1080a0115af2: complete start-look passed 23/23, whole-file duration 88.847185774s. Apply ceil(file seconds * 1.25) = 112s. The short-phone matrix moved from start-journey into existing start-look with every assertion retained. Trusted rolling-main timing values and all capacity limits remain unchanged.",
-    "runId": "ait-8ad0d13e381d4f4caa5bb6e7",
-    "attempt": 1,
-    "sha": "cdb7b3cb626b085c78adfd396d9e1080a0115af2",
-    "workload": "a67212253a49f8e5f87e69cc295efd03da584f3ffc12cc8610575845eccc636f"
   }
 }

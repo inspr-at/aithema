@@ -1,48 +1,552 @@
 {
-  "seconds": 244.435,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 42947874534-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "seconds": 430.182,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 44613164647-1, 44650109778-1, 44682541019-1, 44688985679-1, 44707193689-1, 44725948096-1, 44736662387-1, 44742965802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "1b36b1f338603af7f948b8574f636975f004c4a90362cb565dbd20723f1ac515",
+    "workload": "4886e430e70a6a221da5b1dd5d19a88d98912113140ef896702cad30d9e07f18",
     "samples": [
       {
-        "runId": "42947874534",
+        "runId": "44613164647",
         "attempt": 1,
-        "sha": "0c4c4b1af999e4a3163e3676123e99140120bb89",
-        "observedAt": "2026-11-11T02:43:03.694Z",
+        "sha": "72512711b37c46a32f9b2d049f77b85bacec4d86",
+        "observedAt": "2026-11-19T20:53:23.471Z",
         "tests": [
           {
             "name": "AIT-214: retiring an idle session removes its export and reload creates a fresh conversation",
-            "seconds": 6.534115508
+            "seconds": 6.478881896
           },
           {
             "name": "AIT-261: every terminal reason disables the demo UI and preserves export in DE and EN",
-            "seconds": 71.825719645
+            "seconds": 73.104554647
           },
           {
             "name": "AIT-376 round 2: every DE/EN status fits at 390, including stale failed and missing",
-            "seconds": 3.796941665
+            "seconds": 3.5723428680000002
           },
           {
             "name": "AIT-376: consent deadline viewport matrix, focus, announcements and zero movement",
-            "seconds": 12.274141315000001
+            "seconds": 11.059649819
           },
           {
             "name": "AIT-395: session credit matrix, sibling frame sampling and zero movement",
-            "seconds": 14.872974727
+            "seconds": 14.670696169000001
           },
           {
             "name": "AIT-411: credit host options, exact zero geometry and Tick evidence",
-            "seconds": 74.577926774
+            "seconds": 93.229085842
           },
           {
             "name": "AIT-433: handover notice and reserved states fit without movement at narrow widths",
-            "seconds": 3.436719949
+            "seconds": 3.499858493
+          },
+          {
+            "name": "AIT-484: another page erases ready, live and folded conversations at 390 and 1440 without layout movement",
+            "seconds": 2.0511712429999998
+          },
+          {
+            "name": "AIT-486: resync countdown jumps down without moving Resend or its slot",
+            "seconds": 9.541036862
+          },
+          {
+            "name": "AIT-506 combined offer: a saved address keeps the capture row stable",
+            "seconds": 10.167611044
+          },
+          {
+            "name": "AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, and stable controls",
+            "seconds": 87.748255762
+          },
+          {
+            "name": "AIT-507 integration: persisted opener alone exposes no email action or lock",
+            "seconds": 19.946628454000003
+          },
+          {
+            "name": "AIT-517: pinned contact preserves the combined inline email offer",
+            "seconds": 28.227975043999997
+          },
+          {
+            "name": "AIT-569: delayed host reads and header fit never move a visible chooser",
+            "seconds": 6.365315023
           },
           {
             "name": "host surface: verification lock through the fake outbox keeps a manual pause, conversation library, handover retry, chooser Continue; en and de, light and dark, 1440 and 400 px (AIT-104 B2)",
-            "seconds": 8.229267834
+            "seconds": 9.926630538
+          }
+        ]
+      },
+      {
+        "runId": "44650109778",
+        "attempt": 1,
+        "sha": "09a22c5713ac3f96033f1b4bee8300132c3ac45e",
+        "observedAt": "2026-11-20T00:59:11.005Z",
+        "tests": [
+          {
+            "name": "AIT-214: retiring an idle session removes its export and reload creates a fresh conversation",
+            "seconds": 6.456273415
+          },
+          {
+            "name": "AIT-261: every terminal reason disables the demo UI and preserves export in DE and EN",
+            "seconds": 72.944838217
+          },
+          {
+            "name": "AIT-376 round 2: every DE/EN status fits at 390, including stale failed and missing",
+            "seconds": 3.543117886
+          },
+          {
+            "name": "AIT-376: consent deadline viewport matrix, focus, announcements and zero movement",
+            "seconds": 11.064417804000001
+          },
+          {
+            "name": "AIT-395: session credit matrix, sibling frame sampling and zero movement",
+            "seconds": 14.642964431000001
+          },
+          {
+            "name": "AIT-411: credit host options, exact zero geometry and Tick evidence",
+            "seconds": 90.93993509100001
+          },
+          {
+            "name": "AIT-433: handover notice and reserved states fit without movement at narrow widths",
+            "seconds": 3.3293544280000003
+          },
+          {
+            "name": "AIT-484: another page erases ready, live and folded conversations at 390 and 1440 without layout movement",
+            "seconds": 1.880886841
+          },
+          {
+            "name": "AIT-486: resync countdown jumps down without moving Resend or its slot",
+            "seconds": 9.327454369
+          },
+          {
+            "name": "AIT-506 combined offer: a saved address keeps the capture row stable",
+            "seconds": 10.205795356000001
+          },
+          {
+            "name": "AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, and stable controls",
+            "seconds": 88.521248527
+          },
+          {
+            "name": "AIT-507 integration: persisted opener alone exposes no email action or lock",
+            "seconds": 19.94223618
+          },
+          {
+            "name": "AIT-517: pinned contact preserves the combined inline email offer",
+            "seconds": 28.278950132000002
+          },
+          {
+            "name": "AIT-569: delayed host reads and header fit never move a visible chooser",
+            "seconds": 7.23256264
+          },
+          {
+            "name": "host surface: verification lock through the fake outbox keeps a manual pause, conversation library, handover retry, chooser Continue; en and de, light and dark, 1440 and 400 px (AIT-104 B2)",
+            "seconds": 9.988124943999999
+          }
+        ]
+      },
+      {
+        "runId": "44682541019",
+        "attempt": 1,
+        "sha": "29bf20c22fbd533dca879c382810a704e0f090e8",
+        "observedAt": "2026-11-20T05:40:22.132Z",
+        "tests": [
+          {
+            "name": "AIT-214: retiring an idle session removes its export and reload creates a fresh conversation",
+            "seconds": 6.258710859
+          },
+          {
+            "name": "AIT-261: every terminal reason disables the demo UI and preserves export in DE and EN",
+            "seconds": 72.027664007
+          },
+          {
+            "name": "AIT-376 round 2: every DE/EN status fits at 390, including stale failed and missing",
+            "seconds": 3.4172483750000002
+          },
+          {
+            "name": "AIT-376: consent deadline viewport matrix, focus, announcements and zero movement",
+            "seconds": 10.77597217
+          },
+          {
+            "name": "AIT-395: session credit matrix, sibling frame sampling and zero movement",
+            "seconds": 14.421766473
+          },
+          {
+            "name": "AIT-411: credit host options, exact zero geometry and Tick evidence",
+            "seconds": 89.57644908200001
+          },
+          {
+            "name": "AIT-433: handover notice and reserved states fit without movement at narrow widths",
+            "seconds": 3.2333180240000003
+          },
+          {
+            "name": "AIT-484: another page erases ready, live and folded conversations at 390 and 1440 without layout movement",
+            "seconds": 1.792088909
+          },
+          {
+            "name": "AIT-486: resync countdown jumps down without moving Resend or its slot",
+            "seconds": 9.338249207
+          },
+          {
+            "name": "AIT-506 combined offer: a saved address keeps the capture row stable",
+            "seconds": 9.576274782
+          },
+          {
+            "name": "AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, and stable controls",
+            "seconds": 82.161868445
+          },
+          {
+            "name": "AIT-507 integration: persisted opener alone exposes no email action or lock",
+            "seconds": 18.404046482000002
+          },
+          {
+            "name": "AIT-517: pinned contact preserves the combined inline email offer",
+            "seconds": 26.683307996
+          },
+          {
+            "name": "AIT-569: delayed host reads and header fit never move a visible chooser",
+            "seconds": 5.3942893110000005
+          },
+          {
+            "name": "host surface: verification lock through the fake outbox keeps a manual pause, conversation library, handover retry, chooser Continue; en and de, light and dark, 1440 and 400 px (AIT-104 B2)",
+            "seconds": 8.545823115
+          }
+        ]
+      },
+      {
+        "runId": "44688985679",
+        "attempt": 1,
+        "sha": "5d507e04ee24aba5b308eff6c60ee5a0d26d8f61",
+        "observedAt": "2026-11-20T06:36:38.998Z",
+        "tests": [
+          {
+            "name": "AIT-214: retiring an idle session removes its export and reload creates a fresh conversation",
+            "seconds": 6.905133880999999
+          },
+          {
+            "name": "AIT-261: every terminal reason disables the demo UI and preserves export in DE and EN",
+            "seconds": 80.808219587
+          },
+          {
+            "name": "AIT-376 round 2: every DE/EN status fits at 390, including stale failed and missing",
+            "seconds": 3.8065247920000003
+          },
+          {
+            "name": "AIT-376: consent deadline viewport matrix, focus, announcements and zero movement",
+            "seconds": 12.173702835
+          },
+          {
+            "name": "AIT-395: session credit matrix, sibling frame sampling and zero movement",
+            "seconds": 15.597670797000001
+          },
+          {
+            "name": "AIT-411: credit host options, exact zero geometry and Tick evidence",
+            "seconds": 116.436584351
+          },
+          {
+            "name": "AIT-433: handover notice and reserved states fit without movement at narrow widths",
+            "seconds": 4.155178314
+          },
+          {
+            "name": "AIT-484: another page erases ready, live and folded conversations at 390 and 1440 without layout movement",
+            "seconds": 2.372329089
+          },
+          {
+            "name": "AIT-486: resync countdown jumps down without moving Resend or its slot",
+            "seconds": 9.872639095
+          },
+          {
+            "name": "AIT-506 combined offer: a saved address keeps the capture row stable",
+            "seconds": 11.107605902
+          },
+          {
+            "name": "AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, and stable controls",
+            "seconds": 94.376869792
+          },
+          {
+            "name": "AIT-507 integration: persisted opener alone exposes no email action or lock",
+            "seconds": 21.185191291
+          },
+          {
+            "name": "AIT-517: pinned contact preserves the combined inline email offer",
+            "seconds": 30.349093312
+          },
+          {
+            "name": "AIT-569: delayed host reads and header fit never move a visible chooser",
+            "seconds": 7.836489359
+          },
+          {
+            "name": "host surface: verification lock through the fake outbox keeps a manual pause, conversation library, handover retry, chooser Continue; en and de, light and dark, 1440 and 400 px (AIT-104 B2)",
+            "seconds": 10.964179355
+          }
+        ]
+      },
+      {
+        "runId": "44707193689",
+        "attempt": 1,
+        "sha": "81da7bef5ad3f181bc68e1a6d2bc2df8f039c463",
+        "observedAt": "2026-11-20T09:01:51.057Z",
+        "tests": [
+          {
+            "name": "AIT-214: retiring an idle session removes its export and reload creates a fresh conversation",
+            "seconds": 6.816341250000001
+          },
+          {
+            "name": "AIT-261: every terminal reason disables the demo UI and preserves export in DE and EN",
+            "seconds": 79.731682143
+          },
+          {
+            "name": "AIT-376 round 2: every DE/EN status fits at 390, including stale failed and missing",
+            "seconds": 3.8014959950000002
+          },
+          {
+            "name": "AIT-376: consent deadline viewport matrix, focus, announcements and zero movement",
+            "seconds": 12.041706861
+          },
+          {
+            "name": "AIT-395: session credit matrix, sibling frame sampling and zero movement",
+            "seconds": 15.506993135999998
+          },
+          {
+            "name": "AIT-411: credit host options, exact zero geometry and Tick evidence",
+            "seconds": 116.08134722
+          },
+          {
+            "name": "AIT-433: handover notice and reserved states fit without movement at narrow widths",
+            "seconds": 4.017564111
+          },
+          {
+            "name": "AIT-484: another page erases ready, live and folded conversations at 390 and 1440 without layout movement",
+            "seconds": 2.307895024
+          },
+          {
+            "name": "AIT-486: resync countdown jumps down without moving Resend or its slot",
+            "seconds": 9.696171339000001
+          },
+          {
+            "name": "AIT-506 combined offer: a saved address keeps the capture row stable",
+            "seconds": 11.319344908
+          },
+          {
+            "name": "AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, and stable controls",
+            "seconds": 94.081752249
+          },
+          {
+            "name": "AIT-507 integration: persisted opener alone exposes no email action or lock",
+            "seconds": 21.186700707
+          },
+          {
+            "name": "AIT-517: pinned contact preserves the combined inline email offer",
+            "seconds": 30.520963004000002
+          },
+          {
+            "name": "AIT-569: delayed host reads and header fit never move a visible chooser",
+            "seconds": 7.434430588000001
+          },
+          {
+            "name": "host surface: verification lock through the fake outbox keeps a manual pause, conversation library, handover retry, chooser Continue; en and de, light and dark, 1440 and 400 px (AIT-104 B2)",
+            "seconds": 11.450311493
+          }
+        ]
+      },
+      {
+        "runId": "44725948096",
+        "attempt": 1,
+        "sha": "2f1001c51c3a9a585b3233762f3cc8cca6ef23a9",
+        "observedAt": "2026-11-20T11:14:40.634Z",
+        "tests": [
+          {
+            "name": "AIT-214: retiring an idle session removes its export and reload creates a fresh conversation",
+            "seconds": 6.297263374
+          },
+          {
+            "name": "AIT-261: every terminal reason disables the demo UI and preserves export in DE and EN",
+            "seconds": 72.08653038300001
+          },
+          {
+            "name": "AIT-376 round 2: every DE/EN status fits at 390, including stale failed and missing",
+            "seconds": 3.4181883969999998
+          },
+          {
+            "name": "AIT-376: consent deadline viewport matrix, focus, announcements and zero movement",
+            "seconds": 10.807550395
+          },
+          {
+            "name": "AIT-395: session credit matrix, sibling frame sampling and zero movement",
+            "seconds": 14.050505538
+          },
+          {
+            "name": "AIT-411: credit host options, exact zero geometry and Tick evidence",
+            "seconds": 83.574727122
+          },
+          {
+            "name": "AIT-433: handover notice and reserved states fit without movement at narrow widths",
+            "seconds": 3.070497174
+          },
+          {
+            "name": "AIT-484: another page erases ready, live and folded conversations at 390 and 1440 without layout movement",
+            "seconds": 1.735209085
+          },
+          {
+            "name": "AIT-486: resync countdown jumps down without moving Resend or its slot",
+            "seconds": 9.460706146
+          },
+          {
+            "name": "AIT-506 combined offer: a saved address keeps the capture row stable",
+            "seconds": 9.484223088999999
+          },
+          {
+            "name": "AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, and stable controls",
+            "seconds": 83.600323741
+          },
+          {
+            "name": "AIT-507 integration: persisted opener alone exposes no email action or lock",
+            "seconds": 18.792350325
+          },
+          {
+            "name": "AIT-517: pinned contact preserves the combined inline email offer",
+            "seconds": 27.555152838
+          },
+          {
+            "name": "AIT-569: delayed host reads and header fit never move a visible chooser",
+            "seconds": 5.340934628
+          },
+          {
+            "name": "host surface: verification lock through the fake outbox keeps a manual pause, conversation library, handover retry, chooser Continue; en and de, light and dark, 1440 and 400 px (AIT-104 B2)",
+            "seconds": 7.765404712
+          }
+        ]
+      },
+      {
+        "runId": "44736662387",
+        "attempt": 1,
+        "sha": "d24d320fb50018e9b3d2984fc6e964d336bc045d",
+        "observedAt": "2026-11-20T12:33:00.951Z",
+        "tests": [
+          {
+            "name": "AIT-214: retiring an idle session removes its export and reload creates a fresh conversation",
+            "seconds": 6.702931694
+          },
+          {
+            "name": "AIT-261: every terminal reason disables the demo UI and preserves export in DE and EN",
+            "seconds": 80.44663226499999
+          },
+          {
+            "name": "AIT-376 round 2: every DE/EN status fits at 390, including stale failed and missing",
+            "seconds": 3.804983185
+          },
+          {
+            "name": "AIT-376: consent deadline viewport matrix, focus, announcements and zero movement",
+            "seconds": 12.141783751999998
+          },
+          {
+            "name": "AIT-395: session credit matrix, sibling frame sampling and zero movement",
+            "seconds": 15.314840773
+          },
+          {
+            "name": "AIT-411: credit host options, exact zero geometry and Tick evidence",
+            "seconds": 113.54000042599999
+          },
+          {
+            "name": "AIT-433: handover notice and reserved states fit without movement at narrow widths",
+            "seconds": 4.0400044280000005
+          },
+          {
+            "name": "AIT-484: another page erases ready, live and folded conversations at 390 and 1440 without layout movement",
+            "seconds": 2.5429276570000003
+          },
+          {
+            "name": "AIT-486: resync countdown jumps down without moving Resend or its slot",
+            "seconds": 9.82674091
+          },
+          {
+            "name": "AIT-506 combined offer: a saved address keeps the capture row stable",
+            "seconds": 11.160462026
+          },
+          {
+            "name": "AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, and stable controls",
+            "seconds": 95.310883424
+          },
+          {
+            "name": "AIT-507 integration: persisted opener alone exposes no email action or lock",
+            "seconds": 21.44542005
+          },
+          {
+            "name": "AIT-517: pinned contact preserves the combined inline email offer",
+            "seconds": 30.309805329
+          },
+          {
+            "name": "AIT-569: delayed host reads and header fit never move a visible chooser",
+            "seconds": 7.529901006
+          },
+          {
+            "name": "host surface: verification lock through the fake outbox keeps a manual pause, conversation library, handover retry, chooser Continue; en and de, light and dark, 1440 and 400 px (AIT-104 B2)",
+            "seconds": 10.315354224
+          }
+        ]
+      },
+      {
+        "runId": "44742965802",
+        "attempt": 1,
+        "sha": "ddb1e06dbf1a3ebb8fea75cfffd86401ea9c1fab",
+        "observedAt": "2026-11-20T13:17:23.636Z",
+        "tests": [
+          {
+            "name": "AIT-214: retiring an idle session removes its export and reload creates a fresh conversation",
+            "seconds": 6.317808725
+          },
+          {
+            "name": "AIT-261: every terminal reason disables the demo UI and preserves export in DE and EN",
+            "seconds": 70.527527542
+          },
+          {
+            "name": "AIT-376 round 2: every DE/EN status fits at 390, including stale failed and missing",
+            "seconds": 3.4687100639999997
+          },
+          {
+            "name": "AIT-376: consent deadline viewport matrix, focus, announcements and zero movement",
+            "seconds": 10.745593933
+          },
+          {
+            "name": "AIT-395: session credit matrix, sibling frame sampling and zero movement",
+            "seconds": 14.465045434
+          },
+          {
+            "name": "AIT-411: credit host options, exact zero geometry and Tick evidence",
+            "seconds": 85.49639981600001
+          },
+          {
+            "name": "AIT-433: handover notice and reserved states fit without movement at narrow widths",
+            "seconds": 3.309473821
+          },
+          {
+            "name": "AIT-484: another page erases ready, live and folded conversations at 390 and 1440 without layout movement",
+            "seconds": 1.6853303450000001
+          },
+          {
+            "name": "AIT-486: resync countdown jumps down without moving Resend or its slot",
+            "seconds": 9.387380295000002
+          },
+          {
+            "name": "AIT-506 combined offer: a saved address keeps the capture row stable",
+            "seconds": 9.385299052
+          },
+          {
+            "name": "AIT-507 inline offer: locale/theme/width matrix, privacy, resend, call, and stable controls",
+            "seconds": 83.080577371
+          },
+          {
+            "name": "AIT-507 integration: persisted opener alone exposes no email action or lock",
+            "seconds": 18.740848814
+          },
+          {
+            "name": "AIT-517: pinned contact preserves the combined inline email offer",
+            "seconds": 27.118368196
+          },
+          {
+            "name": "AIT-569: delayed host reads and header fit never move a visible chooser",
+            "seconds": 5.337295481
+          },
+          {
+            "name": "host surface: verification lock through the fake outbox keeps a manual pause, conversation library, handover retry, chooser Continue; en and de, light and dark, 1440 and 400 px (AIT-104 B2)",
+            "seconds": 7.748946205
           }
         ]
       }
