@@ -48,10 +48,10 @@ the new protection, then remove the four aliases in a separate change only after
 the coordinator confirms the switch. Future worker-count changes leave the single
 required `browser` name stable. This change does not edit GitHub settings.
 
-Unit workers report `unit (1/3)`, `unit (2/3)` and `unit (3/3)`. The required `test` job needs
-all three workers and retains its exact name and ten-minute cap. Its unconditional
+Unit workers report `unit (1/4)` through `unit (4/4)` (AIT-599). The required `test` job needs
+all four workers and retains its exact name and ten-minute cap. Its unconditional
 result gate fails on failure, cancellation, skipping or missing workers, including
-on docs-only PRs. On full runs it also validates all three timing artifacts against
+on docs-only PRs. On full runs it also validates all four timing artifacts against
 the run, attempt, tested commit and complete file assignment. Missing/duplicate
 files, inconsistent test totals and any failed/cancelled/skipped/todo tests fail
 the aggregate. The browser guard, reproducible pack twice, two-minute standalone
@@ -187,7 +187,7 @@ The ten slowest baseline unit files, using full file summaries:
 | `packages/ui/test/host-settlement.test.js` | 43.983 | 38 |
 | `packages/ui/test/display-regressions.test.js` | 43.643 | 93 |
 
-Every full run retains `unit-timings-N-of-3-attempt-A` for 14 days, with per-file durations
+Every full run retains `unit-timings-N-of-4-attempt-A` for 14 days, with per-file durations
 and counts plus the final shard count. Refresh from successful canonical main
 push CI runs, supplying multiple runs for a measured p95 series:
 
@@ -208,6 +208,35 @@ history. Keep runs from matching workloads together: imports reject differing
 file sets or test counts. Initial bootstrap projections are conservative planning
 evidence; ten successful production runs are needed before claiming a measured
 ten-run p95. The coordinator should record one merge-group run after merge.
+
+## AIT-599 fourth unit shard (2026-11-20)
+
+The AIT-456 table was a month old: 256 files and 6,939 tests, while main
+`ddb1e06d` discovers **302 files and 8,498 tests**, so 46 files ran on the
+8-second provisional weight. Merge-group runs measured unit 1/3 at 367.3, 308.5
+and 391.2 seconds, and PR run 44772539662 failed the measured guard at
+**437.7 seconds** (all 2,883 tests in that shard passed). Runner image
+20261116.202.1 is also slower (AIT-598).
+
+The refresh imports merge-group
+[CI 44742965802](https://github.com/inspr-at/aithema/actions/runs/44742965802)
+(main `ddb1e06d`), the only successful trusted run whose file set matches
+current discovery. Every older merge-group head changes unit test files since;
+the importer rejects the previous one (44736662387, `d24d320f`) on file
+coverage. With one sample the 25% margin applies:
+**2,239.936 seconds** measured file work, **2,800.078 seconds** planned.
+
+Applying the AIT-456 rule (smallest N with projections ≤420 seconds and room for
+at least one further average file), three shards project
+**471.807 / 435.704 / 427.936 seconds** and fail before any growth. Four shards
+of 76/75/76/75 files and about 700 planned worker seconds each project
+**394.027 / 357.925 / 350.157 / 341.217 seconds**, with room for **38 further
+8-second files**; five would project at most 347.353 seconds but is not the
+smallest count. The 180-second watchdog, native deadline, ten-minute job cap,
+420-second target, 25-second overhead and three file workers per shard are
+unchanged; only the shard count and its names follow. Unit job names are not
+required checks (the `test` aggregate is), so no ruleset change is needed.
+Collect more merge-group runs on the four-shard layout to retire the margin.
 
 ## AIT-423 eighth-shard capacity (2026-10-20)
 
@@ -272,7 +301,7 @@ those fields (and the head SHA) to the earliest record of that same successful
 execution to recover the attempt in which it actually ran; a distinct execution
 cannot fall back to an old manifest. Missing history or execution metadata does
 not authorize fallback. It then reads exactly that execution attempt's
-`unit-timings-N-of-3-attempt-A` artifact: an unchanged passing shard can retain
+`unit-timings-N-of-4-attempt-A` artifact: an unchanged passing shard can retain
 attempt 1 while the repaired shard supplies attempt 2. It checks the run ID,
 tested SHA, exact per-shard attempt, complete assignment, successful summaries,
 zero failed/cancelled/skipped/todo tests and matching per-file/final total counts.
