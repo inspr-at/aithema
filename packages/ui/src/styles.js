@@ -1042,8 +1042,10 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .upload-notices-more[data-summary] { white-space:normal; text-decoration:none; }
 /* AIT-589: the shared 2px ring at a 3px offset reached into the line above (phone) and the preceding full stop
    (shared line). This control's ring stays inside its 44px box vertically and only extends sideways into the actions
-   gap, by at most 4px and never more than the gap: where the gap is 0 (narrow image composer) it stays inside the box. */
-.upload-notices-more { position:relative; }
+   gap, by at most 4px and never more than the gap: where the gap is 0 (narrow image composer) it stays inside the box.
+   r3: a constant 6px inline padding in every state (idle, hover, focus) keeps the ring's inner edge 4px clear of the
+   control's own first and last glyphs where the ring sits on the control's edge. Reserved space, not a focus shift. */
+.upload-notices-more { position:relative; padding-inline:6px; }
 .upload-notices-more:focus-visible { outline:none; }
 .upload-notices-more:focus-visible::after { content:''; position:absolute; inset:2px -4px; border:2px solid var(--aithema-accent-bright);
   border-radius:4px; pointer-events:none; }
