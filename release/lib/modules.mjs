@@ -56,8 +56,9 @@ export function moduleFiles(files, pkg) {
         if (!subpath) throw new Error(`Missing package export: ${metadata.name}/${sourcePath}`);
         return introducer + quote + metadata.name + (subpath === '.' ? '' : '/' + subpath.slice(2)) + quote;
         // AIT-592: a new URL asset (.js, .json, .wasm, any extension) must be a member of this package.
-      }).replace(/new\s+URL\(\s*(['"])(\.{1,2}\/[^'"\n]+)\1\s*,\s*import\.meta\.url\s*\)/gu, (match, _quote, specifier) => {
-        if (!packaged.has(packageTarget(local, specifier))) throw new Error(`Unpackaged dependency: ${path} -> ${specifier}`);
+      }).replace(/new\s+URL\(\s*(['"])((?:\\[\s\S]|(?!\1)[^\\\n])*\\[\s\S](?:\\[\s\S]|(?!\1)[^\\\n])*|\.{1,2}\/[^'"\n]+)\1\s*,\s*import\.meta\.url\s*\)/gu, (match, _quote, specifier) => {
+        // A raw literal with a backslash (escape sequence) fails closed: the raw text is never cooked or resolved.
+        if (specifier.includes('\\') || !packaged.has(packageTarget(local, specifier))) throw new Error(`Unpackaged dependency: ${path} -> ${specifier}`);
         return match;
       }));
     }
