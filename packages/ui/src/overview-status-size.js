@@ -8,21 +8,7 @@ export class OverviewStatusSize {
     this.root = root; this.view = root.ownerDocument.defaultView;
     this.slot = root.querySelector('.overview-status');
     this.pane = root.querySelector('.analysis-content');
-    this.stack = root.querySelector('.analysis-stack');
     this.refresh = () => this.schedule();
-    // ResizeObserver delivers after layout and before paint, but after this frame's
-    // animation callbacks. A width change of the size-contained stack is measured in
-    // the delivery itself, so no frame paints the new width with the old reserve. The
-    // stack is the shallowest observed box and its size never follows the reserve, so
-    // the slot's resulting change is delivered within the same frame.
-    this.resized = entries => {
-      const stack = entries.find(entry => entry.target === this.stack);
-      const width = stack?.borderBoxSize?.[0]?.inlineSize ?? stack?.contentRect?.width;
-      if (!this.connected || !stack || width === this.stackWidth) { this.schedule(); return; }
-      this.stackWidth = width;
-      if (this.frame != null) { this.view.cancelAnimationFrame(this.frame); this.frame = null; }
-      this.measure();
-    };
     this.fontsChanged = () => { this.signature = null; this.schedule(); };
   }
   schedule() {
@@ -34,10 +20,10 @@ export class OverviewStatusSize {
     this.connected = true;
     const Resize = this.view?.ResizeObserver;
     if (Resize) {
-      this.observer = new Resize(this.resized);
+      this.observer = new Resize(this.refresh);
       this.observer.observe(this.slot);
       this.observer.observe(this.slot.querySelector('.notice-text'));
-      this.observer.observe(this.stack);
+      this.observer.observe(this.root.querySelector('.analysis-stack'));
     }
     this.view?.addEventListener('resize', this.refresh);
     const fonts = this.root.ownerDocument.fonts;
@@ -87,7 +73,7 @@ export class OverviewStatusSize {
       }
       holder.append(probe); return probe;
     });
-    this.stack.append(holder);
+    this.root.querySelector('.analysis-stack').append(holder);
     let height = 0;
     try {
       for (const probe of probes) height = Math.max(height, probe.getBoundingClientRect().height);
