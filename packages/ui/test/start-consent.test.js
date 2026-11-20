@@ -64,16 +64,28 @@ test('AIT-501: partial grant clears Start after refresh settles', async t => {
 });
 test('AIT-501: ledger lag and two revision events consume one Start', async t => {
   // AIT-574: consent timers run on a virtual clock, so no wall-clock sleep can
-  // race the 2 s event deadline. Steps below mirror the loaded CI runner (~2x).
+  // race the 2 s event deadline: the ledger catches up at 900 ms of 2000 ms.
   const clock = consentClock(t), f = fixture(t, 'voice', true); f.start(); f.lag = true;
   f.revise(); await clock.flush();
   assert.ok(clock.has(2000, 'consentTimer'), 'the first event owns the 2 s deadline');
   assert.ok(clock.has(100, 'consentTimer'), 'the lagging ledger is re-read in 100 ms');
-  await clock.advance(1000); f.revise(); await clock.flush(); await clock.advance(1000);
+  await clock.advance(450); f.revise(); await clock.flush(); await clock.advance(450);
   assert.equal(f.starts.length, 0);
   f.lag = false;
-  await clock.advance(300); await clock.advance(300);
+  await clock.advance(150); await clock.advance(450);
   assert.equal(f.starts.length, 1);
+  await clock.advance(20_000); assert.equal(f.starts.length, 1, 'later timers never start again');
+});
+test('AIT-574: a ledger that catches up after the event deadline starts once on the backoff retry', async t => {
+  const clock = consentClock(t), f = fixture(t, 'voice', true); f.start(); f.lag = true;
+  f.revise(); await clock.flush();
+  await clock.advance(1000); f.revise(); await clock.flush(); await clock.advance(1000);
+  assert.ok(clock.has(2000, 'consentTimer'), 'the lagging ledger fails closed at the deadline and arms the 2 s retry');
+  assert.equal(clock.has(100, 'consentTimer'), false, 'a failed window stops ledger polling');
+  f.lag = false;
+  await clock.advance(1999); assert.equal(f.starts.length, 0, 'no Start before the retry');
+  await clock.advance(1); assert.equal(f.starts.length, 1);
+  await clock.advance(20_000); assert.equal(f.starts.length, 1, 'later timers never start again');
 });
 for (const mode of ['type', 'voice']) test(`AIT-501: navigation restores ${mode} once; voice requires Start call`, async t => {
   const clock = consentClock(t), f = fixture(t, mode, true); f.start();
