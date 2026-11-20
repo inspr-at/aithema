@@ -332,6 +332,9 @@ for (const kind of ['live voice', 'waiting voice', 'facade pending', 'spoken fac
       });
       await until(page, () => window.streamStatusApplied === true);
     };
+    // The stream's initial status is the element's starting state. Inject the
+    // recorded failure only after the element has applied it (AIT-585).
+    await releaseStream();
     await settle(page);
     const pending = await shadow(page, c => ({ notice: c.shadowRoot.querySelector('.notice').textContent,
       inlineHidden: c.shadowRoot.querySelector('.overview-retry').hidden, footerHidden: c.shadowRoot.querySelector('.retry').hidden }));
@@ -342,8 +345,6 @@ for (const kind of ['live voice', 'waiting voice', 'facade pending', 'spoken fac
     const before = await boxes(page, targets);
     await shadow(page, c => c.receive({ type: 'lane.status', data: { inputRevision: c.session.operations.inputRevision,
       running: [], lastFailure: { lane: 'reaction', error: 'reasoning-unavailable', retryable: true } } }));
-    // Red (AIT-585): the seeded initial status lands only after the injected failure.
-    await releaseStream();
     await settle(page);
     const failed = await shadow(page, c => ({ notice: c.shadowRoot.querySelector('.notice').textContent,
       expected: window.reactionFailureCopy, occurrences: c.shadowRoot.textContent.split(window.reactionFailureCopy).length - 1,
