@@ -817,3 +817,49 @@ test('AIT-553 gate2c: an asynchronous mic-unavailable failure leaves focus on th
     assert.ok(record.box[2] > 0 && record.box[3] > 0, `focused control has a positive box: ${label}`);
   }
 });
+
+// AIT-587 (RC25 look 15): the ready card's check stays beside its value, also when the value wraps.
+test('AIT-587: a ready-card check stays beside the first line of a wrapped value', { timeout: 120_000 }, async t => {
+  const { page, server } = await harness(t), records = [];
+  for (const variant of variants) for (const entrance of ['choice', 'combined']) {
+    const label = `${variant.width}-${variant.locale}-${variant.theme}-${entrance}`;
+    await open(page, server, variant, entrance);
+    await page.evaluate(() => grant());
+    await page.waitForFunction(() => [...c.shadowRoot.querySelectorAll('.ready__row')]
+      .some(row => row.querySelector('.ready__check').checkVisibility({ checkVisibilityCSS: true })), { timeout: 10_000 })
+      .catch(async error => { throw new Error(`${label}: no ready-card check shows: ${await page.evaluate(() => c.shadowRoot.querySelector('.ready')?.outerHTML.slice(0, 600))}`, { cause: error }); });
+    const rows = await page.evaluate(() => [...c.shadowRoot.querySelectorAll('.ready__row')]
+      .filter(row => row.querySelector('.ready__check').checkVisibility({ checkVisibilityCSS: true })).map(row => {
+        const value = row.querySelector('dd > span:last-child'), check = row.querySelector('.ready__check'), original = value.textContent;
+        const measure = () => {
+          const range = document.createRange(); range.selectNodeContents(value);
+          const lines = [...range.getClientRects()].filter(r => r.width > 0 && r.height > 0), b = check.getBoundingClientRect();
+          return { check: [b.x, b.y, b.width, b.height], first: lines[0] ? [lines[0].x, lines[0].y, lines[0].width, lines[0].height] : null,
+            lines: new Set(lines.map(r => Math.round(r.y))).size, row: row.getBoundingClientRect().height };
+        };
+        const single = measure();
+        value.textContent = Array(10).fill(original).join(' ');
+        const wrapped = measure();
+        value.textContent = original;
+        return { row: row.dataset.ready, single, wrapped, restored: measure() };
+      }));
+    records.push({ label, rows });
+    await retain(page, `ait587-${label}-ready-check`, { rows });
+  }
+  for (const { label, rows } of records) {
+    assert.ok(rows.length > 0, `${label}: at least one ready-card check is measured`);
+    for (const { row, single, wrapped, restored } of rows) {
+      const where = `${label}/${row}: ${JSON.stringify({ single, wrapped })}`;
+      for (const [name, box] of Object.entries({ singleCheck: single.check, singleText: single.first, wrappedCheck: wrapped.check, wrappedText: wrapped.first }))
+        assert.ok(box && box[2] > 0 && box[3] > 0, `${name}: positive width and height: ${where}`);
+      assert.ok(wrapped.lines > 1, `the forced value wraps: ${where}`);
+      const gap = state => state.first[0] - (state.check[0] + state.check[2]);
+      assert.ok(gap(single) >= -.5, `the check precedes its value: ${where}`);
+      assert.ok(Math.abs(gap(wrapped) - gap(single)) <= .5, `a wrapped value keeps the check beside its first line: ${where}`);
+      const middle = box => box[1] + box[3] / 2;
+      assert.ok(Math.abs(middle(wrapped.check) - middle(wrapped.first)) <= wrapped.first[3] / 2, `the check stays on the first line: ${where}`);
+      assert.deepEqual(restored.check, single.check, `restoring the value moves the check 0 px: ${where}`);
+      assert.equal(restored.row, single.row, `restoring the value restores the row height: ${where}`);
+    }
+  }
+});
