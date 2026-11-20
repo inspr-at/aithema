@@ -37,6 +37,34 @@ export function footerMode(width) {
     limit: width >= FOOTER_WIDTHS.compact, connected: width >= FOOTER_WIDTHS.compact, unit: width >= FOOTER_WIDTHS.number };
 }
 
+// Round the reserved numeric timer column, keeping the dot/label gap and
+// sizer alignment exact. Use the connected label even while reconnecting so
+// status changes cannot move the timer or neighbouring footer controls.
+function snapStatusDot(footer) {
+  const dot = footer.querySelector('.status__dot'), timer = footer.querySelector('.connection-timer');
+  const status = dot?.closest('.status');
+  if (!status || timer?.parentElement !== status || !/^\d+:\d{2}(?::\d{2})?$/.test(timer.textContent)) return;
+  const box = dot.getBoundingClientRect(), time = timer.getBoundingClientRect();
+  if (!(box.width > 0 && box.height > 0 && time.width > 0 && time.height > 0)) return;
+  const sizer = status.querySelector('.status__sizer'), connected = sizer.querySelector('[data-key="connected"]');
+  const reserved = sizer.getBoundingClientRect();
+  let width = null;
+  if (connected && reserved.width > 0 && reserved.height > 0) {
+    const range = dot.ownerDocument.createRange(); range.selectNodeContents(connected);
+    const text = range.getBoundingClientRect();
+    if (text.width > 0 && text.height > 0) width = text.width;
+  }
+  const gap = parseFloat(dot.ownerDocument.defaultView.getComputedStyle(dot.parentElement).columnGap) || 0;
+  const referenceX = () => width === null ? dot.getBoundingClientRect().x
+    : sizer.getBoundingClientRect().right - width - box.width - gap;
+  const previous = parseFloat(footer.style.getPropertyValue('--connection-timer-snap')) || 0;
+  const x = referenceX() + previous, next = x - Math.floor(x);
+  if (next === previous) return;
+  footer.style.setProperty('--connection-timer-snap', `${next}px`);
+  // Arbitrary host labels may outgrow the minimum slot; leave their natural sizing intact.
+  if (referenceX() !== Math.floor(x)) footer.style.setProperty('--connection-timer-snap', `${previous}px`);
+}
+
 function footerRowGeometry(footer) {
   const row = footer.querySelector('.display-foot__row'), bounds = row.getBoundingClientRect();
   const zones = [...row.children].map(zone => ({ hidden: zone.hidden, visible: Boolean(zone.getClientRects().length), box: zone.getBoundingClientRect() }));
@@ -397,6 +425,7 @@ export class PhoneComposerViewport {
         fitFooter(footer); this.footerFitKey = footerGeometry(footer, this).key;
         this.footerFitWidth = geometry.width;
       }
+      snapStatusDot(footer);
       this.footerTextKey = footerText(footer.querySelector('.display-foot__row'));
       // Recovery notices share transcript end reservation at every width.
       // A voice binding alone never consumes a concept-bar row.
@@ -474,7 +503,8 @@ export class PhoneComposerViewport {
     this.observer?.disconnect();
     if (Observer) {
       this.observer = new Observer(this.paint);
-      for (const selector of ['.band', '.display-foot', '.composer-dock', '.audio-rail .voice-state']) {
+      // Slotted legal copy and status labels can move the dot without resizing the footer.
+      for (const selector of ['.band', '.display-foot', '.footer-right', '.status__group', '.composer-dock', '.audio-rail .voice-state']) {
         const node = this.root.querySelector(selector);
         if (node) this.observer.observe(node);
       }

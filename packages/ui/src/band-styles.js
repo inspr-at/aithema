@@ -171,7 +171,7 @@ export const bandStyles = `
 .engine-info .engine__value { position:absolute; right:calc(100% + 2px); white-space:nowrap; opacity:0; transform:translateX(8px); pointer-events:none;
   font:400 12.5px/1.4 var(--aithema-font); color:var(--aithema-muted); background:var(--aithema-paper); transition:opacity .18s,transform .18s; }
 .engine-info:hover .engine__value, .engine-info:focus-visible .engine__value { opacity:1; transform:translateX(0); }
-.status { display:grid; grid-template-columns:6px auto minmax(8ch,max-content); align-items:center; gap:6px; flex:none; width:auto; height:44px; overflow:visible; font-size:12.5px; line-height:1.4; visibility:visible !important; }
+.status { --connection-timer-slot:calc(10ch + var(--connection-timer-snap,0px)); display:grid; grid-template-columns:6px auto minmax(var(--connection-timer-slot),max-content); align-items:center; gap:6px; flex:none; width:auto; height:44px; overflow:visible; font-size:12.5px; line-height:1.4; visibility:visible !important; }
 .status__group { display:flex; grid-area:1/1/2/3; justify-self:end; align-items:center; gap:6px; }
 .status__dot { width:6px; height:6px; flex:none; border-radius:50%; background:var(--aithema-warning); }
 .status__dot[data-state="connected"] { background:var(--aithema-accent); }
@@ -179,7 +179,8 @@ export const bandStyles = `
 .status__placeholder { visibility:hidden; }
 .status__sizer { display:grid; grid-area:1/2; visibility:hidden; pointer-events:none; }
 .status__sizer > span { grid-area:1/1; }
-.connection-timer { grid-column:3; display:inline-block; min-width:8ch; flex:none; text-align:start; font-variant-numeric:tabular-nums; white-space:nowrap; }
+/* Reserve two hour digits plus the separator; tabular digits alone do not reserve its width. */
+.connection-timer { --connection-timer-slot:calc(10ch + var(--connection-timer-snap,0px)); grid-column:3; display:inline-block; min-width:var(--connection-timer-slot); flex:none; text-align:start; font-variant-numeric:tabular-nums; white-space:nowrap; }
 .status[data-message] .status__label, .composer-dock > .status__label { display:block; position:absolute; right:12px; bottom:calc(100% + 6px); z-index:15;
   max-width:min(320px,calc(100vw - 24px)); padding:9px 12px; background:var(--aithema-ink); color:var(--aithema-paper);
   border-radius:10px; white-space:normal; overflow:visible; overflow-wrap:anywhere; }
@@ -266,7 +267,7 @@ export const bandStyles = `
   .status__label, .status__placeholder, .status__sizer, .host-credits__total { display:none; }
   .host-credits__track { width:60px; }
   .status__group { grid-column:1; }
-  .status { grid-template-columns:6px 8ch; gap:6px; } .connection-timer { grid-column:2; }
+  .status { grid-template-columns:6px var(--connection-timer-slot); gap:6px; } .connection-timer { grid-column:2; }
   .display-foot__row:has(.engine-info:is(:hover,:focus-visible)) :is(.host-credits__unit,.host-credits__track) { visibility:hidden; }
 }
 @media(width < ${FOOTER_WIDTHS.number}px) {
@@ -279,7 +280,7 @@ export const bandStyles = `
 /* Tablet labels yield only to a visible credit balance. */
 @media(700px <= width < 900px) {
   .display-foot:has(.host-credits:not([hidden])) .status__group { grid-column:1; }
-  .display-foot:has(.host-credits:not([hidden])) .status { grid-template-columns:6px 8ch; gap:6px; }
+  .display-foot:has(.host-credits:not([hidden])) .status { grid-template-columns:6px var(--connection-timer-slot); gap:6px; }
   .display-foot:has(.host-credits:not([hidden])) :is(.status__label,.status__placeholder,.status__sizer) { display:none; }
   .display-foot:has(.host-credits:not([hidden])) .connection-timer { grid-column:2; }
 }
@@ -342,7 +343,7 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
    Compact fits yield to the shared rules below; credit hosts are unchanged. */
 @media(min-width:900px) {
   .display-foot:is(:not([data-fit]),[data-fit="full"]):has(.host-legal:not([hidden])):has(.host-credits[hidden]) .ai-notice__label { display:inline; }
-  .display-foot:is(:not([data-fit]),[data-fit="full"]):has(.host-legal:not([hidden])):has(.host-credits[hidden]) .status { grid-template-columns:6px auto minmax(8ch,max-content); gap:6px; }
+  .display-foot:is(:not([data-fit]),[data-fit="full"]):has(.host-legal:not([hidden])):has(.host-credits[hidden]) .status { grid-template-columns:6px auto minmax(var(--connection-timer-slot),max-content); gap:6px; }
   .display-foot:is(:not([data-fit]),[data-fit="full"]):has(.host-legal:not([hidden])):has(.host-credits[hidden]) .status__group { grid-column:1/3; }
   .display-foot:is(:not([data-fit]),[data-fit="full"]):has(.host-legal:not([hidden])):has(.host-credits[hidden]) .status__sizer,
   .display-foot:is(:not([data-fit]),[data-fit="full"]):has(.host-legal:not([hidden])):has(.host-credits[hidden]) :is(.status__label,.status__placeholder) { display:grid; }
@@ -371,7 +372,7 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
   .engine-info { width:44px; place-items:center; }
   .host-legal { margin-left:4px; }
   .footer-info .phone-status { display:block; }
-  .footer-info .connection-timer { grid-column:auto; min-width:8ch; }
+  .footer-info .connection-timer { grid-column:auto; min-width:var(--connection-timer-slot); }
   .display-foot:has(.host-legal:not([hidden])) .host-credits__track { display:none; }
 }
 /* Credit-enabled hosts also fit the existing 320px embedding contract. The
