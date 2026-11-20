@@ -3708,12 +3708,13 @@ export class AithemaSession extends HTMLElement {
       if (!current()) return;
       // The host's limits may have arrived just now and leave no room: nothing is sent.
       if (!uploadsPossible(this.#limits)) { this.#uploadNotice = [replacement, copy.uploads.impossible].filter(Boolean).join(reasonSeparator); return; }
-      const images = this.#imageInputEnabled();
       // A renamed image can look like a ninth document or consume bytes despite
       // an image refusal. Defer only ambiguous kinds; plain documents retain the
       // specific count/byte notice, including on a later retained-file retry.
       for (const file of await unclassifiedUploads(files, this.#isImageFile)) this.#unclassifiedUploads.add(file);
       if (!current()) return;
+      // Read the binding after the last await: a processing change during this pick decides its plan.
+      const images = this.#imageInputEnabled();
       const plan = planUploads(files, { limits: this.#limits, uploads: this.#session.uploads, images, imageFile: this.#isImageFile,
         deferSessionLimits: files.some(file => this.#unclassifiedUploads.has(file) && !this.#isImageFile(file)) });
       const imageRefusals = images ? plan.refused.filter(record => /\.(?:png|jpe?g|webp|gif|heic|heif|bmp|tiff?|avif|svg)$/iu.test(record.name)) : [];
