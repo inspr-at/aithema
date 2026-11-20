@@ -5,10 +5,9 @@
 // readiness, and it must not move when readiness gives way to the conversation.
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir, homedir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import puppeteer from './launch.js';
-import { browserPath } from '../../scripts/install-test-browser.js';
+import { browserForFile } from './shared-browser.js';
 import { startChild } from '../helpers.js';
 import { fixture } from './combined-entrance-check.js';
 
@@ -32,8 +31,8 @@ export async function combinedImageOpenerCheck(t) {
   });
   let browser;
   t.after(async () => { try { await browser?.close(); } finally { await server.kill(); } });
-  browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
-    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  // The file's shared Chrome (no ambient CI read); its fixture resets storage on close.
+  browser = await browserForFile();
   const evidence = process.env.AITHEMA_EVIDENCE_DIR, tables = [];
   if (evidence) await mkdir(join(evidence, 'shots'), { recursive: true });
   for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) for (const [width, height] of viewports) await t.test(`${locale}/${theme}/${width}x${height}`, async () => {
