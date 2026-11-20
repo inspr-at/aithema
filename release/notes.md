@@ -16,7 +16,7 @@ host opt-in and the default entrance remains `'choice'`.
 - **Steady consent line (AIT-572, #478).** After the workspace reloads, the drafts line no longer flashes a stale consent request, and an old approval can no longer hide consent that is now missing.
 - **Steady start screen (AIT-569, #479).** After resizing from phone to desktop width, the start options stay exactly where they are under the pointer instead of jumping.
 - **Clear upload notices (AIT-566, #480).** Upload and held-file notices show one per row with their action, and a sheet lists any extra notices; nothing in the composer moves. Where the host enables uploads.
-- **Calm first screen (AIT-553, #483).** The combined entrance opens with one microphone, a neutral pause, readiness that fits on short screens, and a call band that stays slim; keyboard users keep their place when a call ends. One microphone, readiness and the export link apply where the host enables the combined entrance; the neutral pause and the fading call-band status apply in both entrances.
+- **Calm first screen (AIT-553, #483).** The combined entrance opens with one microphone, a neutral pause and readiness that fits on short screens; in the call band a long status fades instead of wrapping, so the band stays one row where it fits; keyboard users keep their place when a call ends. One microphone, readiness and the export link apply where the host enables the combined entrance; the neutral pause and the fading call-band status apply in both entrances.
 
 When nothing else fits, the notice row shows one honest summary: “Can't upload ·
 Details” only for real upload limits and “Consent needed · Details” for consent.
@@ -33,7 +33,7 @@ notices are never cut.
 - **Stabile Einwilligungszeile (AIT-572, #478).** Nach dem Neuladen des Arbeitsbereichs zeigt die Entwurfszeile keine veraltete Einwilligungsanfrage mehr, und eine alte Zustimmung kann eine jetzt fehlende Einwilligung nicht mehr verdecken.
 - **Stabiler Startbildschirm (AIT-569, #479).** Nach einer Größenänderung von Handy- auf Desktopbreite bleiben die Startoptionen genau unter dem Mauszeiger, statt zu springen.
 - **Klare Upload-Hinweise (AIT-566, #480).** Upload- und Halte-Hinweise stehen je in einer Zeile mit ihrer Aktion, weitere Hinweise zeigt ein eigenes Blatt; im Eingabebereich verschiebt sich nichts. Bei vom Host aktivierten Uploads.
-- **Ruhiger Startbildschirm (AIT-553, #483).** Der kombinierte Einstieg zeigt ein Mikrofon, eine neutrale Pause, eine Bereitschaftsanzeige, die auf kurze Bildschirme passt, und eine schlanke Anrufleiste; Tastaturnutzer behalten nach einem Anruf ihren Platz. Ein Mikrofon, Bereitschaftsanzeige und Export-Link gelten bei vom Host aktiviertem kombiniertem Einstieg; die neutrale Pause und der ausblendende Status der Anrufleiste in beiden Einstiegen.
+- **Ruhiger Startbildschirm (AIT-553, #483).** Der kombinierte Einstieg zeigt ein Mikrofon, eine neutrale Pause und eine Bereitschaftsanzeige, die auf kurze Bildschirme passt; in der Anrufleiste blendet ein langer Status aus, statt umzubrechen, sodass die Leiste einzeilig bleibt, wo sie Platz hat; Tastaturnutzer behalten nach einem Anruf ihren Platz. Ein Mikrofon, Bereitschaftsanzeige und Export-Link gelten bei vom Host aktiviertem kombiniertem Einstieg; die neutrale Pause und der ausblendende Status der Anrufleiste in beiden Einstiegen.
 
 Passt sonst nichts, zeigt die Hinweiszeile eine ehrliche Zusammenfassung:
 „Hochladen nicht möglich · Details“ nur bei echten Upload-Grenzen und
@@ -66,9 +66,13 @@ werden nie abgeschnitten.
   Excess images get the existing named image-limit refusal; images that fit and
   eligible documents continue. Final ownership, missing-session and conflict
   failures stop the selection with one notice giving the reason before all unsent
-  filenames; several unsent files use the additive `uploads.failedMany`. Combined
-  composers with document intake reserve three feedback lines (previously two)
-  inside the existing 44 px control row, without raising the voice/composer row.
+  filenames; several unsent files use the additive `uploads.failedMany`. Behaviour
+  change: combined composers with document intake and no image input reserve
+  three feedback lines (previously two). Feedback is its own grid row below the
+  44 px control row, so its minimum grows from `2.6em` to `3.75em` (43.2 px at a
+  16 px root font size, previously about 30 px) and the idle composer can be up
+  to about 13 px taller than in RC26. With image input the existing 44 px image
+  reserve applies unchanged.
 - AIT-561 / AIT-563 held images: detected images awaiting consent reuse the
   existing image consent action and keep their files while document batches
   continue. A newer pick, drop or paste keeps consent-held images, even when the
@@ -85,7 +89,8 @@ werden nie abgeschnitten.
   returns to a visible enabled control on close. When nothing fits, the row is an
   honest one-line summary: `uploads.summaryUnavailable` only for real upload
   limits, `uploads.summaryConsent` for consent, each followed by
-  `uploads.detailsAction`. Idle composer geometry equals RC26.
+  `uploads.detailsAction`. Idle composer geometry equals its immediate baseline,
+  main before #480, which already includes the AIT-561 reserve above.
 - AIT-568: on hosts that keep no visitor email (`visitorEmail.canSave: false`
   and `canDelete: false`), a reconfigure no longer starts a stray
   `/api/visitor/email` read from the torn-down verifier; AIT-543's no-store
@@ -106,7 +111,9 @@ werden nie abgeschnitten.
   confirmation stacks under its text. The used-up offer exposes the existing
   export link (short label `usedUpExportShort` on phones, full accessible name
   kept); host daily-cap action suppression still applies. The call band stays one
-  row. Keyboard End keeps focus by handing it to the composer mic.
+  row when the rail track has room (544 px by default, 384 px with
+  `railMinWidth: voiceRailFlexMinWidth`); consent actions and important notices
+  take the second row. Keyboard End keeps focus by handing it to the composer mic.
 - AIT-553 (both entrances): the idle conversation Pause keeps its existing
   availability with a neutral, unpressed look instead of the live call's filled
   treatment. From 600 px an ordinary long band status clips and fades in its own
@@ -117,9 +124,11 @@ werden nie abgeschnitten.
 - **AIT-553 first-paint API — additive and opt-in.** `@inspr/aithema-ui/first-paint`
   exports `voiceRailFlexMinWidth` (`384`) and `voiceRailLineFloor` (`160`).
   `headerRailReservation({ railMinWidth })` accepts an optional **number** in px
-  (not a CSS length); values below 384 are raised to 384 and a non-numeric value
-  uses the default. The default stays `voiceRailMinWidth` (`544`), so every
-  existing host's geometry is unchanged. Hosts with wide header actions may pass
+  (not a CSS length), rounded to whole pixels. A value that `Number()` cannot read,
+  or that rounds to 0 (for example `0`), uses the default 544; any other value
+  below 384, including a negative one, is raised to 384. The default stays
+  `voiceRailMinWidth` (`544`), so every existing host's geometry is unchanged.
+  Hosts with wide header actions may pass
   `railMinWidth: voiceRailFlexMinWidth`: an ordinary voice status then clips and
   fades down to a 160 px line before the band takes a second row. Consent actions
   and important notices still take the second row when they do not fit whole. The
@@ -171,18 +180,11 @@ adds the nine leaf keys above and changes or removes no existing default.
   most 860 px tall.
 - AIT-569: the header-row reservation now comes from CSS alone; the component
   flags only a measured overflow.
-- AIT-561: combined document-intake composers reserve three feedback lines
-  inside the existing control row.
+- AIT-561: combined composers with document intake and no image input reserve
+  three feedback lines in their own feedback row (minimum `3.75em`, previously
+  `2.6em`), so the idle composer can be up to about 13 px taller than in RC26.
 
 German release prose is impersonal; quoted shipped defaults stay exact.
-
-### CI-only
-
-AIT-558 replaces both provisional clarify reservations with measured
-rolling-main weights (285.158 s and 321.369 s) and fixes the timing importer's
-helper attribution. AIT-564 adds a non-required preview-security engine/apt
-cache warmer on main. No limits are raised; the 14 browser shards, job caps and
-required aliases remain. The release PR's browser CI must be fully green.
 
 ## Known limitations
 
@@ -200,6 +202,11 @@ required aliases remain. The release PR's browser CI must be fully green.
   (AIT-576).
 - At 360 px the German composer placeholder “Ihre Nachricht” is cut; planned
   (AIT-578).
+- In the choice entrance at 1280×720, the fixed footer covers the option cards
+  at page scroll 0 and Continue sits below the fold, so the page scrolls; planned
+  (AIT-590).
+- On a phone overview (390×844), the pinned demo/contact strip sits partly under
+  the composer and the collapse chevron touches “Up to date”; planned (AIT-591).
 
 ## Breaking for hosts
 
@@ -216,8 +223,9 @@ attached”. Every other change is compatible: the first-paint exports and
 keys are additive and host overrides keep winning; `guard.partialImages` is
 opt-in for direct storage callers; AIT-568 and AIT-572 are fixes with no flag;
 the AIT-566 notices sheet and AIT-569 header-row change live inside the
-component's shadow DOM and keep reserved geometry. No configuration, event,
-slot or host requirement changes.
+component's shadow DOM and keep reserved geometry; AIT-561's taller document
+feedback row is a visual behaviour change inside the shadow DOM, not a host
+contract change. No configuration, event, slot or host requirement changes.
 
 ## Availability and verification
 

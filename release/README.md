@@ -107,8 +107,9 @@ merges, in order (checked; stop and report any difference):
 
 **Notes summary.** RC27 visitor entries use each ticket's stored EN/DE pill and
 benefit, read through the aeon CLI during this preparation (AIT-559, AIT-561,
-AIT-563, AIT-568, AIT-572, AIT-569, AIT-566, AIT-553); German direct address is
-impersonal. Upload and image entries are scoped to host activation. AIT-553's
+AIT-563, AIT-568, AIT-572, AIT-569, AIT-566, AIT-553; AIT-553's benefit re-read
+after its 2026-11-20 correction, "one row where it fits"); German direct address
+is impersonal. Upload and image entries are scoped to host activation. AIT-553's
 single mic, readiness and export link are scoped to the combined entrance; its
 neutral idle Pause and fading band status apply in both entrances (shared band
 CSS at L). AIT-545, AIT-554, AIT-558, AIT-564, AIT-550, AIT-567, AIT-574 and
@@ -131,18 +132,26 @@ the code-at-L host record. In short:
 - AIT-559/AIT-561/AIT-563: client classification and capacity notices with
   figures, held images that survive later picks and attach once after the grant,
   de-duplicated holds (name, size, last-modified), and additive
-  `uploads.failedMany` (legacy `uploads.failed` override wins). Combined
-  document-intake composers reserve three feedback lines (was two) inside the
-  existing 44 px control row.
+  `uploads.failedMany` (legacy `uploads.failed` override wins). Behaviour
+  change: combined composers with document intake and no image input reserve
+  three feedback lines (was two) in their own feedback grid row below the 44 px
+  control row; its minimum grows from `2.6em` to `3.75em`
+  (`packages/ui/src/combined-entrance-styles.js`, #470), so the idle composer can
+  be up to about 13 px taller than in RC26 (43.2 px vs about 30 px at a 16 px
+  root font size). Image-input composers keep the unchanged 44 px reserve.
 - AIT-566: one row per notice inside the reserved feedback cell, a modal notices
   sheet (shadow-root `dialog`) with the same action nodes, and the honest
-  summary row. Idle composer geometry equals RC26.
+  summary row. Idle composer geometry equals its immediate baseline, main before
+  #480 (`72512711`, which already includes the AIT-561 reserve).
 - AIT-568 and AIT-572: fixes with no flag (verifier stops after teardown;
   feature/consent refreshes fenced across `configure()`).
 - AIT-569: the component no longer persists its own header-row flag when host
   CSS already reserves row 2; only a measured overflow at single-row widths.
 - AIT-553: combined-entrance first screen; neutral idle Pause and fading band
-  status in both entrances; **additive, opt-in** first-paint API below.
+  status in both entrances; the call band stays one row only when the rail track
+  has room (544 px by default, 384 px with `railMinWidth: voiceRailFlexMinWidth`),
+  so on the default geometry at 1280×720 it takes a second row under Aithema's
+  own header (TICK RC27 release look); **additive, opt-in** first-paint API below.
 
 ### Options and additive fields
 
@@ -151,7 +160,7 @@ the code-at-L host record. In short:
 | `POST /uploads` response `refused` | Always present, `[]` when nothing is refused; entries `{index, name, kind: 'image', reason}`. Image-only refusals return 202 (new) / 200 (replay). |
 | `SQLiteStorage.postUploads(..., guard.partialImages)` | Absent/false keeps the atomic image-limit `RangeError`. True refuses images per file; result and replay add `refused` (`{index, kind, reason}`). |
 | `@inspr/aithema-ui/first-paint` `voiceRailFlexMinWidth`, `voiceRailLineFloor` | New constants `384` and `160`; nothing changes unless a host passes them. |
-| `headerRailReservation({ railMinWidth })` | Optional **number** in px, default `voiceRailMinWidth` (`544`), minimum 384; non-numeric uses the default. Hosts with wide header actions may pass `voiceRailFlexMinWidth` so an ordinary status clips and fades down to a 160 px line before the band takes a second row; consent actions and important notices still take the second row. Every existing host's geometry is unchanged. See `docs/embedding.md`. |
+| `headerRailReservation({ railMinWidth })` | Optional **number** in px, default `voiceRailMinWidth` (`544`). Computed as `Math.max(384, Math.round(Number(railMinWidth)) \|\| 544)` (`first-paint.js:28`): a value `Number()` cannot read, or one that rounds to 0 (e.g. `0`), gives 544; any other value below 384, including negatives, gives 384. Hosts with wide header actions may pass `voiceRailFlexMinWidth` so an ordinary status clips and fades down to a 160 px line before the band takes a second row; consent actions and important notices still take the second row. Every existing host's geometry is unchanged. See `docs/embedding.md`. |
 | `--aithema-header-rail-floor` | Emitted by `headerRailReservation`; read by the mounted fit. Absent means 544 px. |
 
 ### Copy compatibility
@@ -185,7 +194,9 @@ None: no existing EN/DE default changed and no leaf key was removed.
 summary row; AIT-553's band status fade instead of truncation, important notices
 taking the band's second row, and the readiness card's compact form on desktops
 at most 860 px tall; AIT-569's header-row reservation from CSS alone; AIT-561's
-three-line combined document feedback reserve.
+three-line combined document feedback reserve (a taller feedback row, minimum
+`3.75em` instead of `2.6em`, so the idle document-only composer grows by up to
+about 13 px relative to RC26).
 
 **Known limitations (release copy describes shipped code):** AIT-549 (no-store
 low-credit/turn-5 ask offers a save that cannot succeed), AIT-551 (DE default
@@ -194,10 +205,14 @@ font at 1024–1366 px: longest status reason takes three lines), AIT-552
 0), AIT-571 (phone with on-screen keyboard: a long streamed reply can lose its
 beginning because the transcript follows its end), AIT-580 (compact phone
 composer, e.g. 390×568: an upload refusal has no visible notice; screen readers
-announce it), AIT-576 (400 px: hero orb half under the header) and AIT-578
-(360 px: German placeholder “Ihre Nachricht” cut), each worded “planned
-(AIT-nnn)” in `notes.md`. RC26's AIT-553 line (“export it” copy without an
-export control, two mic buttons, pre-filled pause before any call) and RC26's
+announce it), AIT-576 (400 px: hero orb half under the header), AIT-578
+(360 px: German placeholder “Ihre Nachricht” cut), AIT-590 (choice entrance at
+1280×720: the fixed footer covers the option cards at page scroll 0 and Continue
+sits below the fold) and AIT-591 (phone overview 390×844: the pinned
+demo/contact strip partly under the composer, collapse chevron touching “Up to
+date”), each worded “planned (AIT-nnn)” in `notes.md`. AIT-590 and AIT-591 were
+already present in RC26 (TICK RC27 release look). RC26's AIT-553 line (“export
+it” copy without an export control, two mic buttons, pre-filled pause before any call) and RC26's
 AIT-559 whole-POST refusal line are removed: #483 and #468 fix them.
 
 **Breaking for hosts:** **No for hosts that serve the shipped component with the
@@ -211,15 +226,17 @@ per-file `refused` entries in a 202 (replay 200) response. Clients must read
 first-paint exports and `railMinWidth` are additive and opt-in with unchanged
 defaults; copy keys are additive; `guard.partialImages` is opt-in; AIT-568 and
 AIT-572 are fixes without a flag; AIT-566 and AIT-569 change shadow-DOM structure
-and behaviour while keeping reserved geometry. No configuration, event, slot or
-host requirement changes.
+and behaviour while keeping reserved geometry; AIT-561's taller document feedback
+row is a visual behaviour change inside the shadow DOM, not a host contract
+change. No configuration, event, slot or host requirement changes.
 
 **CI-only:** AIT-558 (#472) replaces both provisional clarify reservations with
 measured rolling-main weights (285.158 s and 321.369 s) and fixes the timing
 importer's helper attribution; AIT-564 (#473) adds the non-required
-preview-security engine/apt cache and its main warmer. No limits are raised; 14
-browser shards and 36 browser files remain, and the release unit test set below
-is unchanged. The release PR's own browser CI must be fully green. Voxtral
+preview-security engine/apt cache and its main warmer. These CI-only facts live
+only in this technical record, not in `notes.md`. No limits are raised; 14
+browser shards, 36 browser files, job caps and required aliases remain, and the
+release unit test set below is unchanged. The release PR's own browser CI must be fully green. Voxtral
 remains private/parked; Grok Voice is not qualified in live use; provider-side
 closure remains parked until ElevenLabs monitoring. RC14 host requirements and
 RC23's `identity.acceptsAddress` still apply.
