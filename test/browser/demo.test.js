@@ -2069,4 +2069,4 @@ import { combinedImageOpenerCheck } from './combined-image-opener-check.js';
 test('AIT-601: combined entrance with a real image concept layout: the welcome owns its height above readiness and keeps its place into live, 1366/1440/1920', { timeout:180_000 }, combinedImageOpenerCheck);
 
 import { combinedImageOpenerFoldCheck } from './combined-image-opener-check.js';
-test('AIT-601 r4: the hand-off hold is narrow: a first turn entirely below follows, Latest reaches the end, no re-arm on reload or resize', { timeout:180_000 }, combinedImageOpenerFoldCheck);
+test('AIT-601 r5: before the first reply the idle render-label reserve cannot make fitting content follow; real overflow follows; a reply counts it again', { timeout:180_000 }, combinedImageOpenerFoldCheck);

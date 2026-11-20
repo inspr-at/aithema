@@ -106,8 +106,6 @@ export class AithemaSession extends HTMLElement {
   #clarifyDiagnostics = new Map();
   #clarify = null; #clarifyRequest = null; #clarifyReplies = new Map(); #clarifyAsked = new Set(); #clarifyNoticeTimer; #clarifyNotice = false; #clarifyAnnouncement = '';
   #open = []; #cleared = []; #reactionFailureVersion = 0; #reactionFailureIdentity = null; #failure = false; #failureLane = null; #sending = false;
-  // AIT-601 hand-off hold: null (not armed), 'armed' (readiness gave way to live in this page), 'spent'.
-  #handoff = null;
   #pointer = null; #onTranscript = false; #follow = true; #latestScrollTop = null; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false; #composerResuming = false;
   #navigation = null; #programmaticScroll = null; #longReply = null; #longReplyTop = null; #tailReply = null; #seenTranscript = null; #composerOccluded = false;
   #pointerGuardUntil = 0; #pointerGuardPoint = null; #touchClickPoint = null;
@@ -218,8 +216,6 @@ export class AithemaSession extends HTMLElement {
     this.#open = []; this.#cleared = []; this.#follow = true; this.#onTranscript = false; this.#notice = ''; this.#connection = '';
     this.#navigation = null; this.#programmaticScroll = null; this.#longReply = null; this.#tailReply = null; this.#seenTranscript = null; this.#composerOccluded = false;
     this.#pointerGuardUntil = 0; this.#pointerGuardPoint = null; this.#touchClickPoint = null; this.#latestScrollTop = null;
-    // A conversation that already has visitor input never holds at its hand-off (a reload or restore).
-    this.#handoff = hasVisitorInput(session) ? 'spent' : null;
     this.#uploadAt.clear(); this.#retryFiles = []; this.#uploading = false; this.#uploadNotice = ''; this.#reading = ''; this.#limits = UPLOAD_LIMITS; this.#limitsLoad = null; this.#dragDepth = 0;
     // A page that loads paused stays paused until the person resumes it (AIT-116 D4).
     this.#pausePrompt = Boolean(session.paused); this.#composerResuming = false; this.#voiceResumeProjection = null;
@@ -941,8 +937,6 @@ export class AithemaSession extends HTMLElement {
       const latest = [...root.querySelectorAll('.transcript-shell .turn')].at(-1)?.dataset.id;
       this.#tailReply = this.#longReply === latest ? latest : null;
       this.#longReply = null;
-      // Latest always reaches the end: it ends the AIT-601 hand-off hold.
-      if (this.#handoff === 'armed') this.#handoff = 'spent';
       this.#scrollToLatest();
     });
     root.querySelector('textarea').setAttribute('aria-describedby', 'composer-reason ai-notice');
@@ -1115,8 +1109,6 @@ export class AithemaSession extends HTMLElement {
     shell.addEventListener('scroll', () => {
       const made = this.#programmaticScroll !== null && Math.abs(shell.scrollTop - this.#programmaticScroll) <= 1;
       if (!made) this.#navigation = null;
-      // A visitor scroll ends the AIT-601 hand-off hold; returning to the top does not re-arm it.
-      if (!made && this.#handoff === 'armed' && shell.scrollTop > .5) this.#handoff = 'spent';
       this.#programmaticScroll = null;
       const bottom = shell.scrollTop + shell.clientHeight >= shell.scrollHeight - 8;
       if (bottom && (!this.#longReply || !made)) { this.#longReply = null; this.#readTranscript(); }
@@ -1468,12 +1460,6 @@ export class AithemaSession extends HTMLElement {
       if (pane.width > 0 && pane.height > 0 && (measured || !listElement.children.length)
         && contentEnd + padding <= shell.clientHeight + .5) end = 0;
     }
-    // AIT-601: readiness gives way to the conversation with the visitor's first
-    // turn. The combined desktop welcome is the reading position at that hand-off
-    // and keeps its place while the turn's first line shows; the rest of it is
-    // announced by Latest. Anything else ends the hold for good (#welcomeHandoff).
-    const welcomeHeld = this.#welcomeHandoff(shell);
-    if (welcomeHeld) end = shell.scrollTop;
     shell.scrollTop = end;
     // An inline capture can be taller than the combined phone's reading pane.
     // Reveal its entry controls before native focus; bottom-follow alone can
@@ -1561,33 +1547,8 @@ export class AithemaSession extends HTMLElement {
     }
     this.#latestScrollTop = held ? null : shell.scrollTop;
     this.#recordTranscriptScroll(before);
-    const unseen = welcomeHeld && latest && latest.getBoundingClientRect().bottom > shell.getBoundingClientRect().bottom + .5;
-    if (!held && !unseen) this.#readTranscript();
+    if (!held) this.#readTranscript();
     this.#updateTranscriptJump();
-  }
-  // The combined desktop hand-off hold (AIT-601, TICK ruling + L1). Armed once,
-  // when readiness gives way to live in this page (never on a reload or restore).
-  // While only the welcome shows, it waits. It holds while the list is exactly
-  // the welcome and the visitor's first final turn, unscrolled, with that turn's
-  // first line inside the pane. Everything else ends it for good: a turn whose
-  // first line would lie below the pane (it follows to the end; the welcome may
-  // move), a reply, offer, card or second turn, a voice provisional row or
-  // correction (voice follows as before), a withdrawn turn, a phone width, a
-  // visitor scroll, Latest. A resize or a return to the top never re-arms it.
-  #welcomeHandoff(shell) {
-    if (this.#handoff !== 'armed') return false;
-    const root = this.shadowRoot, rows = [...shell.querySelectorAll('ol > li')].filter(row => !row.hidden);
-    if (!rows.length || rows.length === 1 && rows[0].dataset.id === 'host:opener') return false;
-    const [opener, visitor] = rows, turn = this.#session.transcript.find(t => t.id === visitor?.dataset.id);
-    const first = rows.length === 2 && opener.dataset.id === 'host:opener' && visitor.matches('.turn.user:not(.partial)')
-      && turn?.role === 'user' && !turn.partial && !turn.erased && !turn.withdrawn;
-    const label = first && visitor.querySelector('strong').getBoundingClientRect();
-    if (!first || !this.#combined || shell.scrollTop > .5 || root.querySelector('.workspace').dataset.stage !== 'live'
-      || this.ownerDocument.defaultView.matchMedia('(max-width:600px)').matches || !root.querySelector('.qcard').hidden
-      || !(label.height > 0) || label.bottom > shell.getBoundingClientRect().bottom + .5) {
-      this.#handoff = 'spent'; return false;
-    }
-    return true;
   }
   #hovered() {
     const point = this.#pointer;
@@ -2028,7 +1989,6 @@ export class AithemaSession extends HTMLElement {
     this.#invalidatedAt = Math.max(this.#invalidatedAt, session.seq);
     const before = this.#session;
     this.#session = session; this.#cursor = session.seq; this.#featureRead = null;
-    if (this.#handoff === null && hasVisitorInput(session)) this.#handoff = 'spent';
     this.#reasoningRevision = Math.max(this.#reasoningRevision, session.settings?.revision ?? 0);
     this.#partials.clear(); this.#updateVoiceTranscript({ type: 'reset' });
     this.#restoreVoiceEffects(before); this.#repaintLocale();
@@ -3047,8 +3007,6 @@ export class AithemaSession extends HTMLElement {
     const focus = active && intro.contains(active) ? active.dataset.focusKey : null;
     const stage = this.#stage(), mode = { entrance: 'chooser', ready: 'ready' }[stage] ?? '';
     const stageChanged = workspace.dataset.stage !== stage;
-    // AIT-601: arm the welcome's hand-off hold once, when readiness gives way to live in this page.
-    if (stageChanged && workspace.dataset.stage === 'ready' && stage === 'live' && this.#handoff === null) this.#handoff = 'armed';
     workspace.dataset.stage = stage;
     workspace.toggleAttribute('data-host-opener-entrance', this.#options.entrance === 'combined');
     // Understanding is absent before the first input, then opens beside the conversation (START, ~560 ms).

@@ -76,7 +76,10 @@ export async function combinedImageOpenerCheck(t) {
                 scrollbar: node.offsetWidth - node.clientWidth, paddingBottom: getComputedStyle(node).paddingBottom } : null])),
             // What fills the live shell: the welcome's wrapped lines, the visitor turn and the font that wraps them.
             welcomeLines: row ? new Set([...range.getClientRects()].map(r => Math.round(r.y))).size : null,
-            visitor: rect([...(shell?.querySelectorAll('.turn.user') ?? [])].at(-1)), font: row ? getComputedStyle(row).fontFamily : null };
+            visitor: rect([...(shell?.querySelectorAll('.turn.user') ?? [])].at(-1)), font: row ? getComputedStyle(row).fontFamily : null,
+            // r5 (TICK): Latest and the composer controls, recorded for the look.
+            latest: rect(root.querySelector('.transcript-latest')), latestShown: getComputedStyle(root.querySelector('.transcript-latest')).visibility !== 'hidden',
+            composer: rect(root.querySelector('textarea')), mic: rect(root.querySelector('.composer-mic')), send: rect(root.querySelector('.send')) };
         });
         tables.push({ locale, theme, width, height, state, boxes });
         if (evidence) {
@@ -121,6 +124,9 @@ export async function combinedImageOpenerCheck(t) {
         if (Math.abs(before.firstLine[key] - after.firstLine[key]) > .5) failures.push(`welcome first line ${key} moved: ${before.firstLine[key]} -> ${after.firstLine[key]}`);
         if (key !== 'height' && Math.abs(before.opener[key] - after.opener[key]) > .5) failures.push(`welcome ${key} moved: ${before.opener[key]} -> ${after.opener[key]}`);
       }
+      // r5 (TICK): no follow at the hand-off; the transcript stays at its top.
+      if (after.scrollers.shell.scrollTop > .5) failures.push(`the live shell does not follow: scrollTop ${after.scrollers.shell.scrollTop}`);
+      for (const key of ['composer', 'send']) positive(`${label}/live/${key}`, after[key]);
       // The live stage keeps its size container and the backdrop's cqw/cqh sizing.
       if (after.containerType !== 'size') failures.push(`the live thread stays a size container: ${after.containerType}`);
       if (!contains(after.thread, after.shell)) failures.push(`the live thread contains its transcript-shell: ${JSON.stringify(after)}`);
@@ -135,19 +141,20 @@ export async function combinedImageOpenerCheck(t) {
   assert.equal(tables.length, 24);
 }
 
-// AIT-601 r4: the hand-off hold is narrow (TICK ruling + L1). It holds the welcome
-// only while the visitor's first turn still shows its first line in the pane;
-// a first turn entirely below the fold follows to the end instead. Latest always
-// reaches the end, and nothing re-arms the hold: not a reload, not a resize,
-// not a visitor scroll back to the top.
+// AIT-601 r5: no hand-off state. The image layout's transcript reserves 40 px at
+// its end for the render label. Before the first assistant reply no render can
+// run, so that idle reserve cannot turn fitting content into a follow (the
+// welcome keeps its place). Content that really overflows follows to its end
+// as before (TICK L1: the welcome may move then). Once a reply exists, the
+// reserve counts again.
 const longWelcome = {
   en: `${welcome.en} We keep what you share private, and you decide what is stored. The assistant asks short follow-up questions when something is unclear and summarises the project as you go. When the summary is right, you can confirm it and continue, or correct any part of it in your own words. Images and documents you add are read only for this project. You can pause the conversation and come back later, and you can withdraw anything you said. If you prefer, start with a rough idea; the details can follow later, and every answer helps the assistant ask better questions. A short list of goals, a sketch or an example of something you like is a good start. Nothing is sent before you start.`,
   de: `${welcome.de} Was Sie teilen, bleibt vertraulich, und Sie bestimmen, was gespeichert wird. Die Assistenz stellt kurze Rückfragen, wenn etwas unklar ist, und fasst das Vorhaben laufend zusammen. Stimmt die Zusammenfassung, bestätigen Sie sie und machen weiter, oder Sie korrigieren einzelne Teile in eigenen Worten. Bilder und Dokumente werden nur für dieses Vorhaben gelesen. Sie können pausieren und später zurückkommen, und alles, was Sie gesagt haben, wieder zurückziehen. Beginnen Sie ruhig mit einer groben Idee; Einzelheiten können später folgen, und jede Antwort hilft der Assistenz, bessere Fragen zu stellen. Eine kurze Liste von Zielen ist ein guter Anfang.`,
 };
-const longTurn = {
-  en: 'An invoice system for a small workshop: customers, quotes, invoices and reminders, with a simple overview of what is open and overdue, exports for the tax adviser, and access for two colleagues who work on the road and need it on their phones.',
-  de: 'Ein Rechnungssystem für eine kleine Werkstatt: Kunden, Angebote, Rechnungen und Mahnungen, mit einer einfachen Übersicht über Offenes und Überfälliges, Exporten für die Steuerberatung und Zugang für zwei Kolleginnen, die unterwegs arbeiten und es am Telefon brauchen.',
-};
+const shortTurn = { en: 'An invoice system.', de: 'Ein Rechnungssystem.' };
+const shortReply = { en: 'Gladly. Who will use it day to day?', de: 'Gern. Wer nutzt es im Alltag?' };
+// The image layout's end reserve for the render label (styles.js, .concept-thread .transcript-shell).
+const RESERVE = 40;
 
 async function openCombined(browser, server, { locale, theme, width, height, text, shorter = 0 }) {
   const page = await browser.newPage();
@@ -189,15 +196,33 @@ async function foldState(page) {
     const rect = node => { if (!node) return null; const r = node.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
     const range = document.createRange(); range.selectNodeContents(row.querySelector('.turn-text'));
     const first = range.getClientRects()[0], visitor = [...shell.querySelectorAll('.turn.user')].at(-1), latest = root.querySelector('.transcript-latest');
+    const pane = shell.getBoundingClientRect(), list = shell.querySelector('ol').getBoundingClientRect();
     return { stage: root.querySelector('.workspace').dataset.stage, layout: root.querySelector('.workspace').dataset.conceptLayout,
       shell: rect(shell), scrollTop: shell.scrollTop, scrollHeight: shell.scrollHeight, clientHeight: shell.clientHeight,
+      // D511a's fit inputs: the list's end in scroll coordinates and the end padding (reserve + slack).
+      contentEnd: list.bottom + shell.scrollTop - pane.top, paddingBottom: parseFloat(getComputedStyle(shell).paddingBottom),
       opener: rect(row), firstLine: first ? { x: first.x, y: first.y, width: first.width, height: first.height } : null,
       visitor: rect(visitor), visitorLabel: rect(visitor?.querySelector('strong')),
-      latest: rect(latest), latestShown: getComputedStyle(latest).visibility !== 'hidden' };
+      reply: rect([...shell.querySelectorAll('.turn:not(.user)')].filter(turn => turn.dataset.id !== 'host:opener').at(-1)),
+      latest: rect(latest), latestShown: getComputedStyle(latest).visibility !== 'hidden',
+      composer: rect(root.querySelector('textarea')), mic: rect(root.querySelector('.composer-mic')), send: rect(root.querySelector('.send')) };
   });
 }
-const below = state => state.visitor.y + state.visitor.height > state.shell.y + state.shell.height + .5;
-const whole = state => state.visitor.y >= state.shell.y - .5 && state.visitor.y + state.visitor.height <= state.shell.y + state.shell.height + .5;
+const whole = (state, box = state.visitor) => box.y >= state.shell.y - .5 && box.y + box.height <= state.shell.y + state.shell.height + .5;
+// Size the host so the pane's client height lies inside the reserve: the
+// content fits without the 40 px reserve and overflows with it.
+async function intoReserve(page) {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const state = await foldState(page), delta = Math.round(state.contentEnd + state.paddingBottom - RESERVE / 2 - state.clientHeight);
+    if (Math.abs(delta) <= 2) return state;
+    await page.evaluate(d => {
+      const host = document.querySelector('aithema-session');
+      host.style.setProperty('--aithema-height', `${parseFloat(host.style.getPropertyValue('--aithema-height')) + d}px`);
+    }, delta);
+  }
+  return foldState(page);
+}
+const followRequest = page => page.$eval('aithema-session', c => c.shadowRoot.querySelector('.transcript-latest').click());
 
 export async function combinedImageOpenerFoldCheck(t) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-combined-fold-'));
@@ -217,95 +242,78 @@ export async function combinedImageOpenerFoldCheck(t) {
   };
   const [width, height] = [1366, 768];
   for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) {
-    // TICK L1: a welcome near the 1,000-character limit in a shorter host pane
-    // (1366x768 page, the host 120 px shorter) leaves the first turn entirely
-    // below the fold, so the transcript follows to it (the welcome may move here
-    // only). At the full 768 px the welcome's read-full clamp keeps the turn's
-    // first line inside the pane: that is the partly-below hold.
-    await t.test(`entirely below: ${locale}/${theme}/${width}x${height}`, async () => {
+    // TICK L1 / r5 acceptance: real overflow. A welcome near the 1,000-character
+    // limit in a shorter host pane (the host 120 px shorter than the 1366x768
+    // page) leaves the first turn below the fold, so the transcript follows to
+    // its end (the welcome may move here): the turn fully visible, Latest hidden.
+    await t.test(`real overflow: ${locale}/${theme}/${width}x${height}`, async () => {
       assert.ok(longWelcome[locale].length > 900 && longWelcome[locale].length <= 1000, `near the limit: ${longWelcome[locale].length}`);
       const page = await openCombined(browser, server, { locale, theme, width, height, text: longWelcome[locale], shorter: 120 }), problems = [];
       try {
         page.on('pageerror', error => problems.push(error.message));
         const before = await foldState(page);
-        await record(page, `below-${locale}-${theme}-prelive`, before);
-        await handOff(page, locale === 'de' ? 'Ein Rechnungssystem.' : 'An invoice system.');
+        await record(page, `overflow-${locale}-${theme}-prelive`, before);
+        await handOff(page, shortTurn[locale]);
         const after = await foldState(page);
-        await record(page, `below-${locale}-${theme}-live`, after);
+        await record(page, `overflow-${locale}-${theme}-live`, after);
         assert.equal(after.layout, 'image');
-        for (const key of ['shell', 'opener', 'firstLine', 'visitor', 'visitorLabel']) positive(`below/${key}`, after[key]);
-        // At offset 0 the first line of the visitor's turn would lie below the pane.
-        assert.ok(after.visitorLabel.y + after.scrollTop + after.visitorLabel.height > after.shell.y + after.shell.height + .5, `the turn would start below the pane: ${JSON.stringify(after)}`);
+        for (const key of ['shell', 'opener', 'firstLine', 'visitor', 'visitorLabel', 'composer', 'send']) positive(`overflow/${key}`, after[key]);
+        // Even without the idle reserve, the content overflows the pane.
+        assert.ok(after.contentEnd + after.paddingBottom - RESERVE > after.clientHeight + .5, `real overflow: ${JSON.stringify(after)}`);
         assert.ok(after.scrollTop > .5, `the transcript follows to the first turn: ${JSON.stringify(after)}`);
         assert.ok(whole(after), `the first turn is fully visible: ${JSON.stringify(after)}`);
-        assert.deepEqual(problems, []);
-      } finally { await page.close(); }
-    });
-    // TICK: a first turn that lands partly below holds the welcome, with Latest
-    // shown; a click on Latest always reaches the end (gate2c 2).
-    await t.test(`partly below, Latest: ${locale}/${theme}/${width}x${height}`, async () => {
-      const page = await openCombined(browser, server, { locale, theme, width, height, text: welcome[locale] }), problems = [];
-      try {
-        page.on('pageerror', error => problems.push(error.message));
-        const before = await foldState(page);
-        await record(page, `partly-${locale}-${theme}-prelive`, before);
-        await handOff(page, longTurn[locale]);
-        const held = await foldState(page);
-        await record(page, `partly-${locale}-${theme}-held`, held);
-        for (const key of ['shell', 'opener', 'firstLine', 'visitor', 'visitorLabel', 'latest']) positive(`partly/${key}`, held[key]);
-        for (const key of keys) assert.ok(Math.abs(before.firstLine[key] - held.firstLine[key]) <= .5, `welcome first line ${key}: ${before.firstLine[key]} -> ${held.firstLine[key]}`);
-        assert.ok(held.scrollTop <= .5, `held: ${held.scrollTop}`);
-        assert.ok(held.visitorLabel.y + held.visitorLabel.height <= held.shell.y + held.shell.height + .5 && below(held), `the first turn is partly below: ${JSON.stringify(held)}`);
-        assert.ok(held.latestShown, 'Latest announces the turn below');
-        await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.transcript-latest').click());
-        const latest = await foldState(page);
-        await record(page, `partly-${locale}-${theme}-latest`, latest);
-        assert.ok(latest.scrollTop > .5, `Latest scrolls: ${latest.scrollTop}`);
-        assert.ok(whole(latest), `Latest shows the whole turn: ${JSON.stringify(latest)}`);
+        assert.equal(after.latestShown, false, `Latest is hidden at the end: ${JSON.stringify(after)}`);
         assert.deepEqual(problems, []);
       } finally { await page.close(); }
     });
   }
-  // gate2c 3: a visitor scroll ends the hold. Back at the top, a resize and a
-  // pointer leaving the transcript follow as before instead of holding again.
-  await t.test('no re-arm: scroll away, back to the top, resize', async () => {
-    const page = await openCombined(browser, server, { locale: 'de', theme: 'light', width, height, text: welcome.de });
-    try {
-      await handOff(page, longTurn.de);
-      const held = await foldState(page);
-      assert.ok(held.scrollTop <= .5 && below(held), `held, partly below: ${JSON.stringify(held)}`);
-      await page.$eval('aithema-session', c => { const shell = c.shadowRoot.querySelector('.transcript-shell'); shell.scrollTop = shell.scrollHeight; });
-      await settled(page);
-      await page.$eval('aithema-session', c => { c.shadowRoot.querySelector('.transcript-shell').scrollTop = 0; });
-      await settled(page);
-      await page.setViewport({ width, height: height - 24 });
-      await page.evaluate(() => document.querySelector('aithema-session').style.setProperty('--aithema-height', `${innerHeight}px`));
-      await settled(page);
-      await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.transcript-shell').dispatchEvent(new PointerEvent('pointerleave')));
-      const resized = await foldState(page);
-      await record(page, 'rearm-resize', resized);
-      positive('rearm/visitor', resized.visitor);
-      assert.ok(resized.scrollTop > .5 && whole(resized), `a resize after the hand-off follows to the end: ${JSON.stringify(resized)}`);
-    } finally { await page.close(); }
-  });
-  // gate2c 3: a restored welcome + one-turn conversation (the snapshot a reload
-  // mounts) follows as before.
-  await t.test('no re-arm: reload of a welcome + one-turn conversation', async () => {
-    const page = await openCombined(browser, server, { locale: 'de', theme: 'light', width, height, text: welcome.de });
-    try {
-      await handOff(page, longTurn.de);
-      await page.evaluate(() => mount(JSON.parse(JSON.stringify(c.session))));
-      await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').dataset.stage === 'live');
-      // A remount alone does not scroll, and at the top it does not follow
-      // (unchanged); its follow request, Latest, must reach the end.
-      await settled(page);
-      await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.transcript-latest').click());
-      const restored = await foldState(page);
-      await record(page, 'rearm-reload', restored);
-      assert.equal(restored.layout, 'image', 'the restored conversation keeps the image layout');
-      positive('reload/visitor', restored.visitor);
-      assert.ok(restored.scrollTop > .5 && whole(restored), `a restored conversation's first follow reaches its end: ${JSON.stringify(restored)}`);
-    } finally { await page.close(); }
-  });
-  assert.equal(tables.length, 4 * 5 + 2);
+  for (const [locale, theme] of [['de', 'light'], ['en', 'dark']]) {
+    // The 7 px over-count (agm2 DE 1366: 276 + 40 > 309), made deterministic on
+    // every platform: the pane is sized into the reserve. Before the first
+    // reply, a follow request leaves the transcript at its top.
+    await t.test(`idle reserve, before the first reply: ${locale}/${theme}/${width}x${height}`, async () => {
+      const page = await openCombined(browser, server, { locale, theme, width, height, text: welcome[locale] }), problems = [];
+      try {
+        page.on('pageerror', error => problems.push(error.message));
+        await handOff(page, shortTurn[locale]);
+        const sized = await intoReserve(page);
+        assert.ok(sized.paddingBottom >= RESERVE, `the image layout reserves the render label: ${sized.paddingBottom}`);
+        assert.ok(sized.contentEnd + sized.paddingBottom - RESERVE <= sized.clientHeight - 5 && sized.contentEnd + sized.paddingBottom > sized.clientHeight + 5,
+          `the pane lies inside the reserve: ${JSON.stringify(sized)}`);
+        await followRequest(page);
+        const after = await foldState(page);
+        await record(page, `idle-${locale}-${theme}`, after);
+        for (const key of ['shell', 'opener', 'firstLine', 'visitor', 'composer', 'send']) positive(`idle/${key}`, after[key]);
+        assert.ok(after.scrollTop <= .5, `no follow before the first reply: ${JSON.stringify(after)}`);
+        assert.ok(whole(after), `the first turn is fully visible: ${JSON.stringify(after)}`);
+        assert.equal(after.latestShown, false, `nothing unread: ${JSON.stringify(after)}`);
+        assert.deepEqual(problems, []);
+      } finally { await page.close(); }
+    });
+    // Once a reply exists, the reserve counts again: the same geometry follows
+    // to the end, so the reply stays clear of the render label.
+    await t.test(`reserve counts after the first reply: ${locale}/${theme}/${width}x${height}`, async () => {
+      const page = await openCombined(browser, server, { locale, theme, width, height, text: welcome[locale] }), problems = [];
+      try {
+        page.on('pageerror', error => problems.push(error.message));
+        await handOff(page, shortTurn[locale]);
+        await page.evaluate(text => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'reply-1', role: 'assistant', content: text } }), shortReply[locale]);
+        await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('[data-id="reply-1"]'));
+        const sized = await intoReserve(page);
+        assert.ok(sized.paddingBottom >= RESERVE, `the image layout reserves the render label: ${sized.paddingBottom}`);
+        assert.ok(sized.contentEnd + sized.paddingBottom - RESERVE <= sized.clientHeight - 5 && sized.contentEnd + sized.paddingBottom > sized.clientHeight + 5,
+          `the pane lies inside the reserve: ${JSON.stringify(sized)}`);
+        await followRequest(page);
+        const after = await foldState(page);
+        await record(page, `reply-${locale}-${theme}`, after);
+        for (const key of ['shell', 'reply', 'composer', 'send']) positive(`reply/${key}`, after[key]);
+        assert.ok(after.scrollTop > .5, `the reply follows: ${JSON.stringify(after)}`);
+        assert.ok(whole(after, after.reply) && after.reply.y + after.reply.height <= after.shell.y + after.shell.height - RESERVE + 1,
+          `the reply stays clear of the render label: ${JSON.stringify(after)}`);
+        assert.equal(after.latestShown, false, `Latest is hidden at the end: ${JSON.stringify(after)}`);
+        assert.deepEqual(problems, []);
+      } finally { await page.close(); }
+    });
+  }
+  assert.equal(tables.length, 4 * 2 + 2 * 2);
 }
