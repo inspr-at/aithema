@@ -109,6 +109,7 @@ export async function footerDotCheck(t) {
             return { dot: box('.status__dot'), timer: box('.connection-timer'), footer: box('.display-foot'),
               others: ['.footer-info', '.host-credits', '.engine-info', '.status'].map(box), text: timer.textContent,
               label: dot.getAttribute('aria-label'), state: dot.dataset.state,
+              statusGeometry: innerWidth >= 600 ? { label: box('.status__label'), sizer: box('.status__sizer') } : null,
               statusClip: getComputedStyle(root.querySelector('.status')).clipPath,
               unclipped: text.width > 0 && text.height > 0 && text.left >= bounds.left && text.right <= bounds.right && text.top >= bounds.top && text.bottom <= bounds.bottom };
           });
@@ -140,6 +141,13 @@ export async function footerDotCheck(t) {
           try {
             for (const box of [frame.dot, frame.timer, frame.footer, ...frame.others]) {
               assert.ok(box.width > 0 && box.height > 0 && box.visible, `${label}: measured box is painted: ${JSON.stringify(box)}`);
+            }
+            if (frame.statusGeometry) {
+              const { label: text, sizer } = frame.statusGeometry;
+              for (const box of [text, sizer]) assert.ok(box.width > 0 && box.height > 0, `${label}: status geometry is nonzero`);
+              assert.ok(text.visible, `${label}: connection label is painted`);
+              assert.equal(text.x - frame.dot.x - frame.dot.width, 6, `${label}: exact dot/label gap`);
+              assert.equal(text.x + text.width, sizer.x + sizer.width, `${label}: label ends at its reserved slot`);
             }
             assert.equal(frame.state, 'connected', label); assert.equal(frame.label, measurements[0].label, label);
             assert.ok(frame.unclipped, `${label}: timer text is not clipped`);
