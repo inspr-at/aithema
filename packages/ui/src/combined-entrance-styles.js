@@ -109,7 +109,8 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"] .ready__row:not([data-ready="consent"]) { display:none; }
   .workspace[data-entrance="combined"] .ready__row[data-ready="consent"] { display:flex; min-height:44px; gap:0; }
   .workspace[data-entrance="combined"] .ready__row[data-ready="consent"] dt { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
-  .workspace[data-entrance="combined"] .ready__row[data-ready="consent"] dd { justify-content:flex-start; text-align:left; gap:.25rem; }
+  .workspace[data-entrance="combined"] .ready__row[data-ready="consent"] dd { display:flex; justify-content:flex-start; text-align:left; gap:.25rem; }
+  .workspace[data-entrance="combined"] .ready__row[data-ready="consent"] dd > .ready__check { margin-inline-end:0; }
   .workspace[data-entrance="combined"] .ready__row[data-ready="consent"]::before,
   .workspace[data-entrance="combined"] .ready__actions::before { content:'${reasonSeparator}' / ''; white-space:pre; margin-inline:.25rem; color:var(--aithema-muted); }
   /* An unconfirmed state hides its check icon, so it keeps no empty slot. */

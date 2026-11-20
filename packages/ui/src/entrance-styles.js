@@ -74,6 +74,9 @@ export const entranceStyles = `
 .ready__row { display:grid; grid-template-columns:minmax(8rem,1fr) minmax(0,1.7fr); align-items:center; gap:.8rem; min-height:1.5rem; }
 .ready dt, .ready dd, .ready__input { display:flex; align-items:center; gap:.5rem; margin:0; font-size:.78rem; }
 .ready dd { justify-content:flex-end; text-align:right; color:var(--aithema-ink); }
+/* The check is inline before the value, so a wrapped value keeps it beside its first line (AIT-587). */
+.ready dd { display:block; }
+.ready dd > .ready__check { display:inline-grid; vertical-align:middle; margin-inline-end:.5rem; }
 .ready__icon, .ready__check { display:grid; place-items:center; flex:0 0 1.1rem; width:1.1rem; height:1.1rem; }
 .ready__icon svg { width:1rem; height:1rem; } .ready__check svg { width:.8rem; height:.8rem; }
 .ready__check { visibility:hidden; color:var(--aithema-accent); border-radius:50%; background:color-mix(in srgb,var(--aithema-accent-bright) 10%,transparent); }
