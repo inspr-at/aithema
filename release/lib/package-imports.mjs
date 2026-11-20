@@ -6,8 +6,8 @@
 
 export const scannedMember = path => /\.(?:[cm]?js|[cm]?ts)$/u.test(path);
 
-const word = /[\p{ID_Continue}$‌‍#]/u;
-const space = /[\s﻿]/u;
+const word = /[\p{ID_Continue}$\u200c\u200d#]/u;
+const space = /[\s\ufeff]/u;
 // After these words an expression starts, so `/` opens a regular expression.
 const expressionKeywords = new Set(['return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw',
   'case', 'do', 'else', 'yield', 'await', 'extends']);
@@ -15,7 +15,7 @@ const expressionKeywords = new Set(['return', 'typeof', 'instanceof', 'in', 'of'
 function cook(raw) {
   return raw.replace(/\\(?:u\{([0-9a-fA-F]+)\}|u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2})|\r\n|([\s\S]))/gu, (_, braced, unicode, hex, other) => {
     if (braced ?? unicode ?? hex) return String.fromCodePoint(parseInt(braced ?? unicode ?? hex, 16));
-    if (other === undefined || /[\r\n  ]/u.test(other)) return '';
+    if (other === undefined || /[\r\n\u2028\u2029]/u.test(other)) return '';
     return { n: '\n', r: '\r', t: '\t', b: '\b', f: '\f', v: '\v', 0: '\0' }[other] ?? other;
   });
 }
