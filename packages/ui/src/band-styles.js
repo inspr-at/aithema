@@ -87,12 +87,14 @@ export const bandStyles = `
    cells never move. A clipped line ends in the AIT-239 8px fade plus 8px clear
    space; its rendered text leaves no waveform flank, so no wave runs under it.
    A status emptied after the measurement (the session pause) never fades.
-   A status with an inline consent action keeps its measured, complete row. */
+   A status with an inline consent action, and an important notice the rail
+   marks data-notice (failure, credit, cooldown), keeps its measured, complete
+   row as on main: only ordinary status yields. */
 @media(min-width:600px) {
-  .band .audio-rail:not([data-message]) .voice-state:not(:has(.consent-action:not([hidden]))) { min-width:0; overflow:hidden; text-overflow:clip; }
-  .band .audio-rail:not([data-message]) .voice-state[data-clipped]:not(:empty):not(:has(.consent-action:not([hidden]))) {
+  .band .audio-rail:not([data-message]) .voice-state:not([data-notice]):not(:has(.consent-action:not([hidden]))) { min-width:0; overflow:hidden; text-overflow:clip; }
+  .band .audio-rail:not([data-message]) .voice-state[data-clipped]:not([data-notice]):not(:empty):not(:has(.consent-action:not([hidden]))) {
     mask-image:linear-gradient(to right,#000 calc(100% - 16px),transparent calc(100% - 8px)); }
-  @container (width < 96px) { .band .audio-rail:not([data-message]) .voice-state:not(:has(.consent-action:not([hidden]))) { visibility:hidden; } }
+  @container (width < 96px) { .band .audio-rail:not([data-message]) .voice-state:not([data-notice]):not(:has(.consent-action:not([hidden]))) { visibility:hidden; } }
 }
 /* Reuse the consent variants without adding short copy to polite announcements. */
 .voice-state .consent-narrow { display:none; }
