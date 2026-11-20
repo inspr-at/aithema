@@ -613,12 +613,15 @@ for (const reservationSeconds of [undefined, 30]) for (const [key, reason] of [
   ['capMilliseconds', VOICE_CAP_REASON], ['perDayMilliseconds', VOICE_DAY_CAP_REASON],
 ]) {
   for (const settled of [false, true]) test(`AIT-450: 11-minute ${key} refuses recovery at 9 minutes (${reservationSeconds ?? 'nonrolling'}, ${settled ? 'settled' : 'open'})`, async t => {
+    // Recovery-cap checks share one UTC day independently of the launch hour.
+    const noon = new Date(); noon.setUTCHours(12, 0, 0, 0);
+    t.mock.timers.enable({ apis: ['Date'], now: noon.getTime() });
     const h = voiceFixture(t, { slowClosure: true, leaseMs: 700_000, cap: { [key]: 660_000 },
       durationBinding: { maxDurationSeconds: 600, maxMicro: 600_000, reservationSeconds } });
     h.presets.best.bindings.voice.legal.evidence.expiresAt = h.now() + 1_300_000;
     const first = await h.start();
     assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 600_000);
-    h.advance(540_000);
+    h.advance(540_000); t.mock.timers.tick(540_000);
     if (settled) {
       h.endClient(first.providerSessionId);
       assert.equal((await h.route(`/voice/${first.callId}/close`, {
