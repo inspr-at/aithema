@@ -479,6 +479,32 @@ test('AIT-592: module packer leaves an escape-heavy literal with a different bas
   }
 });
 
+// AIT-592 r5 (LEAD decision): a no-substitution template literal is one literal, checked like a quoted one;
+// a template with substitutions, or a fold that starts with or contains a template, fails closed.
+test('AIT-592: module packer checks template-literal new URL specifiers like quoted ones and fails closed on the rest', () => {
+  const pkg = { path: 'packages/server/package.json' };
+  // [source, raw specifier text in the message]
+  const rejected = [
+    // A missing target: the post-pack scan checks containment only, so this check is the one that sees it.
+    ['export const a = new URL(`./missing.js`, import.meta.url);', './missing.js'],
+    ['export const a = new URL(`../../outside.json`, import.meta.url);', '../../outside.json'],
+    // A substitution: existence cannot be verified.
+    ['const name = "data";\nexport const a = new URL(`./${name}.json`, import.meta.url);', './${name}.json'],
+    // A fold that starts with or contains a template.
+    ["export const a = new URL(`./a` + '.json', import.meta.url);", "`./a` + '.json'"],
+    ["export const a = new URL('./data' + `.json`, import.meta.url);", "'./data' + `.json`"],
+    // A backslash in the raw template: cooks to ./a.json, fails closed on the raw text.
+    [String.raw`export const a = new URL(` + '`' + String.raw`./a\x2ejson` + '`' + ', import.meta.url);', String.raw`./a\x2ejson`],
+  ];
+  for (const [source, specifier] of rejected) {
+    const files = newURLFixture(); files.set('packages/server/src/index.js', Buffer.from(source));
+    assert.throws(() => moduleFiles(files, pkg), error => error.message === `Unpackaged dependency: packages/server/src/index.js -> ${specifier}`, source);
+  }
+  const accepted = 'export const a = new URL(`./data.json`, import.meta.url);';
+  const files = newURLFixture(); files.set('packages/server/src/index.js', Buffer.from(accepted));
+  assert.equal(moduleFiles(files, pkg).get('src/index.js').toString(), accepted, 'a packaged template target is left byte-identical');
+});
+
 test('AIT-350: native Grok browser sources pack to declared package subpaths and import without the workspace', t => {
   const directory = mkdtempSync(join(tmpdir(), 'aithema-grok-packed-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
