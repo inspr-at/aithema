@@ -81,6 +81,14 @@ export const bandStyles = `
   .audio-rail[data-message][data-retry-message] .voice-message-close { top:0; left:calc(100% - 44px); }
   .audio-rail[data-message][data-retry-message] .voice-wave { visibility:hidden; }
 }
+/* AIT-553: from 600px the middle status line yields before the band would
+   wrap. Text-only status truncates inside its own track and hides once that
+   track is narrower than 96px; the controls and their 44px cells never move.
+   A status with an inline consent action keeps its measured, complete row. */
+@media(min-width:600px) {
+  .band .audio-rail:not([data-message]) .voice-state:not(:has(.consent-action:not([hidden]))) { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  @container (width < 96px) { .band .audio-rail:not([data-message]) .voice-state:not(:has(.consent-action:not([hidden]))) { visibility:hidden; } }
+}
 /* Reuse the consent variants without adding short copy to polite announcements. */
 .voice-state .consent-narrow { display:none; }
 .voice-countdown { display:inline-block; width:2ch; text-align:center; font-variant-numeric:tabular-nums; }
