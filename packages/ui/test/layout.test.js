@@ -5,6 +5,7 @@ import { motionPreference, rememberMotion, MOTION_KEY, connectionTime, Connectio
 import { de } from '../src/i18n/de.js';
 import { en } from '../src/i18n/en.js';
 import { palette } from '../src/styles.js';
+import { bandStyles } from '../src/band-styles.js';
 import { contrast, mix } from '../../../test/contrast.js';
 
 test('motion defaults to the system and persists an explicit browser choice, including denied storage', () => {
@@ -105,6 +106,18 @@ test('round-2 band, strip and footer text tokens retain 4.5:1 contrast in both t
   }
 });
 
+
+test('AIT-587: the fold icon keeps 3:1 non-text contrast at rest in both themes', () => {
+  // WCAG 1.4.11: the resting icon, drawn in its colour at its opacity, against the paper and surface it sits on.
+  const rule = selector => new RegExp(`(?:^|\\n)${selector.replaceAll('.', '\\.')} \\{([^}]*)\\}`, 'u').exec(bandStyles)?.[1] ?? '';
+  const token = /color:var\(--aithema-([a-z-]+)\)/u.exec(rule('.fold'))?.[1];
+  assert.ok(token, 'the fold names its colour token');
+  const opacity = Number(/opacity:([\d.]+)/u.exec(rule('.fold svg'))?.[1] ?? 1);
+  for (const [theme, tokens] of Object.entries(palette)) for (const background of [tokens.paper, tokens.surface]) {
+    const ratio = contrast(mix(tokens[token], background, opacity), background);
+    assert.ok(ratio >= 3, `${theme}: fold icon ${ratio.toFixed(2)}:1 on ${background}`);
+  }
+});
 
 test('AIT-188 L2c: composer ellipsis stays attached to the preceding word in DE/EN', () => {
   for (const copy of [de, en]) assert.match(copy.placeholder, /\u00a0…$/u);
