@@ -334,3 +334,125 @@ test('r4: a later chunk that climbs after a computed part fails closed', () => {
     'src/b.js import() ./: may climb outside package/ (a later part of the argument contains ..)',
   ]);
 });
+
+// AIT-582 r5: one fixture per r4 re-gate finding (LEAD option A, final narrow round).
+test('r5 a: parentheses and TypeScript wrappers around callees and receivers are seen through', () => {
+  assert.deepEqual(reasons({
+    'src/a.cjs': [
+      "(require)('../../paren.cjs');",
+      "(require).resolve('../../receiver.cjs');",
+      "(require.resolve)('../../callee.cjs');",
+    ].join('\n'),
+    'src/b.js': [
+      "new URL('../../meta.js', (import.meta).url);",
+      "new URL('../../url.js', (import.meta.url));",
+      "new (URL)('../../ctor.js', import.meta.url);",
+      "(import.meta).resolve('../../resolve.js');",
+      "(import.meta.resolve)('../../bound.js');",
+    ].join('\n'),
+    'src/c.ts': [
+      "(require as any)('../../as.cjs');",
+      "require!('../../bang.cjs');",
+      "(<any>require).resolve('../../cast.cjs');",
+      "new URL('../../sat.js', (import.meta as ImportMeta).url);",
+      "(import.meta satisfies ImportMeta).resolve('../../satisfies.js');",
+    ].join('\n'),
+  }), [
+    'src/a.cjs require() ../../paren.cjs: resolves to paren.cjs, outside package/',
+    'src/a.cjs require.resolve() ../../receiver.cjs: resolves to receiver.cjs, outside package/',
+    'src/a.cjs require.resolve() ../../callee.cjs: resolves to callee.cjs, outside package/',
+    'src/b.js new URL(…, import.meta.url) ../../meta.js: resolves to meta.js, outside package/',
+    'src/b.js new URL(…, import.meta.url) ../../url.js: resolves to url.js, outside package/',
+    'src/b.js new URL(…, import.meta.url) ../../ctor.js: resolves to ctor.js, outside package/',
+    'src/b.js import.meta.resolve() ../../resolve.js: resolves to resolve.js, outside package/',
+    'src/b.js import.meta.resolve() ../../bound.js: resolves to bound.js, outside package/',
+    'src/c.ts require() ../../as.cjs: resolves to as.cjs, outside package/',
+    'src/c.ts require() ../../bang.cjs: resolves to bang.cjs, outside package/',
+    'src/c.ts require.resolve() ../../cast.cjs: resolves to cast.cjs, outside package/',
+    'src/c.ts new URL(…, import.meta.url) ../../sat.js: resolves to sat.js, outside package/',
+    'src/c.ts import.meta.resolve() ../../satisfies.js: resolves to satisfies.js, outside package/',
+  ]);
+});
+
+test('r5 b: drive letters and file: fail in every form, also as a template prefix or a folded literal', () => {
+  const absolute = 'is absolute, so it is not inside package/', fileUrl = 'is a file: URL, so it is not inside package/';
+  assert.deepEqual(reasons({
+    'src/a.js': [
+      "import 'C:/x.js';",
+      "export * from 'd:\\\\y.js';",
+      "import('C:/z.js');",
+      'import(`C:/${name}`);',
+      'import(`file:${name}`);',
+      "import('FILE:' + name);",
+      "import('fi' + 'le:///w.js');",
+      "new URL('C:/u.json', import.meta.url);",
+      "import.meta.resolve('c:\\\\m.js');",
+    ].join('\n'),
+    'src/b.cjs': [
+      "require(`file:${name}`);",
+      "require.resolve('C:' + '/r.cjs');",
+      "require(`D:\\\\${name}`);",
+    ].join('\n'),
+  }), [
+    `src/a.js import C:/x.js: ${absolute}`,
+    `src/a.js from d:\\y.js: ${absolute}`,
+    `src/a.js import() C:/z.js: ${absolute}`,
+    `src/a.js import() C:/: ${absolute}`,
+    `src/a.js import() file:: ${fileUrl}`,
+    `src/a.js import() FILE:: ${fileUrl}`,
+    `src/a.js import() file:///w.js: ${fileUrl}`,
+    `src/a.js new URL(…, import.meta.url) C:/u.json: ${absolute}`,
+    `src/a.js import.meta.resolve() c:\\m.js: ${absolute}`,
+    `src/b.cjs require() file:: ${fileUrl}`,
+    `src/b.cjs require.resolve() C:/r.cjs: ${absolute}`,
+    `src/b.cjs require() D:\\: ${absolute}`,
+  ]);
+});
+
+test('r5 c: percent-encoded dots and separators count for the later-.. rule', () => {
+  const climb = 'may climb outside package/ (a later part of the argument contains ..)';
+  assert.deepEqual(reasons({
+    'src/a.js': 'import(`./${dir}/%2e%2e/%2e%2e/%2e%2e/x.js`);',
+    'src/b.js': 'import(`./${dir}/%2E%2e/y.js`);',
+    'src/c.js': 'import(`./${dir}/.%2e/z.js`);',
+    'src/d.js': "import('./' + dir + '/..%2fw.js');",
+    'src/e.js': 'import(`./${dir}%2F..%5Cv.js`);',
+    'src/ok.js': 'import(`./${dir}/%2e/inside.js`); import(`./${dir}/%2e%2e.js`);',
+  }), [
+    `src/a.js import() ./: ${climb}`,
+    `src/b.js import() ./: ${climb}`,
+    `src/c.js import() ./: ${climb}`,
+    `src/d.js import() ./: ${climb}`,
+    `src/e.js import() ./: ${climb}`,
+  ]);
+});
+
+test('r5 d: a very long + chain is walked without recursion and never throws', () => {
+  const terms = 50000;
+  const chain = Array.from({ length: terms }, (_, i) => `n${i}`).join(' + ');
+  const folded = ["'../'", "'../'", "'deep'", ...Array.from({ length: terms - 4 }, () => "''"), "'.cjs'"].join(' + ');
+  let result;
+  assert.doesNotThrow(() => {
+    result = reasons({
+      'src/a.cjs': `const total = ${chain};\nrequire('../../after.cjs');`,
+      'src/b.cjs': `require(${folded});`,
+      'src/c.cjs': `require('./' + ${chain});`,
+    });
+  });
+  assert.deepEqual(result, [
+    'src/a.cjs require() ../../after.cjs: resolves to after.cjs, outside package/',
+    'src/b.cjs require() ../../deep.cjs: resolves to deep.cjs, outside package/',
+  ]);
+});
+
+test('r5 low: an escape error in a closed literal is not a scan failure; an unterminated literal still is', () => {
+  const [unterminatedString, unterminatedTemplate, ...rest] = reasons({
+    'src/a.js': "const s = '\\u{12';\nimport './inside.js';",
+    'src/b.js': "const s = 'ok';\nconst t = `\\u{12${x}`;\nimport './inside.js';",
+    'src/c.js': "const s = '\\u{12;\nimport './inside.js';",
+    'src/d.js': 'const t = `\\u{12;\nimport "./inside.js";',
+  });
+  assert.deepEqual(rest, []);
+  assert.match(unterminatedString, /^src\/c\.js: could not be scanned completely \(.+\), so its imports cannot be checked$/u);
+  assert.match(unterminatedTemplate, /^src\/d\.js: could not be scanned completely \(.+\), so its imports cannot be checked$/u);
+});
