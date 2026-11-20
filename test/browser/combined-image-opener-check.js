@@ -296,9 +296,10 @@ export async function combinedImageOpenerFoldCheck(t) {
       await handOff(page, longTurn.de);
       await page.evaluate(() => mount(JSON.parse(JSON.stringify(c.session))));
       await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').dataset.stage === 'live');
-      // A remount alone does not scroll; its first follow request must reach the end.
+      // A remount alone does not scroll, and at the top it does not follow
+      // (unchanged); its follow request, Latest, must reach the end.
       await settled(page);
-      await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.transcript-shell').dispatchEvent(new PointerEvent('pointerleave')));
+      await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.transcript-latest').click());
       const restored = await foldState(page);
       await record(page, 'rearm-reload', restored);
       assert.equal(restored.layout, 'image', 'the restored conversation keeps the image layout');
