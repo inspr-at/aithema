@@ -10,6 +10,7 @@ import { stagePackageTree, createDeterministicTarball, assertCanonicalReleaseToo
 import { assertRuntimeProvenanceBinding, buildSourceProvenanceText } from './lib/provenance.mjs';
 import { parseVersion, assertReleaseTag } from './lib/version.mjs';
 import { moduleFiles } from './lib/modules.mjs';
+import { assertPackageImports } from './lib/package-imports.mjs';
 import { verifyPresentation } from './presentation-pin.mjs';
 const json = value => JSON.stringify(value, null, 2) + '\n';
 const digest = bytes => `sha256:${sha256(bytes)}`;
@@ -138,7 +139,7 @@ export function packRelease({ root = fileURLToPath(new URL('../', import.meta.ur
   return { directory, artifactPath, manifest };
   } finally { rmSync(stage, { recursive: true, force: true }); }
 }
-export function verifyRelease(directory, { onArtifact = () => {} } = {}) {
+export function verifyRelease(directory, { onArtifact = () => {}, onImportScan = () => {} } = {}) {
   const manifest = JSON.parse(readFileSync(join(directory, 'release-set.json'))); parseVersion(manifest);
   if (manifest.schema !== 'aithema-release-set/1' || !['dry-run', 'candidate', 'release'].includes(manifest.mode) || !/^[a-f0-9]{40}$/u.test(manifest.source.commit) ||
     !Number.isSafeInteger(manifest.release_sequence) || manifest.release_sequence < 1 || !manifest.release_channel || manifest.artifacts.length < 1) throw new Error('Invalid release-set manifest');
@@ -177,6 +178,8 @@ export function verifyRelease(directory, { onArtifact = () => {} } = {}) {
       if (digest(bytes) !== file.sha256) throw new Error('Artifact member digest mismatch');
       members.set(file.path, bytes);
     }
+    // AIT-582: no member may import outside this tarball's package/ root (pack, verify and normalize).
+    onImportScan(assertPackageImports(artifact.path, members));
     // Consumers such as normalization reuse the verified member bytes, without extracting twice.
     onArtifact(artifact, members);
     if (artifact.kind === 'module') {
@@ -216,7 +219,8 @@ export function rollbackArtifact(directory, trustedManifest, coordinate) {
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [command, output = 'dist/release', ref, sourceRef] = process.argv.slice(2);
-  if (command === 'verify') console.log(JSON.stringify(verifyRelease(output)));
+  if (command === 'verify') console.log(JSON.stringify(verifyRelease(output, { onImportScan: ({ tarball, scanned }) =>
+    console.error(`import check: ${tarball} scanned ${scanned} files, 0 cross-package imports`) })));
   else if (command === 'pack') console.log(JSON.stringify(packRelease({ output, ref: ref === '--candidate' ? undefined : ref, sourceRef }).manifest));
   else throw new Error('Usage: node release/pack.mjs pack [new-output-directory] [--candidate | refs/tags/vVERSION] [source-commit] | verify <directory>');
 }

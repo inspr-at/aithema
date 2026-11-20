@@ -54,6 +54,22 @@ and retention evidence for that CI source commit. A tag build from the same C
 must have the same normalized member digest; exact archive hashes remain specific
 to the candidate or published set.
 
+Every tarball is checked for cross-package imports (AIT-582,
+`release/lib/package-imports.mjs`). `verifyRelease` opens each archive and scans
+its `.js`, `.mjs`, `.cjs`, `.ts` and `.d.ts` members for relative module specifiers:
+`import`/`export … from`, bare `import '…'`, `import('…')`,
+`new URL('…', import.meta.url)`, `require('…')`, `require.resolve('…')`,
+`import.meta.resolve('…')` and `/// <reference path>`. Comments and ordinary
+strings are not specifiers. Any specifier that resolves outside the archive's
+`package/` root fails the run. The check runs at the end of `release:pack`, in
+`release:verify` (and so in `release:candidate`) and in normalization, so a
+downloaded set is checked as well. The failure names the tarball, member,
+specifier and target, for example `Cross-package import in
+inspr-aithema-ui-VERSION.tgz: package/src/a.js from '../../core/src/x.js'
+resolves to core/src/x.js, outside package/`. `release:verify` prints one
+`import check: TARBALL scanned N files, 0 cross-package imports` line per
+tarball on stderr.
+
 ## Twenty-seventh candidate (AIT-588)
 
 The reserved coordinate is `261120065345.0.0` (UTC reservation time 2026-11-20T06:53:45Z),
