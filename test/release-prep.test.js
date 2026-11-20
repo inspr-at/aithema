@@ -299,6 +299,47 @@ test('module packer refuses same-package imports of every excluded source file',
   }
 });
 
+test('AIT-592: module packer checks new URL(…, import.meta.url) targets of every extension, not only .js', () => {
+  const pkg = { path: 'packages/server/package.json' };
+  const fixture = () => new Map([
+    [pkg.path, Buffer.from(JSON.stringify({ name: '@fixture/module' }))],
+    ['packages/server/src/data.json', Buffer.from('{}')],
+    ['packages/server/src/codec.wasm', Buffer.from([0, 97, 115, 109])],
+    ['packages/server/src/notes.txt', Buffer.from('notes')],
+    // Escape targets exist in the tree: the rule is "inside this package", not "exists somewhere".
+    ['packages/outside.json', Buffer.from('{}')],
+    ['packages/core/src/codec.wasm', Buffer.from([0, 97, 115, 109])],
+    ['release/notes.txt', Buffer.from('notes')],
+    ['LICENSE', Buffer.from('AGPL-3.0-only')],
+    ['README.md', Buffer.from('Fixture')],
+    ['docs/embedding.md', Buffer.from('Fixture')],
+    ['release/runtime.json', Buffer.from('{}')],
+  ]);
+  const rejected = [
+    ["export const a = new URL('../../outside.json', import.meta.url);", '../../outside.json'],
+    ['export const a = new URL("../../core/src/codec.wasm", import.meta.url);', '../../core/src/codec.wasm'],
+    ["export const a = new URL(\n  '../../../release/notes.txt' ,import.meta.url\n);", '../../../release/notes.txt'],
+    // In the package folder but not packaged: rejected like a missing .js target.
+    ["export const a = new URL('./missing.json', import.meta.url);", './missing.json'],
+    ["export const a = new URL('./missing.wasm', import.meta.url);", './missing.wasm'],
+  ];
+  for (const [source, specifier] of rejected) {
+    const files = fixture(); files.set('packages/server/src/index.js', Buffer.from(source));
+    assert.throws(() => moduleFiles(files, pkg), error => error.message === `Unpackaged dependency: packages/server/src/index.js -> ${specifier}`, source);
+  }
+  const accepted = [
+    "export const a = new URL('./data.json', import.meta.url);",
+    'export const a = new URL("./codec.wasm", import.meta.url);',
+    "export const a = new URL( './notes.txt' , import.meta.url );",
+    "export const a = new URL('../package.json', import.meta.url);",
+  ];
+  for (const source of accepted) {
+    const files = fixture(); files.set('packages/server/src/index.js', Buffer.from(source));
+    const members = moduleFiles(files, pkg);
+    assert.equal(members.get('src/index.js').toString(), source, 'an in-package target is left byte-identical');
+  }
+});
+
 test('AIT-350: native Grok browser sources pack to declared package subpaths and import without the workspace', t => {
   const directory = mkdtempSync(join(tmpdir(), 'aithema-grok-packed-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
