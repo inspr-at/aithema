@@ -57,12 +57,23 @@ to the candidate or published set.
 Every tarball is checked for cross-package imports (AIT-582,
 `release/lib/package-imports.mjs`). `verifyRelease` opens each archive and scans
 its `.js`, `.mjs`, `.cjs`, `.ts` and `.d.ts` members for relative module specifiers:
-`import`/`export … from`, bare `import '…'`, `import('…')`,
-`new URL('…', import.meta.url)`, `require('…')`, `require.resolve('…')`,
-`import.meta.resolve('…')` and `/// <reference path>`. Comments and ordinary
-strings are not specifiers. Any specifier that resolves outside the archive's
-`package/` root fails the run, after every tarball has been scanned, so one
-run names all failing tarballs. The check runs at the end of `release:pack`, in
+`import`/`export … from`, bare `import '…'`, `import(…)`,
+`new URL(…, import.meta.url)`, `require(…)`, `require.resolve(…)`,
+`import.meta.resolve(…)` and `/// <reference path>`. The scanner is a tokenizer,
+not a parser: comments and ordinary strings are not specifiers, and whether `/`
+starts a regular expression follows the previous token and the open brackets.
+It checks what is written literally. A specifier argument may be one literal,
+literals joined by `+`, or a template; a template or `literal + expression` is
+checked by its static prefix (`` `../../${name}` `` fails, `` `./${name}` ``
+passes). Any other argument is checked through every literal inside it, so
+`import(flag ? '../../a.js' : './b.js')` fails. A computed path without a literal,
+an alias (`const load = require`), `createRequire`, `module.require` and
+`new URL` bases that do not mention `import.meta.url` are not followed. `require`, `require.resolve` and
+reference paths resolve as file paths (`?` and `#` are literal, `\` is a
+separator); the ES module forms and `new URL` resolve as URLs. A specifier with
+a malformed escape or an invalid URL fails as unreadable. Any specifier that
+resolves outside the archive's `package/` root fails the run, after every tarball
+has been scanned, so one run names all failing tarballs. The check runs at the end of `release:pack`, in
 `release:verify` (and so in `release:candidate`) and in normalization, so a
 downloaded set is checked as well. The failure names the tarball, member,
 specifier and target, for example `Cross-package import in
