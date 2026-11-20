@@ -18,7 +18,7 @@ export async function creditHostOptionsCheck(t) {
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
   });
-  const browser = await browserForFile(), page = await browser.newPage();
+  const browser = await browserForFile(), page = await browser.newPage(), mainPage = page;
   t.after(async () => { await browser.close(); await demo.kill(); });
   phase('launch');
   const evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [], shots = [], errors = [];
@@ -38,37 +38,42 @@ export async function creditHostOptionsCheck(t) {
   const event = process.env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : null;
   const head = event?.pull_request?.head?.sha ?? evidenceCommit;
   if (evidence) await mkdir(evidence, { recursive: true });
-  page.on('pageerror', e => errors.push(e.message));
-  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
-  await page.setViewport({ width: 1440, height: 1000 });
-  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
-  await until(page, () => document.querySelector('aithema-session')?.session?.id);
-  await shadow(page, c => {
-    window.ait411 = { seed: structuredClone(c.session), receipt: {}, canDelete: true, lineRequests: 0, deletes: 0 };
-    const nativeFetch = window.fetch;
-    window.fetch = async (url, options = {}) => {
-      const path = new URL(url, location.href).pathname, f = window.ait411;
-      if (path.endsWith('/credits')) return Response.json(f.receipt);
-      if (path.endsWith('/identity')) return Response.json({ identity: c.session.identity, visitorEmail: { canSave: true, canDelete: f.canDelete }, delivery: true, privacyDocumentConfigured: true });
-      if (path.endsWith('/visitor/email')) {
-        if (options.method === 'DELETE') f.deletes++;
-        return Response.json({ visitor: { address: c.session.identity.address }, notice: { version: 'ait411', deliveryEnabled: true }, privacyDocumentConfigured: true });
-      }
-      if (path.endsWith('/email-ask')) { f.lineRequests++; return Response.json({ accepted: false, emailAsk: {} }); }
-      // This synthetic session owns its event journal. Keep the stream quiet
-      // instead of reconnecting to the unrelated demo session between scenes.
-      if (path.endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
-        if (options.signal?.aborted) controller.close();
-        else options.signal?.addEventListener('abort', () => controller.close(), { once: true });
-      } }), { headers: { 'content-type': 'text/event-stream' } });
-      if (path.endsWith('/features')) return Response.json({});
-      if (/\/api\/sessions\/[^/]+$/u.test(path)) return Response.json(c.session);
-      return nativeFetch(url, options);
-    };
-  });
+  // AIT-546: the O-profile matrices run on their own pages, in parallel with the
+  // main matrix; every page gets the same reduced-motion fixture and fetch mock.
+  const preparePage = async page => {
+    page.on('pageerror', e => errors.push(e.message));
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await page.setViewport({ width: 1440, height: 1000 });
+    await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+    await until(page, () => document.querySelector('aithema-session')?.session?.id);
+    await shadow(page, c => {
+      window.ait411 = { seed: structuredClone(c.session), receipt: {}, canDelete: true, lineRequests: 0, deletes: 0 };
+      const nativeFetch = window.fetch;
+      window.fetch = async (url, options = {}) => {
+        const path = new URL(url, location.href).pathname, f = window.ait411;
+        if (path.endsWith('/credits')) return Response.json(f.receipt);
+        if (path.endsWith('/identity')) return Response.json({ identity: c.session.identity, visitorEmail: { canSave: true, canDelete: f.canDelete }, delivery: true, privacyDocumentConfigured: true });
+        if (path.endsWith('/visitor/email')) {
+          if (options.method === 'DELETE') f.deletes++;
+          return Response.json({ visitor: { address: c.session.identity.address }, notice: { version: 'ait411', deliveryEnabled: true }, privacyDocumentConfigured: true });
+        }
+        if (path.endsWith('/email-ask')) { f.lineRequests++; return Response.json({ accepted: false, emailAsk: {} }); }
+        // This synthetic session owns its event journal. Keep the stream quiet
+        // instead of reconnecting to the unrelated demo session between scenes.
+        if (path.endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+          if (options.signal?.aborted) controller.close();
+          else options.signal?.addEventListener('abort', () => controller.close(), { once: true });
+        } }), { headers: { 'content-type': 'text/event-stream' } });
+        if (path.endsWith('/features')) return Response.json({});
+        if (/\/api\/sessions\/[^/]+$/u.test(path)) return Response.json(c.session);
+        return nativeFetch(url, options);
+      };
+    });
+  };
+  await preparePage(page);
   phase('pageLoad');
   const states = ['B1', 'U1', 'U2', 'U3', 'offer', 'confirmed', 'reconciling', 'reconciled', 'low-off', 'low-on', 'S1', 'S2', 'S3', 'delete-false', 'delete-true'];
-  const scene = async (state, locale, theme, profile = 'all') => {
+  const scene = async (state, locale, theme, profile = 'all', page = mainPage) => {
     let at = performance.now();
     const lap = key => { const now = performance.now(); timing.scene[key] += now - at; at = now; };
     timing.scene.count++;
@@ -229,12 +234,12 @@ export async function creditHostOptionsCheck(t) {
         deleteCopy: r.querySelector('.m-delete-normal').textContent, deletes: window.ait411.deletes };
     }); } finally { lap('measure'); }
   };
-  const recordRound2 = (profile, width, locale, theme, state, value) => {
+  const recordRound2 = (profile, width, locale, theme, state, value, list = round2) => {
     const entry = { profile, width, locale, theme, state, body: value.body, ...value.footerGeometry, ...value.actionGeometry };
-    round2.push(entry);
+    list.push(entry);
     if (['O5', 'O2-none'].includes(profile) && [390, 1440].includes(width) && ['B1', 'U1', 'U2', 'U3', 'S3'].includes(state)) footer80.push(entry);
   };
-  const round2Shot = async (profile, state) => {
+  const round2Shot = async (profile, state, page = mainPage) => {
     if (!evidence) return;
     await shadow(page, async c => {
       c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); scrollTo(0, 0);
@@ -245,17 +250,43 @@ export async function creditHostOptionsCheck(t) {
     const file = `ait435-390-light-de-${profile}-${state}.png`;
     await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false }); round2Shots.push(file);
   };
+  // AIT-546: the three O-profile matrices and the main matrix are independent.
+  // Each O profile measures its scenes in the original order on its own page,
+  // in parallel with the main matrix on the original page. The subtests below
+  // then assert the collected values with the original assertions, and every
+  // evidence list keeps the original order (O4, O5, O2-none, then main).
+  const settled = promise => promise.then(value => ({ value }), error => ({ error }));
+  const collectProfile = async profile => {
+    const own = await browser.newPage();
+    try {
+      await preparePage(own);
+      const groups = [];
+      for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+        await own.setViewport({ width, height: 1000 });
+        const values = [];
+        for (const state of ['B1', 'U1', 'U2', 'U3', 'reconciling', 'reconciled', 'host-limit', 'S1', 'S2', 'S3']) {
+          values.push([state, await scene(state, locale, theme, profile, own)]);
+          if (profile === 'O5' && width === 390 && locale === 'de' && theme === 'light' && state === 'U3') await round2Shot(profile, state, own);
+        }
+        groups.push({ locale, theme, width, values });
+      }
+      return groups;
+    } finally { await own.close(); }
+  };
+  const collected = Object.fromEntries(['O4', 'O5', 'O2-none'].map(profile => [profile, settled(collectProfile(profile))]));
+  const mainRound2 = [], mainChecks = [];
+  const main = settled(mainMatrix());
   // Exercise the formerly masked option sets without O1. Track the complete
   // inserted/painted union through host-limit, daily-cap and session states.
   for (const profile of ['O4', 'O5', 'O2-none']) await t.test(`${profile} without O1: every option peer can paint`, async () => {
-    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
-      await page.setViewport({ width, height: 1000 });
+    const { value: groups, error } = await collected[profile];
+    if (error) throw error;
+    for (const { locale, theme, width, values } of groups) {
       let baseline;
       const inserted = new Set(), painted = new Set();
-      for (const state of ['B1', 'U1', 'U2', 'U3', 'reconciling', 'reconciled', 'host-limit', 'S1', 'S2', 'S3']) {
-        const value = await scene(state, locale, theme, profile), label = `${profile}/${locale}/${theme}/${width}/${state}`;
+      for (const [state, value] of values) {
+        const label = `${profile}/${locale}/${theme}/${width}/${state}`;
         recordRound2(profile, width, locale, theme, state, value);
-        if (profile === 'O5' && width === 390 && locale === 'de' && theme === 'light' && state === 'U3') await round2Shot(profile, state);
         if (!baseline) baseline = value.boxes;
         assert.deepEqual(value.boxes, baseline, `${label}: composer, question card and panel move 0 px`);
         assert.equal(value.overflowPx, 0, `${label}: no horizontal overflow`);
@@ -286,108 +317,113 @@ export async function creditHostOptionsCheck(t) {
     }
     phase(`profile ${profile}`);
   });
-  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
-    await page.setViewport({ width, height: 1000 });
-    let baseline, deleteBaseline, lowBaseline;
-    for (const state of states) {
-      const value = await scene(state, locale, theme), label = `${locale}/${theme}/${width}/${state}`;
-      recordRound2('all', width, locale, theme, state, value);
-      if (!baseline) baseline = value.boxes;
-      assert.deepEqual(value.boxes, baseline, `${label}: composer, question card and panel move 0 px`);
-      assert.equal(value.overflowPx, 0, `${label}: no horizontal overflow`);
-      assert.deepEqual(value.reservation.filter(n => !n.option).map(n => n.key),
-        ['active', 'default', 'host-give', 'host-confirm', 'host-confirm-anonymous', 'one-hour', 'session', 'voiceVisitor', 'host-limit', 'daily-cap'], `${label}: AIT-410 v1 variants stay intact`);
-      assert.deepEqual(value.reservation.filter(n => n.option).map(n => n.key),
-        state === 'S3' ? ['option-session-emailConfirmed'] : ['option-new-conversation', 'option-session-emailConfirmed'], `${label}: O1/O7 reserve every enabled hint and upgrade`);
-      assert.ok(value.reservation.every(n => n.cell === '1/1'), `${label}: v1 and O variants share one cell`);
-      assert.ok(value.reservation.every(n => value.bodyHeight >= n.height), `${label}: cell reserves the tallest variant`);
-      const activeOption = state === 'S1' ? 'option-session-emailConfirmed' : ['U2', 'S2'].includes(state) ? 'option-new-conversation' : null;
-      for (const variant of value.reservation.filter(n => n.option)) {
-        const painted = variant.key === activeOption;
-        assert.equal(variant.hidden, !painted, `${label}: real option variant paints in its state (${variant.key})`);
-        assert.equal(variant.ariaHidden, String(!painted), `${label}: only painted option text enters AX (${variant.key})`);
-      }
-      assert.ok(Number(value.newAction) + Number(value.upgrade) <= 1, `${label}: one primary action`);
-      if (['U2', 'S2'].includes(state)) { assert.equal(value.newAction, true); assert.equal(value.export, true); }
-      if (state === 'U3') { assert.equal(value.newAction, false); assert.equal(value.export, false); assert.equal(value.actionRowHidden, 'true'); assert.match(value.deadline, locale === 'de' ? /^Ab .+ gilt für diese E‑Mail-Adresse ein neues Tageslimit\.$/u : /^This email address gets a new daily limit from .+\.$/u); assert.equal(value.panelDeadline, value.deadline); }
-      if (state === 'S1') { assert.equal(value.upgrade, true); assert.equal(value.export, true); assert.match(value.body, /1[.,]000/u); }
-      if (state === 'S1') assert.equal(value.body, locale === 'de' ? 'Mit bestätigter E‑Mail-Adresse steigt das Limit dieses Gesprächs auf 1.000\u00a0Credits.' : 'With a confirmed email address, this conversation\'s limit rises to 1,000\u00a0credits.', `${label}: complete S1 copy and NBSP`);
-      if (state === 'S3') { assert.equal(value.newAction, false); assert.equal(value.export, true); }
-      if (state === 'offer') {
-        assert.match(value.next, locale === 'de' ? /^Nach der Bestätigung:/u : /^After confirmation:/u);
-        assert.equal(value.next, locale === 'de' ? 'Nach der Bestätigung: 1.000\u00a0Credits' : 'After confirmation: 1,000\u00a0credits', `${label}: shipped O3 catalog copy and NBSP`);
-      }
-      if (state === 'confirmed') assert.match(value.current, locale === 'de' ? /Mit bestätigter E‑Mail-Adresse:/u : /With a confirmed email address: 1,000\u00a0credits/u);
-      if (state === 'reconciling') { assert.equal(value.footerTextFits, true, `${label}: visible reconciliation never overlaps legal or footer controls ${JSON.stringify(value.footerTextRects)}`); assert.equal(value.reconciling, true); assert.equal(value.live, locale === 'de' ? 'Credits werden abgeglichen …' : 'Updating credits …'); }
-      if (state === 'reconciled') { assert.equal(value.reconciling, false); assert.equal(value.live, ''); }
-      if (state === 'low-off') { assert.equal(value.lowLines, 0); lowBaseline = { transcript: value.transcript, reply: value.reply }; }
-      if (state === 'low-on') { assert.equal(value.lowLines, 1); assert.deepEqual({ transcript: value.transcript, reply: value.reply }, lowBaseline, `${label}: low ask switch moves transcript 0 px`); }
-      if (state === 'delete-false') {
-        deleteBaseline = value.emailBox; assert.equal(value.deleteDisabled, true); assert.equal(value.deleteTab, -1); assert.equal(value.deleteCopy, '');
-        assert.equal(value.deleteReason, locale === 'de' ? 'Hier nicht möglich. Wie die Adresse gelöscht wird, steht in der Datenschutzerklärung.' : 'Not available here. The privacy notice explains how to have the address deleted.');
-        await shadow(page, c => c.shadowRoot.querySelector('.m-delete-mail').click()); assert.equal(value.deletes, 0);
-      }
-      if (state === 'delete-true') { assert.equal(value.deleteDisabled, false); assert.deepEqual(value.emailBox, deleteBaseline, `${label}: capability row keeps its height`); }
-      checks.push({ width, locale, theme, state, displacementPx: 0, pass: true, ...value });
-      const mobile = width === 390, wideDE = width === 1440 && locale === 'de';
-      const capture = theme === 'light' && ((mobile && ['U2', 'U3', 'S1', 'S2', 'S3', 'delete-false'].includes(state)) ||
-        mobile && locale === 'de' && ['offer', 'confirmed', 'reconciling', 'low-off', 'delete-true'].includes(state) || wideDE && ['U2', 'U3', 'S2'].includes(state));
-      if (evidence && capture) {
-        if (['offer', 'confirmed'].includes(state)) await shadow(page, c => c.shadowRoot.querySelector('.host-credits__button').click());
-        await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
-        await page.mouse.move(-1, -1);
-        await shadow(page, async c => { await document.fonts.ready; await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect?.getComputedTiming().endTime)).map(a => a.finished.catch(() => {}))); });
-        const file = `ait411-${width}-${theme}-${locale}-${state}.png`;
-        await page.screenshot({ path: join(evidence, file), fullPage: false }); shots.push(file);
-        if (mobile && locale === 'de' && state === 'S1') {
-          await shadow(page, c => c.shadowRoot.querySelector('.composer-shell').scrollIntoView({ block: 'center', behavior: 'instant' }));
-          await page.screenshot({ path: join(evidence, 'ait411-390-light-de-shared-cell.png'), fullPage: false });
-          await page.evaluate(() => scrollTo(0, 0));
+  const { error: mainError } = await main;
+  if (mainError) throw mainError;
+  round2.push(...mainRound2); checks.push(...mainChecks);
+  phase('mainMatrix');
+  async function mainMatrix() {
+    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+      await page.setViewport({ width, height: 1000 });
+      let baseline, deleteBaseline, lowBaseline;
+      for (const state of states) {
+        const value = await scene(state, locale, theme), label = `${locale}/${theme}/${width}/${state}`;
+        recordRound2('all', width, locale, theme, state, value, mainRound2);
+        if (!baseline) baseline = value.boxes;
+        assert.deepEqual(value.boxes, baseline, `${label}: composer, question card and panel move 0 px`);
+        assert.equal(value.overflowPx, 0, `${label}: no horizontal overflow`);
+        assert.deepEqual(value.reservation.filter(n => !n.option).map(n => n.key),
+          ['active', 'default', 'host-give', 'host-confirm', 'host-confirm-anonymous', 'one-hour', 'session', 'voiceVisitor', 'host-limit', 'daily-cap'], `${label}: AIT-410 v1 variants stay intact`);
+        assert.deepEqual(value.reservation.filter(n => n.option).map(n => n.key),
+          state === 'S3' ? ['option-session-emailConfirmed'] : ['option-new-conversation', 'option-session-emailConfirmed'], `${label}: O1/O7 reserve every enabled hint and upgrade`);
+        assert.ok(value.reservation.every(n => n.cell === '1/1'), `${label}: v1 and O variants share one cell`);
+        assert.ok(value.reservation.every(n => value.bodyHeight >= n.height), `${label}: cell reserves the tallest variant`);
+        const activeOption = state === 'S1' ? 'option-session-emailConfirmed' : ['U2', 'S2'].includes(state) ? 'option-new-conversation' : null;
+        for (const variant of value.reservation.filter(n => n.option)) {
+          const painted = variant.key === activeOption;
+          assert.equal(variant.hidden, !painted, `${label}: real option variant paints in its state (${variant.key})`);
+          assert.equal(variant.ariaHidden, String(!painted), `${label}: only painted option text enters AX (${variant.key})`);
         }
-      }
-      // Tick AIT-445 v1.1: reuse this scene for the reset popover and upgrade.
-      if (mobile && locale === 'de' && theme === 'light' && ['U3', 'S1'].includes(state)) {
-        if (state === 'U3') await shadow(page, c => c.shadowRoot.querySelector('.host-credits__button').click());
-        await shadow(page, async c => {
-          c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready;
-          const animations = c.shadowRoot.getAnimations({ subtree:true }).filter(a => Number.isFinite(a.effect?.getComputedTiming().endTime));
-          for (const animation of animations) animation.finish();
-          await Promise.all(animations.map(a => a.finished.catch(() => {})));
-          await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-        });
-        await page.mouse.move(-1, -1);
-        const copyCheck = await shadow(page, c => {
-          const r = c.shadowRoot, nodes = [], walker = document.createTreeWalker(r, NodeFilter.SHOW_TEXT);
-          while (walker.nextNode()) if (walker.currentNode.data.includes('E‑Mail') && walker.currentNode.data !== 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht.') nodes.push(walker.currentNode);
-          const boxes = () => Object.fromEntries(['.composer-shell', '.question-card', '.composer-out', '.display-foot', '.credits-popup'].map(selector => {
-            const b = r.querySelector(selector).getBoundingClientRect(); return [selector, [b.x, b.y, b.width, b.height]];
-          }));
-          const details = () => Object.fromEntries(['.composer-out__title', '.composer-out__body', '.composer-out__bar', '.composer-out__steps', '.composer-out__actions', '.composer-out__upgrade', ...[...r.querySelectorAll('.composer-out__body > *, .composer-out__steps > *, .composer-out__upgrade > *')].map(n => '.' + n.className).filter(s => s !== '.')].map(selector => {
-            const n = r.querySelector(selector), b = n.getBoundingClientRect(), css = getComputedStyle(n);
-            return [selector, { text:n.textContent, rect:[b.x,b.y,b.width,b.height], font:css.font, lineHeight:css.lineHeight, minHeight:css.minHeight, visibility:css.visibility }];
-          }));
-          const current = boxes(), currentDetails = details(), text = nodes.map(n => n.data), tokens = [];
-          for (const node of nodes) if (node.parentElement.checkVisibility({ visibilityProperty:true })) for (const match of node.data.matchAll(/E‑Mail/gu)) {
-            const range = document.createRange(); range.setStart(node, match.index); range.setEnd(node, match.index + match[0].length);
-            tokens.push({ text:node.data, rows:new Set([...range.getClientRects()].map(b => b.y)).size });
+        assert.ok(Number(value.newAction) + Number(value.upgrade) <= 1, `${label}: one primary action`);
+        if (['U2', 'S2'].includes(state)) { assert.equal(value.newAction, true); assert.equal(value.export, true); }
+        if (state === 'U3') { assert.equal(value.newAction, false); assert.equal(value.export, false); assert.equal(value.actionRowHidden, 'true'); assert.match(value.deadline, locale === 'de' ? /^Ab .+ gilt für diese E‑Mail-Adresse ein neues Tageslimit\.$/u : /^This email address gets a new daily limit from .+\.$/u); assert.equal(value.panelDeadline, value.deadline); }
+        if (state === 'S1') { assert.equal(value.upgrade, true); assert.equal(value.export, true); assert.match(value.body, /1[.,]000/u); }
+        if (state === 'S1') assert.equal(value.body, locale === 'de' ? 'Mit bestätigter E‑Mail-Adresse steigt das Limit dieses Gesprächs auf 1.000\u00a0Credits.' : 'With a confirmed email address, this conversation\'s limit rises to 1,000\u00a0credits.', `${label}: complete S1 copy and NBSP`);
+        if (state === 'S3') { assert.equal(value.newAction, false); assert.equal(value.export, true); }
+        if (state === 'offer') {
+          assert.match(value.next, locale === 'de' ? /^Nach der Bestätigung:/u : /^After confirmation:/u);
+          assert.equal(value.next, locale === 'de' ? 'Nach der Bestätigung: 1.000\u00a0Credits' : 'After confirmation: 1,000\u00a0credits', `${label}: shipped O3 catalog copy and NBSP`);
+        }
+        if (state === 'confirmed') assert.match(value.current, locale === 'de' ? /Mit bestätigter E‑Mail-Adresse:/u : /With a confirmed email address: 1,000\u00a0credits/u);
+        if (state === 'reconciling') { assert.equal(value.footerTextFits, true, `${label}: visible reconciliation never overlaps legal or footer controls ${JSON.stringify(value.footerTextRects)}`); assert.equal(value.reconciling, true); assert.equal(value.live, locale === 'de' ? 'Credits werden abgeglichen …' : 'Updating credits …'); }
+        if (state === 'reconciled') { assert.equal(value.reconciling, false); assert.equal(value.live, ''); }
+        if (state === 'low-off') { assert.equal(value.lowLines, 0); lowBaseline = { transcript: value.transcript, reply: value.reply }; }
+        if (state === 'low-on') { assert.equal(value.lowLines, 1); assert.deepEqual({ transcript: value.transcript, reply: value.reply }, lowBaseline, `${label}: low ask switch moves transcript 0 px`); }
+        if (state === 'delete-false') {
+          deleteBaseline = value.emailBox; assert.equal(value.deleteDisabled, true); assert.equal(value.deleteTab, -1); assert.equal(value.deleteCopy, '');
+          assert.equal(value.deleteReason, locale === 'de' ? 'Hier nicht möglich. Wie die Adresse gelöscht wird, steht in der Datenschutzerklärung.' : 'Not available here. The privacy notice explains how to have the address deleted.');
+          await shadow(page, c => c.shadowRoot.querySelector('.m-delete-mail').click()); assert.equal(value.deletes, 0);
+        }
+        if (state === 'delete-true') { assert.equal(value.deleteDisabled, false); assert.deepEqual(value.emailBox, deleteBaseline, `${label}: capability row keeps its height`); }
+        mainChecks.push({ width, locale, theme, state, displacementPx: 0, pass: true, ...value });
+        const mobile = width === 390, wideDE = width === 1440 && locale === 'de';
+        const capture = theme === 'light' && ((mobile && ['U2', 'U3', 'S1', 'S2', 'S3', 'delete-false'].includes(state)) ||
+          mobile && locale === 'de' && ['offer', 'confirmed', 'reconciling', 'low-off', 'delete-true'].includes(state) || wideDE && ['U2', 'U3', 'S2'].includes(state));
+        if (evidence && capture) {
+          if (['offer', 'confirmed'].includes(state)) await shadow(page, c => c.shadowRoot.querySelector('.host-credits__button').click());
+          await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+          await page.mouse.move(-1, -1);
+          await shadow(page, async c => { await document.fonts.ready; await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect?.getComputedTiming().endTime)).map(a => a.finished.catch(() => {}))); });
+          const file = `ait411-${width}-${theme}-${locale}-${state}.png`;
+          await page.screenshot({ path: join(evidence, file), fullPage: false }); shots.push(file);
+          if (mobile && locale === 'de' && state === 'S1') {
+            await shadow(page, c => c.shadowRoot.querySelector('.composer-shell').scrollIntoView({ block: 'center', behavior: 'instant' }));
+            await page.screenshot({ path: join(evidence, 'ait411-390-light-de-shared-cell.png'), fullPage: false });
+            await page.evaluate(() => scrollTo(0, 0));
           }
-          nodes.forEach(node => { node.data = node.data.replaceAll('E‑Mail', 'E-Mail'); });
-          const legacy = boxes(), legacyDetails = details(); nodes.forEach((node, i) => { node.data = text[i]; });
-          return { current, legacy, currentDetails, legacyDetails, tokens, overflowPx:Math.max(0, document.documentElement.scrollWidth - innerWidth) };
-        });
-        const shot = `ait445-v1.1-390-light-de-${state}.png`;
-        emailCopyChecks.push({ state, shot, ...copyCheck });
-        if (evidence) await page.screenshot({ path:join(evidence, shot), fullPage:false, captureBeyondViewport:false });
-        t.diagnostic('AIT445_COPY_RESERVATION ' + JSON.stringify({ state, ...copyCheck }));
-        assert.deepEqual(copyCheck.current, copyCheck.legacy, `${state}: Tick v1.1 copy moves composer, question, footer and popover exactly 0 px`);
-        assert.equal(copyCheck.overflowPx, 0, `${state}: Tick v1.1 copy has no horizontal overflow`);
-        assert.ok(copyCheck.tokens.length > 0, `${state}: changed E‑Mail copy is visible`);
-        for (const token of copyCheck.tokens) assert.equal(token.rows, 1, `${state}: E‑Mail never breaks after E‑`);
-        if (state === 'U3') await shadow(page, c => c.shadowRoot.querySelector('.host-credits__button').click());
+        }
+        // Tick AIT-445 v1.1: reuse this scene for the reset popover and upgrade.
+        if (mobile && locale === 'de' && theme === 'light' && ['U3', 'S1'].includes(state)) {
+          if (state === 'U3') await shadow(page, c => c.shadowRoot.querySelector('.host-credits__button').click());
+          await shadow(page, async c => {
+            c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready;
+            const animations = c.shadowRoot.getAnimations({ subtree:true }).filter(a => Number.isFinite(a.effect?.getComputedTiming().endTime));
+            for (const animation of animations) animation.finish();
+            await Promise.all(animations.map(a => a.finished.catch(() => {})));
+            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          });
+          await page.mouse.move(-1, -1);
+          const copyCheck = await shadow(page, c => {
+            const r = c.shadowRoot, nodes = [], walker = document.createTreeWalker(r, NodeFilter.SHOW_TEXT);
+            while (walker.nextNode()) if (walker.currentNode.data.includes('E‑Mail') && walker.currentNode.data !== 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht.') nodes.push(walker.currentNode);
+            const boxes = () => Object.fromEntries(['.composer-shell', '.question-card', '.composer-out', '.display-foot', '.credits-popup'].map(selector => {
+              const b = r.querySelector(selector).getBoundingClientRect(); return [selector, [b.x, b.y, b.width, b.height]];
+            }));
+            const details = () => Object.fromEntries(['.composer-out__title', '.composer-out__body', '.composer-out__bar', '.composer-out__steps', '.composer-out__actions', '.composer-out__upgrade', ...[...r.querySelectorAll('.composer-out__body > *, .composer-out__steps > *, .composer-out__upgrade > *')].map(n => '.' + n.className).filter(s => s !== '.')].map(selector => {
+              const n = r.querySelector(selector), b = n.getBoundingClientRect(), css = getComputedStyle(n);
+              return [selector, { text:n.textContent, rect:[b.x,b.y,b.width,b.height], font:css.font, lineHeight:css.lineHeight, minHeight:css.minHeight, visibility:css.visibility }];
+            }));
+            const current = boxes(), currentDetails = details(), text = nodes.map(n => n.data), tokens = [];
+            for (const node of nodes) if (node.parentElement.checkVisibility({ visibilityProperty:true })) for (const match of node.data.matchAll(/E‑Mail/gu)) {
+              const range = document.createRange(); range.setStart(node, match.index); range.setEnd(node, match.index + match[0].length);
+              tokens.push({ text:node.data, rows:new Set([...range.getClientRects()].map(b => b.y)).size });
+            }
+            nodes.forEach(node => { node.data = node.data.replaceAll('E‑Mail', 'E-Mail'); });
+            const legacy = boxes(), legacyDetails = details(); nodes.forEach((node, i) => { node.data = text[i]; });
+            return { current, legacy, currentDetails, legacyDetails, tokens, overflowPx:Math.max(0, document.documentElement.scrollWidth - innerWidth) };
+          });
+          const shot = `ait445-v1.1-390-light-de-${state}.png`;
+          emailCopyChecks.push({ state, shot, ...copyCheck });
+          if (evidence) await page.screenshot({ path:join(evidence, shot), fullPage:false, captureBeyondViewport:false });
+          t.diagnostic('AIT445_COPY_RESERVATION ' + JSON.stringify({ state, ...copyCheck }));
+          assert.deepEqual(copyCheck.current, copyCheck.legacy, `${state}: Tick v1.1 copy moves composer, question, footer and popover exactly 0 px`);
+          assert.equal(copyCheck.overflowPx, 0, `${state}: Tick v1.1 copy has no horizontal overflow`);
+          assert.ok(copyCheck.tokens.length > 0, `${state}: changed E‑Mail copy is visible`);
+          for (const token of copyCheck.tokens) assert.equal(token.rows, 1, `${state}: E‑Mail never breaks after E‑`);
+          if (state === 'U3') await shadow(page, c => c.shadowRoot.querySelector('.host-credits__button').click());
+        }
       }
     }
   }
-  phase('mainMatrix');
   await scene('U2', 'de', 'light');
   const eventProof = await shadow(page, c => {
     let detail;
