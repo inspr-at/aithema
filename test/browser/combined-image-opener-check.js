@@ -392,8 +392,12 @@ export async function combinedImageOpenerFoldCheck(t) {
         const after = await foldState(page);
         await record(page, `stream-${locale}-${theme}-final`, after);
         for (const key of ['shell', 'reply', 'composer', 'send']) positive(`stream/${key}`, after[key]);
-        assert.ok(Math.abs(after.scrollTop - streamed.scrollTop) <= .5 && Math.abs(after.reply.y - streamed.reply.y) <= .5,
-          `the reply finalizes in place: ${JSON.stringify({ streamed, after })}`);
+        // A final reply gains its listen / read actions (one 44 px row); that
+        // growth is the only movement: the reply's end keeps its place, and the
+        // reserve adds no jump of its own.
+        const growth = after.reply.height - streamed.reply.height, end = box => box.y + box.height;
+        assert.ok(Math.abs(end(after.reply) - end(streamed.reply)) <= .5 && Math.abs(after.scrollTop - streamed.scrollTop - growth) <= 1,
+          `the reply finalizes in place: ${JSON.stringify({ growth, streamed, after })}`);
         assert.ok(clearOfLabel(after, after.reply), `the reply stays clear of the render label: ${JSON.stringify(after)}`);
         assert.equal(after.latestShown, false, `Latest is hidden at the end: ${JSON.stringify(after)}`);
         assert.deepEqual(problems, []);
