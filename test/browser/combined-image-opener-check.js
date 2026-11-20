@@ -72,7 +72,11 @@ export async function combinedImageOpenerCheck(t) {
             scroll: rect(root.querySelector('.conversation-scroll')),
             // Both scrollers' state: the welcome's viewport y moves when either scrolls.
             scrollers: Object.fromEntries([['conversation', root.querySelector('.conversation-scroll')], ['shell', shell]]
-              .map(([name, node]) => [name, node ? { scrollTop: node.scrollTop, scrollHeight: node.scrollHeight, clientHeight: node.clientHeight } : null])) };
+              .map(([name, node]) => [name, node ? { scrollTop: node.scrollTop, scrollHeight: node.scrollHeight, clientHeight: node.clientHeight,
+                scrollbar: node.offsetWidth - node.clientWidth, paddingBottom: getComputedStyle(node).paddingBottom } : null])),
+            // What fills the live shell: the welcome's wrapped lines, the visitor turn and the font that wraps them.
+            welcomeLines: row ? new Set([...range.getClientRects()].map(r => Math.round(r.y))).size : null,
+            visitor: rect([...(shell?.querySelectorAll('.turn.user') ?? [])].at(-1)), font: row ? getComputedStyle(row).fontFamily : null };
         });
         tables.push({ locale, theme, width, height, state, boxes });
         if (evidence) {
@@ -122,7 +126,8 @@ export async function combinedImageOpenerCheck(t) {
       if (!contains(after.thread, after.shell)) failures.push(`the live thread contains its transcript-shell: ${JSON.stringify(after)}`);
       const backdrop = Math.min(after.thread.width * .66, after.thread.height * .66 * 1.7778);
       if (Math.abs(after.backdrop.width - backdrop) > 1) failures.push(`the live backdrop is min(66cqw, 66cqh × 16/9): ${after.backdrop.width} vs ${backdrop}`);
-      if (failures.length) failures.push(`scrollers prelive ${JSON.stringify(before.scrollers)} live ${JSON.stringify(after.scrollers)}`);
+      if (failures.length) failures.push(`scrollers prelive ${JSON.stringify(before.scrollers)} live ${JSON.stringify(after.scrollers)}`,
+        `live fill: welcome ${JSON.stringify(after.opener)} lines ${before.welcomeLines}->${after.welcomeLines} visitor ${JSON.stringify(after.visitor)} shell ${JSON.stringify(after.shell)} font ${after.font}`);
       assert.deepEqual(failures, [], label);
       assert.deepEqual(problems, []);
     } finally { await page.close(); }
