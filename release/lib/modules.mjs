@@ -1,4 +1,5 @@
 import { posix } from 'node:path';
+import { moduleSpecifiers, scannedMember } from './package-imports.mjs';
 
 // Keep the legacy prototype entrypoint excluded. Supported coordinators and
 // composed helpers ship from server/src/voice-coordinator.js and src/composed/.
@@ -6,11 +7,56 @@ const excluded = new Set(['packages/server/src/local-voice.js', 'packages/server
   // The unexported ElevenLabs component adapter remains a source-only proof.
   'plugins/elevenlabs/src/components.js']);
 
+// Members the packer adds at every package root: [package path, workspace source].
+const generated = [['LICENSE', 'LICENSE'], ['README.md', 'docs/embedding.md'],
+  // Keep source provenance and rights notes available in each package.
+  ['SOURCE.md', 'README.md'], ['release-runtime.json', 'release/runtime.json']];
+
+// AIT-592: resolve a new URL asset as the installed package does, in package space with URL
+// semantics (query and hash dropped, %2e%2e is .., names %-decoded). The installed root has
+// an unknown name, so a target that leaves the root and names its way back resolves
+// differently under two root names; it is undefined then, and outside the root.
+const packageTarget = (local, specifier) => {
+  const [target, other] = ['package', 'package-other'].map(root => {
+    try {
+      const { pathname } = new URL(specifier, `file:///${root}/${local.split('/').map(encodeURIComponent).join('/')}`);
+      return pathname.startsWith(`/${root}/`) ? pathname.slice(root.length + 2) : undefined;
+    } catch { return undefined; }
+  });
+  // An encoded / is not a valid file URL path (fileURLToPath throws).
+  if (target === undefined || target !== other || /%2f/iu.test(target)) return undefined;
+  try { return decodeURIComponent(target); } catch { return undefined; }
+};
+
+// AIT-592: a new URL(…, import.meta.url) asset (.js, .json, .wasm, any extension) must be a member of this
+// package. Calls come from AIT-582's syntax-tree extraction, so text in comments, strings and templates is never
+// a call. The argument must be one literal ('…', "…" or a template without substitutions) whose raw text is its
+// cooked value; a backslash (an escape or a line continuation), a fold (also one with a template), a template with
+// substitutions, or a partial, ambiguous or malformed specifier fails closed. A URL with a scheme other than file:
+// is no member.
+const newURL = 'new URL(…, import.meta.url)';
+function checkNewURLs(text, path, local, packaged) {
+  for (const found of moduleSpecifiers(text, local)) {
+    if (found.problem) throw new Error(`Unpackaged dependency: ${path} could not be scanned (${found.problem})`);
+    if (found.kind !== newURL) continue;
+    const raw = text.slice(found.index, found.end), quote = raw[0];
+    const quoted = (quote === "'" || quote === '"' || quote === '`') && raw.length > 1 && raw.endsWith(quote), specifier = quoted ? raw.slice(1, -1) : raw;
+    // The engine cooks a raw CR or CRLF in a template to LF, so the raw body is not the cooked value then.
+    const single = quoted && specifier === found.specifier && !(quote === '`' && specifier.includes('\r'))
+      && !found.partial && !found.ambiguous && !found.malformed;
+    if (single && /^[a-z][a-z0-9+.-]+:/iu.test(specifier) && !/^file:/iu.test(specifier)) continue;
+    if (!single || !packaged.has(packageTarget(local, specifier))) throw new Error(`Unpackaged dependency: ${path} -> ${specifier}`);
+  }
+}
+
 const json = value => Buffer.from(JSON.stringify(value, null, 2) + '\n');
 const exportTargets = value => typeof value === 'string' ? [value] : Object.values(value ?? {}).flatMap(exportTargets);
 export function moduleFiles(files, pkg) {
   const folder = posix.dirname(pkg.path), prefix = folder + '/';
   const members = new Map();
+  // The final member set: packaged sources plus the generated root members.
+  const packaged = new Set([...[...files.keys()].filter(path => path.startsWith(prefix) && !excluded.has(path)).map(path => path.slice(prefix.length)),
+    ...generated.filter(([, source]) => files.has(source)).map(([member]) => member)]);
   for (const [path, bytes] of files) {
     if (!path.startsWith(prefix)) continue;
     const local = path.slice(prefix.length);
@@ -31,19 +77,12 @@ export function moduleFiles(files, pkg) {
         const subpath = Object.entries(metadata.exports ?? {}).find(([, value]) => exportTargets(value).includes(sourcePath))?.[0];
         if (!subpath) throw new Error(`Missing package export: ${metadata.name}/${sourcePath}`);
         return introducer + quote + metadata.name + (subpath === '.' ? '' : '/' + subpath.slice(2)) + quote;
-      }).replace(/new\s+URL\(\s*(['"])(\.{1,2}\/[^'"\n]+\.js)\1\s*,\s*import\.meta\.url\s*\)/gu, (match, _quote, specifier) => {
-        const target = posix.normalize(posix.join(posix.dirname(path), specifier));
-        if (excluded.has(target) || !target.startsWith(prefix) || !files.has(target)) throw new Error(`Unpackaged dependency: ${path} -> ${specifier}`);
-        return match;
       }));
     }
+    if (scannedMember(local)) checkNewURLs(content.toString(), path, local, packaged);
     members.set(local, content);
   }
-  members.set('LICENSE', files.get('LICENSE'));
-  members.set('README.md', files.get('docs/embedding.md'));
-  // Keep source provenance and rights notes available in each package.
-  members.set('SOURCE.md', files.get('README.md'));
-  members.set('release-runtime.json', files.get('release/runtime.json'));
+  for (const [member, source] of generated) members.set(member, files.get(source));
   const metadata = JSON.parse(members.get('package.json'));
   metadata.files = [...new Set([...members.keys()].map(path => path.split('/')[0]))].filter(path => path !== 'package.json');
   members.set('package.json', json(metadata));

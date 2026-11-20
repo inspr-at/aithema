@@ -66,11 +66,16 @@ function copiedRelease(t, extra = {}) {
 }
 
 test('pack fails when a packaged source escapes its package in a form the rewrite does not touch', t => {
-  // modules.mjs rewrites from/import specifiers and only .js new URL targets; these two pass it unchanged.
+  // modules.mjs checks quoted from/import and every new URL(…, import.meta.url) argument (AIT-592);
+  // require() is not its form, so it passes unchanged and only the post-pack check sees it.
   const fixture = copiedRelease(t, { 'packages/server/src/escape-fixture.js':
-    "export const data = new URL('../../core/src/data.json', import.meta.url);\nexport const legacy = () => require('../../core/src/index.js');\n" });
+    "export const legacy = () => require('../../core/src/index.js');\n" });
   assert.throws(() => packRelease({ root: fixture, output: join(fixture, 'out'), dryRun: true }),
-    /Cross-package import in inspr-aithema-server-[0-9.]+\.tgz: .*package\/src\/escape-fixture\.js new URL\(…, import\.meta\.url\) '\.\.\/\.\.\/core\/src\/data\.json' resolves to core\/src\/data\.json, outside package\/; package\/src\/escape-fixture\.js require\(\) '\.\.\/\.\.\/core\/src\/index\.js' resolves to core\/src\/index\.js, outside package\//u);
+    /Cross-package import in inspr-aithema-server-[0-9.]+\.tgz: .*package\/src\/escape-fixture\.js require\(\) '\.\.\/\.\.\/core\/src\/index\.js' resolves to core\/src\/index\.js, outside package\//u);
+  const templateFixture = copiedRelease(t, { 'packages/server/src/escape-fixture.js':
+    "export const data = new URL(`../../core/src/data.json`, import.meta.url);\n" });
+  assert.throws(() => packRelease({ root: templateFixture, output: join(templateFixture, 'out'), dryRun: true }),
+    error => error.message === 'Unpackaged dependency: packages/server/src/escape-fixture.js -> ../../core/src/data.json');
 });
 
 test('the real candidate release set has no cross-package import in any tarball', t => {

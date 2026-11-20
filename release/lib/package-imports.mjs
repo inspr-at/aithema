@@ -117,7 +117,7 @@ export function moduleSpecifiers(text, member = 'module.js') {
   };
   const finish = (unit, node, ambiguous) => ({
     specifier: unit.value, partial: unit.partial, malformed: unit.malformed || unit.rest.some(part => part.malformed),
-    climbs: unit.rest.some(part => climbs(part.value)), index: node.getStart(source), ...(ambiguous ? { ambiguous } : {}),
+    climbs: unit.rest.some(part => climbs(part.value)), index: node.getStart(source), end: node.end, ...(ambiguous ? { ambiguous } : {}),
   });
   // One literal (or a fold of literals) is the specifier. Any other expression is
   // ambiguous: every literal inside it is a candidate, so an escaping one fails closed.
