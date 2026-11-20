@@ -1466,7 +1466,7 @@ test('AIT-569: delayed host reads and header fit never move a visible chooser', 
         await page.setViewport({ width, height: width === 400 ? 800 : 1000 });
         await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
         await page.evaluateOnNewDocument(() => {
-          const probe = window.chooserFitProbe = { hold: false, pending: [], lastWidth: null, reads: [], landed: [] };
+          const probe = window.chooserFitProbe = { hold: false, pending: [], lastWidth: null, reads: [], landed: [], locales: [] };
           const toggle = Element.prototype.toggleAttribute;
           Element.prototype.toggleAttribute = function (name, ...args) {
             if (name !== 'data-rail-row' || !this.matches('.band')) return toggle.call(this, name, ...args);
@@ -1493,6 +1493,10 @@ test('AIT-569: delayed host reads and header fit never move a visible chooser', 
             if (/\/api\/sessions\/[^/]+\/(identity|credits)$/u.test(path) && (!init?.method || init.method === 'GET')) {
               probe.reads.push(path); await probe.lateReads; probe.landed.push(path);
             }
+            // AIT-594: the variants share one profile, so a page can restore the previous
+            // variant's conversation in the other language; the host then switches it.
+            // Hold that switch's acknowledgement too (the slow CI case, made deterministic).
+            if (/\/api\/sessions\/[^/]+\/locale$/u.test(path) && init?.method === 'POST') { probe.locales.push(path); await probe.lateReads; }
             return response;
           };
         });
