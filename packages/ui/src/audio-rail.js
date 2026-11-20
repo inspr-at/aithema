@@ -132,6 +132,9 @@ export class AudioRail {
   }
   measureLabel() {
     const wave = this.root.querySelector('.voice-wave'), caption = this.root.querySelector('.voice-caption');
+    // Paint only: a band line clipped in its own track ends in the AIT-239 fade (AIT-553).
+    const status = this.root.querySelector('.voice-state');
+    status.toggleAttribute('data-clipped', status.scrollWidth > status.clientWidth);
     if (this.root.hasAttribute('data-message')) {
       const signal = this.root.querySelector('.voice-signal').getBoundingClientRect();
       const viewport = this.root.ownerDocument.documentElement.clientWidth;
@@ -251,13 +254,19 @@ export class AudioRail {
     this.root.querySelector('.voice-state').setAttribute('aria-live', this.usedUp?.() ? 'off' : 'polite');
     paintConsentLine(this.root.querySelector('.voice-state'), { copy: c, feature: 'voice',
       verdict: composerOwnsConsent || active || transitional || usedUp || this.error ? { available: true } : available,
-      text: composerOwnsBlockedMic ? '' : composerOwnsConsent ? c.voiceStates.idle : usedUp ? (creditEnding ? c.voiceStates.creditEnding : usedUpLabel) : creditLabel ?? this.error ?? (this.startupPhase === 'cooldown' ? c.voiceCooldown.replace('{s}', this.countdown) :
+      text: composerOwnsBlockedMic ? '' : composerOwnsConsent ? '' : usedUp ? (creditEnding ? c.voiceStates.creditEnding : usedUpLabel) : creditLabel ?? this.error ?? (this.startupPhase === 'cooldown' ? c.voiceCooldown.replace('{s}', this.countdown) :
       this.startupPhase ? c.voiceStates[this.startupPhase] : this.timeBoundEnd && !active && !transitional ? c.voiceStates.failed : active || transitional ? c.voiceStates[this.root.dataset.state] :
-      available.available && this.client ? c.voiceStates[this.state] : available.reason ?? c.notConfigured), open: opener => this.consent?.(opener) });
+      available.available && this.client ? (combined && this.state === 'idle' ? '' : c.voiceStates[this.state]) : available.reason ?? c.notConfigured), open: opener => this.consent?.(opener) });
     const low = !usedUp && !this.error && active && ['listening', 'speaking', 'thinking'].includes(state) && this.lowCredit?.();
     this.root.querySelector('.voice-state').classList.toggle('low', Boolean(low));
     if (low) setText(this.root.querySelector('.voice-state'), c.voiceStates.low);
     const status = this.root.querySelector('.voice-state');
+    // AIT-553: only an ordinary voice state (connecting, listening, speaking,
+    // paused, startup) may clip, fade or hide in the band. A failure, credit,
+    // cooldown, low-credit or unavailability notice is marked and stays whole.
+    const ordinary = !this.error && !usedUp && !creditEnding && !creditLabel && !low && this.startupPhase !== 'cooldown' &&
+      !(this.timeBoundEnd && !active && !transitional) && Boolean(this.startupPhase || active || transitional || available.available && this.client);
+    status.toggleAttribute('data-notice', Boolean(status.textContent) && !ordinary);
     const sentence = status.dataset.consentFeature ? featureConsentText(c, 'voice') : status.textContent;
     if (sentence && !status.dataset.consentFeature) paintNarrowText(status, sentence, this.startupPhase === 'cooldown' ? c.voiceCooldownNarrow.replace('{s}', this.countdown) : narrowVoiceStatus(c, sentence, {
       reason, creditReason: this.creditReason?.(), messageKey: this.errorKey, locale: this.locale?.(),
@@ -338,7 +347,34 @@ export class AudioRail {
     if (result.neutral) { this.waitingCall = null; this.paused = false; this.requiresTakeover = false; this.state = result.state; }
     this.retryAt = voiceRetryAt(error);
     this.render();
-    if (this.state === 'failed' && this.#mayFocus()) this.button(this.errorKey === 'voiceMicUnavailable' ? 'start' : 'retry').focus({ preventScroll: true });
+    if (this.state === 'failed' && this.#mayFocus()) {
+      if (this.errorKey === 'voiceMicUnavailable') this.#focusStart(); else this.button('retry').focus({ preventScroll: true });
+    }
+  }
+  // The combined entrance hides the idle band Start (its composer owns the
+  // microphone), so a hidden Start cannot take focus. Hand it to the composer
+  // mic instead, or to the message field while that mic is disabled.
+  #focusStart() {
+    // Startup is asynchronous: the user may have moved to another session
+    // control meanwhile. The combined fallback only takes focus that is still
+    // ours: a rail control, the composer mic, or nothing (our own hide).
+    const owner = this.#focusOwner();
+    const ours = !owner || owner === this.root.ownerDocument.body || this.root.contains(owner)
+      || owner.matches?.('.composer-mic') || owner === this.root.getRootNode().host;
+    const start = this.button('start');
+    start.focus({ preventScroll: true });
+    if (start.getRootNode().activeElement === start) return;
+    const workspace = this.root.closest('.workspace[data-entrance="combined"]');
+    if (!workspace || !ours) return;
+    const target = ['.composer-mic', 'textarea'].map(selector => workspace.querySelector(selector))
+      .find(node => node && !node.disabled && !node.closest('[inert]'));
+    target?.focus({ preventScroll: true });
+  }
+  // The innermost focused element, through every open shadow root.
+  #focusOwner() {
+    let active = this.root.ownerDocument.activeElement;
+    while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+    return active;
   }
   #mayFocus() {
     const host = this.root.getRootNode().host;
@@ -814,8 +850,11 @@ export class AudioRail {
     // Local hangup keeps the receipt message; only classified failures replace it.
     if (classified?.state === 'idle' && !classified.key && !classified.neutral && session) this.errorKey = 'voiceClosureUncertain';
     this.root.querySelector('.voice-caption').textContent = ''; this.render();
-    if (returnFocus && this.#mayFocus()) this.button('start').focus({ preventScroll: true });
+    const refocus = returnFocus && this.#mayFocus();
+    if (refocus) this.button('start').focus({ preventScroll: true });
     this.onEnd?.();
+    // onEnd repaints the composer; hand focus over only after its controls settle.
+    if (refocus && this.#mayFocus()) this.#focusStart();
     const controller = this.controller;
     const closing = (async () => {
       try {

@@ -1,3 +1,4 @@
+import './first-screen-voice-check.js';
 import './host-opener-check.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -425,6 +426,7 @@ test('AIT-506: combined entrance states retain positive composer boxes in EN/DE,
   { timeout: 180_000 }, combinedEntranceCheck);
 
 import './rc25-look-check.js';
+import './first-screen-voice-check.js';
 
 test('AIT-542: host cancellation settles within one frame with pinned controls and a retained draft',
   { timeout: 180_000 }, consentCancelCheck);

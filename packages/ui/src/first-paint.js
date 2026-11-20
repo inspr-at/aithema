@@ -5,20 +5,31 @@ export const voiceSingleRowMinWidth = 768;
 // including its padding and room for baseline font differences. Share this
 // content floor with the pre-upgrade shell; the mounted fit also measures text.
 export const voiceRailMinWidth = 544;
+// AIT-553 slice 3: an ordinary status clips and fades in its own track, so the
+// row itself only needs the four controls, their gaps, the status padding and a
+// 160 px line. Below this floor the band takes its second row. A consent action
+// or an important notice still measures its whole text in the mounted fit.
+export const voiceRailLineFloor = 160;
+export const voiceRailFlexMinWidth = 4 * 44 + 4 * 8 + 16 + voiceRailLineFloor;
 
 // Emit this into the host's render-blocking CSS after firstPaintStyles when
 // overriding geometry. Query conditions cannot resolve CSS custom properties.
 // The shell and header must have the same inline size; brandWidth is an upper
 // bound, so copy/fonts never change the reserved row. The extra pixel covers
 // grid-track rounding before the status-inclusive rail floor is reached.
+// railMinWidth (a number, px): a host with wide header actions may pass
+// voiceRailFlexMinWidth so its ordinary line flexes to the 160 px floor before
+// the band reserves a second row; the default keeps the status-inclusive floor.
 export function headerRailReservation({
   selector = '.aithema-shell > :is(aithema-session,.aithema-first-paint)',
   actionsWidth = '216px', gutter = 'clamp(1.25rem,4vw,3.5rem)', brandWidth = '27vw',
+  railMinWidth = voiceRailMinWidth,
 } = {}) {
+  const floor = Math.max(voiceRailFlexMinWidth, Math.round(Number(railMinWidth)) || voiceRailMinWidth);
   return `
 ${selector} { --aithema-header-rail-height:90px; --aithema-header-rail-tracks:60px;
-  --aithema-header-rail-row:1; --aithema-header-rail-column:2; }
-@container aithema-shell (width < calc(54px + ${gutter} + ${brandWidth} + ${actionsWidth} + 48px + ${voiceRailMinWidth + 1}px)) {
+  --aithema-header-rail-row:1; --aithema-header-rail-column:2; --aithema-header-rail-floor:${floor}px; }
+@container aithema-shell (width < calc(54px + ${gutter} + ${brandWidth} + ${actionsWidth} + 48px + ${floor + 1}px)) {
   ${selector} { --aithema-header-rail-height:150px; --aithema-header-rail-tracks:60px 48px;
     --aithema-header-rail-row:2; --aithema-header-rail-column:1 / -1; }
 }

@@ -706,6 +706,22 @@ The combined transcript reserves the sticky-header inset inside its scrolling
 pane, so focusing an inline email offer keeps its controls in place. Saved
 addresses stay on one line beside Resend, with visual ellipsis when needed;
 the full address remains available to assistive technology and in Settings.
+The combined idle band reserves its microphone cell without exposing a second
+microphone or an idle speech invitation; the composer owns that first action.
+Calls reveal the existing live controls and return to this rule when they end.
+The conversation pause remains available in both entrances, with a neutral,
+unpressed appearance while idle. Combined readiness uses the conversation's
+full width and scrolls above the pinned composer when space is short. The
+render-only opener ends at its text and normal padding; playback controls take
+their own space once the opener becomes a canonical reply.
+The combined used-up upgrade offer exposes the existing export link, alongside the email
+action; host daily-cap action suppression still applies. On phones the email
+action sits below the offer text with its full label on one line. These rows
+remain reserved before exhaustion.
+The additive `copy.usedUpExportShort` key defaults to **Export** (EN) and
+**Exportieren** (DE) on phones; the export link retains its complete accessible
+name and uses the existing full label on larger screens.
+
 The attachment button is hidden in combined mode. Text feedback and microphone
 status have separate space reserved from first paint; send failures, consent
 actions and Saved announcements remain exposed while a mic status is present.

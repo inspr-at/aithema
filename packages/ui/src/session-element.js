@@ -45,7 +45,7 @@ import { orbStyles, createOrb } from './orb.js';
 import { icon } from './icons.js';
 import { modelDisplayName, languageFlag, formatCredits } from './display.js';
 import { bandStyles } from './band-styles.js';
-import { voiceSingleRowMinWidth, voiceRailMinWidth } from './first-paint.js';
+import { voiceSingleRowMinWidth, voiceRailMinWidth, voiceRailFlexMinWidth } from './first-paint.js';
 import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, FooterPopups, PhoneComposerViewport } from './layout.js';
 import { createReveal } from './reveal.js';
 import { mountVersionDetails, renderHostVersion } from './version-display.js';
@@ -2386,6 +2386,11 @@ export class AithemaSession extends HTMLElement {
       out.dataset.next = kind; out.dataset.delivery = String(this.#host?.verification?.delivery === true);
       out.querySelector('.composer-out__bar').dataset.upgradeMeasure = out.dataset.delivery === 'true' ? credits.confirm : credits.give;
       out.querySelector('.composer-out__bar').dataset.exportMeasure = u.export;
+      const actions = out.querySelector('.composer-out__actions');
+      if (this.#combined && kind !== 'none') {
+        actions.dataset.upgradeMeasure = out.querySelector('.composer-out__bar').dataset.upgradeMeasure;
+        actions.dataset.exportMeasure = u.export;
+      } else { delete actions.dataset.upgradeMeasure; delete actions.dataset.exportMeasure; }
       out.querySelector('.composer-out__title').dataset.hostTitle = credits.ended['host-limit'].title;
       setText(out.querySelector('.composer-out__title span'), limit.title);
       const delta = this.#host?.deltaCredits ?? '';
@@ -2427,10 +2432,28 @@ export class AithemaSession extends HTMLElement {
       const footer = out.querySelector('.composer-out__none');
       footer.hidden = limit.footer === false; setText(footer, limit.footer === false ? '' : u.none);
       setText(out.querySelector('.composer-out__upgrade [data-next="give"]'), credits.give); setText(out.querySelector('.composer-out__upgrade [data-next="confirm"]'), credits.confirm);
+      let stepsReserve = out.querySelector('[data-credit-steps-reserve]');
+      if (this.#combined && kind !== 'none') {
+        if (!stepsReserve) {
+          stepsReserve = node('span', 'composer-out__steps');
+          stepsReserve.dataset.creditStepsReserve = ''; stepsReserve.style.visibility = 'hidden';
+          stepsReserve.setAttribute('aria-hidden', 'true'); stepsReserve.inert = true;
+          for (let i = 0; i < 3; i++) stepsReserve.append(node('span'));
+          out.querySelector('.composer-out__steps').append(stepsReserve);
+        }
+        for (const [i, key] of ['give', 'confirm', 'none'].entries()) {
+          setText(stepsReserve.children[i], out.querySelector(`.composer-out__${key}`).textContent);
+        }
+      } else stepsReserve?.remove();
       setText(out.querySelector('.composer-out__export span'), u.export);
+      const exportAction = out.querySelector('.composer-out__export');
+      if (this.#combined && kind !== 'none') {
+        exportAction.dataset.short = resolveCopy(copy, 'usedUpExportShort', undefined, this.#session.locale);
+        exportAction.setAttribute('aria-label', u.export);
+      } else { delete exportAction.dataset.short; exportAction.removeAttribute('aria-label'); }
       out.querySelector('.composer-out__export').href = `${this.#base}/api/sessions/${this.#session.id}/export`;
       for (const node of out.querySelectorAll('[data-next]')) { const shown = node.dataset.next === kind && !node.hidden; node.setAttribute('aria-hidden', String(!shown)); node.inert = !shown; }
-      const exportLink = out.querySelector('.composer-out__export'), exportShown = !noAction && (kind === 'none' || newConversationEnabled || ['host-limit', 'session'].includes(this.#host?.endReason));
+      const exportLink = out.querySelector('.composer-out__export'), exportShown = !noAction && (this.#combined || kind === 'none' || newConversationEnabled || ['host-limit', 'session'].includes(this.#host?.endReason));
       exportLink.toggleAttribute('data-export', exportShown); exportLink.inert = !exportShown; exportLink.setAttribute('aria-hidden', String(!exportShown));
       const upgrade = out.querySelector('.composer-out__upgrade'); upgrade.inert = kind === 'none' || noAction; upgrade.setAttribute('aria-hidden', String(kind === 'none' || noAction));
       if (noAction) out.querySelector('.composer-out__actions').setAttribute('aria-hidden', 'true');
@@ -2895,10 +2918,19 @@ export class AithemaSession extends HTMLElement {
     const label = rail.querySelector('.voice-state');
     const range = this.ownerDocument.createRange(); range.selectNodeContents(label);
     const labelStyle = view.getComputedStyle(label), railStyle = view.getComputedStyle(rail);
-    // A message bubble does not consume the inline status track. Measure the
-    // rendered text (not the capped label box) for host-supplied inline labels.
-    const textWidth = rail.hasAttribute('data-message') ? 0 : range.getBoundingClientRect().width;
-    const required = Math.max(voiceRailMinWidth, Math.ceil(textWidth + parseFloat(labelStyle.paddingLeft)
+    // A message bubble does not consume the inline status track. AIT-553: a
+    // text-only status (an opener-length host line included) truncates in its
+    // own track instead of moving the rail to a second row, so the band keeps
+    // one height in every voice state. Only an inline consent action, which
+    // must not be cut, and an important notice (failure, credit, cooldown;
+    // marked by the rail, r3) still measure their rendered text, as on main.
+    const whole = label.querySelector('.consent-action:not([hidden])') || label.hasAttribute('data-notice');
+    const textWidth = rail.hasAttribute('data-message') || !whole ? 0 : range.getBoundingClientRect().width;
+    // Slice 3: with the host's opt-in reservation (railMinWidth) an ordinary
+    // line flexes down to its 160 px floor before the band takes a second row;
+    // a whole line and every other host keep main's status-inclusive floor.
+    const floor = Math.max(voiceRailFlexMinWidth, parseFloat(style.getPropertyValue('--aithema-header-rail-floor')) || voiceRailMinWidth);
+    const required = Math.max(whole ? voiceRailMinWidth : floor, Math.ceil(textWidth + parseFloat(labelStyle.paddingLeft)
       + parseFloat(labelStyle.paddingRight) + 4 * (44 + parseFloat(railStyle.columnGap))));
     const tracks = style.gridTemplateColumns.split(' ').map(Number.parseFloat);
     const railTrack = tracks.length === 3 ? tracks[1] : 0;

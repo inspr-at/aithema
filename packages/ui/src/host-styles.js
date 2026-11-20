@@ -199,6 +199,8 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .composer-out[data-host-limit] .composer-out__actions > * { grid-area:auto; }
 .composer-out[data-host-limit] .composer-out__upgrade { padding:0; max-width:none; border-radius:0; background:none; color:var(--aithema-accent); font-size:13.5px; white-space:nowrap; text-decoration:underline; text-underline-offset:3px; text-align:start; }
 .composer-out[data-host-limit] .composer-out__export { max-width:none; color:var(--aithema-muted); }
+.composer-out__export::after { content:none; }
+[data-credit-steps-reserve] { display:none; }
 .composer-out__export svg { width:14px; height:14px; flex:none; color:var(--aithema-muted); }
 [data-used-up]:is(.qcard,.question-card) button { color:var(--aithema-muted); background:none; }
 [data-used-up]:is(.qcard,.question-card) :is(.go,.tag,.qhint) { visibility:hidden; }
@@ -417,4 +419,31 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 :host([theme="dark"]) .composer-out:not([data-host-limit]) .composer-out__upgrade { background:var(--aithema-accent-bright); }
 @media(prefers-color-scheme:dark) { :host(:not([theme="light"])) .composer-out:not([data-host-limit]) .composer-out__upgrade { background:var(--aithema-accent-bright); } }
 @media(prefers-reduced-motion:reduce) { .composer-shell *, .host-credits *, .audio-rail[data-used-up] * { transition:none; } }
+
+/* The normal credit panel retains its original measurement cells. The visible
+   offer uses the quiet space above the action row; host-limit keeps its own layout. */
+.workspace[data-entrance="combined"] .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__bar { position:relative; }
+.workspace[data-entrance="combined"] .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) [data-credit-steps-reserve] { display:grid; visibility:hidden; }
+[data-credit-steps-reserve] > * { grid-area:1/1; }
+.workspace[data-entrance="combined"] .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__steps > [data-next] { position:absolute; inset-inline:0; bottom:52px; }
+.workspace[data-entrance="combined"] .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__actions { position:static; }
+.workspace[data-entrance="combined"] .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__actions::before { content:attr(data-upgrade-measure); grid-area:1/1; visibility:hidden; box-sizing:border-box; min-height:44px; padding:0 16px; font-size:14px; font-weight:600; }
+.workspace[data-entrance="combined"] .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__actions::after { content:attr(data-export-measure); grid-area:1/1; visibility:hidden; min-height:44px; padding-inline-start:22px; font-size:13.5px; white-space:nowrap; }
+.workspace[data-entrance="combined"] .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__upgrade { position:absolute; bottom:0; inset-inline-start:0; max-width:none; width:max-content; white-space:nowrap; }
+.workspace[data-entrance="combined"] .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__export { position:absolute; bottom:0; inset-inline-end:0; }
+@media(max-width:600px) {
+  /* Fit both real action rows inside the existing four-line reservation.
+     Hidden body peers retain their original type and intrinsic measurements. */
+  .workspace[data-entrance="combined"] .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__body > [data-active="true"] { font-size:12px; line-height:1.3; transform:translateY(-14px); }
+  .workspace[data-entrance="combined"] .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__steps > [data-next] { bottom:108px; font-size:12px; line-height:1.35; }
+  .workspace[data-entrance="combined"] .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__upgrade { bottom:56px; font-size:13px; padding-inline:8px; }
+  .workspace[data-entrance="combined"] .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__actions::before { width:132px; padding:4px 12px; line-height:1.2; }
+  .workspace[data-entrance="combined"] .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__export span { display:none; }
+  .workspace[data-entrance="combined"] .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__export::after { content:attr(data-short); }
+}
+@media(max-width:389px) {
+  .workspace[data-entrance="combined"] .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__upgrade { font-size:clamp(11.5px,3.6vw,12px); padding-inline:8px; }
+  .workspace[data-entrance="combined"] .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__export { min-width:44px; justify-content:center; }
+  .workspace[data-entrance="combined"] .composer-out:is([data-next="give"],[data-next="confirm"]):not([data-host-limit]) .composer-out__export::after { content:none; }
+}
 `;

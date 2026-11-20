@@ -31,6 +31,10 @@ export const bandStyles = `
 .audio-rail button { background:color-mix(in srgb,var(--aithema-surface) 50%,transparent); }
 .audio-rail button:hover:not(:disabled) { background:color-mix(in srgb,var(--aithema-surface) 50%,transparent); }
 .audio-rail .pause, .audio-rail .pause:hover:not(:disabled) { background:var(--aithema-ink); }
+/* Idle still offers the conversation pause, without the live call's filled treatment. */
+.audio-rail[data-state="idle"][data-call="none"] .pause[aria-pressed="false"]:not(:disabled),
+.audio-rail[data-state="idle"][data-call="none"] .pause[aria-pressed="false"]:not(:disabled):hover:not(:disabled) {
+  background:transparent; color:var(--aithema-ink); border-color:var(--aithema-line); }
 /* Ownership stays a rail status, with Resume's ink fill during takeover. */
 .band .audio-rail:focus-visible { outline:none; }
 .audio-rail[data-moved] .pause:disabled { opacity:1; }
@@ -45,6 +49,8 @@ export const bandStyles = `
 @container (width < 184px) { .voice-wave { visibility:hidden; } }
 /* An empty status has no label or flanks: show the continuous calm baseline. */
 .voice-state:empty, .voice-caption:empty { display:none; }
+/* A quiet combined label retains its measurement cell without an invitation. */
+.workspace[data-entrance="combined"] .voice-state:empty { display:block; min-width:1px; min-height:1em; }
 .voice-signal:has(.voice-state:empty):has(.voice-caption:empty) .voice-wave { mask-image:none; visibility:visible; }
 .voice-state, .voice-caption { padding:3px 8px; border-radius:0; font-size:12px;
   background:none; box-shadow:none; }
@@ -74,6 +80,21 @@ export const bandStyles = `
   }
   .audio-rail[data-message][data-retry-message] .voice-message-close { top:0; left:calc(100% - 44px); }
   .audio-rail[data-message][data-retry-message] .voice-wave { visibility:hidden; }
+}
+/* AIT-553: from 600px the middle status line yields before the band would
+   wrap. Text-only status clips inside its own track (never an ellipsis, AIT-239)
+   and hides once that track is narrower than 96px; the controls and their 44px
+   cells never move. A clipped line ends in the AIT-239 8px fade plus 8px clear
+   space; its rendered text leaves no waveform flank, so no wave runs under it.
+   A status emptied after the measurement (the session pause) never fades.
+   A status with an inline consent action, and an important notice the rail
+   marks data-notice (failure, credit, cooldown), keeps its measured, complete
+   row as on main: only ordinary status yields. */
+@media(min-width:600px) {
+  .band .audio-rail:not([data-message]) .voice-state:not([data-notice]):not(:has(.consent-action:not([hidden]))) { min-width:0; overflow:hidden; text-overflow:clip; }
+  .band .audio-rail:not([data-message]) .voice-state[data-clipped]:not([data-notice]):not(:empty):not(:has(.consent-action:not([hidden]))) {
+    mask-image:linear-gradient(to right,#000 calc(100% - 16px),transparent calc(100% - 8px)); }
+  @container (width < 96px) { .band .audio-rail:not([data-message]) .voice-state:not([data-notice]):not(:has(.consent-action:not([hidden]))) { visibility:hidden; } }
 }
 /* Reuse the consent variants without adding short copy to polite announcements. */
 .voice-state .consent-narrow { display:none; }
