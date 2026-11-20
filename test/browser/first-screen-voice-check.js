@@ -219,6 +219,132 @@ test('AIT-553 item 5: desktop render-only opener ends at the last text line plus
   }
 });
 
+// Slice 2: a host header sits above the widget, as on the consumer's page.
+const shortDesktops = [
+  { width: 1366, height: 768, locale: 'en', theme: 'light', opener: true },
+  { width: 1366, height: 768, locale: 'de', theme: 'dark', opener: true },
+  { width: 1280, height: 720, locale: 'en', theme: 'light', opener: true },
+  { width: 1280, height: 720, locale: 'de', theme: 'dark', opener: true },
+  { width: 1366, height: 768, locale: 'en', theme: 'dark', opener: true },
+  { width: 1280, height: 720, locale: 'de', theme: 'light', opener: true }
+];
+const hostHeader = 64;
+async function hostChrome(page) {
+  await page.evaluate(height => {
+    if (!document.querySelector('header.host-chrome')) {
+      const header = document.createElement('header'); header.className = 'host-chrome';
+      header.style.cssText = `height:${height}px;box-sizing:border-box;border-bottom:1px solid #ccc`;
+      header.textContent = 'Host'; document.body.prepend(header);
+    }
+    c.style.setProperty('--aithema-height', `calc(100dvh - ${height}px)`);
+  }, hostHeader);
+}
+// The middle line can carry an opener-length status between the controls.
+const longStatus = { en: 'Welcome. Your AI assistant is ready to help. Tell us about your idea and requirements, your goals, resources and next steps, in your own time.',
+  de: 'Willkommen. Ihre KI-Assistenz ist für Sie bereit. Erzählen Sie uns von Ihrer Idee, Ihren Zielen, Ressourcen und nächsten Schritten, ganz in Ruhe.' };
+async function bandRecord(page, state) {
+  await observe(page);
+  return page.evaluate(state => {
+    const root = c.shadowRoot, box = n => { const b = n.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
+    const band = root.querySelector('.band'), rail = root.querySelector('.audio-rail');
+    const cells = Object.fromEntries(['output', 'pause', 'mic', 'end'].map(name => [name, box(root.querySelector(`.voice-cell--${name}`))]));
+    const visibleControls = [...rail.querySelectorAll('button')].filter(b => b.checkVisibility({ checkVisibilityCSS: true }))
+      .map(b => ({ name: b.className, box: box(b) }));
+    const status = root.querySelector('.voice-state'), signal = root.querySelector('.voice-signal');
+    return { state, railState: rail.dataset.state, call: rail.dataset.call, band: box(band), rail: box(rail), cells, visibleControls,
+      signal: box(signal), status: { text: status.textContent, box: box(status), visible: status.checkVisibility({ checkVisibilityCSS: true }),
+        scrollWidth: status.scrollWidth, clientWidth: status.clientWidth, overflow: getComputedStyle(status).overflowX },
+      rowAttr: band.hasAttribute('data-rail-row') };
+  }, state);
+}
+
+test('AIT-553 slice 2 item 1: the call band keeps one row in every voice state on short desktops with host chrome', { timeout: 240_000 }, async t => {
+  const { page, server } = await harness(t), records = [];
+  for (const variant of shortDesktops.slice(0, 4)) {
+    const label = `${variant.width}x${variant.height}-${variant.locale}-${variant.theme}`;
+    await open(page, server, variant); await hostChrome(page);
+    // Host copy carries an opener-length line in every voice state.
+    await page.evaluate(async text => {
+      const copy = structuredClone((await import(`/packages/ui/src/i18n/${c.session.locale}.js`))[c.session.locale]);
+      for (const key of ['connecting', 'listening', 'speaking', 'paused', 'failed']) copy.voiceStates[key] = text;
+      c.configure({ session: c.session, copy });
+    }, longStatus[variant.locale]);
+    const states = [await bandRecord(page, 'idle')];
+    await page.evaluate(() => grant());
+    await page.waitForFunction(() => c.session.featureMatrix.best.voice.available);
+    await page.click('aithema-session >>> .composer-mic');
+    await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.call === 'active');
+    states.push(await bandRecord(page, 'live'));
+    await page.click('aithema-session >>> .pause');
+    await page.waitForFunction(() => c.shadowRoot.querySelector('.pause').getAttribute('aria-pressed') === 'true');
+    states.push(await bandRecord(page, 'paused'));
+    if (variant.width === 1366 || variant.locale === 'de') await retain(page, `s2-${label}-band-paused`, states.at(-1));
+    await page.click('aithema-session >>> .pause');
+    await page.waitForFunction(() => c.shadowRoot.querySelector('.pause').getAttribute('aria-pressed') === 'false');
+    states.push(await bandRecord(page, 'resumed'));
+    await retain(page, `s2-${label}-band-live`, states.at(-1));
+    await page.click('aithema-session >>> .voice-close');
+    await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.call === 'none');
+    states.push(await bandRecord(page, 'ended'));
+    await retain(page, `s2-${label}-band-ended`, states.at(-1));
+    records.push({ label, states });
+  }
+  for (const { label, states } of records) {
+    const [idle] = states;
+    for (const s of states) {
+      const where = `${label}/${s.state}: ${JSON.stringify(s)}`;
+      positive({ band: s.band, rail: s.rail, signal: s.signal, ...s.cells });
+      for (const control of s.visibleControls) positive({ [control.name]: control.box });
+      assert.equal(s.rowAttr, false, `band never moves the rail to a second row: ${where}`);
+      assert.ok(s.band[3] <= 90.5, `band is one 90 px row: ${where}`);
+      assert.deepEqual(s.band, idle.band, `band box constant across states: ${where}`);
+      assert.deepEqual(s.cells, idle.cells, `control cells do not move: ${where}`);
+      for (const box of Object.values(s.cells)) assert.ok(box[2] >= 44 && box[3] >= 44, `44 px control cells: ${where}`);
+      for (const control of s.visibleControls) {
+        assert.ok(control.box[2] >= 44 && control.box[3] >= 44, `44 px target ${control.name}: ${where}`);
+        assert.ok(control.box[0] >= s.rail[0] - .5 && control.box[0] + control.box[2] <= s.rail[0] + s.rail[2] + .5, `control inside rail: ${where}`);
+      }
+      // The middle line yields: it ends inside its signal track, never across a control.
+      if (s.status.visible) assert.ok(s.status.box[0] >= s.signal[0] - .5 && s.status.box[0] + s.status.box[2] <= s.signal[0] + s.signal[2] + .5, `status stays in its track: ${where}`);
+    }
+  }
+});
+
+test('AIT-553 slice 2 item 2: on short desktops the readiness card is whole at first paint above the pinned composer', { timeout: 240_000 }, async t => {
+  const { page, server } = await harness(t), records = [];
+  for (const variant of shortDesktops) {
+    await openIntro(page, server, variant); await hostChrome(page);
+    const pinned = (await observe(page)).geometry;
+    const first = await page.evaluate(() => {
+      const root = c.shadowRoot, box = n => { const r = n.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; };
+      const card = root.querySelector('.ready'), scroller = root.querySelector('.conversation-scroll');
+      const lines = [...card.querySelectorAll('h3, .ready__row, .ready__actions button')].filter(n => n.checkVisibility({ checkVisibilityCSS: true }))
+        .map(n => ({ name: n.className || n.localName, text: n.textContent.trim(), box: box(n) }));
+      return { scrollTop: scroller.scrollTop, scrollY, viewport: [innerWidth, innerHeight], card: box(card), scroller: box(scroller),
+        composer: box(root.querySelector('.composer')), opener: box(root.querySelector('[data-host-opener]')), lines,
+        text: card.innerText.replace(/\s+/g, ' ').trim() };
+    });
+    const label = `${variant.width}x${variant.height}-${variant.locale}-${variant.theme}`;
+    if (shortDesktops.indexOf(variant) < 4) await retain(page, `s2-${label}-readiness-first-paint`, first);
+    await page.evaluate(() => { const s = c.shadowRoot.querySelector('.conversation-scroll'); s.scrollTop = s.scrollHeight; });
+    records.push({ label, first, pinned, after: (await observe(page)).geometry });
+  }
+  for (const { label, first, pinned, after } of records) {
+    const where = `${label}: ${JSON.stringify(first)}`, [, cy, , ch] = first.card, [, sy, , sh] = first.scroller;
+    positive({ card: first.card, scroller: first.scroller, composer: first.composer, opener: first.opener });
+    for (const line of first.lines) positive({ [line.name]: line.box });
+    positive(pinned); assert.deepEqual(after, pinned, `composer stays pinned: ${label}`);
+    assert.ok(cy >= sy - .5 && cy + ch <= sy + sh + .5, `card whole inside the visible conversation area at first paint: ${where}`);
+    assert.ok(cy >= 0 && cy + ch <= first.viewport[1] + .5, `card whole inside the viewport at first paint: ${where}`);
+    assert.ok(cy + ch <= first.composer[1] - 8, `card clears the composer: ${where}`);
+    assert.ok(first.opener[1] >= sy - .5, `the welcome stays at the top: ${where}`);
+    assert.ok(first.card[2] >= 320, `readable card width: ${where}`);
+    assert.match(first.text, /Before you start|Vor dem Gespräch/u, `card keeps its title: ${where}`);
+    assert.match(first.text, /Change settings|Einstellungen ändern/u, `card keeps its settings action: ${where}`);
+    for (const line of first.lines.filter(l => /button/.test(l.name) || /ready__change/.test(l.name))) assert.ok(line.box[3] >= 44, `44 px action: ${where}`);
+  }
+});
+
 test('AIT-553 item 6: phone used-up confirmation stacks a one-line 44 px action below its text without moving the dock', { timeout: 120_000 }, async t => {
   const { page, server } = await harness(t), records = [];
   for (const locale of ['en','de']) for (const width of [390, 375, 320]) {
