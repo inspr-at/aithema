@@ -1456,9 +1456,12 @@ export class AithemaSession extends HTMLElement {
         .map(child => child.getBoundingClientRect())
         .filter(box => box.width > 0 && box.height > 0).map(box => box.bottom);
       const contentEnd = Math.max(list.bottom, ...visibleEnds) + shell.scrollTop - pane.top;
-      const padding = parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).paddingBottom) || 0;
+      const css = this.ownerDocument.defaultView.getComputedStyle(shell);
+      const padding = parseFloat(css.paddingBottom) || 0;
+      // AIT-601: an idle render-label reserve is no content end (#renderReserveIdle).
+      const idle = this.#renderReserveIdle(shell) ? Math.min(padding, parseFloat(css.getPropertyValue('--aithema-render-reserve')) || 0) : 0;
       if (pane.width > 0 && pane.height > 0 && (measured || !listElement.children.length)
-        && contentEnd + padding <= shell.clientHeight + .5) end = 0;
+        && contentEnd + padding - idle <= shell.clientHeight + .5) end = 0;
     }
     shell.scrollTop = end;
     // An inline capture can be taller than the combined phone's reading pane.
@@ -1549,6 +1552,20 @@ export class AithemaSession extends HTMLElement {
     this.#recordTranscriptScroll(before);
     if (!held) this.#readTranscript();
     this.#updateTranscriptJump();
+  }
+  // AIT-601: the desktop image layout keeps a render-label reserve at the end of
+  // its transcript (--aithema-render-reserve) so the label of a running render
+  // (.concept-bottom, state "gen") never covers a turn. Before the first reply
+  // no render can run: a render needs a recorded visual wish, the concept status
+  // stays idle until one exists, and no concept exists yet. Until then the
+  // reserve is idle and D511a's fit test leaves it out, so fitting content never
+  // follows because of it. A reply, a concept or a non-idle status counts it
+  // again; phones keep the label outside the thread and are unchanged.
+  #renderReserveIdle(shell) {
+    const session = this.#session, label = shell.parentElement?.querySelector(':scope > .concept-bottom');
+    return Boolean(label) && label.dataset.state !== 'gen' && !this.ownerDocument.defaultView.matchMedia('(max-width:600px)').matches
+      && [undefined, 'idle'].includes(session.conceptStatus?.phase) && !session.concepts?.length
+      && !session.transcript.some(turn => turn.role === 'assistant' && turn.origin !== 'host' && !turn.erased && !turn.withdrawn);
   }
   #hovered() {
     const point = this.#pointer;

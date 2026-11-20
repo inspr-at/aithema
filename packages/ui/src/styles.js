@@ -354,7 +354,7 @@ svg { display:block; flex:none; }
 .workspace[data-concept-layout="image"] .concept-access:not([data-state="ready"]) .concept-preview { visibility:hidden !important; }
 .workspace[data-concept-layout="image"] .concept-access[data-state="ready"] :is(.concept-preview,.concept-preview-reserve) { padding:0 12px 0 0; gap:12px; }
 .workspace[data-concept-layout="image"] .concept-preview-thumbs { width:56px; height:32px; }
-.workspace[data-concept-layout="image"] .concept-thread .transcript-shell { padding-bottom:calc(40px + var(--aithema-slack-bottom,0px)); }
+.workspace[data-concept-layout="image"] .concept-thread .transcript-shell { --aithema-render-reserve:40px; padding-bottom:calc(var(--aithema-render-reserve) + var(--aithema-slack-bottom,0px)); }
 .concept-bottom { position:absolute; z-index:0; left:14px; bottom:3px; width:min(calc(66cqw - 14px),calc(66cqh * 1.7778 - 14px)); display:grid; gap:6px; visibility:hidden; pointer-events:none; }
 .concept-bottom[data-state="gen"] { visibility:visible; }
 .concept-bottom-label { font-size:13px; line-height:16px; color:var(--aithema-muted); white-space:nowrap; }
