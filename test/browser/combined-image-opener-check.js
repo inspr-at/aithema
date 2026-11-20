@@ -432,5 +432,38 @@ export async function combinedImageOpenerFoldCheck(t) {
       } finally { await page.close(); }
     });
   }
-  assert.equal(tables.length, 4 * 2 + 2 * 2 + 2 * 4 + 4 * 2);
+  for (const [locale, theme] of [['en', 'light'], ['de', 'dark']]) {
+    // r6: the label override is bounded by the label's reserve. While a render
+    // runs and the pointer rests in the transcript, a long reply that ends
+    // below the pane keeps the reading place (D2 anchoring): no jump to its
+    // end, Latest offers the rest.
+    await t.test(`a render runs, pointer resting, a long reply arrives: ${locale}/${theme}/${width}x${height}`, async () => {
+      const page = await openCombined(browser, server, { locale, theme, width, height, text: welcome[locale] }), problems = [];
+      try {
+        page.on('pageerror', error => problems.push(error.message));
+        await handOff(page, wishTurn[locale]);
+        await recordWish(page);
+        await renderStarts(page);
+        const running = await foldState(page);
+        await page.mouse.move(running.visitor.x + 20, running.visitor.y + running.visitor.height / 2, { steps: 4 });
+        const resting = await foldState(page);
+        await record(page, `long-reply-${locale}-${theme}-pending`, resting);
+        assert.equal(resting.labelState, 'gen');
+        await page.evaluate(text => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'reply-long', role: 'assistant', content: text } }),
+          longWelcome[locale].slice(welcome[locale].length + 1));
+        await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('[data-id="reply-long"]'));
+        const after = await foldState(page);
+        await record(page, `long-reply-${locale}-${theme}-reply`, after);
+        for (const key of ['shell', 'firstLine', 'reply', 'label', 'composer', 'send']) positive(`long-reply/${key}`, after[key]);
+        // Precondition: the reply starts inside the pane and ends below it.
+        assert.ok(after.reply.y < after.shell.y + after.shell.height && after.reply.y + after.reply.height > after.shell.y + after.shell.height,
+          `the reply runs below the pane: ${JSON.stringify(after)}`);
+        assert.ok(Math.abs(after.scrollTop - resting.scrollTop) <= .5 && Math.abs(after.firstLine.y - resting.firstLine.y) <= .5,
+          `the reading place holds: ${JSON.stringify({ resting, after })}`);
+        assert.equal(after.latestShown, true, `Latest offers the rest: ${JSON.stringify(after)}`);
+        assert.deepEqual(problems, []);
+      } finally { await page.close(); }
+    });
+  }
+  assert.equal(tables.length, 4 * 2 + 2 * 2 + 2 * 4 + 4 * 2 + 2 * 2);
 }
