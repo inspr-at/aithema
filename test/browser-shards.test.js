@@ -466,6 +466,14 @@ test('AIT-597: split halves accept measured and re-reserved live weights', () =>
   }
 });
 
+test('AIT-597 r4: the re-reservation fixture stays valid when the live file is a measured series', () => {
+  // After a valid measured refresh to 273s, the live file has no provisional
+  // flag and carries measured samples; the 342s fixture must not inherit them.
+  const result = rerunWithWeights('^AIT-597: split halves accept', { 'pause-phone-uploads': matureWeight(273) });
+  assert.match(result.stdout, /AIT-597: split halves accept/u, result.stdout + result.stderr);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+});
+
 test('AIT-597: a restarted workload series with the warmup margin keeps the floor retirement green', () => {
   // A legitimate workload edit restarts the series: one sample, 25% warmup.
   const samples = [{ runId: '901', attempt: 1, sha: 'c'.repeat(40), observedAt: '2026-11-20T12:00:00Z',
