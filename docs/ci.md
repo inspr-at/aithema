@@ -152,8 +152,9 @@ passed **6,939/6,939** and measured 0.314435 seconds of top-level work for that
 file. Its documented 2-second floor covers process/import/teardown until a
 whole-file artifact replaces it. No recorded file weight is reduced.
 
-Choose the **smallest N with p95-based projections ≤420 seconds and room for at
-least one further average file**. The original two bins projected
+Choose the **smallest N that the repository's packer (`scripts/unit-shards.js`)
+fits under the growth rule**: p95-based projections ≤420 seconds and room for at
+least one further average file. The original two bins projected
 419.499 / 410.246 seconds, but had **zero average-file growth room**; after adding
 this ticket's unweighted regression file they project 420.836 / 411.576 seconds.
 One bin projects 721.865 seconds. **Three is therefore the smallest count**:
@@ -226,13 +227,23 @@ the importer rejects the previous one (44736662387, `d24d320f`) on file
 coverage. With one sample the 25% margin applies:
 **2,239.936 seconds** measured file work, **2,800.078 seconds** planned.
 
-Applying the AIT-456 rule (smallest N with projections ≤420 seconds and room for
-at least one further average file), three shards project
-**471.807 / 435.704 / 427.936 seconds** and fail before any growth. Four shards
-of 76/75/76/75 files and about 700 planned worker seconds each project
+The rule is **the smallest N that the repository's packer
+(`scripts/unit-shards.js`) fits under the growth rule**: projections ≤420 seconds
+and room for at least one further average file. With the packer, three shards
+project **471.807 / 435.704 / 427.936 seconds** and fail before any growth. Four
+shards of 76/75/76/75 files and about 700 planned worker seconds each project
 **394.027 / 357.925 / 350.157 / 341.217 seconds**, with room for **38 further
 8-second files**; five would project at most 347.353 seconds but is not the
-smallest count. The 180-second watchdog, native deadline, ten-minute job cap,
+smallest count.
+
+The cross-family review found a hand-tuned three-shard assignment: seed the
+1st, 6th and 17th heaviest files, reserve 8 seconds in shard 3, then place each
+remaining file in the eligible shard with the most capacity. It projects
+**419.515 / 419.518 / 416.851 seconds** (419.517 with the further 8-second
+file). LEAD rejected it and kept four shards: it plans about 0.5 seconds of
+headroom while unit 1/3 measured **309–438 seconds** on the current runner image
+(PR #490 failed at 437.7 seconds), and it would need a different packing
+algorithm than the one CI runs. The 180-second watchdog, native deadline, ten-minute job cap,
 420-second target, 25-second overhead and three file workers per shard are
 unchanged; only the shard count and its names follow. Unit job names are not
 required checks (the `test` aggregate is), so no ruleset change is needed.
