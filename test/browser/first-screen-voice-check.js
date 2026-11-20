@@ -257,8 +257,19 @@ test('AIT-553 item 6: phone used-up confirmation stacks a one-line 44 px action 
 async function keyboardEnd(page, startSelector) {
   await page.evaluate(() => grant());
   await page.waitForFunction(() => c.session.featureMatrix.best.voice.available);
-  await page.click(`aithema-session >>> ${startSelector}`);
-  await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.call === 'active');
+  if (startSelector === '.composer-mic') await page.click(`aithema-session >>> ${startSelector}`);
+  else {
+    // Choice: START's explicit voice start (ready card voice mode + Start, or the band Start).
+    await page.waitForFunction(() => !c.shadowRoot.querySelector('.voice-start').disabled);
+    await page.evaluate(() => {
+      const root = c.shadowRoot;
+      if (root.querySelector('.workspace').dataset.stage === 'ready' && root.querySelector('.ready__start')) {
+        root.querySelector('.ready__mode[data-mode="voice"]')?.click(); root.querySelector('.ready__start').click();
+      } else root.querySelector('.voice-start').click();
+    });
+  }
+  await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.call === 'active', { timeout: 10_000 })
+    .catch(async error => { throw new Error(`${startSelector} did not start a call: ${await page.evaluate(() => JSON.stringify({ stage: c.shadowRoot.querySelector('.workspace').dataset.stage, rail: c.shadowRoot.querySelector('.audio-rail').dataset.state, start: c.shadowRoot.querySelector('.voice-start').disabled }))}`, { cause: error }); });
   await page.waitForFunction(() => !c.shadowRoot.querySelector('.voice-close').disabled);
   await page.evaluate(() => c.shadowRoot.querySelector('.voice-close').focus());
   const before = await page.evaluate(() => c.shadowRoot.activeElement?.className ?? null);
