@@ -338,7 +338,22 @@ export class AudioRail {
     if (result.neutral) { this.waitingCall = null; this.paused = false; this.requiresTakeover = false; this.state = result.state; }
     this.retryAt = voiceRetryAt(error);
     this.render();
-    if (this.state === 'failed' && this.#mayFocus()) this.button(this.errorKey === 'voiceMicUnavailable' ? 'start' : 'retry').focus({ preventScroll: true });
+    if (this.state === 'failed' && this.#mayFocus()) {
+      if (this.errorKey === 'voiceMicUnavailable') this.#focusStart(); else this.button('retry').focus({ preventScroll: true });
+    }
+  }
+  // The combined entrance hides the idle band Start (its composer owns the
+  // microphone), so a hidden Start cannot take focus. Hand it to the composer
+  // mic instead, or to the message field while that mic is disabled.
+  #focusStart() {
+    const start = this.button('start');
+    start.focus({ preventScroll: true });
+    if (start.getRootNode().activeElement === start) return;
+    const workspace = this.root.closest('.workspace[data-entrance="combined"]');
+    if (!workspace) return;
+    const target = ['.composer-mic', 'textarea'].map(selector => workspace.querySelector(selector))
+      .find(node => node && !node.disabled && !node.closest('[inert]'));
+    target?.focus({ preventScroll: true });
   }
   #mayFocus() {
     const host = this.root.getRootNode().host;
@@ -814,8 +829,11 @@ export class AudioRail {
     // Local hangup keeps the receipt message; only classified failures replace it.
     if (classified?.state === 'idle' && !classified.key && !classified.neutral && session) this.errorKey = 'voiceClosureUncertain';
     this.root.querySelector('.voice-caption').textContent = ''; this.render();
-    if (returnFocus && this.#mayFocus()) this.button('start').focus({ preventScroll: true });
+    const refocus = returnFocus && this.#mayFocus();
+    if (refocus) this.button('start').focus({ preventScroll: true });
     this.onEnd?.();
+    // onEnd repaints the composer; hand focus over only after its controls settle.
+    if (refocus && this.#mayFocus()) this.#focusStart();
     const controller = this.controller;
     const closing = (async () => {
       try {
