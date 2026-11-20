@@ -149,8 +149,9 @@ export const bandStyles = `
   filter:drop-shadow(0 0 1px rgba(16,43,66,.45)) drop-shadow(0 1px 2px rgba(16,43,66,.18)); }
 .motion-toggle[aria-pressed="false"] svg { fill:none; }
 .edge-column button:hover svg, .edge-column button:focus-visible svg { opacity:1; }
-.fold { top:calc(var(--band-height,90px) * .5 + 31px); color:var(--aithema-ink); }
-.fold svg { opacity:.32; }
+.fold { top:calc(var(--band-height,90px) * .5 + 31px); color:var(--aithema-muted); }
+.fold:is(:hover,:focus-visible) { color:var(--aithema-ink); }
+.fold[aria-disabled="true"] { color:var(--aithema-ink); }
 .fold[aria-disabled="true"] svg { opacity:.16; }
 .fold[aria-expanded="false"] svg { transform:scaleY(-1); }
 .edge-column button:focus-visible { outline:2px solid var(--aithema-accent); outline-offset:0; }
