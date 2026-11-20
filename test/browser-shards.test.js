@@ -441,8 +441,8 @@ test('AIT-597: split halves accept measured and re-reserved live weights', () =>
   // provisional re-reservation ceil(1.25 * (192.374 + 81)) = 342s.
   for (const stub of [matureWeight(273), { ...JSON.parse(readFileSync(
     new URL('../test/browser/pause-phone-uploads.weight.json', import.meta.url))), seconds: 342 }]) {
-    const result = rerunWithWeights('^AIT-597: split halves', { 'pause-phone-uploads': stub });
-    assert.match(result.stdout, /AIT-597: split halves/u, result.stdout + result.stderr);
+    const result = rerunWithWeights('^AIT-597: split halves keep', { 'pause-phone-uploads': stub });
+    assert.match(result.stdout, /AIT-597: split halves keep/u, result.stdout + result.stderr);
     assert.equal(result.status, 0, result.stdout + result.stderr);
   }
 });
