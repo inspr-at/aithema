@@ -590,7 +590,10 @@ for (const copy of [de, en]) test(`AIT-411: defaults equal independently capture
     .replaceAll('Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht. Morgen geht es weiter.', 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht.')
     .replaceAll("This email address has reached today's limit. You can continue tomorrow.", "This email address has reached today's limit.")
     // AIT-587 (RC25 look 15): English writes "credits" in lower case mid-sentence.
-    .replace(/(?<= |&nbsp;)Credits(?=[ .<])/gu, match => copy === en ? 'credits' : match);
+    .replace(/(?<= |&nbsp;)Credits(?=[ .<])/gu, match => copy === en ? 'credits' : match)
+    // AIT-587 (AIT-553 gate1 L3): the used-up body no longer promises an export it does not always offer.
+    .replaceAll(copy === en ? 'Your conversation stays saved. You can read and export it.' : 'Ihr Gespräch bleibt gespeichert. Sie können es lesen und exportieren.',
+      copy === en ? 'Your conversation stays saved.' : 'Ihr Gespräch bleibt gespeichert.');
   assert.deepEqual(actual, expected.map(approvedCopy), 'only approved AIT-435 spaces, AIT-443 daily-cap and AIT-445 v1.1 E‑Mail copy differ from RC13 plus the main hunk');
   assert.deepEqual(actual, baseline.snapshots[copy.display.locale].map(approvedCopy), 'only approved AIT-435 spaces, AIT-443 daily-cap and AIT-445 v1.1 E‑Mail copy differ from the main capture');
   assert.equal(fixture.root.querySelectorAll('[data-credit-option-variant]').length, 0, 'defaults add no option peers');

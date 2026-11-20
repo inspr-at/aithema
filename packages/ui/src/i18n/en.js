@@ -451,7 +451,7 @@ export const en = {
     },
     question: { title: 'Open question', suggested: 'Suggested', hint: 'One click sends the answer. Or just speak or type.' },
     usedUp: {
-      title: 'Your credits are used up.', body: 'Your conversation stays saved. You can read and export it.',
+      title: 'Your credits are used up.', body: 'Your conversation stays saved.',
       give: 'Add your email address to get {delta} more credits.', confirm: 'Confirm your email address to get {delta} more credits.',
       none: 'No further credits are available here at the moment.', export: 'Export conversation',
       hostGive: 'With your email address you get {delta} more\u00a0credits. Your conversation stays saved.',
