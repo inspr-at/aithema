@@ -57,7 +57,7 @@ function measure(c) {
   for (const action of [root.querySelector('.attach'), root.querySelector('.send'), ...reason.querySelectorAll('button')])
     if (action && action !== more && !action.closest('[hidden]')) neighbours.push({ action:action.className, box:box(action.getBoundingClientRect()) });
   return { focused:root.activeElement === more, focusVisible:more.matches(':focus-visible'), token, control:box(m), text:more.textContent,
-    inline:more.parentElement.hasAttribute('data-more-inline'), composer:box(root.querySelector('.composer').getBoundingClientRect()), rings, neighbours };
+    inline:more.parentElement.hasAttribute('data-more-inline'), summary:more.hasAttribute('data-summary'), composer:box(root.querySelector('.composer').getBoundingClientRect()), rings, neighbours };
 }
 
 function geometry(c) {
@@ -156,7 +156,9 @@ export function noticeFocusRingCheck() {
           assert.ok(ring.box.left >= result.composer.left - .5 && ring.box.right <= result.composer.right + .5 && ring.box.top >= result.composer.top - .5 && ring.box.bottom <= result.composer.bottom + .5,
             `${ring.kind}: ring stays fully inside the composer`);
         }
-        assert.ok(result.neighbours.some(n => n.text), 'a neighbouring notice text is measured');
+        // A summary control ("Can't upload · Details") replaces every row; otherwise a notice line shares the slot.
+        if (!result.summary) assert.ok(result.neighbours.some(n => n.text), 'a neighbouring notice text is measured');
+        assert.ok(result.neighbours.some(n => n.action), 'the neighbouring actions are measured');
         for (const neighbour of result.neighbours) {
           assert.ok(neighbour.box.width > 0 && neighbour.box.height > 0, `${neighbour.text ?? neighbour.action}: positive neighbour box`);
           for (const ring of result.rings)

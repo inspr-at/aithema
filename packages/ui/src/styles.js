@@ -1039,6 +1039,13 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .upload-notices-more-join { display:none; white-space:pre; text-decoration:none; }
 [data-more-inline] > .upload-notices-more .upload-notices-more-join { display:inline; }
 .upload-notices-more[data-summary] { white-space:normal; text-decoration:none; }
+/* AIT-589: the shared 2px ring at a 3px offset reached into the line above (phone) and the preceding full stop
+   (shared line). This control's ring stays inside its 44px box vertically and only extends sideways where no text sits. */
+.upload-notices-more { position:relative; }
+.upload-notices-more:focus-visible { outline:none; }
+.upload-notices-more:focus-visible::after { content:''; position:absolute; inset:2px -4px; border:2px solid var(--aithema-accent-bright);
+  border-radius:4px; pointer-events:none; }
+[data-more-inline] > .upload-notices-more:focus-visible::after { left:1px; }
 .upload-notices-details { text-decoration:underline; text-underline-offset:3px; }
 .upload-notices-sheet { position:fixed; inset:16px 0 auto; margin:0 auto; width:min(36rem,calc(100vw - 32px)); max-width:100vw;
   max-height:calc(100dvh - 32px); padding:0; color:var(--aithema-ink); background:var(--aithema-surface);
