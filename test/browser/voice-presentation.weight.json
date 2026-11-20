@@ -1,40 +1,620 @@
 {
-  "seconds": 244.69,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 42947874534-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "seconds": 218.978,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 44500373409-1, 44526016960-1, 44526018340-1, 44527954945-1, 44542067051-1, 44543973862-1, 44568256946-1, 44576083632-1, 44607365746-1, 44613164647-1, 44650109778-1, 44682541019-1, 44688985679-1, 44707193689-1, 44725948096-1, 44736662387-1, 44742965802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "c249e0a859a4121cf0ea6cf705a6b5c1b91147d4837805b83ded9cd863655ce3",
+    "workload": "bb857eabd935e8f2662bb67722c122a675352871d5fabc6dd25026ab8a83e2cb",
     "samples": [
       {
-        "runId": "42947874534",
+        "runId": "44500373409",
         "attempt": 1,
-        "sha": "0c4c4b1af999e4a3163e3676123e99140120bb89",
-        "observedAt": "2026-11-11T02:43:10.707Z",
+        "sha": "f152e427e02e5bc390b909bde2a214c43bc0a402",
+        "observedAt": "2026-11-19T09:52:40.295Z",
         "tests": [
           {
             "name": "AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN",
-            "seconds": 51.199750328
+            "seconds": 32.528673339
           },
           {
             "name": "AIT-179: hangup paints idle controls synchronously; reconciling and settled rail shift 0 px",
-            "seconds": 17.29510817
+            "seconds": 17.381449392
           },
           {
             "name": "AIT-302: phone header voice statuses and fixed controls",
-            "seconds": 56.718397899
+            "seconds": 58.414295914
           },
           {
             "name": "AIT-302: unchanged desktop consent",
-            "seconds": 14.969089024
+            "seconds": 14.302267729999999
           },
           {
             "name": "AIT-361: both provider fixtures, failure anchors, disabled Pause and retry-after viewport matrix",
-            "seconds": 6.802198204000001
+            "seconds": 7.298162807
           },
           {
             "name": "AIT-377: startup/device/silent-agent viewport matrix and fixed targets",
-            "seconds": 48.76743086
+            "seconds": 48.684605884
+          },
+          {
+            "name": "AIT-502: honest message, Retry anchor, clear actions and fixed positive rail boxes",
+            "seconds": 8.696633922
+          }
+        ]
+      },
+      {
+        "runId": "44526016960",
+        "attempt": 1,
+        "sha": "1260f82a11eebec113a83972ff9bf6529c2b361b",
+        "observedAt": "2026-11-19T12:40:30.809Z",
+        "tests": [
+          {
+            "name": "AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN",
+            "seconds": 38.042333506000006
+          },
+          {
+            "name": "AIT-179: hangup paints idle controls synchronously; reconciling and settled rail shift 0 px",
+            "seconds": 20.312002991
+          },
+          {
+            "name": "AIT-302: phone header voice statuses and fixed controls",
+            "seconds": 63.040927296
+          },
+          {
+            "name": "AIT-302: unchanged desktop consent",
+            "seconds": 16.889368705000003
+          },
+          {
+            "name": "AIT-361: both provider fixtures, failure anchors, disabled Pause and retry-after viewport matrix",
+            "seconds": 11.085170652
+          },
+          {
+            "name": "AIT-377: startup/device/silent-agent viewport matrix and fixed targets",
+            "seconds": 55.946414814
+          },
+          {
+            "name": "AIT-502: honest message, Retry anchor, clear actions and fixed positive rail boxes",
+            "seconds": 13.421310613
+          }
+        ]
+      },
+      {
+        "runId": "44526018340",
+        "attempt": 1,
+        "sha": "2f0db3f8190cf0bdeda4d53561db632144942703",
+        "observedAt": "2026-11-19T12:40:33.226Z",
+        "tests": [
+          {
+            "name": "AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN",
+            "seconds": 35.934910079
+          },
+          {
+            "name": "AIT-179: hangup paints idle controls synchronously; reconciling and settled rail shift 0 px",
+            "seconds": 18.740906910000003
+          },
+          {
+            "name": "AIT-302: phone header voice statuses and fixed controls",
+            "seconds": 61.102020839999994
+          },
+          {
+            "name": "AIT-302: unchanged desktop consent",
+            "seconds": 15.455312188
+          },
+          {
+            "name": "AIT-361: both provider fixtures, failure anchors, disabled Pause and retry-after viewport matrix",
+            "seconds": 9.046066285
+          },
+          {
+            "name": "AIT-377: startup/device/silent-agent viewport matrix and fixed targets",
+            "seconds": 51.877259732
+          },
+          {
+            "name": "AIT-502: honest message, Retry anchor, clear actions and fixed positive rail boxes",
+            "seconds": 11.025202111
+          }
+        ]
+      },
+      {
+        "runId": "44527954945",
+        "attempt": 1,
+        "sha": "47d7ce55921b8c96cc309b45e1ea1f4efa6d6816",
+        "observedAt": "2026-11-19T12:52:57.520Z",
+        "tests": [
+          {
+            "name": "AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN",
+            "seconds": 37.450901499
+          },
+          {
+            "name": "AIT-179: hangup paints idle controls synchronously; reconciling and settled rail shift 0 px",
+            "seconds": 19.645960629
+          },
+          {
+            "name": "AIT-302: phone header voice statuses and fixed controls",
+            "seconds": 61.992661434
+          },
+          {
+            "name": "AIT-302: unchanged desktop consent",
+            "seconds": 16.508624123
+          },
+          {
+            "name": "AIT-361: both provider fixtures, failure anchors, disabled Pause and retry-after viewport matrix",
+            "seconds": 10.031252608
+          },
+          {
+            "name": "AIT-377: startup/device/silent-agent viewport matrix and fixed targets",
+            "seconds": 54.254754774
+          },
+          {
+            "name": "AIT-502: honest message, Retry anchor, clear actions and fixed positive rail boxes",
+            "seconds": 11.833426568
+          }
+        ]
+      },
+      {
+        "runId": "44542067051",
+        "attempt": 1,
+        "sha": "8e142a67ed4746ff548b173546f8219f4ece2e8f",
+        "observedAt": "2026-11-19T14:17:29.870Z",
+        "tests": [
+          {
+            "name": "AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN",
+            "seconds": 35.992310719
+          },
+          {
+            "name": "AIT-179: hangup paints idle controls synchronously; reconciling and settled rail shift 0 px",
+            "seconds": 18.316996619
+          },
+          {
+            "name": "AIT-302: phone header voice statuses and fixed controls",
+            "seconds": 59.262347391000006
+          },
+          {
+            "name": "AIT-302: unchanged desktop consent",
+            "seconds": 15.290051245
+          },
+          {
+            "name": "AIT-361: both provider fixtures, failure anchors, disabled Pause and retry-after viewport matrix",
+            "seconds": 8.477353987
+          },
+          {
+            "name": "AIT-377: startup/device/silent-agent viewport matrix and fixed targets",
+            "seconds": 50.972972728
+          },
+          {
+            "name": "AIT-502: honest message, Retry anchor, clear actions and fixed positive rail boxes",
+            "seconds": 9.785404909999999
+          }
+        ]
+      },
+      {
+        "runId": "44543973862",
+        "attempt": 1,
+        "sha": "55933f7ff519a2c5b60c6a2ff52039c0495794bf",
+        "observedAt": "2026-11-19T14:27:57.144Z",
+        "tests": [
+          {
+            "name": "AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN",
+            "seconds": 38.281822387
+          },
+          {
+            "name": "AIT-179: hangup paints idle controls synchronously; reconciling and settled rail shift 0 px",
+            "seconds": 19.675874555
+          },
+          {
+            "name": "AIT-302: phone header voice statuses and fixed controls",
+            "seconds": 59.561556037
+          },
+          {
+            "name": "AIT-302: unchanged desktop consent",
+            "seconds": 15.318701273999999
+          },
+          {
+            "name": "AIT-361: both provider fixtures, failure anchors, disabled Pause and retry-after viewport matrix",
+            "seconds": 8.750072888999998
+          },
+          {
+            "name": "AIT-377: startup/device/silent-agent viewport matrix and fixed targets",
+            "seconds": 50.706986586
+          },
+          {
+            "name": "AIT-502: honest message, Retry anchor, clear actions and fixed positive rail boxes",
+            "seconds": 9.892754782
+          }
+        ]
+      },
+      {
+        "runId": "44568256946",
+        "attempt": 1,
+        "sha": "c6153be8ff45ab695cfd191d32a512446ce87aef",
+        "observedAt": "2026-11-19T16:38:10.210Z",
+        "tests": [
+          {
+            "name": "AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN",
+            "seconds": 36.733078778
+          },
+          {
+            "name": "AIT-179: hangup paints idle controls synchronously; reconciling and settled rail shift 0 px",
+            "seconds": 19.800764793
+          },
+          {
+            "name": "AIT-302: phone header voice statuses and fixed controls",
+            "seconds": 60.514447229
+          },
+          {
+            "name": "AIT-302: unchanged desktop consent",
+            "seconds": 15.470032207000001
+          },
+          {
+            "name": "AIT-361: both provider fixtures, failure anchors, disabled Pause and retry-after viewport matrix",
+            "seconds": 8.694012587
+          },
+          {
+            "name": "AIT-377: startup/device/silent-agent viewport matrix and fixed targets",
+            "seconds": 51.587705852
+          },
+          {
+            "name": "AIT-502: honest message, Retry anchor, clear actions and fixed positive rail boxes",
+            "seconds": 10.627892163
+          }
+        ]
+      },
+      {
+        "runId": "44576083632",
+        "attempt": 1,
+        "sha": "0d40a127e17dda064df3a626a8134f403faf54c6",
+        "observedAt": "2026-11-19T17:20:41.965Z",
+        "tests": [
+          {
+            "name": "AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN",
+            "seconds": 37.380966134000005
+          },
+          {
+            "name": "AIT-179: hangup paints idle controls synchronously; reconciling and settled rail shift 0 px",
+            "seconds": 19.82782415
+          },
+          {
+            "name": "AIT-302: phone header voice statuses and fixed controls",
+            "seconds": 61.744865784
+          },
+          {
+            "name": "AIT-302: unchanged desktop consent",
+            "seconds": 16.453738746
+          },
+          {
+            "name": "AIT-361: both provider fixtures, failure anchors, disabled Pause and retry-after viewport matrix",
+            "seconds": 9.918873295
+          },
+          {
+            "name": "AIT-377: startup/device/silent-agent viewport matrix and fixed targets",
+            "seconds": 54.053860501
+          },
+          {
+            "name": "AIT-502: honest message, Retry anchor, clear actions and fixed positive rail boxes",
+            "seconds": 11.810431144
+          }
+        ]
+      },
+      {
+        "runId": "44607365746",
+        "attempt": 1,
+        "sha": "f394364da286d742a4c9799f0f543be70ea13f62",
+        "observedAt": "2026-11-19T20:19:05.344Z",
+        "tests": [
+          {
+            "name": "AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN",
+            "seconds": 38.009893485
+          },
+          {
+            "name": "AIT-179: hangup paints idle controls synchronously; reconciling and settled rail shift 0 px",
+            "seconds": 20.101950706
+          },
+          {
+            "name": "AIT-302: phone header voice statuses and fixed controls",
+            "seconds": 62.287271999999994
+          },
+          {
+            "name": "AIT-302: unchanged desktop consent",
+            "seconds": 16.594257999
+          },
+          {
+            "name": "AIT-361: both provider fixtures, failure anchors, disabled Pause and retry-after viewport matrix",
+            "seconds": 10.439666414
+          },
+          {
+            "name": "AIT-377: startup/device/silent-agent viewport matrix and fixed targets",
+            "seconds": 54.862762129000004
+          },
+          {
+            "name": "AIT-502: honest message, Retry anchor, clear actions and fixed positive rail boxes",
+            "seconds": 12.598161058
+          }
+        ]
+      },
+      {
+        "runId": "44613164647",
+        "attempt": 1,
+        "sha": "72512711b37c46a32f9b2d049f77b85bacec4d86",
+        "observedAt": "2026-11-19T20:53:19.784Z",
+        "tests": [
+          {
+            "name": "AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN",
+            "seconds": 34.885487729
+          },
+          {
+            "name": "AIT-179: hangup paints idle controls synchronously; reconciling and settled rail shift 0 px",
+            "seconds": 18.390946736
+          },
+          {
+            "name": "AIT-302: phone header voice statuses and fixed controls",
+            "seconds": 59.676925356
+          },
+          {
+            "name": "AIT-302: unchanged desktop consent",
+            "seconds": 15.26979702
+          },
+          {
+            "name": "AIT-361: both provider fixtures, failure anchors, disabled Pause and retry-after viewport matrix",
+            "seconds": 8.361071947000001
+          },
+          {
+            "name": "AIT-377: startup/device/silent-agent viewport matrix and fixed targets",
+            "seconds": 51.038090651
+          },
+          {
+            "name": "AIT-502: honest message, Retry anchor, clear actions and fixed positive rail boxes",
+            "seconds": 9.761063814
+          }
+        ]
+      },
+      {
+        "runId": "44650109778",
+        "attempt": 1,
+        "sha": "09a22c5713ac3f96033f1b4bee8300132c3ac45e",
+        "observedAt": "2026-11-20T00:59:14.504Z",
+        "tests": [
+          {
+            "name": "AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN",
+            "seconds": 37.316257025
+          },
+          {
+            "name": "AIT-179: hangup paints idle controls synchronously; reconciling and settled rail shift 0 px",
+            "seconds": 19.722660953
+          },
+          {
+            "name": "AIT-302: phone header voice statuses and fixed controls",
+            "seconds": 62.072960256
+          },
+          {
+            "name": "AIT-302: unchanged desktop consent",
+            "seconds": 16.443335827
+          },
+          {
+            "name": "AIT-361: both provider fixtures, failure anchors, disabled Pause and retry-after viewport matrix",
+            "seconds": 10.070584994
+          },
+          {
+            "name": "AIT-377: startup/device/silent-agent viewport matrix and fixed targets",
+            "seconds": 54.215472844000004
+          },
+          {
+            "name": "AIT-502: honest message, Retry anchor, clear actions and fixed positive rail boxes",
+            "seconds": 11.947361515
+          }
+        ]
+      },
+      {
+        "runId": "44682541019",
+        "attempt": 1,
+        "sha": "29bf20c22fbd533dca879c382810a704e0f090e8",
+        "observedAt": "2026-11-20T05:40:25.744Z",
+        "tests": [
+          {
+            "name": "AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN",
+            "seconds": 38.154930179000004
+          },
+          {
+            "name": "AIT-179: hangup paints idle controls synchronously; reconciling and settled rail shift 0 px",
+            "seconds": 18.593757348
+          },
+          {
+            "name": "AIT-302: phone header voice statuses and fixed controls",
+            "seconds": 60.433182083
+          },
+          {
+            "name": "AIT-302: unchanged desktop consent",
+            "seconds": 15.395050207
+          },
+          {
+            "name": "AIT-361: both provider fixtures, failure anchors, disabled Pause and retry-after viewport matrix",
+            "seconds": 8.965573044000001
+          },
+          {
+            "name": "AIT-377: startup/device/silent-agent viewport matrix and fixed targets",
+            "seconds": 51.500732801
+          },
+          {
+            "name": "AIT-502: honest message, Retry anchor, clear actions and fixed positive rail boxes",
+            "seconds": 10.895565312999999
+          }
+        ]
+      },
+      {
+        "runId": "44688985679",
+        "attempt": 1,
+        "sha": "5d507e04ee24aba5b308eff6c60ee5a0d26d8f61",
+        "observedAt": "2026-11-20T06:36:38.095Z",
+        "tests": [
+          {
+            "name": "AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN",
+            "seconds": 36.017845759000004
+          },
+          {
+            "name": "AIT-179: hangup paints idle controls synchronously; reconciling and settled rail shift 0 px",
+            "seconds": 18.713301384999998
+          },
+          {
+            "name": "AIT-302: phone header voice statuses and fixed controls",
+            "seconds": 60.191599124
+          },
+          {
+            "name": "AIT-302: unchanged desktop consent",
+            "seconds": 15.807958597
+          },
+          {
+            "name": "AIT-361: both provider fixtures, failure anchors, disabled Pause and retry-after viewport matrix",
+            "seconds": 9.027858774
+          },
+          {
+            "name": "AIT-377: startup/device/silent-agent viewport matrix and fixed targets",
+            "seconds": 51.806546463
+          },
+          {
+            "name": "AIT-502: honest message, Retry anchor, clear actions and fixed positive rail boxes",
+            "seconds": 10.421564035
+          }
+        ]
+      },
+      {
+        "runId": "44707193689",
+        "attempt": 1,
+        "sha": "81da7bef5ad3f181bc68e1a6d2bc2df8f039c463",
+        "observedAt": "2026-11-20T09:01:45.908Z",
+        "tests": [
+          {
+            "name": "AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN",
+            "seconds": 31.493220717
+          },
+          {
+            "name": "AIT-179: hangup paints idle controls synchronously; reconciling and settled rail shift 0 px",
+            "seconds": 17.020903746
+          },
+          {
+            "name": "AIT-302: phone header voice statuses and fixed controls",
+            "seconds": 58.40163456
+          },
+          {
+            "name": "AIT-302: unchanged desktop consent",
+            "seconds": 14.110038343
+          },
+          {
+            "name": "AIT-361: both provider fixtures, failure anchors, disabled Pause and retry-after viewport matrix",
+            "seconds": 7.238441212
+          },
+          {
+            "name": "AIT-377: startup/device/silent-agent viewport matrix and fixed targets",
+            "seconds": 48.582456204
+          },
+          {
+            "name": "AIT-502: honest message, Retry anchor, clear actions and fixed positive rail boxes",
+            "seconds": 8.434567919
+          }
+        ]
+      },
+      {
+        "runId": "44725948096",
+        "attempt": 1,
+        "sha": "2f1001c51c3a9a585b3233762f3cc8cca6ef23a9",
+        "observedAt": "2026-11-20T11:14:46.269Z",
+        "tests": [
+          {
+            "name": "AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN",
+            "seconds": 38.064243991000005
+          },
+          {
+            "name": "AIT-179: hangup paints idle controls synchronously; reconciling and settled rail shift 0 px",
+            "seconds": 19.905356839
+          },
+          {
+            "name": "AIT-302: phone header voice statuses and fixed controls",
+            "seconds": 61.86477149
+          },
+          {
+            "name": "AIT-302: unchanged desktop consent",
+            "seconds": 16.787734401999998
+          },
+          {
+            "name": "AIT-361: both provider fixtures, failure anchors, disabled Pause and retry-after viewport matrix",
+            "seconds": 10.057160901
+          },
+          {
+            "name": "AIT-377: startup/device/silent-agent viewport matrix and fixed targets",
+            "seconds": 54.669173203
+          },
+          {
+            "name": "AIT-502: honest message, Retry anchor, clear actions and fixed positive rail boxes",
+            "seconds": 12.032140082
+          }
+        ]
+      },
+      {
+        "runId": "44736662387",
+        "attempt": 1,
+        "sha": "d24d320fb50018e9b3d2984fc6e964d336bc045d",
+        "observedAt": "2026-11-20T12:33:01.368Z",
+        "tests": [
+          {
+            "name": "AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN",
+            "seconds": 37.917101836
+          },
+          {
+            "name": "AIT-179: hangup paints idle controls synchronously; reconciling and settled rail shift 0 px",
+            "seconds": 19.994859491
+          },
+          {
+            "name": "AIT-302: phone header voice statuses and fixed controls",
+            "seconds": 62.387704211
+          },
+          {
+            "name": "AIT-302: unchanged desktop consent",
+            "seconds": 16.515949396
+          },
+          {
+            "name": "AIT-361: both provider fixtures, failure anchors, disabled Pause and retry-after viewport matrix",
+            "seconds": 10.567540223
+          },
+          {
+            "name": "AIT-377: startup/device/silent-agent viewport matrix and fixed targets",
+            "seconds": 54.772609621
+          },
+          {
+            "name": "AIT-502: honest message, Retry anchor, clear actions and fixed positive rail boxes",
+            "seconds": 12.851352723
+          }
+        ]
+      },
+      {
+        "runId": "44742965802",
+        "attempt": 1,
+        "sha": "ddb1e06dbf1a3ebb8fea75cfffd86401ea9c1fab",
+        "observedAt": "2026-11-20T13:17:25.664Z",
+        "tests": [
+          {
+            "name": "AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN",
+            "seconds": 38.013482908
+          },
+          {
+            "name": "AIT-179: hangup paints idle controls synchronously; reconciling and settled rail shift 0 px",
+            "seconds": 19.915947206000002
+          },
+          {
+            "name": "AIT-302: phone header voice statuses and fixed controls",
+            "seconds": 62.317465733999995
+          },
+          {
+            "name": "AIT-302: unchanged desktop consent",
+            "seconds": 16.50695394
+          },
+          {
+            "name": "AIT-361: both provider fixtures, failure anchors, disabled Pause and retry-after viewport matrix",
+            "seconds": 10.264624540000002
+          },
+          {
+            "name": "AIT-377: startup/device/silent-agent viewport matrix and fixed targets",
+            "seconds": 54.820426393
+          },
+          {
+            "name": "AIT-502: honest message, Retry anchor, clear actions and fixed positive rail boxes",
+            "seconds": 12.819650797
           }
         ]
       }

@@ -1,32 +1,64 @@
 {
-  "seconds": 118.037,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 42947874534-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "seconds": 131.082,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 44736662387-1, 44742965802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "0819c70b58d39bbb3449c4ea89f872faa5f112cec2df1ce3fdce3b60b98b55e7",
+    "workload": "27950870c639e507dd0b673b8b3338f728750c0bc0347578e117f2d939ac4ecb",
     "samples": [
       {
-        "runId": "42947874534",
+        "runId": "44736662387",
         "attempt": 1,
-        "sha": "0c4c4b1af999e4a3163e3676123e99140120bb89",
-        "observedAt": "2026-11-11T02:43:04.606Z",
+        "sha": "d24d320fb50018e9b3d2984fc6e964d336bc045d",
+        "observedAt": "2026-11-20T12:33:05.349Z",
         "tests": [
           {
             "name": "AIT-164: footer width sweep 600–1100/20 plus 699/700/701, DE/EN, full/fewer digits; no overflow, overlap or clipping",
-            "seconds": 12.832091044
+            "seconds": 14.019950964
           },
           {
             "name": "AIT-281: actor role state matrix has exactly 0px movement at 1440/1024/390, DE/EN, light/dark",
-            "seconds": 23.07905901
+            "seconds": 24.461803427
           },
           {
             "name": "AIT-304: demo phone legal links each occupy one line; full names, clear targets and 0px holds",
-            "seconds": 19.148328967
+            "seconds": 18.844556028
           },
           {
             "name": "AIT-357: first credits receipt moves nothing at 320/390/700/1024/1100/1440, DE/EN, light/dark, legal/no-legal",
-            "seconds": 39.368737137
+            "seconds": 39.323270694
+          },
+          {
+            "name": "AIT-584: a compact footer re-measure keeps the acknowledged role checked in the open popover",
+            "seconds": 0.879104101
+          }
+        ]
+      },
+      {
+        "runId": "44742965802",
+        "attempt": 1,
+        "sha": "ddb1e06dbf1a3ebb8fea75cfffd86401ea9c1fab",
+        "observedAt": "2026-11-20T13:17:30.156Z",
+        "tests": [
+          {
+            "name": "AIT-164: footer width sweep 600–1100/20 plus 699/700/701, DE/EN, full/fewer digits; no overflow, overlap or clipping",
+            "seconds": 15.736047783
+          },
+          {
+            "name": "AIT-281: actor role state matrix has exactly 0px movement at 1440/1024/390, DE/EN, light/dark",
+            "seconds": 27.159267988
+          },
+          {
+            "name": "AIT-304: demo phone legal links each occupy one line; full names, clear targets and 0px holds",
+            "seconds": 19.964728309999998
+          },
+          {
+            "name": "AIT-357: first credits receipt moves nothing at 320/390/700/1024/1100/1440, DE/EN, light/dark, legal/no-legal",
+            "seconds": 41.072214133
+          },
+          {
+            "name": "AIT-584: a compact footer re-measure keeps the acknowledged role checked in the open popover",
+            "seconds": 0.9327406140000001
           }
         ]
       }

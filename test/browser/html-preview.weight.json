@@ -1,52 +1,668 @@
 {
-  "seconds": 85.546,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 42947874534-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "seconds": 89.697,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 44526018340-1, 44527954945-1, 44542067051-1, 44543973862-1, 44568256946-1, 44576083632-1, 44607365746-1, 44613164647-1, 44650109778-1, 44682541019-1, 44688985679-1, 44707193689-1, 44725948096-1, 44736662387-1, 44742965802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "57918686d4094f90cd9597030f351edb12071bfd0481f4a09152efaab176de69",
+    "workload": "54de9f8064db98d861667f67c8da74972c80a30de485e9d26c12b9ca35d3e221",
     "samples": [
       {
-        "runId": "42947874534",
+        "runId": "44526018340",
         "attempt": 1,
-        "sha": "0c4c4b1af999e4a3163e3676123e99140120bb89",
-        "observedAt": "2026-11-11T02:43:01.260Z",
+        "sha": "2f0db3f8190cf0bdeda4d53561db632144942703",
+        "observedAt": "2026-11-19T12:40:29.076Z",
         "tests": [
           {
             "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
-            "seconds": 19.733280760000003
+            "seconds": 22.549734263999998
           },
           {
             "name": "AIT-341: HTML preview under START strict host script policy",
-            "seconds": 9.499495965
+            "seconds": 10.178060524000001
           },
           {
             "name": "AIT-364: cross-tab single-item consent withdrawal removes HTML and images",
-            "seconds": 7.742586368
+            "seconds": 13.348297167
           },
           {
             "name": "AIT-369: delivered coverage survives visual choices and revokes per kind",
-            "seconds": 5.283052673
+            "seconds": 8.266041821
           },
           {
             "name": "AIT-374: unavailable revision keeps its preview slot between good siblings",
-            "seconds": 1.4134915739999998
+            "seconds": 2.153500894
           },
           {
             "name": "AIT-385: withdrawal removes the empty focus tile and clears the chevron",
-            "seconds": 1.737523878
+            "seconds": 2.417318366
           },
           {
             "name": "AIT-386: delivered artifacts never turn draft bytes into image requests",
-            "seconds": 1.93923989
+            "seconds": 2.599050069
           },
           {
             "name": "AIT-400: withdrawal preserves the top transcript row and reserved status slot",
-            "seconds": 5.642911188
+            "seconds": 7.810328169
           },
           {
             "name": "real Chrome isolates the html preview and renders the sample click-dummy",
-            "seconds": 15.443849578
+            "seconds": 15.873959537000001
+          }
+        ]
+      },
+      {
+        "runId": "44527954945",
+        "attempt": 1,
+        "sha": "47d7ce55921b8c96cc309b45e1ea1f4efa6d6816",
+        "observedAt": "2026-11-19T12:52:51.848Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 21.746745285
+          },
+          {
+            "name": "AIT-341: HTML preview under START strict host script policy",
+            "seconds": 9.928038866000001
+          },
+          {
+            "name": "AIT-364: cross-tab single-item consent withdrawal removes HTML and images",
+            "seconds": 11.662381703
+          },
+          {
+            "name": "AIT-369: delivered coverage survives visual choices and revokes per kind",
+            "seconds": 7.31682938
+          },
+          {
+            "name": "AIT-374: unavailable revision keeps its preview slot between good siblings",
+            "seconds": 1.998379068
+          },
+          {
+            "name": "AIT-385: withdrawal removes the empty focus tile and clears the chevron",
+            "seconds": 2.286242598
+          },
+          {
+            "name": "AIT-386: delivered artifacts never turn draft bytes into image requests",
+            "seconds": 2.474825565
+          },
+          {
+            "name": "AIT-400: withdrawal preserves the top transcript row and reserved status slot",
+            "seconds": 7.271693143
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 15.747394618
+          }
+        ]
+      },
+      {
+        "runId": "44542067051",
+        "attempt": 1,
+        "sha": "8e142a67ed4746ff548b173546f8219f4ece2e8f",
+        "observedAt": "2026-11-19T14:17:25.880Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 20.95157671
+          },
+          {
+            "name": "AIT-341: HTML preview under START strict host script policy",
+            "seconds": 9.702352774000001
+          },
+          {
+            "name": "AIT-364: cross-tab single-item consent withdrawal removes HTML and images",
+            "seconds": 10.789257756000001
+          },
+          {
+            "name": "AIT-369: delivered coverage survives visual choices and revokes per kind",
+            "seconds": 6.855855286
+          },
+          {
+            "name": "AIT-374: unavailable revision keeps its preview slot between good siblings",
+            "seconds": 1.835075758
+          },
+          {
+            "name": "AIT-385: withdrawal removes the empty focus tile and clears the chevron",
+            "seconds": 2.0722235099999997
+          },
+          {
+            "name": "AIT-386: delivered artifacts never turn draft bytes into image requests",
+            "seconds": 2.271849064
+          },
+          {
+            "name": "AIT-400: withdrawal preserves the top transcript row and reserved status slot",
+            "seconds": 6.621879115
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 15.537785217
+          }
+        ]
+      },
+      {
+        "runId": "44543973862",
+        "attempt": 1,
+        "sha": "55933f7ff519a2c5b60c6a2ff52039c0495794bf",
+        "observedAt": "2026-11-19T14:27:55.780Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 19.783485394
+          },
+          {
+            "name": "AIT-341: HTML preview under START strict host script policy",
+            "seconds": 9.522964303999998
+          },
+          {
+            "name": "AIT-364: cross-tab single-item consent withdrawal removes HTML and images",
+            "seconds": 8.742629652
+          },
+          {
+            "name": "AIT-369: delivered coverage survives visual choices and revokes per kind",
+            "seconds": 5.315051513
+          },
+          {
+            "name": "AIT-374: unavailable revision keeps its preview slot between good siblings",
+            "seconds": 1.513177462
+          },
+          {
+            "name": "AIT-385: withdrawal removes the empty focus tile and clears the chevron",
+            "seconds": 1.8701647479999999
+          },
+          {
+            "name": "AIT-386: delivered artifacts never turn draft bytes into image requests",
+            "seconds": 2.0378090540000002
+          },
+          {
+            "name": "AIT-400: withdrawal preserves the top transcript row and reserved status slot",
+            "seconds": 6.019058086
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 15.455506838
+          }
+        ]
+      },
+      {
+        "runId": "44568256946",
+        "attempt": 1,
+        "sha": "c6153be8ff45ab695cfd191d32a512446ce87aef",
+        "observedAt": "2026-11-19T16:38:11.247Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 20.238629117000002
+          },
+          {
+            "name": "AIT-341: HTML preview under START strict host script policy",
+            "seconds": 9.684412861999999
+          },
+          {
+            "name": "AIT-364: cross-tab single-item consent withdrawal removes HTML and images",
+            "seconds": 10.297636101
+          },
+          {
+            "name": "AIT-369: delivered coverage survives visual choices and revokes per kind",
+            "seconds": 6.308089751000001
+          },
+          {
+            "name": "AIT-374: unavailable revision keeps its preview slot between good siblings",
+            "seconds": 1.715656584
+          },
+          {
+            "name": "AIT-385: withdrawal removes the empty focus tile and clears the chevron",
+            "seconds": 2.036039193
+          },
+          {
+            "name": "AIT-386: delivered artifacts never turn draft bytes into image requests",
+            "seconds": 2.288120383
+          },
+          {
+            "name": "AIT-400: withdrawal preserves the top transcript row and reserved status slot",
+            "seconds": 6.546849583999999
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 15.506069921
+          }
+        ]
+      },
+      {
+        "runId": "44576083632",
+        "attempt": 1,
+        "sha": "0d40a127e17dda064df3a626a8134f403faf54c6",
+        "observedAt": "2026-11-19T17:20:42.539Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 21.733691496
+          },
+          {
+            "name": "AIT-341: HTML preview under START strict host script policy",
+            "seconds": 9.959132469
+          },
+          {
+            "name": "AIT-364: cross-tab single-item consent withdrawal removes HTML and images",
+            "seconds": 12.272319283
+          },
+          {
+            "name": "AIT-369: delivered coverage survives visual choices and revokes per kind",
+            "seconds": 7.969100956
+          },
+          {
+            "name": "AIT-374: unavailable revision keeps its preview slot between good siblings",
+            "seconds": 2.2447357980000002
+          },
+          {
+            "name": "AIT-385: withdrawal removes the empty focus tile and clears the chevron",
+            "seconds": 2.3010340150000004
+          },
+          {
+            "name": "AIT-386: delivered artifacts never turn draft bytes into image requests",
+            "seconds": 2.717917967
+          },
+          {
+            "name": "AIT-400: withdrawal preserves the top transcript row and reserved status slot",
+            "seconds": 7.399555201
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 15.716242586
+          }
+        ]
+      },
+      {
+        "runId": "44607365746",
+        "attempt": 1,
+        "sha": "f394364da286d742a4c9799f0f543be70ea13f62",
+        "observedAt": "2026-11-19T20:19:08.893Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 22.49376551
+          },
+          {
+            "name": "AIT-341: HTML preview under START strict host script policy",
+            "seconds": 10.071810884
+          },
+          {
+            "name": "AIT-364: cross-tab single-item consent withdrawal removes HTML and images",
+            "seconds": 13.891831907
+          },
+          {
+            "name": "AIT-369: delivered coverage survives visual choices and revokes per kind",
+            "seconds": 8.202948024
+          },
+          {
+            "name": "AIT-374: unavailable revision keeps its preview slot between good siblings",
+            "seconds": 2.132158178
+          },
+          {
+            "name": "AIT-385: withdrawal removes the empty focus tile and clears the chevron",
+            "seconds": 2.3689182219999996
+          },
+          {
+            "name": "AIT-386: delivered artifacts never turn draft bytes into image requests",
+            "seconds": 2.554387678
+          },
+          {
+            "name": "AIT-400: withdrawal preserves the top transcript row and reserved status slot",
+            "seconds": 7.568258896000001
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 15.801599816
+          }
+        ]
+      },
+      {
+        "runId": "44613164647",
+        "attempt": 1,
+        "sha": "72512711b37c46a32f9b2d049f77b85bacec4d86",
+        "observedAt": "2026-11-19T20:53:24.341Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 22.810493047
+          },
+          {
+            "name": "AIT-341: HTML preview under START strict host script policy",
+            "seconds": 10.231872337
+          },
+          {
+            "name": "AIT-364: cross-tab single-item consent withdrawal removes HTML and images",
+            "seconds": 15.476932700999999
+          },
+          {
+            "name": "AIT-369: delivered coverage survives visual choices and revokes per kind",
+            "seconds": 9.243013379
+          },
+          {
+            "name": "AIT-374: unavailable revision keeps its preview slot between good siblings",
+            "seconds": 2.294290477
+          },
+          {
+            "name": "AIT-385: withdrawal removes the empty focus tile and clears the chevron",
+            "seconds": 2.635270648
+          },
+          {
+            "name": "AIT-386: delivered artifacts never turn draft bytes into image requests",
+            "seconds": 2.866667556
+          },
+          {
+            "name": "AIT-400: withdrawal preserves the top transcript row and reserved status slot",
+            "seconds": 8.244756232
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 15.893629413000001
+          }
+        ]
+      },
+      {
+        "runId": "44650109778",
+        "attempt": 1,
+        "sha": "09a22c5713ac3f96033f1b4bee8300132c3ac45e",
+        "observedAt": "2026-11-20T00:59:11.801Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 20.55059354
+          },
+          {
+            "name": "AIT-341: HTML preview under START strict host script policy",
+            "seconds": 9.980240823
+          },
+          {
+            "name": "AIT-364: cross-tab single-item consent withdrawal removes HTML and images",
+            "seconds": 10.591828708
+          },
+          {
+            "name": "AIT-369: delivered coverage survives visual choices and revokes per kind",
+            "seconds": 6.5625664399999994
+          },
+          {
+            "name": "AIT-374: unavailable revision keeps its preview slot between good siblings",
+            "seconds": 1.751987907
+          },
+          {
+            "name": "AIT-385: withdrawal removes the empty focus tile and clears the chevron",
+            "seconds": 2.1186860729999997
+          },
+          {
+            "name": "AIT-386: delivered artifacts never turn draft bytes into image requests",
+            "seconds": 2.332513161
+          },
+          {
+            "name": "AIT-400: withdrawal preserves the top transcript row and reserved status slot",
+            "seconds": 6.781910577
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 15.526744275999999
+          }
+        ]
+      },
+      {
+        "runId": "44682541019",
+        "attempt": 1,
+        "sha": "29bf20c22fbd533dca879c382810a704e0f090e8",
+        "observedAt": "2026-11-20T05:40:23.545Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 21.980620571
+          },
+          {
+            "name": "AIT-341: HTML preview under START strict host script policy",
+            "seconds": 9.9282398
+          },
+          {
+            "name": "AIT-364: cross-tab single-item consent withdrawal removes HTML and images",
+            "seconds": 11.91242468
+          },
+          {
+            "name": "AIT-369: delivered coverage survives visual choices and revokes per kind",
+            "seconds": 8.208421544
+          },
+          {
+            "name": "AIT-374: unavailable revision keeps its preview slot between good siblings",
+            "seconds": 2.058409658
+          },
+          {
+            "name": "AIT-385: withdrawal removes the empty focus tile and clears the chevron",
+            "seconds": 2.2540597200000003
+          },
+          {
+            "name": "AIT-386: delivered artifacts never turn draft bytes into image requests",
+            "seconds": 2.523865213
+          },
+          {
+            "name": "AIT-400: withdrawal preserves the top transcript row and reserved status slot",
+            "seconds": 7.370545158
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 15.772234990000001
+          }
+        ]
+      },
+      {
+        "runId": "44688985679",
+        "attempt": 1,
+        "sha": "5d507e04ee24aba5b308eff6c60ee5a0d26d8f61",
+        "observedAt": "2026-11-20T06:36:39.847Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 21.819749374
+          },
+          {
+            "name": "AIT-341: HTML preview under START strict host script policy",
+            "seconds": 9.975447481
+          },
+          {
+            "name": "AIT-364: cross-tab single-item consent withdrawal removes HTML and images",
+            "seconds": 13.266974527
+          },
+          {
+            "name": "AIT-369: delivered coverage survives visual choices and revokes per kind",
+            "seconds": 8.243607814
+          },
+          {
+            "name": "AIT-374: unavailable revision keeps its preview slot between good siblings",
+            "seconds": 2.029607205
+          },
+          {
+            "name": "AIT-385: withdrawal removes the empty focus tile and clears the chevron",
+            "seconds": 2.3364430019999998
+          },
+          {
+            "name": "AIT-386: delivered artifacts never turn draft bytes into image requests",
+            "seconds": 2.541807602
+          },
+          {
+            "name": "AIT-400: withdrawal preserves the top transcript row and reserved status slot",
+            "seconds": 7.462489641
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 15.735744609
+          }
+        ]
+      },
+      {
+        "runId": "44707193689",
+        "attempt": 1,
+        "sha": "81da7bef5ad3f181bc68e1a6d2bc2df8f039c463",
+        "observedAt": "2026-11-20T09:01:46.858Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 21.999495875
+          },
+          {
+            "name": "AIT-341: HTML preview under START strict host script policy",
+            "seconds": 9.872604742
+          },
+          {
+            "name": "AIT-364: cross-tab single-item consent withdrawal removes HTML and images",
+            "seconds": 11.820684157
+          },
+          {
+            "name": "AIT-369: delivered coverage survives visual choices and revokes per kind",
+            "seconds": 7.474355536
+          },
+          {
+            "name": "AIT-374: unavailable revision keeps its preview slot between good siblings",
+            "seconds": 1.998934437
+          },
+          {
+            "name": "AIT-385: withdrawal removes the empty focus tile and clears the chevron",
+            "seconds": 2.268359155
+          },
+          {
+            "name": "AIT-386: delivered artifacts never turn draft bytes into image requests",
+            "seconds": 2.4592781770000003
+          },
+          {
+            "name": "AIT-400: withdrawal preserves the top transcript row and reserved status slot",
+            "seconds": 7.313695994
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 15.749591904999999
+          }
+        ]
+      },
+      {
+        "runId": "44725948096",
+        "attempt": 1,
+        "sha": "2f1001c51c3a9a585b3233762f3cc8cca6ef23a9",
+        "observedAt": "2026-11-20T11:14:39.913Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 19.918855225999998
+          },
+          {
+            "name": "AIT-341: HTML preview under START strict host script policy",
+            "seconds": 9.551322422
+          },
+          {
+            "name": "AIT-364: cross-tab single-item consent withdrawal removes HTML and images",
+            "seconds": 9.489704529
+          },
+          {
+            "name": "AIT-369: delivered coverage survives visual choices and revokes per kind",
+            "seconds": 6.292146788
+          },
+          {
+            "name": "AIT-374: unavailable revision keeps its preview slot between good siblings",
+            "seconds": 1.572792233
+          },
+          {
+            "name": "AIT-385: withdrawal removes the empty focus tile and clears the chevron",
+            "seconds": 1.934948146
+          },
+          {
+            "name": "AIT-386: delivered artifacts never turn draft bytes into image requests",
+            "seconds": 2.1898156330000003
+          },
+          {
+            "name": "AIT-400: withdrawal preserves the top transcript row and reserved status slot",
+            "seconds": 6.142823864
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 15.524691741
+          }
+        ]
+      },
+      {
+        "runId": "44736662387",
+        "attempt": 1,
+        "sha": "d24d320fb50018e9b3d2984fc6e964d336bc045d",
+        "observedAt": "2026-11-20T12:33:02.770Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 22.355835362999997
+          },
+          {
+            "name": "AIT-341: HTML preview under START strict host script policy",
+            "seconds": 9.987298677999998
+          },
+          {
+            "name": "AIT-364: cross-tab single-item consent withdrawal removes HTML and images",
+            "seconds": 11.902154532
+          },
+          {
+            "name": "AIT-369: delivered coverage survives visual choices and revokes per kind",
+            "seconds": 8.076925829
+          },
+          {
+            "name": "AIT-374: unavailable revision keeps its preview slot between good siblings",
+            "seconds": 2.2602676649999998
+          },
+          {
+            "name": "AIT-385: withdrawal removes the empty focus tile and clears the chevron",
+            "seconds": 2.303120052
+          },
+          {
+            "name": "AIT-386: delivered artifacts never turn draft bytes into image requests",
+            "seconds": 2.566148965
+          },
+          {
+            "name": "AIT-400: withdrawal preserves the top transcript row and reserved status slot",
+            "seconds": 7.311416491
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 15.763632367
+          }
+        ]
+      },
+      {
+        "runId": "44742965802",
+        "attempt": 1,
+        "sha": "ddb1e06dbf1a3ebb8fea75cfffd86401ea9c1fab",
+        "observedAt": "2026-11-20T13:17:25.797Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 22.243893719
+          },
+          {
+            "name": "AIT-341: HTML preview under START strict host script policy",
+            "seconds": 10.068564399000001
+          },
+          {
+            "name": "AIT-364: cross-tab single-item consent withdrawal removes HTML and images",
+            "seconds": 12.767515750000001
+          },
+          {
+            "name": "AIT-369: delivered coverage survives visual choices and revokes per kind",
+            "seconds": 9.231099822000001
+          },
+          {
+            "name": "AIT-374: unavailable revision keeps its preview slot between good siblings",
+            "seconds": 2.065094921
+          },
+          {
+            "name": "AIT-385: withdrawal removes the empty focus tile and clears the chevron",
+            "seconds": 2.403663427
+          },
+          {
+            "name": "AIT-386: delivered artifacts never turn draft bytes into image requests",
+            "seconds": 2.603158859
+          },
+          {
+            "name": "AIT-400: withdrawal preserves the top transcript row and reserved status slot",
+            "seconds": 7.583541288999999
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 15.769552616999999
           }
         ]
       }

@@ -7,6 +7,11 @@ export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 
 // Each browser test owns its sibling rolling per-test p95 CI measurements.
 // A 25% margin protects workloads with fewer than five CI samples.
+export const provisionalSplitFiles = new Set([
+  'test/browser/pause-phone.test.js', 'test/browser/pause-phone-uploads.test.js',
+  'test/browser/host-surface.test.js', 'test/browser/host-surface-email.test.js',
+]);
+
 export function readBrowserTestWeights(files = discoverBrowserTests(), root = repositoryRoot) {
   const tests = new Set(files);
   for (const entry of readdirSync(resolve(root, 'test/browser'), { withFileTypes: true })) {
@@ -29,6 +34,13 @@ export function readBrowserTestWeights(files = discoverBrowserTests(), root = re
         typeof measurement.evidence !== 'string' || !measurement.evidence.trim()) {
       throw new Error(`Invalid browser test weight: ${weightPath}; seconds must be positive finite seconds and evidence must describe the measurement`);
     }
+    // AIT-597: the four split workloads have no matching CI history yet. Keep
+    // these file-specific provisional reservations until rolling-main timings
+    // replace them, exactly as AIT-557 did for the clarify halves (AIT-558).
+    if (provisionalSplitFiles.has(file) && measurement.provisional === true) {
+      weights[file] = measurement.seconds;
+      continue;
+    }
     try { assertMeasuredWeight(measurement); }
     catch (error) { throw new Error(`Invalid browser test weight: ${weightPath}; ${error.message}`); }
     weights[file] = measurement.seconds;
@@ -46,8 +58,6 @@ export const browserTestWeights = readBrowserTestWeights();
 browserTestWeights['test/browser/footer-width-sweep.test.js'] = Math.max(
   browserTestWeights['test/browser/footer-width-sweep.test.js'], 46);
 // Voice: three main samples, p95 work 138.653s, warmup weight 173.317s.
-browserTestWeights['test/browser/voice-presentation.test.js'] = Math.max(
-  browserTestWeights['test/browser/voice-presentation.test.js'], 174.746);
 
 // AIT-304: successful PR #284 CI 39120863347, head bb069809, shard 4/7:
 // complete footer file with viewport evidence: 16.313871563s + 12.941360072s
@@ -59,7 +69,6 @@ browserTestWeights['test/browser/voice-presentation.test.js'] = Math.max(
 // PR/remote samples remain diagnostic, outside trusted rolling-main history.
 for (const [file, seconds] of Object.entries({
   'test/browser/footer-width-sweep.test.js': 66,
-  'test/browser/start2-display.test.js': 257,
 })) browserTestWeights[file] = Math.max(browserTestWeights[file], seconds);
 
 // AIT-359: green PR #306 CI 39154313634, head a399824e, shard 6/7:
@@ -99,16 +108,12 @@ browserTestWeights['test/browser/consent-lines.test.js'] = Math.max(
 // = 46.758048799s. ceil(observed * 1.25) = 59s; reserve 60s, rounding
 // up to the next 5s for warmup variation. This supersedes the mixed
 // CI/remote 56s forecast; rolling-main timing history stays unchanged.
-browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
-  browserTestWeights['test/browser/html-preview.test.js'], 60);
 // AIT-364: green PR #318 CI 39213995186, head 984e56be, shard 7/7:
 // all 21 preview tests passed, including the six-case cross-tab matrix and
 // full withdrawal: 15.887813567 + 20.502053037 + 9.993410194
 // + 12.660817253 = 59.044094051s; ceil(observed * 1.25) = 74s.
 // Supersedes the failed diagnostic run's 73s floor. PR observations remain
 // outside trusted rolling-main timing history; no bin limits change.
-browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
-  browserTestWeights['test/browser/html-preview.test.js'], 74);
 // AIT-364 v1.1: mbp2606 run 142aa936c7-79959 passed all 23 preview
 // tests, including the fail-closed HTTP/stalled-document viewports/recovery.
 // Full file top-level work: 15.340172292 + 49.269363583 + 6.804462292
@@ -118,22 +123,16 @@ browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
 // 15.483274293 + 19.378860230 + 9.488300485 + 12.037914010
 // = 56.388349018s (ceil(*1.25) = 71s). Retain the slower remote floor;
 // shard counts, ceilings and check names stay unchanged.
-browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
-  browserTestWeights['test/browser/html-preview.test.js'], 103);
 // AIT-364 round 3: mbp2606 b2f860fa66-74632 passed all 23 preview
 // tests, including automatic recovery and the recovered viewport shot.
 // Top-level work: 15.532410625 + 50.059817916 + 6.721846709
 // + 14.264702958 = 86.578778208s; ceil(*1.25) = 109s.
 // Preserve the measured remote floor outside rolling-main history.
-browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
-  browserTestWeights['test/browser/html-preview.test.js'], 109);
 // AIT-369: mbp2606 full-file 51234eeb8e-75668 passed existing top-level
 // workloads in 15.654300667 + 51.071809500 + 6.774166208 + 14.132236208s.
 // c70aaac7fc-48960 then passed the complete new ten-state matrix in
 // 2.660573167s. Combined observed work 90.293085750s; ceil(*1.25)=113s.
 // Reserve that measured diagnostic floor outside rolling-main history.
-browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
-  browserTestWeights['test/browser/html-preview.test.js'], 113);
 // AIT-364 v1.1 final product head 03f5b0bb, CI 39221011068:
 // preview shard 7/7 passed 23/23 in 57.604659634s (ceil(*1.25)=73s);
 // retain the slower 103s remote reservation. Consent-lines shard 5/7
@@ -156,16 +155,12 @@ browserTestWeights['test/browser/demo.test.js'] = Math.max(
 // Source: browser-timings-2-of-7/batch-0.jsonl.
 // Keep this diagnostic floor outside trusted rolling-main history;
 // no shard count, ceiling, workflow or check-name changes.
-browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
-  browserTestWeights['test/browser/composed-media.test.js'], 23);
 
 // AIT-350 -fix1: passing CI 39204030409, 81364ab1, shard 2/7.
 // 1440x900, 1280x800, content-sized popover and single-column confirmation:
 // 1.134289473s + 2.968562343s + 14.438096212s = 18.540948028s.
 // ceil(observed * 1.25) = 24s, superseding the round-5 23s floor.
 // Source: browser-timings-2-of-7/batch-0.jsonl. No capacity policy changes.
-browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
-  browserTestWeights['test/browser/composed-media.test.js'], 24);
 
 // AIT-350 round 7: PR #315 CI 39206999982, 895129ae, shard 5/7 PASS.
 // Three settled open-menu captures and box checks: 1.151249632s +
@@ -174,8 +169,6 @@ browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
 // 2.408554753s + 3.692719086s + 15.640518542s = 21.741792381s.
 // ceil(*1.25) = 28s supersedes the initial 25s and round-6 24s floors.
 // Source for both samples: browser-timings-5-of-7/batch-0.jsonl.
-browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
-  browserTestWeights['test/browser/composed-media.test.js'], 28);
 
 // AIT-349: mbp2606 run 01b1dfa8e0-87584 passed 3/3 in 5.277133585s.
 // Successful PR #314 CI shard 2/7 measured 7.092059901s at 41ca2db7
@@ -184,8 +177,6 @@ browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
 // ceil(max observed *1.25) = 13s, superseding the 9s diagnostic floor.
 // Source: browser-timings-2-of-7/batch-0.jsonl. Keep this diagnostic
 // floor outside trusted rolling-main history; capacity is unchanged.
-browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
-  browserTestWeights['test/browser/composed-media.test.js'], 13);
 
 // AIT-350 round 8: combined AIT-349/AIT-350 file, committed-head
 // mbp2606 run 1de9553a45-66313: all 4 top-level tests PASS with evidence.
@@ -193,8 +184,6 @@ browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
 // = 16.012566376s; ceil(observed * 1.25) = 21s. Retain the slower
 // prior CI floor of 28s until the combined file is re-measured in CI.
 // Both complete tests remain in this file; no capacity policy changes.
-browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
-  browserTestWeights['test/browser/composed-media.test.js'], 21);
 
 // AIT-350 round 8: successful PR #315 CI 39210100075, 87b6ae8e,
 // shard 5/7 re-measured the complete four-test AIT-349/AIT-350 file:
@@ -203,8 +192,6 @@ browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
 // previous 28s CI floor and the 21s combined remote measurement.
 // Source: browser-timings-5-of-7/batch-0.jsonl. Keep PR diagnostics
 // outside trusted rolling-main history; no shard or workflow changes.
-browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
-  browserTestWeights['test/browser/composed-media.test.js'], 30);
 
 // AIT-362: PR #320 CI 39215911919, head 1b2be006, shard 5/7
 // measured all four composed-media tests: 1.213731427 + 3.200874379
@@ -212,15 +199,11 @@ browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
 // ceil(observed * 1.25) = 34s. The Settings test completed its full matrix
 // and failed only the documented fit-state assertions; retain this diagnostic
 // floor outside trusted rolling-main history. No capacity policy changes.
-browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
-  browserTestWeights['test/browser/composed-media.test.js'], 34);
 
 // AIT-362 round 2: PR #320 CI 39222882719, head 44bb330a, shard 4/7.
 // All four composed-media tests passed: 1.213878431 + 3.106116869
 // + 21.247878435 + 2.718222266 = 28.286096001s; ceil(* 1.25) = 36s.
 // The v1.1 mask/margins/menu-opacity checks reuse the existing page/matrix.
-browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
-  browserTestWeights['test/browser/composed-media.test.js'], 36);
 
 // AIT-361: successful PR #321 CI 39221656013 at b82a0166, shard 4/7:
 // complete voice file 5/5 PASS, including both-provider failure evidence.
@@ -235,8 +218,6 @@ browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
 // The expanded AIT-377 matrix alone is 20.913732296s; whole bin 329.831597003s.
 // Source: browser-timings-3-of-7/batch-0.jsonl. Supersedes the 206s round-1
 // floor; rolling-main history, shard count, ceiling and check names stay intact.
-browserTestWeights['test/browser/voice-presentation.test.js'] = Math.max(
-  browserTestWeights['test/browser/voice-presentation.test.js'], 212);
 
 // AIT-395: green PR #348 CI 39326464995 at 5c95a38e, shard 6/7:
 // complete host-surface file 6/6 PASS, including 20 settled Tick captures,
@@ -246,8 +227,6 @@ browserTestWeights['test/browser/voice-presentation.test.js'] = Math.max(
 // ceil(observed * 1.25)=151s supersedes the 122s remote-derived floor.
 // Source: browser-timings-6-of-7/batch-0.jsonl. PR diagnostics remain
 // outside trusted rolling-main history; no shard/count/limit changes.
-browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
-  browserTestWeights['test/browser/host-surface.test.js'], 151);
 
 // AIT-411: PR #365 CI 39468957734, head aca252f4, shard 4/7:
 // complete host-surface file 7/7 PASS, including all 180 exact-zero cases
@@ -255,8 +234,6 @@ browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
 // ceil(*1.25) = 205s; round this temporary floor up to 210s for CI variance.
 // Optimized matrix work: 47.519304536s (before batching: 52.789977227s).
 // PR diagnostic floor only; keep trusted main history and all capacity settings.
-browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
-  browserTestWeights['test/browser/host-surface.test.js'], 210);
 
 // AIT-404: green PR #357 CI 39430635672, head e1756456, shard 3/7:
 // complete continuity file 3/3 PASS, including all eight touch/fine-pointer
@@ -275,8 +252,6 @@ browserTestWeights['test/browser/start2-display-continuity.test.js'] = Math.max(
 // Source: browser-timings-6-of-7/batch-0.jsonl. Keep this diagnostic floor
 // outside trusted rolling-main history. AIT-419 supplies the 405s target;
 // this recalibration changes no capacity setting, method, margin or name.
-browserTestWeights['test/browser/visitor-credit-tiers.test.js'] = Math.max(
-  browserTestWeights['test/browser/visitor-credit-tiers.test.js'], 159);
 
 // AIT-411 combined-head CI 39492236313, e791da30, shard 7/8:
 // visitor file 6/6 PASS; top-level work 128.294181508s, ceil(*1.25)=161s.
@@ -284,31 +259,21 @@ browserTestWeights['test/browser/visitor-credit-tiers.test.js'] = Math.max(
 // retain its conservative 210s floor. The unrelated frozen-email comparison
 // failed because its approved grid overlay lacked the new measurement peers.
 // Successful file diagnostics only; trusted rolling-main history is unchanged.
-browserTestWeights['test/browser/visitor-credit-tiers.test.js'] = Math.max(
-  browserTestWeights['test/browser/visitor-credit-tiers.test.js'], 161);
 
 // AIT-411 final-main integration (AIT-418): green browser shard 7/8 in
 // PR CI 39493499517 at 3f7e68e1 measures the expanded email-space file at
 // 69.358467245s; ceil(*1.25)=87s. Retain the mature main series unchanged
 // and add this diagnostic floor for the newly merged stream-wait coverage.
-browserTestWeights['test/browser/email-mail-space.test.js'] = Math.max(
-  browserTestWeights['test/browser/email-mail-space.test.js'], 87);
 
 // The same CI's green shard 5/8 measures AIT-425's expanded pause-phone
 // workload at 170.669575097s; ceil(*1.25)=214s. This is also a diagnostic
 // floor, without rewriting the trusted main samples or changing capacity.
-browserTestWeights['test/browser/pause-phone.test.js'] = Math.max(
-  browserTestWeights['test/browser/pause-phone.test.js'], 214);
 
 // AIT-411 final packing observation: green PR CI 39494521010 at fcd9dc44
 // measures host-surface 185.751821015s on shard 5/8 after whole-file repacking
 // (ceil(*1.25)=233s), and pause-phone 171.517982595s on shard 4/8
 // (ceil(*1.25)=215s). Round the diagnostic floors up to 240s/220s to retain
 // the required margin through placement/runner variance. No history is lowered.
-browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
-  browserTestWeights['test/browser/host-surface.test.js'], 240);
-browserTestWeights['test/browser/pause-phone.test.js'] = Math.max(
-  browserTestWeights['test/browser/pause-phone.test.js'], 220);
 
 // AIT-411 integration of main 9b6629b0: its successful AIT-400/AIT-412 PR
 // CI 39489180770 measures display 212.477007298s (ceil(*1.25)=266s),
@@ -319,22 +284,14 @@ browserTestWeights['test/browser/pause-phone.test.js'] = Math.max(
 // tick-followups 81.616895931s (103s). Retain the larger samples and round
 // diagnostic floors conservatively; all original zero-pixel coverage stays.
 for (const [file, seconds] of Object.entries({
-  'test/browser/start2-display.test.js': 270,
   'test/browser/start2-display-continuity.test.js': 120,
-  'test/browser/voice-presentation.test.js': 270,
   'test/browser/demo.test.js': 80,
-  'test/browser/visitor-credit-tiers.test.js': 180,
-  'test/browser/tick-followups.test.js': 110,
 })) browserTestWeights[file] = Math.max(browserTestWeights[file], seconds);
 
 // AIT-411 final-head CI 39497793398, 2503e01d: email-mail-space work
 // 71.171632711s requires ceil(*1.25)=89s; visitor work 143.560138164s
 // requires 180s. Round these diagnostic floors to 100s/200s for placement
 // variance rather than consuming the exact boundary. All prior samples stay.
-browserTestWeights['test/browser/email-mail-space.test.js'] = Math.max(
-  browserTestWeights['test/browser/email-mail-space.test.js'], 100);
-browserTestWeights['test/browser/visitor-credit-tiers.test.js'] = Math.max(
-  browserTestWeights['test/browser/visitor-credit-tiers.test.js'], 200);
 
 // AIT-506: remote run ait-5f85e1b00b164b6186a07920, a79a3498:
 // complete start-journey file passed 16/16 cases, including the combined
@@ -420,8 +377,6 @@ browserTestWeights['test/browser/start-look.test.js'] = Math.max(
 // AIT-510 r18b: current-capability transition checks add 48 nested cases.
 // Complete remote run e4d76500de-76889 passes 173/173 in 184.105106500s;
 // ceil(observed *1.25)=231s. Raise only the diagnostic reservation.
-browserTestWeights['test/browser/pause-phone.test.js'] = Math.max(
-  browserTestWeights['test/browser/pause-phone.test.js'], 231);
 // AIT-517: preserve measured main history and reserve contact/RC25 coverage.
 // Geometry: complete remote run ait-5e96229f4b684be182bea901 at 255f392e,
 // 264.361s file wall time minus unchanged combined contact case 39.781s:
@@ -434,14 +389,8 @@ browserTestWeights['test/browser/pause-phone.test.js'] = Math.max(
 // axe failure matches the permitted AIT-531 baseline; never use that truncated
 // test's file duration to lower the historical host-surface reservation.
 // These diagnostic floors do not overwrite trusted rolling-main samples.
-browserTestWeights['test/browser/start2-display-geometry.test.js'] = Math.max(
-  browserTestWeights['test/browser/start2-display-geometry.test.js'], 281);
 browserTestWeights['test/browser/start-look.test.js'] = Math.max(
   browserTestWeights['test/browser/start-look.test.js'], 162);
-browserTestWeights['test/browser/email-ask.test.js'] = Math.max(
-  browserTestWeights['test/browser/email-ask.test.js'], 338);
-browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
-  browserTestWeights['test/browser/host-surface.test.js'], 395);
 
 // AIT-517 R12: run ait-2c0ed87646cd4e3abec8ab7a at a060c81f measured
 // email-ask 70/70, 285.696125282s * 1.25 -> 358s. The first short fixture needed
@@ -451,8 +400,6 @@ browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
 // The inherited 162s start-look floor already covers that complete workload;
 // remove only this ticket's temporary 259s addition, preserving older floors
 // and trusted main samples. PR diagnostics never replace main timing history.
-browserTestWeights['test/browser/email-ask.test.js'] = Math.max(
-  browserTestWeights['test/browser/email-ask.test.js'], 358);
 
 // AIT-423: LEAD's AIT-410 standing decision adds an eighth bin after AIT-411's
 // measured workload exceeded 7 × 405s; target, ceiling and weights stay unchanged.
@@ -463,14 +410,10 @@ browserTestWeights['test/browser/email-ask.test.js'] = Math.max(
 // existing 76.696s allocation plus that parent with 25% margin:
 // 171.378877384s, rounded up to a 175s diagnostic floor. The named helper
 // import participates in the workload hash. Trusted main history is intact.
-browserTestWeights['test/browser/question-card.test.js'] = Math.max(
-  browserTestWeights['test/browser/question-card.test.js'], 175);
 // AIT-511 replay completion: remote run 79085e5f4f-70434 at 79085e5f
 // passed the complete 225-test replay matrix, including phone completion,
 // in 18.299866083s. ceil(observed * 1.25) = 23s. Keep this diagnostic floor
 // outside trusted main timing history; no inherited weight or limit is lowered.
-browserTestWeights['test/browser/audio-replay.test.js'] = Math.max(
-  browserTestWeights['test/browser/audio-replay.test.js'], 23);
 
 // AIT-511 gate3 follow-up: passing remote run ait-637551601f06402fb64580b1
 // at 7ffcf2ae measured the expanded 58-case composer parent in 99.462152878s.
@@ -478,26 +421,36 @@ browserTestWeights['test/browser/audio-replay.test.js'] = Math.max(
 // 201.023691098s, rounded up to a 205s diagnostic floor. Its complete 285-test
 // replay matrix took 26.965136774s; ceil(1.25 * observed) = 34s. Keep both
 // older floors and trusted timing history; no weight or limit is lowered.
-browserTestWeights['test/browser/question-card.test.js'] = Math.max(
-  browserTestWeights['test/browser/question-card.test.js'], 205);
-browserTestWeights['test/browser/audio-replay.test.js'] = Math.max(
-  browserTestWeights['test/browser/audio-replay.test.js'], 34);
 
 // AIT-511 wrapped-host recovery: passing run ait-603000cd11c3486788daab6f
 // at 9bad33e5 measured all 70 composer cases in 121.182946531s. Retained
 // 76.696s plus a 25% parent margin is 228.174683164s: reserve 230s.
 // Replay passed 285/285 in 32.364895636s; ceil(observed * 1.25) = 41s.
 // Keep every earlier floor and trusted main sample; both limits stay unchanged.
-browserTestWeights['test/browser/question-card.test.js'] = Math.max(
-  browserTestWeights['test/browser/question-card.test.js'], 230);
-browserTestWeights['test/browser/audio-replay.test.js'] = Math.max(
-  browserTestWeights['test/browser/audio-replay.test.js'], 41);
 
+// AIT-597 (2026-11-20): refreshed rolling-main weights (48d2c753) put
+// pause-phone (453.000s) and host-surface (430.182s) above the 420s ceiling
+// on their own. Both were split along whole top-level tests (AIT-557 method):
+// pause-phone 326s + pause-phone-uploads 241s, host-surface 340s +
+// host-surface-email 199s, each ceil(1.25 * moved per-test CI p95), explicitly
+// provisional. Their pre-split floors are retired with the pre-split workload
+// (pause-phone 214/220/231s; host-surface 151/210/240/395s). Mature (>= 5
+// sample) rolling-main series supersede eleven PR/remote diagnostic floors, as
+// in AIT-314 (old floor -> measured weight): email-ask 358 -> 277.496,
+// start2-display-geometry 281 -> 244.545, voice-presentation 270 -> 218.978,
+// question-card 230 -> 205.445, start2-display 270 -> 246.750,
+// tick-followups 110 -> 81.747, html-preview 113 -> 89.697,
+// email-mail-space 100 -> 78.328, visitor-credit-tiers 200 -> 180.678,
+// audio-replay 41 -> 29.229, composed-media 36 -> 35.681. Their provenance
+// comments above remain as history; the floor statements are removed.
 // AIT-511: measured RC26 growth exceeded twelve bins; preserve both limits.
 // AIT-557 (2026-11-18): honest split reservations push the unchanged growth
 // plan to 414.210s in thirteen bins. Coordinator Round 5 adds a fourteenth
 // shard under AIT-410/AIT-419; keep the 405s target and 420s ceiling.
-export const browserShardCount = 14;
+// AIT-597 (2026-11-20): after the split and floor retirement the measured plan
+// totals 5731.723s > 14 * 405s. LEAD decision (c) adds a fifteenth shard under
+// AIT-410/AIT-419; the 405s target, 420s ceiling and job timeouts stay.
+export const browserShardCount = 15;
 export const browserShardBudget = 420;
 // AIT-419: LEAD decision on AIT-410 (2026-10-20), one raise only; next overshoot gets an eighth shard, not 410s.
 export const browserShardHeadroomTarget = 405;

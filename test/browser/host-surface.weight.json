@@ -1,51 +1,5 @@
 {
-  "seconds": 244.435,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 42947874534-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
-  "timing": {
-    "schema": 1,
-    "window": 20,
-    "workload": "1b36b1f338603af7f948b8574f636975f004c4a90362cb565dbd20723f1ac515",
-    "samples": [
-      {
-        "runId": "42947874534",
-        "attempt": 1,
-        "sha": "0c4c4b1af999e4a3163e3676123e99140120bb89",
-        "observedAt": "2026-11-11T02:43:03.694Z",
-        "tests": [
-          {
-            "name": "AIT-214: retiring an idle session removes its export and reload creates a fresh conversation",
-            "seconds": 6.534115508
-          },
-          {
-            "name": "AIT-261: every terminal reason disables the demo UI and preserves export in DE and EN",
-            "seconds": 71.825719645
-          },
-          {
-            "name": "AIT-376 round 2: every DE/EN status fits at 390, including stale failed and missing",
-            "seconds": 3.796941665
-          },
-          {
-            "name": "AIT-376: consent deadline viewport matrix, focus, announcements and zero movement",
-            "seconds": 12.274141315000001
-          },
-          {
-            "name": "AIT-395: session credit matrix, sibling frame sampling and zero movement",
-            "seconds": 14.872974727
-          },
-          {
-            "name": "AIT-411: credit host options, exact zero geometry and Tick evidence",
-            "seconds": 74.577926774
-          },
-          {
-            "name": "AIT-433: handover notice and reserved states fit without movement at narrow widths",
-            "seconds": 3.436719949
-          },
-          {
-            "name": "host surface: verification lock through the fake outbox keeps a manual pause, conversation library, handover retry, chooser Continue; en and de, light and dark, 1440 and 400 px (AIT-104 B2)",
-            "seconds": 8.229267834
-          }
-        ]
-      }
-    ]
-  }
+  "seconds": 340,
+  "provisional": true,
+  "evidence": "AIT-597, 2026-11-20: provisional split reservation for 11 whole top-level tests: its remaining host-surface tests, including AIT-261, AIT-395 and AIT-411. Trusted pre-split host-surface rolling-main CI series (44613164647-1, 44650109778-1, 44682541019-1, 44688985679-1, 44707193689-1, 44725948096-1, 44736662387-1, 44742965802-1; merge-group, attempt 1): sum of these tests' per-test nearest-rank p95 = 271.585382161s (largest single-run sum 270.928651455s). Provisional reservation = ceil(1.25 * 271.585382161) = 340s, as AIT-557 reserved the clarify split. Replaces the pre-split host-surface weight and floors; rolling-main timings of the new workload will replace it, as AIT-558 did. Remote lane diagnostics stay outside trusted rolling CI samples."
 }

@@ -1,60 +1,1528 @@
 {
-  "seconds": 246.55,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 42947874534-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "seconds": 190.204,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 44399683830-1, 44475421367-1, 44484221831-1, 44500373409-1, 44526016960-1, 44526018340-1, 44527954945-1, 44542067051-1, 44543973862-1, 44568256946-1, 44576083632-1, 44607365746-1, 44613164647-1, 44650109778-1, 44682541019-1, 44688985679-1, 44707193689-1, 44725948096-1, 44736662387-1, 44742965802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "7531cbfc1ab8d3bcc9f98beb07200f929d334d19b8d2f52d0def2c629a372f51",
+    "workload": "ad2810646afc9e204d64d1040c8f010c104293c257f78105bf8e9a17294857a3",
     "samples": [
       {
-        "runId": "42947874534",
+        "runId": "44399683830",
         "attempt": 1,
-        "sha": "0c4c4b1af999e4a3163e3676123e99140120bb89",
-        "observedAt": "2026-11-11T02:43:02.190Z",
+        "sha": "7de34739a61754a39a887663f35b3983db29ae2f",
+        "observedAt": "2026-11-18T21:16:26.833Z",
         "tests": [
           {
             "name": "AIT-470 P-continue-slow de 1440: confirmation clears every lock indicator",
-            "seconds": 25.646132463999997
+            "seconds": 23.20174946
           },
           {
             "name": "AIT-470 P-continue-slow en 1440: confirmation clears every lock indicator",
-            "seconds": 25.839448218
+            "seconds": 23.548160293000002
           },
           {
             "name": "AIT-470 P-stalled de 1440: confirmation clears every lock indicator",
-            "seconds": 8.68295615
+            "seconds": 6.682321465
           },
           {
             "name": "AIT-470 P-stalled de 390: confirmation clears every lock indicator",
-            "seconds": 8.502219469
+            "seconds": 6.2074357849999995
           },
           {
             "name": "AIT-470 P-stalled en 1440-late-delivery: confirmation clears every lock indicator",
-            "seconds": 9.156895833
+            "seconds": 7.96349021
           },
           {
             "name": "AIT-470 P-stalled en 1440: confirmation clears every lock indicator",
-            "seconds": 8.594505972
+            "seconds": 8.545693439999999
           },
           {
             "name": "AIT-470 P-stalled en 390: confirmation clears every lock indicator",
-            "seconds": 8.472027963
+            "seconds": 5.866733731999999
           },
           {
             "name": "AIT-470 V-inplace de 1440: confirmation clears every lock indicator",
-            "seconds": 25.714851635
+            "seconds": 23.386270261999996
           },
           {
             "name": "AIT-470 V-inplace de 390: confirmation clears every lock indicator",
-            "seconds": 25.360796224999998
+            "seconds": 22.545895442000003
           },
           {
             "name": "AIT-470 V-inplace en 1440: confirmation clears every lock indicator",
-            "seconds": 25.700982862
+            "seconds": 23.089557715999998
           },
           {
             "name": "AIT-470 V-inplace en 390: confirmation clears every lock indicator",
-            "seconds": 25.568740548
+            "seconds": 23.022457549
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 1440",
+            "seconds": 2.701014276
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 390",
+            "seconds": 2.006308926
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 1440",
+            "seconds": 2.721127013
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 390",
+            "seconds": 2.876837859
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 1440",
+            "seconds": 3.0075889510000002
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 390",
+            "seconds": 2.4009828680000003
+          }
+        ]
+      },
+      {
+        "runId": "44475421367",
+        "attempt": 1,
+        "sha": "488a7b28c323d634998ac64d4abb38a2ee829dc3",
+        "observedAt": "2026-11-19T06:53:19.142Z",
+        "tests": [
+          {
+            "name": "AIT-470 P-continue-slow de 1440: confirmation clears every lock indicator",
+            "seconds": 23.617730625
+          },
+          {
+            "name": "AIT-470 P-continue-slow en 1440: confirmation clears every lock indicator",
+            "seconds": 23.520340883
+          },
+          {
+            "name": "AIT-470 P-stalled de 1440: confirmation clears every lock indicator",
+            "seconds": 6.2765916079999995
+          },
+          {
+            "name": "AIT-470 P-stalled de 390: confirmation clears every lock indicator",
+            "seconds": 5.713982485000001
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440-late-delivery: confirmation clears every lock indicator",
+            "seconds": 6.8253605649999995
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440: confirmation clears every lock indicator",
+            "seconds": 6.4226221269999995
+          },
+          {
+            "name": "AIT-470 P-stalled en 390: confirmation clears every lock indicator",
+            "seconds": 5.609226576
+          },
+          {
+            "name": "AIT-470 V-inplace de 1440: confirmation clears every lock indicator",
+            "seconds": 23.318449469
+          },
+          {
+            "name": "AIT-470 V-inplace de 390: confirmation clears every lock indicator",
+            "seconds": 22.530889476
+          },
+          {
+            "name": "AIT-470 V-inplace en 1440: confirmation clears every lock indicator",
+            "seconds": 23.236952385000002
+          },
+          {
+            "name": "AIT-470 V-inplace en 390: confirmation clears every lock indicator",
+            "seconds": 22.77911576
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 1440",
+            "seconds": 2.708016679
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 390",
+            "seconds": 2.329523743
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 1440",
+            "seconds": 3.003300683
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 390",
+            "seconds": 2.5406293829999997
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 1440",
+            "seconds": 2.947564304
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 390",
+            "seconds": 2.543096626
+          }
+        ]
+      },
+      {
+        "runId": "44484221831",
+        "attempt": 1,
+        "sha": "cf76a680942a36ce0be68ce84e92e8df1e8fd15a",
+        "observedAt": "2026-11-19T08:02:21.927Z",
+        "tests": [
+          {
+            "name": "AIT-470 P-continue-slow de 1440: confirmation clears every lock indicator",
+            "seconds": 23.448235641
+          },
+          {
+            "name": "AIT-470 P-continue-slow en 1440: confirmation clears every lock indicator",
+            "seconds": 23.426575717
+          },
+          {
+            "name": "AIT-470 P-stalled de 1440: confirmation clears every lock indicator",
+            "seconds": 6.255457882
+          },
+          {
+            "name": "AIT-470 P-stalled de 390: confirmation clears every lock indicator",
+            "seconds": 5.665996845
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440-late-delivery: confirmation clears every lock indicator",
+            "seconds": 6.996796465
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440: confirmation clears every lock indicator",
+            "seconds": 6.380699581
+          },
+          {
+            "name": "AIT-470 P-stalled en 390: confirmation clears every lock indicator",
+            "seconds": 5.518571001000001
+          },
+          {
+            "name": "AIT-470 V-inplace de 1440: confirmation clears every lock indicator",
+            "seconds": 23.074952113
+          },
+          {
+            "name": "AIT-470 V-inplace de 390: confirmation clears every lock indicator",
+            "seconds": 22.588416146
+          },
+          {
+            "name": "AIT-470 V-inplace en 1440: confirmation clears every lock indicator",
+            "seconds": 23.103243683000002
+          },
+          {
+            "name": "AIT-470 V-inplace en 390: confirmation clears every lock indicator",
+            "seconds": 23.212535493
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 1440",
+            "seconds": 2.4826901809999997
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 390",
+            "seconds": 2.240468543
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 1440",
+            "seconds": 2.852165228
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 390",
+            "seconds": 2.504239342
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 1440",
+            "seconds": 2.911383684
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 390",
+            "seconds": 2.4404425080000003
+          }
+        ]
+      },
+      {
+        "runId": "44500373409",
+        "attempt": 1,
+        "sha": "f152e427e02e5bc390b909bde2a214c43bc0a402",
+        "observedAt": "2026-11-19T09:52:42.195Z",
+        "tests": [
+          {
+            "name": "AIT-470 P-continue-slow de 1440: confirmation clears every lock indicator",
+            "seconds": 23.596611235
+          },
+          {
+            "name": "AIT-470 P-continue-slow en 1440: confirmation clears every lock indicator",
+            "seconds": 23.38504809
+          },
+          {
+            "name": "AIT-470 P-stalled de 1440: confirmation clears every lock indicator",
+            "seconds": 6.22915805
+          },
+          {
+            "name": "AIT-470 P-stalled de 390: confirmation clears every lock indicator",
+            "seconds": 5.795474934
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440-late-delivery: confirmation clears every lock indicator",
+            "seconds": 6.703316792
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440: confirmation clears every lock indicator",
+            "seconds": 6.2923567380000005
+          },
+          {
+            "name": "AIT-470 P-stalled en 390: confirmation clears every lock indicator",
+            "seconds": 5.640139704999999
+          },
+          {
+            "name": "AIT-470 V-inplace de 1440: confirmation clears every lock indicator",
+            "seconds": 23.090935558
+          },
+          {
+            "name": "AIT-470 V-inplace de 390: confirmation clears every lock indicator",
+            "seconds": 22.445665016
+          },
+          {
+            "name": "AIT-470 V-inplace en 1440: confirmation clears every lock indicator",
+            "seconds": 23.039304936
+          },
+          {
+            "name": "AIT-470 V-inplace en 390: confirmation clears every lock indicator",
+            "seconds": 23.866961256
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 1440",
+            "seconds": 2.5011225209999997
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 390",
+            "seconds": 2.2589712669999997
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 1440",
+            "seconds": 2.851213985
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 390",
+            "seconds": 2.45054448
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 1440",
+            "seconds": 2.8583712799999996
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 390",
+            "seconds": 2.4441764509999997
+          }
+        ]
+      },
+      {
+        "runId": "44526016960",
+        "attempt": 1,
+        "sha": "1260f82a11eebec113a83972ff9bf6529c2b361b",
+        "observedAt": "2026-11-19T12:40:26.395Z",
+        "tests": [
+          {
+            "name": "AIT-470 P-continue-slow de 1440: confirmation clears every lock indicator",
+            "seconds": 22.999873949
+          },
+          {
+            "name": "AIT-470 P-continue-slow en 1440: confirmation clears every lock indicator",
+            "seconds": 23.143893218000002
+          },
+          {
+            "name": "AIT-470 P-stalled de 1440: confirmation clears every lock indicator",
+            "seconds": 6.316327444
+          },
+          {
+            "name": "AIT-470 P-stalled de 390: confirmation clears every lock indicator",
+            "seconds": 5.4590634090000005
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440-late-delivery: confirmation clears every lock indicator",
+            "seconds": 6.54678204
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440: confirmation clears every lock indicator",
+            "seconds": 5.742809863000001
+          },
+          {
+            "name": "AIT-470 P-stalled en 390: confirmation clears every lock indicator",
+            "seconds": 5.233900031999999
+          },
+          {
+            "name": "AIT-470 V-inplace de 1440: confirmation clears every lock indicator",
+            "seconds": 22.609905713
+          },
+          {
+            "name": "AIT-470 V-inplace de 390: confirmation clears every lock indicator",
+            "seconds": 22.095234437
+          },
+          {
+            "name": "AIT-470 V-inplace en 1440: confirmation clears every lock indicator",
+            "seconds": 22.569877534
+          },
+          {
+            "name": "AIT-470 V-inplace en 390: confirmation clears every lock indicator",
+            "seconds": 23.571525039
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 1440",
+            "seconds": 2.184209665
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 390",
+            "seconds": 1.9398442729999998
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 1440",
+            "seconds": 2.483365826
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 390",
+            "seconds": 2.1618853380000003
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 1440",
+            "seconds": 2.506425885
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 390",
+            "seconds": 2.17864941
+          }
+        ]
+      },
+      {
+        "runId": "44526018340",
+        "attempt": 1,
+        "sha": "2f0db3f8190cf0bdeda4d53561db632144942703",
+        "observedAt": "2026-11-19T12:40:27.834Z",
+        "tests": [
+          {
+            "name": "AIT-470 P-continue-slow de 1440: confirmation clears every lock indicator",
+            "seconds": 22.325321152
+          },
+          {
+            "name": "AIT-470 P-continue-slow en 1440: confirmation clears every lock indicator",
+            "seconds": 22.380774916
+          },
+          {
+            "name": "AIT-470 P-stalled de 1440: confirmation clears every lock indicator",
+            "seconds": 5.284945144
+          },
+          {
+            "name": "AIT-470 P-stalled de 390: confirmation clears every lock indicator",
+            "seconds": 4.826897651
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440-late-delivery: confirmation clears every lock indicator",
+            "seconds": 5.723735938
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440: confirmation clears every lock indicator",
+            "seconds": 5.2140046060000005
+          },
+          {
+            "name": "AIT-470 P-stalled en 390: confirmation clears every lock indicator",
+            "seconds": 4.81914729
+          },
+          {
+            "name": "AIT-470 V-inplace de 1440: confirmation clears every lock indicator",
+            "seconds": 22.147330590000003
+          },
+          {
+            "name": "AIT-470 V-inplace de 390: confirmation clears every lock indicator",
+            "seconds": 21.815481377
+          },
+          {
+            "name": "AIT-470 V-inplace en 1440: confirmation clears every lock indicator",
+            "seconds": 22.21130774
+          },
+          {
+            "name": "AIT-470 V-inplace en 390: confirmation clears every lock indicator",
+            "seconds": 23.780968217
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 1440",
+            "seconds": 1.799718975
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 390",
+            "seconds": 1.574392111
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 1440",
+            "seconds": 2.138571129
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 390",
+            "seconds": 1.952159152
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 1440",
+            "seconds": 2.190958186
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 390",
+            "seconds": 1.8878613190000002
+          }
+        ]
+      },
+      {
+        "runId": "44527954945",
+        "attempt": 1,
+        "sha": "47d7ce55921b8c96cc309b45e1ea1f4efa6d6816",
+        "observedAt": "2026-11-19T12:52:53.180Z",
+        "tests": [
+          {
+            "name": "AIT-470 P-continue-slow de 1440: confirmation clears every lock indicator",
+            "seconds": 23.732108454000002
+          },
+          {
+            "name": "AIT-470 P-continue-slow en 1440: confirmation clears every lock indicator",
+            "seconds": 23.636779769
+          },
+          {
+            "name": "AIT-470 P-stalled de 1440: confirmation clears every lock indicator",
+            "seconds": 6.277590193
+          },
+          {
+            "name": "AIT-470 P-stalled de 390: confirmation clears every lock indicator",
+            "seconds": 5.863979985
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440-late-delivery: confirmation clears every lock indicator",
+            "seconds": 7.2296141369999996
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440: confirmation clears every lock indicator",
+            "seconds": 6.538063212
+          },
+          {
+            "name": "AIT-470 P-stalled en 390: confirmation clears every lock indicator",
+            "seconds": 5.58803682
+          },
+          {
+            "name": "AIT-470 V-inplace de 1440: confirmation clears every lock indicator",
+            "seconds": 23.274878162
+          },
+          {
+            "name": "AIT-470 V-inplace de 390: confirmation clears every lock indicator",
+            "seconds": 22.607569458
+          },
+          {
+            "name": "AIT-470 V-inplace en 1440: confirmation clears every lock indicator",
+            "seconds": 23.241733951999997
+          },
+          {
+            "name": "AIT-470 V-inplace en 390: confirmation clears every lock indicator",
+            "seconds": 22.727953065999998
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 1440",
+            "seconds": 2.65850495
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 390",
+            "seconds": 2.409136062
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 1440",
+            "seconds": 3.00954893
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 390",
+            "seconds": 2.735525531
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 1440",
+            "seconds": 3.0243126790000003
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 390",
+            "seconds": 2.723539235
+          }
+        ]
+      },
+      {
+        "runId": "44542067051",
+        "attempt": 1,
+        "sha": "8e142a67ed4746ff548b173546f8219f4ece2e8f",
+        "observedAt": "2026-11-19T14:17:24.891Z",
+        "tests": [
+          {
+            "name": "AIT-470 P-continue-slow de 1440: confirmation clears every lock indicator",
+            "seconds": 22.780916236
+          },
+          {
+            "name": "AIT-470 P-continue-slow en 1440: confirmation clears every lock indicator",
+            "seconds": 22.587350148000002
+          },
+          {
+            "name": "AIT-470 P-stalled de 1440: confirmation clears every lock indicator",
+            "seconds": 5.575847856
+          },
+          {
+            "name": "AIT-470 P-stalled de 390: confirmation clears every lock indicator",
+            "seconds": 5.026895966
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440-late-delivery: confirmation clears every lock indicator",
+            "seconds": 6.148587136
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440: confirmation clears every lock indicator",
+            "seconds": 5.589693252
+          },
+          {
+            "name": "AIT-470 P-stalled en 390: confirmation clears every lock indicator",
+            "seconds": 5.063738698
+          },
+          {
+            "name": "AIT-470 V-inplace de 1440: confirmation clears every lock indicator",
+            "seconds": 22.599072993999997
+          },
+          {
+            "name": "AIT-470 V-inplace de 390: confirmation clears every lock indicator",
+            "seconds": 22.162934328
+          },
+          {
+            "name": "AIT-470 V-inplace en 1440: confirmation clears every lock indicator",
+            "seconds": 22.681702709
+          },
+          {
+            "name": "AIT-470 V-inplace en 390: confirmation clears every lock indicator",
+            "seconds": 22.169815978
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 1440",
+            "seconds": 2.011220675
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 390",
+            "seconds": 1.8552577879999999
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 1440",
+            "seconds": 2.3762431150000003
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 390",
+            "seconds": 2.0345078
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 1440",
+            "seconds": 2.353438584
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 390",
+            "seconds": 2.107274663
+          }
+        ]
+      },
+      {
+        "runId": "44543973862",
+        "attempt": 1,
+        "sha": "55933f7ff519a2c5b60c6a2ff52039c0495794bf",
+        "observedAt": "2026-11-19T14:27:59.487Z",
+        "tests": [
+          {
+            "name": "AIT-470 P-continue-slow de 1440: confirmation clears every lock indicator",
+            "seconds": 23.961334083999997
+          },
+          {
+            "name": "AIT-470 P-continue-slow en 1440: confirmation clears every lock indicator",
+            "seconds": 23.439082836
+          },
+          {
+            "name": "AIT-470 P-stalled de 1440: confirmation clears every lock indicator",
+            "seconds": 6.04446408
+          },
+          {
+            "name": "AIT-470 P-stalled de 390: confirmation clears every lock indicator",
+            "seconds": 5.568254246
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440-late-delivery: confirmation clears every lock indicator",
+            "seconds": 6.493871379
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440: confirmation clears every lock indicator",
+            "seconds": 6.027539541
+          },
+          {
+            "name": "AIT-470 P-stalled en 390: confirmation clears every lock indicator",
+            "seconds": 5.480646319000001
+          },
+          {
+            "name": "AIT-470 V-inplace de 1440: confirmation clears every lock indicator",
+            "seconds": 23.26905656
+          },
+          {
+            "name": "AIT-470 V-inplace de 390: confirmation clears every lock indicator",
+            "seconds": 22.616367255
+          },
+          {
+            "name": "AIT-470 V-inplace en 1440: confirmation clears every lock indicator",
+            "seconds": 23.377937914999997
+          },
+          {
+            "name": "AIT-470 V-inplace en 390: confirmation clears every lock indicator",
+            "seconds": 22.84707083
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 1440",
+            "seconds": 2.415321148
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 390",
+            "seconds": 2.057494447
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 1440",
+            "seconds": 3.1660532
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 390",
+            "seconds": 2.789364756
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 1440",
+            "seconds": 3.4429953529999997
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 390",
+            "seconds": 2.405033655
+          }
+        ]
+      },
+      {
+        "runId": "44568256946",
+        "attempt": 1,
+        "sha": "c6153be8ff45ab695cfd191d32a512446ce87aef",
+        "observedAt": "2026-11-19T16:38:17.310Z",
+        "tests": [
+          {
+            "name": "AIT-470 P-continue-slow de 1440: confirmation clears every lock indicator",
+            "seconds": 22.946190122
+          },
+          {
+            "name": "AIT-470 P-continue-slow en 1440: confirmation clears every lock indicator",
+            "seconds": 23.125314207
+          },
+          {
+            "name": "AIT-470 P-stalled de 1440: confirmation clears every lock indicator",
+            "seconds": 5.881844780000001
+          },
+          {
+            "name": "AIT-470 P-stalled de 390: confirmation clears every lock indicator",
+            "seconds": 5.306603967
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440-late-delivery: confirmation clears every lock indicator",
+            "seconds": 6.395546319
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440: confirmation clears every lock indicator",
+            "seconds": 5.7762490049999995
+          },
+          {
+            "name": "AIT-470 P-stalled en 390: confirmation clears every lock indicator",
+            "seconds": 5.33980256
+          },
+          {
+            "name": "AIT-470 V-inplace de 1440: confirmation clears every lock indicator",
+            "seconds": 23.212384529999998
+          },
+          {
+            "name": "AIT-470 V-inplace de 390: confirmation clears every lock indicator",
+            "seconds": 22.285676154
+          },
+          {
+            "name": "AIT-470 V-inplace en 1440: confirmation clears every lock indicator",
+            "seconds": 22.983623229
+          },
+          {
+            "name": "AIT-470 V-inplace en 390: confirmation clears every lock indicator",
+            "seconds": 24.585602596
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 1440",
+            "seconds": 2.66567515
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 390",
+            "seconds": 2.11358017
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 1440",
+            "seconds": 2.647317949
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 390",
+            "seconds": 2.231325429
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 1440",
+            "seconds": 2.4743913330000002
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 390",
+            "seconds": 3.0503161839999997
+          }
+        ]
+      },
+      {
+        "runId": "44576083632",
+        "attempt": 1,
+        "sha": "0d40a127e17dda064df3a626a8134f403faf54c6",
+        "observedAt": "2026-11-19T17:20:38.394Z",
+        "tests": [
+          {
+            "name": "AIT-470 P-continue-slow de 1440: confirmation clears every lock indicator",
+            "seconds": 22.888465758
+          },
+          {
+            "name": "AIT-470 P-continue-slow en 1440: confirmation clears every lock indicator",
+            "seconds": 22.822991024
+          },
+          {
+            "name": "AIT-470 P-stalled de 1440: confirmation clears every lock indicator",
+            "seconds": 5.6126261809999995
+          },
+          {
+            "name": "AIT-470 P-stalled de 390: confirmation clears every lock indicator",
+            "seconds": 5.0540684979999995
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440-late-delivery: confirmation clears every lock indicator",
+            "seconds": 5.984131141
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440: confirmation clears every lock indicator",
+            "seconds": 5.577881847
+          },
+          {
+            "name": "AIT-470 P-stalled en 390: confirmation clears every lock indicator",
+            "seconds": 5.028584317
+          },
+          {
+            "name": "AIT-470 V-inplace de 1440: confirmation clears every lock indicator",
+            "seconds": 22.577560813
+          },
+          {
+            "name": "AIT-470 V-inplace de 390: confirmation clears every lock indicator",
+            "seconds": 22.18185811
+          },
+          {
+            "name": "AIT-470 V-inplace en 1440: confirmation clears every lock indicator",
+            "seconds": 22.454385827
+          },
+          {
+            "name": "AIT-470 V-inplace en 390: confirmation clears every lock indicator",
+            "seconds": 22.181268851000002
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 1440",
+            "seconds": 2.064192001
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 390",
+            "seconds": 1.7836452440000001
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 1440",
+            "seconds": 2.444569282
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 390",
+            "seconds": 2.14851518
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 1440",
+            "seconds": 2.486241646
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 390",
+            "seconds": 2.24448672
+          }
+        ]
+      },
+      {
+        "runId": "44607365746",
+        "attempt": 1,
+        "sha": "f394364da286d742a4c9799f0f543be70ea13f62",
+        "observedAt": "2026-11-19T20:19:04.346Z",
+        "tests": [
+          {
+            "name": "AIT-470 P-continue-slow de 1440: confirmation clears every lock indicator",
+            "seconds": 22.965543695
+          },
+          {
+            "name": "AIT-470 P-continue-slow en 1440: confirmation clears every lock indicator",
+            "seconds": 22.990969492
+          },
+          {
+            "name": "AIT-470 P-stalled de 1440: confirmation clears every lock indicator",
+            "seconds": 5.852675789
+          },
+          {
+            "name": "AIT-470 P-stalled de 390: confirmation clears every lock indicator",
+            "seconds": 5.325630094
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440-late-delivery: confirmation clears every lock indicator",
+            "seconds": 6.492051377
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440: confirmation clears every lock indicator",
+            "seconds": 6.065586582
+          },
+          {
+            "name": "AIT-470 P-stalled en 390: confirmation clears every lock indicator",
+            "seconds": 5.236946404999999
+          },
+          {
+            "name": "AIT-470 V-inplace de 1440: confirmation clears every lock indicator",
+            "seconds": 22.712621039000002
+          },
+          {
+            "name": "AIT-470 V-inplace de 390: confirmation clears every lock indicator",
+            "seconds": 22.17356924
+          },
+          {
+            "name": "AIT-470 V-inplace en 1440: confirmation clears every lock indicator",
+            "seconds": 22.692112813
+          },
+          {
+            "name": "AIT-470 V-inplace en 390: confirmation clears every lock indicator",
+            "seconds": 22.340777604
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 1440",
+            "seconds": 2.248137149
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 390",
+            "seconds": 2.061119261
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 1440",
+            "seconds": 2.5269847920000004
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 390",
+            "seconds": 2.239461847
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 1440",
+            "seconds": 2.552837548
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 390",
+            "seconds": 2.187211035
+          }
+        ]
+      },
+      {
+        "runId": "44613164647",
+        "attempt": 1,
+        "sha": "72512711b37c46a32f9b2d049f77b85bacec4d86",
+        "observedAt": "2026-11-19T20:53:22.937Z",
+        "tests": [
+          {
+            "name": "AIT-470 P-continue-slow de 1440: confirmation clears every lock indicator",
+            "seconds": 23.528471135
+          },
+          {
+            "name": "AIT-470 P-continue-slow en 1440: confirmation clears every lock indicator",
+            "seconds": 23.544357434000002
+          },
+          {
+            "name": "AIT-470 P-stalled de 1440: confirmation clears every lock indicator",
+            "seconds": 6.271268871
+          },
+          {
+            "name": "AIT-470 P-stalled de 390: confirmation clears every lock indicator",
+            "seconds": 5.771084793
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440-late-delivery: confirmation clears every lock indicator",
+            "seconds": 7.166144277
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440: confirmation clears every lock indicator",
+            "seconds": 6.443007846
+          },
+          {
+            "name": "AIT-470 P-stalled en 390: confirmation clears every lock indicator",
+            "seconds": 5.575519784
+          },
+          {
+            "name": "AIT-470 V-inplace de 1440: confirmation clears every lock indicator",
+            "seconds": 23.028848468
+          },
+          {
+            "name": "AIT-470 V-inplace de 390: confirmation clears every lock indicator",
+            "seconds": 22.484240419000002
+          },
+          {
+            "name": "AIT-470 V-inplace en 1440: confirmation clears every lock indicator",
+            "seconds": 23.067518739
+          },
+          {
+            "name": "AIT-470 V-inplace en 390: confirmation clears every lock indicator",
+            "seconds": 22.753610449
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 1440",
+            "seconds": 2.5218874970000003
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 390",
+            "seconds": 2.258570149
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 1440",
+            "seconds": 2.933811026
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 390",
+            "seconds": 2.5115877220000002
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 1440",
+            "seconds": 2.8740939749999996
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 390",
+            "seconds": 2.44917107
+          }
+        ]
+      },
+      {
+        "runId": "44650109778",
+        "attempt": 1,
+        "sha": "09a22c5713ac3f96033f1b4bee8300132c3ac45e",
+        "observedAt": "2026-11-20T00:59:16.265Z",
+        "tests": [
+          {
+            "name": "AIT-470 P-continue-slow de 1440: confirmation clears every lock indicator",
+            "seconds": 23.614911996
+          },
+          {
+            "name": "AIT-470 P-continue-slow en 1440: confirmation clears every lock indicator",
+            "seconds": 23.577239574
+          },
+          {
+            "name": "AIT-470 P-stalled de 1440: confirmation clears every lock indicator",
+            "seconds": 6.395495328
+          },
+          {
+            "name": "AIT-470 P-stalled de 390: confirmation clears every lock indicator",
+            "seconds": 5.814566753
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440-late-delivery: confirmation clears every lock indicator",
+            "seconds": 6.844270853
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440: confirmation clears every lock indicator",
+            "seconds": 6.288004379
+          },
+          {
+            "name": "AIT-470 P-stalled en 390: confirmation clears every lock indicator",
+            "seconds": 5.899365441
+          },
+          {
+            "name": "AIT-470 V-inplace de 1440: confirmation clears every lock indicator",
+            "seconds": 23.372688150000002
+          },
+          {
+            "name": "AIT-470 V-inplace de 390: confirmation clears every lock indicator",
+            "seconds": 22.474175655
+          },
+          {
+            "name": "AIT-470 V-inplace en 1440: confirmation clears every lock indicator",
+            "seconds": 23.270066558
+          },
+          {
+            "name": "AIT-470 V-inplace en 390: confirmation clears every lock indicator",
+            "seconds": 24.282207318
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 1440",
+            "seconds": 2.557608505
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 390",
+            "seconds": 2.310867399
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 1440",
+            "seconds": 3.041842988
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 390",
+            "seconds": 2.5688179570000003
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 1440",
+            "seconds": 2.926922078
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 390",
+            "seconds": 2.574487572
+          }
+        ]
+      },
+      {
+        "runId": "44682541019",
+        "attempt": 1,
+        "sha": "29bf20c22fbd533dca879c382810a704e0f090e8",
+        "observedAt": "2026-11-20T05:40:22.591Z",
+        "tests": [
+          {
+            "name": "AIT-470 P-continue-slow de 1440: confirmation clears every lock indicator",
+            "seconds": 23.300107965
+          },
+          {
+            "name": "AIT-470 P-continue-slow en 1440: confirmation clears every lock indicator",
+            "seconds": 23.423136429
+          },
+          {
+            "name": "AIT-470 P-stalled de 1440: confirmation clears every lock indicator",
+            "seconds": 6.582871068
+          },
+          {
+            "name": "AIT-470 P-stalled de 390: confirmation clears every lock indicator",
+            "seconds": 5.415497365999999
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440-late-delivery: confirmation clears every lock indicator",
+            "seconds": 6.866894096
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440: confirmation clears every lock indicator",
+            "seconds": 5.884799059
+          },
+          {
+            "name": "AIT-470 P-stalled en 390: confirmation clears every lock indicator",
+            "seconds": 5.266620995
+          },
+          {
+            "name": "AIT-470 V-inplace de 1440: confirmation clears every lock indicator",
+            "seconds": 22.694087576
+          },
+          {
+            "name": "AIT-470 V-inplace de 390: confirmation clears every lock indicator",
+            "seconds": 22.11499099
+          },
+          {
+            "name": "AIT-470 V-inplace en 1440: confirmation clears every lock indicator",
+            "seconds": 22.739494223999998
+          },
+          {
+            "name": "AIT-470 V-inplace en 390: confirmation clears every lock indicator",
+            "seconds": 22.501041188
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 1440",
+            "seconds": 2.160917339
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 390",
+            "seconds": 2.361807586
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 1440",
+            "seconds": 2.554638932
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 390",
+            "seconds": 2.98227747
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 1440",
+            "seconds": 2.570153832
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 390",
+            "seconds": 3.216892577
+          }
+        ]
+      },
+      {
+        "runId": "44688985679",
+        "attempt": 1,
+        "sha": "5d507e04ee24aba5b308eff6c60ee5a0d26d8f61",
+        "observedAt": "2026-11-20T06:36:42.436Z",
+        "tests": [
+          {
+            "name": "AIT-470 P-continue-slow de 1440: confirmation clears every lock indicator",
+            "seconds": 23.584517505
+          },
+          {
+            "name": "AIT-470 P-continue-slow en 1440: confirmation clears every lock indicator",
+            "seconds": 23.632305903
+          },
+          {
+            "name": "AIT-470 P-stalled de 1440: confirmation clears every lock indicator",
+            "seconds": 6.291691958
+          },
+          {
+            "name": "AIT-470 P-stalled de 390: confirmation clears every lock indicator",
+            "seconds": 5.831287583
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440-late-delivery: confirmation clears every lock indicator",
+            "seconds": 6.820679868999999
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440: confirmation clears every lock indicator",
+            "seconds": 6.3554459109999994
+          },
+          {
+            "name": "AIT-470 P-stalled en 390: confirmation clears every lock indicator",
+            "seconds": 5.635691802
+          },
+          {
+            "name": "AIT-470 V-inplace de 1440: confirmation clears every lock indicator",
+            "seconds": 23.252318098
+          },
+          {
+            "name": "AIT-470 V-inplace de 390: confirmation clears every lock indicator",
+            "seconds": 22.546627736999998
+          },
+          {
+            "name": "AIT-470 V-inplace en 1440: confirmation clears every lock indicator",
+            "seconds": 23.276143571000002
+          },
+          {
+            "name": "AIT-470 V-inplace en 390: confirmation clears every lock indicator",
+            "seconds": 23.718055458
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 1440",
+            "seconds": 2.539073417
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 390",
+            "seconds": 2.2735246229999997
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 1440",
+            "seconds": 2.854203558
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 390",
+            "seconds": 2.501997197
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 1440",
+            "seconds": 2.941148951
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 390",
+            "seconds": 2.50762044
+          }
+        ]
+      },
+      {
+        "runId": "44707193689",
+        "attempt": 1,
+        "sha": "81da7bef5ad3f181bc68e1a6d2bc2df8f039c463",
+        "observedAt": "2026-11-20T09:01:48.074Z",
+        "tests": [
+          {
+            "name": "AIT-470 P-continue-slow de 1440: confirmation clears every lock indicator",
+            "seconds": 23.63470127
+          },
+          {
+            "name": "AIT-470 P-continue-slow en 1440: confirmation clears every lock indicator",
+            "seconds": 23.671931143000002
+          },
+          {
+            "name": "AIT-470 P-stalled de 1440: confirmation clears every lock indicator",
+            "seconds": 6.366739278
+          },
+          {
+            "name": "AIT-470 P-stalled de 390: confirmation clears every lock indicator",
+            "seconds": 5.8689825419999995
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440-late-delivery: confirmation clears every lock indicator",
+            "seconds": 7.223710161
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440: confirmation clears every lock indicator",
+            "seconds": 6.423101733
+          },
+          {
+            "name": "AIT-470 P-stalled en 390: confirmation clears every lock indicator",
+            "seconds": 5.569281571
+          },
+          {
+            "name": "AIT-470 V-inplace de 1440: confirmation clears every lock indicator",
+            "seconds": 23.151814849999997
+          },
+          {
+            "name": "AIT-470 V-inplace de 390: confirmation clears every lock indicator",
+            "seconds": 22.530694068
+          },
+          {
+            "name": "AIT-470 V-inplace en 1440: confirmation clears every lock indicator",
+            "seconds": 23.282397153999998
+          },
+          {
+            "name": "AIT-470 V-inplace en 390: confirmation clears every lock indicator",
+            "seconds": 22.956351116999997
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 1440",
+            "seconds": 2.527706409
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 390",
+            "seconds": 2.318800443
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 1440",
+            "seconds": 3.001765277
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 390",
+            "seconds": 2.5024666630000003
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 1440",
+            "seconds": 2.94758643
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 390",
+            "seconds": 2.532589034
+          }
+        ]
+      },
+      {
+        "runId": "44725948096",
+        "attempt": 1,
+        "sha": "2f1001c51c3a9a585b3233762f3cc8cca6ef23a9",
+        "observedAt": "2026-11-20T11:14:41.365Z",
+        "tests": [
+          {
+            "name": "AIT-470 P-continue-slow de 1440: confirmation clears every lock indicator",
+            "seconds": 23.177145337000002
+          },
+          {
+            "name": "AIT-470 P-continue-slow en 1440: confirmation clears every lock indicator",
+            "seconds": 23.226968084
+          },
+          {
+            "name": "AIT-470 P-stalled de 1440: confirmation clears every lock indicator",
+            "seconds": 5.890002484
+          },
+          {
+            "name": "AIT-470 P-stalled de 390: confirmation clears every lock indicator",
+            "seconds": 5.366454805
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440-late-delivery: confirmation clears every lock indicator",
+            "seconds": 6.518627098
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440: confirmation clears every lock indicator",
+            "seconds": 5.904474922
+          },
+          {
+            "name": "AIT-470 P-stalled en 390: confirmation clears every lock indicator",
+            "seconds": 5.311171948999999
+          },
+          {
+            "name": "AIT-470 V-inplace de 1440: confirmation clears every lock indicator",
+            "seconds": 22.909716045
+          },
+          {
+            "name": "AIT-470 V-inplace de 390: confirmation clears every lock indicator",
+            "seconds": 22.239168901
+          },
+          {
+            "name": "AIT-470 V-inplace en 1440: confirmation clears every lock indicator",
+            "seconds": 22.91125074
+          },
+          {
+            "name": "AIT-470 V-inplace en 390: confirmation clears every lock indicator",
+            "seconds": 23.47443947
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 1440",
+            "seconds": 2.198959741
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 390",
+            "seconds": 1.963772518
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 1440",
+            "seconds": 2.558250684
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 390",
+            "seconds": 2.257608287
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 1440",
+            "seconds": 2.5706669339999997
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 390",
+            "seconds": 2.2564090219999997
+          }
+        ]
+      },
+      {
+        "runId": "44736662387",
+        "attempt": 1,
+        "sha": "d24d320fb50018e9b3d2984fc6e964d336bc045d",
+        "observedAt": "2026-11-20T12:33:03.316Z",
+        "tests": [
+          {
+            "name": "AIT-470 P-continue-slow de 1440: confirmation clears every lock indicator",
+            "seconds": 23.711008125
+          },
+          {
+            "name": "AIT-470 P-continue-slow en 1440: confirmation clears every lock indicator",
+            "seconds": 23.624449005
+          },
+          {
+            "name": "AIT-470 P-stalled de 1440: confirmation clears every lock indicator",
+            "seconds": 6.371796669
+          },
+          {
+            "name": "AIT-470 P-stalled de 390: confirmation clears every lock indicator",
+            "seconds": 5.893828654
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440-late-delivery: confirmation clears every lock indicator",
+            "seconds": 6.978192538
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440: confirmation clears every lock indicator",
+            "seconds": 6.402040405
+          },
+          {
+            "name": "AIT-470 P-stalled en 390: confirmation clears every lock indicator",
+            "seconds": 5.661902041
+          },
+          {
+            "name": "AIT-470 V-inplace de 1440: confirmation clears every lock indicator",
+            "seconds": 23.305862672
+          },
+          {
+            "name": "AIT-470 V-inplace de 390: confirmation clears every lock indicator",
+            "seconds": 22.539257753
+          },
+          {
+            "name": "AIT-470 V-inplace en 1440: confirmation clears every lock indicator",
+            "seconds": 23.330641507
+          },
+          {
+            "name": "AIT-470 V-inplace en 390: confirmation clears every lock indicator",
+            "seconds": 22.752702274
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 1440",
+            "seconds": 2.647718152
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 390",
+            "seconds": 2.362144399
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 1440",
+            "seconds": 3.0075070850000003
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 390",
+            "seconds": 2.622995875
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 1440",
+            "seconds": 3.098505448
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 390",
+            "seconds": 2.574193824
+          }
+        ]
+      },
+      {
+        "runId": "44742965802",
+        "attempt": 1,
+        "sha": "ddb1e06dbf1a3ebb8fea75cfffd86401ea9c1fab",
+        "observedAt": "2026-11-20T13:17:33.344Z",
+        "tests": [
+          {
+            "name": "AIT-470 P-continue-slow de 1440: confirmation clears every lock indicator",
+            "seconds": 23.55217384
+          },
+          {
+            "name": "AIT-470 P-continue-slow en 1440: confirmation clears every lock indicator",
+            "seconds": 23.565490119
+          },
+          {
+            "name": "AIT-470 P-stalled de 1440: confirmation clears every lock indicator",
+            "seconds": 6.333582954000001
+          },
+          {
+            "name": "AIT-470 P-stalled de 390: confirmation clears every lock indicator",
+            "seconds": 5.648233975
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440-late-delivery: confirmation clears every lock indicator",
+            "seconds": 7.085035842
+          },
+          {
+            "name": "AIT-470 P-stalled en 1440: confirmation clears every lock indicator",
+            "seconds": 6.442553611
+          },
+          {
+            "name": "AIT-470 P-stalled en 390: confirmation clears every lock indicator",
+            "seconds": 5.674485868
+          },
+          {
+            "name": "AIT-470 V-inplace de 1440: confirmation clears every lock indicator",
+            "seconds": 23.099741922
+          },
+          {
+            "name": "AIT-470 V-inplace de 390: confirmation clears every lock indicator",
+            "seconds": 22.458103212
+          },
+          {
+            "name": "AIT-470 V-inplace en 1440: confirmation clears every lock indicator",
+            "seconds": 23.244853055
+          },
+          {
+            "name": "AIT-470 V-inplace en 390: confirmation clears every lock indicator",
+            "seconds": 22.76387759
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 1440",
+            "seconds": 2.501077699
+          },
+          {
+            "name": "AIT-494 real routes and failed Settings row geometry 390",
+            "seconds": 2.2373703540000003
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 1440",
+            "seconds": 2.911469023
+          },
+          {
+            "name": "AIT-497 wrapping Settings row failed to requested to sent 390",
+            "seconds": 2.627078994
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 1440",
+            "seconds": 2.8643817389999997
+          },
+          {
+            "name": "AIT-497 wrapping Settings row sent to requested to failed 390",
+            "seconds": 2.529628741
           }
         ]
       }
