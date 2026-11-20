@@ -9,12 +9,13 @@ import { fixture as combinedFixture } from './combined-entrance-check.js';
 import { fixture as creditFixture } from './visitor-credit-tiers-helpers.js';
 
 // Slice 3 (?hostrow=<brand px>): a host header row like the consumer's real page, modelled on its
-// shipped geometry: 288 px host actions (account slot), headerRailReservation({ actionsWidth: '288px' }),
+// shipped geometry: 288 px host actions (account slot), headerRailReservation({ actionsWidth: '288px' })
+// with the flexing rail floor (railMinWidth: voiceRailFlexMinWidth, the host's opt-in),
 // a visible host brand and a 16 px host column beside the shell. The rail track is then about 700 px
 // at 1366 and about 600 px at 1280.
 const hostRow = `const hostRow=new URL(location.href).searchParams.get('hostrow');
-if(hostRow){const {headerRailReservation}=await import('/packages/ui/src/first-paint.js');
-const style=document.createElement('style');style.textContent='body{display:flex}.host-side{flex:none;width:16px}.aithema-shell{container:aithema-shell / inline-size;flex:1;min-width:0}.aithema-shell>aithema-session{--aithema-header-actions-width:288px}'+headerRailReservation({actionsWidth:'288px'});document.head.append(style);
+if(hostRow){const {headerRailReservation,voiceRailFlexMinWidth}=await import('/packages/ui/src/first-paint.js');
+const style=document.createElement('style');style.textContent='body{display:flex}.host-side{flex:none;width:16px}.aithema-shell{container:aithema-shell / inline-size;flex:1;min-width:0}.aithema-shell>aithema-session{--aithema-header-actions-width:288px}'+headerRailReservation({actionsWidth:'288px',railMinWidth:voiceRailFlexMinWidth});document.head.append(style);
 const side=document.createElement('div');side.className='host-side';const shell=document.createElement('div');shell.className='aithema-shell';
 const brand=document.createElement('span');brand.slot='brand';brand.textContent='Host';brand.style.cssText='display:inline-block;width:'+Number(hostRow)+'px';
 const account=document.createElement('span');account.slot='account';account.style.cssText='display:inline-block;width:200px;height:44px';
