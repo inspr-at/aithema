@@ -1485,11 +1485,12 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     await page.mouse.move(0, 0); await shot(page, 'de-light-1440-accepted');
 
     // A refused type is named in plain words before anything is sent.
-    // The reason is the server's own verdict, not an assumption: the demo generates images but binds no image-input normalizer.
-    assert.equal(await inShadow(page, c => c.session.featureMatrix[c.session.processingPreset ?? 'best']?.imageInput?.reason), 'image normalizer not configured',
-      'the demo preset binds no image-input normalizer');
+    // The reason is the server's own verdict, not an assumption. The demo's image normalizer passes;
+    // its model binding declares no image input, so image input stays off.
+    assert.equal(await inShadow(page, c => c.session.featureMatrix[c.session.processingPreset ?? 'best']?.imageInput?.reason), 'image input not supported',
+      "the demo's model binding declares no image input");
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.composer').hasAttribute('data-image-input')), false,
-      'without an image-input normalizer the composer keeps the document-only layout');
+      'without image input the composer keeps the document-only layout');
     const posts = () => uploadRequests.filter(([method, , upload]) => method === 'POST' && upload).length, requestsBefore = posts();
     await inShadow(page, c => c.shadowRoot.querySelector('.attach').focus());
     const refusal = await uploadChooser(page);
