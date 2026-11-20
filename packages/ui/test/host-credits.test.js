@@ -752,3 +752,14 @@ test('AIT-508 B5: a settled ledger receipt refreshes a voice-only reconciling ve
   assert.equal(f.c.session.featureMatrix.best.voice.available, true);
   assert.equal(f.root.querySelector('.voice-start').disabled, false);
 });
+
+// AIT-587 (AIT-553 gate1 L3, RC25 look 15): the used-up panel promises export only beside an export control.
+for (const copy of [en, de]) test(`AIT-587: the give/confirm used-up panel never promises export without the export link (${copy.display.locale})`, async t => {
+  const { root } = a2Setup(t, { copy, spent: 12_000_000, voiceClient: {} }); await tick(8);
+  const out = root.querySelector('.composer-out'), body = out.querySelector('.composer-out__body [data-active="true"]');
+  assert.equal(out.getAttribute('aria-hidden'), 'false', 'the used-up panel shows');
+  assert.equal(out.dataset.next, 'give', 'the choice entrance offers the next tier');
+  assert.ok(body?.textContent, 'one body sentence is active');
+  assert.equal(out.querySelector('.composer-out__export').hasAttribute('data-export'), false, 'no export link in this state');
+  assert.doesNotMatch(body.textContent, /export/iu, `no export promise without its control: ${body.textContent}`);
+});
