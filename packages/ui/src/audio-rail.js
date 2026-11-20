@@ -132,6 +132,9 @@ export class AudioRail {
   }
   measureLabel() {
     const wave = this.root.querySelector('.voice-wave'), caption = this.root.querySelector('.voice-caption');
+    // Paint only: a band line clipped in its own track ends in the AIT-239 fade (AIT-553).
+    const status = this.root.querySelector('.voice-state');
+    status.toggleAttribute('data-clipped', status.scrollWidth > status.clientWidth);
     if (this.root.hasAttribute('data-message')) {
       const signal = this.root.querySelector('.voice-signal').getBoundingClientRect();
       const viewport = this.root.ownerDocument.documentElement.clientWidth;
