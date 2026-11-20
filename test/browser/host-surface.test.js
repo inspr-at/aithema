@@ -1458,6 +1458,8 @@ test('AIT-569: delayed host reads and header fit never move a visible chooser', 
   t.after(async () => { await browser.close(); await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); });
   const evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [];
   if (evidence) await mkdir(evidence, { recursive: true });
+  // The profile is shared: each page restores the previous variant's conversation.
+  let previousLocale = null;
   for (const width of [1440, 400]) for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) {
     await t.test(`${width} ${locale} ${theme}`, async () => {
       const page = await browser.newPage(), problems = [];
@@ -1487,6 +1489,9 @@ test('AIT-569: delayed host reads and header fit never move a visible chooser', 
           let release;
           probe.lateReads = new Promise(resolve => { release = resolve; });
           probe.releaseReads = release;
+          let releaseLocale;
+          probe.lateLocale = new Promise(resolve => { releaseLocale = resolve; });
+          probe.releaseLocale = releaseLocale;
           const fetch = window.fetch.bind(window);
           window.fetch = async (url, init) => {
             const target = new URL(url, location.href).pathname;
@@ -1494,7 +1499,7 @@ test('AIT-569: delayed host reads and header fit never move a visible chooser', 
             // variant's conversation in the other language; the host then switches it.
             // Hold that switch (the slow CI case, made deterministic). The request itself
             // waits: the server also announces the new language over the event stream.
-            if (/\/api\/sessions\/[^/]+\/locale$/u.test(target) && init?.method === 'POST') { probe.locales.push(target); await probe.lateReads; }
+            if (/\/api\/sessions\/[^/]+\/locale$/u.test(target) && init?.method === 'POST') { probe.locales.push(target); await probe.lateLocale; }
             const response = await fetch(url, init), path = new URL(url, location.href).pathname;
             if (/\/api\/sessions\/[^/]+\/(identity|credits)$/u.test(path) && (!init?.method || init.method === 'GET')) {
               probe.reads.push(path); await probe.lateReads; probe.landed.push(path);
@@ -1505,6 +1510,15 @@ test('AIT-569: delayed host reads and header fit never move a visible chooser', 
         await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
         await visible(page, '.chooser__continue');
         await until(page, () => ['identity', 'credits'].every(kind => window.chooserFitProbe.reads.some(path => path.endsWith(`/${kind}`))));
+        // The language switch is setup, not a late read. Let it land and wait until
+        // the chooser speaks this variant's language before the first measurement.
+        await page.evaluate(() => window.chooserFitProbe.releaseLocale());
+        await until(page, ([expected, title]) => {
+          const c = document.querySelector('aithema-session');
+          return c.session?.locale === expected && c.shadowRoot.querySelector('.chooser-option[data-preset="device"] strong')?.textContent === title;
+        }, [locale, (locale === 'de' ? de : en).presets.device]);
+        assert.equal(await page.evaluate(() => window.chooserFitProbe.locales.length), previousLocale && previousLocale !== locale ? 1 : 0,
+          'a restored conversation in the other language is switched exactly once');
         await page.evaluate(async () => { await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
         const selector = '.chooser-option[data-preset="device"]';
         const beforeReads = await rest(page, selector);
@@ -1545,7 +1559,7 @@ test('AIT-569: delayed host reads and header fit never move a visible chooser', 
         sameBox({ ...before, y: before.y + initial.scrollY }, { ...after, y: after.y + settled.scrollY }, 'chooser document geometry');
         sameBox(initial.band, settled.band, 'reserved header');
         assert.deepEqual(problems, []);
-      } finally { await page.close(); }
+      } finally { previousLocale = locale; await page.close(); }
     });
   }
   if (evidence) await writeFile(join(evidence, 'ait-569-geometry.json'), JSON.stringify(checks, null, 2));
