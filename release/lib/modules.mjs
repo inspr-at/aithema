@@ -1,4 +1,5 @@
 import { posix } from 'node:path';
+import { moduleSpecifiers, scannedMember } from './package-imports.mjs';
 
 // Keep the legacy prototype entrypoint excluded. Supported coordinators and
 // composed helpers ship from server/src/voice-coordinator.js and src/composed/.
@@ -26,6 +27,25 @@ const packageTarget = (local, specifier) => {
   if (target === undefined || target !== other || /%2f/iu.test(target)) return undefined;
   try { return decodeURIComponent(target); } catch { return undefined; }
 };
+
+// AIT-592: a new URL(…, import.meta.url) asset (.js, .json, .wasm, any extension) must be a member of this
+// package. Calls come from AIT-582's syntax-tree extraction, so text in comments, strings and templates is never
+// a call. The argument must be one quoted literal whose raw text is its cooked value; a backslash (an escape or a
+// line continuation), a fold, or a partial, ambiguous or malformed specifier fails closed. A template-literal
+// argument is not this check's form (the post-pack scan checks it); a URL with a scheme other than file: is no member.
+const newURL = 'new URL(…, import.meta.url)';
+function checkNewURLs(text, path, local, packaged) {
+  for (const found of moduleSpecifiers(text, local)) {
+    if (found.problem) throw new Error(`Unpackaged dependency: ${path} could not be scanned (${found.problem})`);
+    if (found.kind !== newURL) continue;
+    const raw = text.slice(found.index, found.end), quote = raw[0];
+    if (quote === '`') continue;
+    const quoted = (quote === "'" || quote === '"') && raw.length > 1 && raw.endsWith(quote), specifier = quoted ? raw.slice(1, -1) : raw;
+    const single = quoted && specifier === found.specifier && !found.partial && !found.ambiguous && !found.malformed;
+    if (single && /^[a-z][a-z0-9+.-]+:/iu.test(specifier) && !/^file:/iu.test(specifier)) continue;
+    if (!single || !packaged.has(packageTarget(local, specifier))) throw new Error(`Unpackaged dependency: ${path} -> ${specifier}`);
+  }
+}
 
 const json = value => Buffer.from(JSON.stringify(value, null, 2) + '\n');
 const exportTargets = value => typeof value === 'string' ? [value] : Object.values(value ?? {}).flatMap(exportTargets);
@@ -55,13 +75,9 @@ export function moduleFiles(files, pkg) {
         const subpath = Object.entries(metadata.exports ?? {}).find(([, value]) => exportTargets(value).includes(sourcePath))?.[0];
         if (!subpath) throw new Error(`Missing package export: ${metadata.name}/${sourcePath}`);
         return introducer + quote + metadata.name + (subpath === '.' ? '' : '/' + subpath.slice(2)) + quote;
-        // AIT-592: a new URL asset (.js, .json, .wasm, any extension) must be a member of this package.
-      }).replace(/new\s+URL\(\s*(['"])((?:\\[\s\S]|(?!\1)[^\\\n])*\\[\s\S](?:\\[\s\S]|(?!\1)[^\\\n])*|\.{1,2}\/[^'"\n]+)\1\s*,\s*import\.meta\.url\s*\)/gu, (match, _quote, specifier) => {
-        // A raw literal with a backslash (escape sequence) fails closed: the raw text is never cooked or resolved.
-        if (specifier.includes('\\') || !packaged.has(packageTarget(local, specifier))) throw new Error(`Unpackaged dependency: ${path} -> ${specifier}`);
-        return match;
       }));
     }
+    if (scannedMember(local)) checkNewURLs(content.toString(), path, local, packaged);
     members.set(local, content);
   }
   for (const [member, source] of generated) members.set(member, files.get(source));
