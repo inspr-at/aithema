@@ -346,14 +346,26 @@ export class AudioRail {
   // microphone), so a hidden Start cannot take focus. Hand it to the composer
   // mic instead, or to the message field while that mic is disabled.
   #focusStart() {
+    // Startup is asynchronous: the user may have moved to another session
+    // control meanwhile. The combined fallback only takes focus that is still
+    // ours: a rail control, the composer mic, or nothing (our own hide).
+    const owner = this.#focusOwner();
+    const ours = !owner || owner === this.root.ownerDocument.body || this.root.contains(owner)
+      || owner.matches?.('.composer-mic') || owner === this.root.getRootNode().host;
     const start = this.button('start');
     start.focus({ preventScroll: true });
     if (start.getRootNode().activeElement === start) return;
     const workspace = this.root.closest('.workspace[data-entrance="combined"]');
-    if (!workspace) return;
+    if (!workspace || !ours) return;
     const target = ['.composer-mic', 'textarea'].map(selector => workspace.querySelector(selector))
       .find(node => node && !node.disabled && !node.closest('[inert]'));
     target?.focus({ preventScroll: true });
+  }
+  // The innermost focused element, through every open shadow root.
+  #focusOwner() {
+    let active = this.root.ownerDocument.activeElement;
+    while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+    return active;
   }
   #mayFocus() {
     const host = this.root.getRootNode().host;
