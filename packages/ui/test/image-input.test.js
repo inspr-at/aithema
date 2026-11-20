@@ -516,3 +516,22 @@ for (const copy of [en, de]) for (const action of ['decline', 'expiry'])
     assert.equal(f.root.querySelector('.composer-reason .consent-action'), null);
     assert.equal(f.calls.filter(call => call.options.method === 'POST' && call.url.endsWith('/uploads')).length, 1);
   });
+
+// AIT-587 (AIT-510 gate5 L1): the processing choice can change while a pick is still being classified.
+// The image capability that plans the upload is the one bound after that await, not the one at pick time.
+test('AIT-587: a binding switch during upload classification re-reads image capability', async t => {
+  const f = fixture(t, en, true);
+  let release, sliced; const held = new Promise(resolve => { release = resolve; }), reached = new Promise(resolve => { sliced = resolve; });
+  const pdf = new window.File(['%PDF-1.4 fixture'], 'notes.pdf', { type: 'application/pdf' }), slice = pdf.slice.bind(pdf);
+  Object.defineProperty(pdf, 'slice', { value: (...args) => {
+    const part = slice(...args); sliced(); return { arrayBuffer: async () => { await held; return part.arrayBuffer(); } };
+  } });
+  await choose(f.root, [new window.File(['pixels'], 'photo.png', { type: 'image/png' }), pdf]);
+  await reached;
+  f.c.receive({ sessionId: f.c.session.id, seq: f.c.session.seq + 1, type: 'settings.changed', data: { processingPreset: 'eu', settings: f.c.session.settings } });
+  await tick(); release(); for (let i = 0; i < 6; i++) await tick();
+  const posted = f.calls.filter(call => call.url.endsWith('/uploads') && call.options.method === 'POST')
+    .flatMap(call => call.options.body.getAll('files').map(file => file.name));
+  assert.equal(posted.includes('photo.png'), false, 'an image picked under an image-capable binding is not sent after the switch');
+  assert.equal(f.root.querySelector('.staged-image'), null, 'nothing is staged for the image');
+});
