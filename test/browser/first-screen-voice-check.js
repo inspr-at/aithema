@@ -272,27 +272,46 @@ test('AIT-553 slice 2 item 1: the call band keeps one row in every voice state o
       c.configure({ session: c.session, copy });
     }, longStatus[variant.locale]);
     const states = [await bandRecord(page, 'idle')];
+    // Every transient rail state (connecting included) is sampled synchronously.
+    await page.evaluate(() => {
+      const root = c.shadowRoot, band = root.querySelector('.band'), rail = root.querySelector('.audio-rail');
+      globalThis.bandSamples = [];
+      const sample = () => { const b = band.getBoundingClientRect();
+        bandSamples.push({ state: rail.dataset.state, call: rail.dataset.call, height: b.height, row: band.hasAttribute('data-rail-row') }); };
+      globalThis.bandWatch?.disconnect();
+      globalThis.bandWatch = new MutationObserver(sample);
+      bandWatch.observe(rail, { attributes: true, attributeFilter: ['data-state', 'data-call'] });
+      bandWatch.observe(band, { attributes: true, attributeFilter: ['data-rail-row'] });
+    });
     await page.evaluate(() => grant());
     await page.waitForFunction(() => c.session.featureMatrix.best.voice.available);
     await page.click('aithema-session >>> .composer-mic');
     await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.call === 'active');
+    await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.state !== 'connecting', { timeout: 10_000 }).catch(() => {});
     states.push(await bandRecord(page, 'live'));
-    await page.click('aithema-session >>> .pause');
-    await page.waitForFunction(() => c.shadowRoot.querySelector('.pause').getAttribute('aria-pressed') === 'true');
-    states.push(await bandRecord(page, 'paused'));
+    const pressed = value => page.waitForFunction(v => c.shadowRoot.querySelector('.pause').getAttribute('aria-pressed') === v
+      || c.shadowRoot.querySelector('.voice-pause').getAttribute('aria-pressed') === v, { timeout: 10_000 }, value).then(() => true, () => false);
+    await page.evaluate(() => c.shadowRoot.querySelector('.pause').click());
+    const paused = await pressed('true');
+    states.push({ ...await bandRecord(page, 'paused'), pauseAcknowledged: paused });
     if (variant.width === 1366 || variant.locale === 'de') await retain(page, `s2-${label}-band-paused`, states.at(-1));
-    await page.click('aithema-session >>> .pause');
-    await page.waitForFunction(() => c.shadowRoot.querySelector('.pause').getAttribute('aria-pressed') === 'false');
+    if (paused) { await page.evaluate(() => c.shadowRoot.querySelector('.pause').click()); await pressed('false'); }
     states.push(await bandRecord(page, 'resumed'));
     await retain(page, `s2-${label}-band-live`, states.at(-1));
-    await page.click('aithema-session >>> .voice-close');
+    await page.evaluate(() => c.shadowRoot.querySelector('.voice-close').click());
     await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.call === 'none');
     states.push(await bandRecord(page, 'ended'));
     await retain(page, `s2-${label}-band-ended`, states.at(-1));
-    records.push({ label, states });
+    const samples = await page.evaluate(() => { bandWatch.disconnect(); return bandSamples; });
+    records.push({ label, states, samples });
   }
-  for (const { label, states } of records) {
+  for (const { label, states, samples } of records) {
     const [idle] = states;
+    assert.ok(samples.length > 0, `${label}: band transitions were sampled`);
+    for (const sample of samples) {
+      assert.equal(sample.row, false, `${label}: no second band row in ${sample.state}: ${JSON.stringify(samples)}`);
+      assert.ok(sample.height > 0 && Math.abs(sample.height - idle.band[3]) <= .5, `${label}: band height constant in ${sample.state}: ${JSON.stringify(samples)}`);
+    }
     for (const s of states) {
       const where = `${label}/${s.state}: ${JSON.stringify(s)}`;
       positive({ band: s.band, rail: s.rail, signal: s.signal, ...s.cells });
