@@ -97,6 +97,22 @@ export const combinedEntranceStyles = `
 @media(min-width:600px) {
   .workspace[data-entrance="combined"] .ready__route { display:none; }
 }
+/* AIT-553: short desktops (1366x768, 1280x720 under a host header) show
+   readiness as one compact line, whole at first paint above the pinned
+   composer: title · consent state · Change settings. Model and visuals stay
+   under Change settings; the full card returns at 861 px and taller. */
+@media(min-width:600px) and (max-height:860px) {
+  .workspace[data-entrance="combined"] .ready { display:flex; flex-wrap:wrap; align-items:center; gap:0; padding:.125rem 1rem; }
+  .workspace[data-entrance="combined"] .ready h3 { font-size:.85rem; }
+  .workspace[data-entrance="combined"] .ready dl { display:contents; }
+  .workspace[data-entrance="combined"] .ready__row:not([data-ready="consent"]) { display:none; }
+  .workspace[data-entrance="combined"] .ready__row[data-ready="consent"] { display:flex; min-height:44px; gap:0; }
+  .workspace[data-entrance="combined"] .ready__row[data-ready="consent"] dt { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+  .workspace[data-entrance="combined"] .ready__row[data-ready="consent"] dd { justify-content:flex-start; text-align:left; gap:.25rem; }
+  .workspace[data-entrance="combined"] .ready__row[data-ready="consent"]::before,
+  .workspace[data-entrance="combined"] .ready__actions::before { content:'·' / ''; margin-inline:.5rem; color:var(--aithema-muted); }
+  .workspace[data-entrance="combined"] .ready__actions { display:flex; flex-wrap:nowrap; align-items:center; justify-content:flex-start; gap:0; }
+}
 @media(width < 600px) {
   .composer-notice { position:static; max-height:none; }
   .composer-notice-reserve { display:none; }

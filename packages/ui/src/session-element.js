@@ -2909,9 +2909,13 @@ export class AithemaSession extends HTMLElement {
     const label = rail.querySelector('.voice-state');
     const range = this.ownerDocument.createRange(); range.selectNodeContents(label);
     const labelStyle = view.getComputedStyle(label), railStyle = view.getComputedStyle(rail);
-    // A message bubble does not consume the inline status track. Measure the
-    // rendered text (not the capped label box) for host-supplied inline labels.
-    const textWidth = rail.hasAttribute('data-message') ? 0 : range.getBoundingClientRect().width;
+    // A message bubble does not consume the inline status track. AIT-553: a
+    // text-only status (an opener-length host line included) truncates in its
+    // own track instead of moving the rail to a second row, so the band keeps
+    // one height in every voice state. Only an inline consent action, which
+    // must not be cut, still measures its rendered text.
+    const action = label.querySelector('.consent-action:not([hidden])');
+    const textWidth = rail.hasAttribute('data-message') || !action ? 0 : range.getBoundingClientRect().width;
     const required = Math.max(voiceRailMinWidth, Math.ceil(textWidth + parseFloat(labelStyle.paddingLeft)
       + parseFloat(labelStyle.paddingRight) + 4 * (44 + parseFloat(railStyle.columnGap))));
     const tracks = style.gridTemplateColumns.split(' ').map(Number.parseFloat);
