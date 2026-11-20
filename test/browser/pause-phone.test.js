@@ -1,7 +1,7 @@
-import { documentUploadCheck } from './document-upload-check.js';
-documentUploadCheck();
+// AIT-597: the document-upload chain and the 1440 image-input matrix moved,
+// as whole top-level tests, to pause-phone-uploads.test.js.
 import { imageInputCheck } from './image-input-check.js';
-imageInputCheck([390, 1440]);
+imageInputCheck([390]);
 // AIT-188: Tick's binding follow-ups. Viewport evidence only, remote runner only.
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';

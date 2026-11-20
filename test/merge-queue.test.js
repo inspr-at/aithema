@@ -52,7 +52,7 @@ test('both required workflows request merge-group checks', () => {
 });
 
 test('PR and merge-group events run the same shard and required check names', () => {
-  const expected = ['test', 'browser (1/14)', 'browser (2/14)', 'browser (3/14)', 'browser (4/14)', 'browser (5/14)', 'browser (6/14)', 'browser (7/14)', 'browser (8/14)', 'browser (9/14)', 'browser (10/14)', 'browser (11/14)', 'browser (12/14)', 'browser (13/14)', 'browser (14/14)', 'browser (1/4)', 'browser (2/4)', 'browser (3/4)', 'browser (4/4)', 'browser', 'unit (1/3)', 'unit (2/3)', 'unit (3/3)', 'preview-security', 'image-input-production', 'dco', 'dco-tests'];
+  const expected = ['test', 'browser (1/15)', 'browser (2/15)', 'browser (3/15)', 'browser (4/15)', 'browser (5/15)', 'browser (6/15)', 'browser (7/15)', 'browser (8/15)', 'browser (9/15)', 'browser (10/15)', 'browser (11/15)', 'browser (12/15)', 'browser (13/15)', 'browser (14/15)', 'browser (15/15)', 'browser (1/4)', 'browser (2/4)', 'browser (3/4)', 'browser (4/4)', 'browser', 'unit (1/4)', 'unit (2/4)', 'unit (3/4)', 'unit (4/4)', 'preview-security', 'image-input-production', 'dco', 'dco-tests'];
   for (const event of ['pull_request', 'merge_group']) {
     assert.deepEqual(workflows.flatMap(workflow => checkNames(workflow, event)).filter(name => name !== 'changes'), expected);
   }
@@ -73,7 +73,7 @@ test('ruleset browser summaries fail closed unless every worker shard passed', (
   const unit = block(block(workflows[0], 'jobs'), 'unit', 2);
   assert.match(unit, /^    timeout-minutes: 10$/mu);
   assert.match(unit, /^      fail-fast: false$/mu);
-  assert.match(unit, /^        shard: \[1, 2, 3\]$/mu);
+  assert.match(unit, /^        shard: \[1, 2, 3, 4\]$/mu);
   assert.doesNotMatch(unit, /continue-on-error|--test-name-pattern|--test-skip-pattern/u);
   const aggregate = block(block(workflows[0], 'jobs'), 'test', 2);
   assert.match(aggregate, /^    needs: \[changes, unit\]$/mu);

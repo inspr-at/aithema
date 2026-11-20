@@ -1,80 +1,224 @@
 {
-  "seconds": 113.138,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 42947874534-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "seconds": 151.022,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 44725948096-1, 44736662387-1, 44742965802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "eb03c96fb4f1e5667673508610a71229208d02730c35f0a7380bca87e4f64a82",
+    "workload": "47374233edfd68ad99ca39546cb5b7b8d71af3dba21e8b0b74d98950dc07e827",
     "samples": [
       {
-        "runId": "42947874534",
+        "runId": "44725948096",
         "attempt": 1,
-        "sha": "0c4c4b1af999e4a3163e3676123e99140120bb89",
-        "observedAt": "2026-11-11T02:43:01.260Z",
+        "sha": "2f1001c51c3a9a585b3233762f3cc8cca6ef23a9",
+        "observedAt": "2026-11-20T11:14:46.133Z",
         "tests": [
           {
             "name": "AIT-198 facade pending: no false failure during reply event gaps, DE/EN 390/1440",
-            "seconds": 3.912279673
+            "seconds": 4.453952392
           },
           {
             "name": "AIT-198 facade pending: recorded reaction failure keeps footer Retry, DE/EN 390/1440",
-            "seconds": 1.0851358210000002
+            "seconds": 1.582212058
           },
           {
             "name": "AIT-198 failed overview: DE/EN 390/1440, immediate free visitor settlement, retry recovery and 0 px",
-            "seconds": 10.983804456
+            "seconds": 12.863935986
           },
           {
             "name": "AIT-198 live voice: no false failure during reply event gaps, DE/EN 390/1440",
-            "seconds": 3.941144967
+            "seconds": 5.063300323
           },
           {
             "name": "AIT-198 live voice: recorded reaction failure keeps footer Retry, DE/EN 390/1440",
-            "seconds": 1.05467078
+            "seconds": 2.4383306630000003
           },
           {
             "name": "AIT-198 spoken facade pending: no false failure during reply event gaps, DE/EN 390/1440",
-            "seconds": 3.933191701
+            "seconds": 4.7088064020000004
           },
           {
             "name": "AIT-198 spoken facade pending: recorded reaction failure keeps footer Retry, DE/EN 390/1440",
-            "seconds": 0.9944747129999999
+            "seconds": 1.648896715
           },
           {
             "name": "AIT-198 stuck overview: missing reply, nothing running, no failure; DE/EN 390/1440, one inline Retry and 0 px",
-            "seconds": 2.512369211
+            "seconds": 3.055436233
           },
           {
             "name": "AIT-198 typed: no false failure during reply event gaps, DE/EN 390/1440",
-            "seconds": 3.8975162890000004
+            "seconds": 4.510986144
           },
           {
             "name": "AIT-198 waiting voice: recorded reaction failure keeps footer Retry, DE/EN 390/1440",
-            "seconds": 1.364061534
+            "seconds": 2.26596662
           },
           {
             "name": "AIT-212 R5 reply-only failure: pending overview, one Retry, preparing then assessment; DE/EN 390/1440",
-            "seconds": 2.301630259
+            "seconds": 3.71478731
           },
           {
             "name": "AIT-212 failed paid lane survives reconnect until explicit Retry, DE/EN 390/1440 L/D",
-            "seconds": 21.158185337
+            "seconds": 33.646961905
           },
           {
             "name": "AIT-221 two failures: Retry at the first failure recovers both lanes, overview-only unchanged, 0 px",
-            "seconds": 16.408943204
+            "seconds": 20.214544218
           },
           {
             "name": "AIT-242 project action preserves the footer and Retry geometry, configured or absent, DE/EN 390/1440",
-            "seconds": 3.723363441
+            "seconds": 4.9577738490000005
           },
           {
             "name": "AIT-466 B1: locked reply Retry holds under a resting pointer, DE/EN 390/1440",
-            "seconds": 12.468020884
+            "seconds": 14.131294126999999
           },
           {
             "name": "AIT-466 N2: unlocked availability changes preserve the Retry slot and rect",
-            "seconds": 0.77059604
+            "seconds": 0.9692565049999999
+          }
+        ]
+      },
+      {
+        "runId": "44736662387",
+        "attempt": 1,
+        "sha": "d24d320fb50018e9b3d2984fc6e964d336bc045d",
+        "observedAt": "2026-11-20T12:32:58.778Z",
+        "tests": [
+          {
+            "name": "AIT-198 facade pending: no false failure during reply event gaps, DE/EN 390/1440",
+            "seconds": 4.188819694
+          },
+          {
+            "name": "AIT-198 facade pending: recorded reaction failure keeps footer Retry, DE/EN 390/1440",
+            "seconds": 1.302918291
+          },
+          {
+            "name": "AIT-198 failed overview: DE/EN 390/1440, immediate free visitor settlement, retry recovery and 0 px",
+            "seconds": 11.646962894
+          },
+          {
+            "name": "AIT-198 live voice: no false failure during reply event gaps, DE/EN 390/1440",
+            "seconds": 4.190487946
+          },
+          {
+            "name": "AIT-198 live voice: recorded reaction failure keeps footer Retry, DE/EN 390/1440",
+            "seconds": 1.480319093
+          },
+          {
+            "name": "AIT-198 spoken facade pending: no false failure during reply event gaps, DE/EN 390/1440",
+            "seconds": 4.152168862000001
+          },
+          {
+            "name": "AIT-198 spoken facade pending: recorded reaction failure keeps footer Retry, DE/EN 390/1440",
+            "seconds": 1.286283145
+          },
+          {
+            "name": "AIT-198 stuck overview: missing reply, nothing running, no failure; DE/EN 390/1440, one inline Retry and 0 px",
+            "seconds": 2.775481438
+          },
+          {
+            "name": "AIT-198 typed: no false failure during reply event gaps, DE/EN 390/1440",
+            "seconds": 4.108177974
+          },
+          {
+            "name": "AIT-198 waiting voice: recorded reaction failure keeps footer Retry, DE/EN 390/1440",
+            "seconds": 1.826496551
+          },
+          {
+            "name": "AIT-212 R5 reply-only failure: pending overview, one Retry, preparing then assessment; DE/EN 390/1440",
+            "seconds": 2.67666399
+          },
+          {
+            "name": "AIT-212 failed paid lane survives reconnect until explicit Retry, DE/EN 390/1440 L/D",
+            "seconds": 23.898368252
+          },
+          {
+            "name": "AIT-221 two failures: Retry at the first failure recovers both lanes, overview-only unchanged, 0 px",
+            "seconds": 17.125913418
+          },
+          {
+            "name": "AIT-242 project action preserves the footer and Retry geometry, configured or absent, DE/EN 390/1440",
+            "seconds": 4.055433569
+          },
+          {
+            "name": "AIT-466 B1: locked reply Retry holds under a resting pointer, DE/EN 390/1440",
+            "seconds": 12.986442768000002
+          },
+          {
+            "name": "AIT-466 N2: unlocked availability changes preserve the Retry slot and rect",
+            "seconds": 0.874339588
+          }
+        ]
+      },
+      {
+        "runId": "44742965802",
+        "attempt": 1,
+        "sha": "ddb1e06dbf1a3ebb8fea75cfffd86401ea9c1fab",
+        "observedAt": "2026-11-20T13:17:25.573Z",
+        "tests": [
+          {
+            "name": "AIT-198 facade pending: no false failure during reply event gaps, DE/EN 390/1440",
+            "seconds": 4.524002003
+          },
+          {
+            "name": "AIT-198 facade pending: recorded reaction failure keeps footer Retry, DE/EN 390/1440",
+            "seconds": 1.679511436
+          },
+          {
+            "name": "AIT-198 failed overview: DE/EN 390/1440, immediate free visitor settlement, retry recovery and 0 px",
+            "seconds": 12.958045436
+          },
+          {
+            "name": "AIT-198 live voice: no false failure during reply event gaps, DE/EN 390/1440",
+            "seconds": 4.7077020570000006
+          },
+          {
+            "name": "AIT-198 live voice: recorded reaction failure keeps footer Retry, DE/EN 390/1440",
+            "seconds": 1.8568071990000001
+          },
+          {
+            "name": "AIT-198 spoken facade pending: no false failure during reply event gaps, DE/EN 390/1440",
+            "seconds": 4.568360263
+          },
+          {
+            "name": "AIT-198 spoken facade pending: recorded reaction failure keeps footer Retry, DE/EN 390/1440",
+            "seconds": 1.713101976
+          },
+          {
+            "name": "AIT-198 stuck overview: missing reply, nothing running, no failure; DE/EN 390/1440, one inline Retry and 0 px",
+            "seconds": 3.2570939400000003
+          },
+          {
+            "name": "AIT-198 typed: no false failure during reply event gaps, DE/EN 390/1440",
+            "seconds": 4.537448164000001
+          },
+          {
+            "name": "AIT-198 waiting voice: recorded reaction failure keeps footer Retry, DE/EN 390/1440",
+            "seconds": 2.234455445
+          },
+          {
+            "name": "AIT-212 R5 reply-only failure: pending overview, one Retry, preparing then assessment; DE/EN 390/1440",
+            "seconds": 3.193115947
+          },
+          {
+            "name": "AIT-212 failed paid lane survives reconnect until explicit Retry, DE/EN 390/1440 L/D",
+            "seconds": 30.041099257000003
+          },
+          {
+            "name": "AIT-221 two failures: Retry at the first failure recovers both lanes, overview-only unchanged, 0 px",
+            "seconds": 19.185772145999998
+          },
+          {
+            "name": "AIT-242 project action preserves the footer and Retry geometry, configured or absent, DE/EN 390/1440",
+            "seconds": 4.826425351
+          },
+          {
+            "name": "AIT-466 B1: locked reply Retry holds under a resting pointer, DE/EN 390/1440",
+            "seconds": 13.978113438000001
+          },
+          {
+            "name": "AIT-466 N2: unlocked availability changes preserve the Retry slot and rect",
+            "seconds": 1.005955774
           }
         ]
       }

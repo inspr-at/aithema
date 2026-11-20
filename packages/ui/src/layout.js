@@ -78,6 +78,9 @@ function footerGeometry(footer, cache) {
     if (cache.footerNaturalSource !== source) {
       const probe = footer.cloneNode(true);
       probe.dataset.fit = 'full'; probe.inert = true; probe.setAttribute('aria-hidden', 'true');
+      // The probe joins this tree. A connected checked radio unchecks the rest of
+      // its group, so ungrouped copies keep the live role selection (AIT-584).
+      for (const radio of probe.querySelectorAll('input[type=radio][name]')) radio.removeAttribute('name');
       probe.style.cssText += `;position:fixed;left:-100000px;top:0;right:auto;bottom:auto;width:${width}px;opacity:0;pointer-events:none;`;
       footer.parentNode.append(probe);
       try {

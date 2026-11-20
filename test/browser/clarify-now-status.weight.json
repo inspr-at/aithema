@@ -1,152 +1,80 @@
 {
-  "seconds": 321.369,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 44371370170-1, 44375931233-1, 44399683830-1, 44475421367-1, 44484221831-1, 44500373409-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "seconds": 400.883,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 44725948096-1, 44736662387-1, 44742965802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "4dce20b6d09e78b45fd5af08a811b947da7583aa3ed08b7b73306628c4369168",
+    "workload": "dedd184eedb8e6b7b751008e204c2b879b582f9d9c777b4c069034d02901fa76",
     "samples": [
       {
-        "runId": "44371370170",
+        "runId": "44725948096",
         "attempt": 1,
-        "sha": "0ded68d8b9df9d811b617195e453d3a74172dc4d",
-        "observedAt": "2026-11-18T18:35:42.696Z",
+        "sha": "2f1001c51c3a9a585b3233762f3cc8cca6ef23a9",
+        "observedAt": "2026-11-20T11:14:45.255Z",
         "tests": [
           {
             "name": "AIT-524 status-only hit testing, real padding and stationary rows: EN/DE light/dark 390/1024/1440",
-            "seconds": 117.609670732
+            "seconds": 140.52358209000002
           },
           {
             "name": "AIT-547 pinned contact: opaque heading and first signal above the fade, stable status EN/DE",
-            "seconds": 152.64553993299998
+            "seconds": 177.22690793799998
           },
           {
             "name": "AIT-547 status measurement: bounded layout work for the complete catalog",
-            "seconds": 1.1648893
+            "seconds": 1.407930034
           },
           {
             "name": "AIT-547 status measurement: isolated full remeasurement with classic scrollbars",
-            "seconds": 1.116431875
+            "seconds": 1.546975312
           }
         ]
       },
       {
-        "runId": "44375931233",
+        "runId": "44736662387",
         "attempt": 1,
-        "sha": "83a097a9b5c26de79bd6325e75fd7a4fff5b099d",
-        "observedAt": "2026-11-18T19:01:22.444Z",
+        "sha": "d24d320fb50018e9b3d2984fc6e964d336bc045d",
+        "observedAt": "2026-11-20T12:33:04.234Z",
         "tests": [
           {
             "name": "AIT-524 status-only hit testing, real padding and stationary rows: EN/DE light/dark 390/1024/1440",
-            "seconds": 134.318397384
+            "seconds": 121.586735891
           },
           {
             "name": "AIT-547 pinned contact: opaque heading and first signal above the fade, stable status EN/DE",
-            "seconds": 174.803456507
+            "seconds": 156.721998968
           },
           {
             "name": "AIT-547 status measurement: bounded layout work for the complete catalog",
-            "seconds": 1.3509916849999999
+            "seconds": 1.184186295
           },
           {
             "name": "AIT-547 status measurement: isolated full remeasurement with classic scrollbars",
-            "seconds": 1.38149101
+            "seconds": 1.1476485479999998
           }
         ]
       },
       {
-        "runId": "44399683830",
+        "runId": "44742965802",
         "attempt": 1,
-        "sha": "7de34739a61754a39a887663f35b3983db29ae2f",
-        "observedAt": "2026-11-18T21:16:27.139Z",
+        "sha": "ddb1e06dbf1a3ebb8fea75cfffd86401ea9c1fab",
+        "observedAt": "2026-11-20T13:17:25.271Z",
         "tests": [
           {
             "name": "AIT-524 status-only hit testing, real padding and stationary rows: EN/DE light/dark 390/1024/1440",
-            "seconds": 135.884575535
+            "seconds": 124.403016109
           },
           {
             "name": "AIT-547 pinned contact: opaque heading and first signal above the fade, stable status EN/DE",
-            "seconds": 174.71666707699998
+            "seconds": 142.477650512
           },
           {
             "name": "AIT-547 status measurement: bounded layout work for the complete catalog",
-            "seconds": 1.36795757
+            "seconds": 1.066205416
           },
           {
             "name": "AIT-547 status measurement: isolated full remeasurement with classic scrollbars",
-            "seconds": 1.402140584
-          }
-        ]
-      },
-      {
-        "runId": "44475421367",
-        "attempt": 1,
-        "sha": "488a7b28c323d634998ac64d4abb38a2ee829dc3",
-        "observedAt": "2026-11-19T06:53:20.712Z",
-        "tests": [
-          {
-            "name": "AIT-524 status-only hit testing, real padding and stationary rows: EN/DE light/dark 390/1024/1440",
-            "seconds": 139.042124687
-          },
-          {
-            "name": "AIT-547 pinned contact: opaque heading and first signal above the fade, stable status EN/DE",
-            "seconds": 177.967533257
-          },
-          {
-            "name": "AIT-547 status measurement: bounded layout work for the complete catalog",
-            "seconds": 1.43881169
-          },
-          {
-            "name": "AIT-547 status measurement: isolated full remeasurement with classic scrollbars",
-            "seconds": 1.448510756
-          }
-        ]
-      },
-      {
-        "runId": "44484221831",
-        "attempt": 1,
-        "sha": "cf76a680942a36ce0be68ce84e92e8df1e8fd15a",
-        "observedAt": "2026-11-19T08:02:20.441Z",
-        "tests": [
-          {
-            "name": "AIT-524 status-only hit testing, real padding and stationary rows: EN/DE light/dark 390/1024/1440",
-            "seconds": 120.288125866
-          },
-          {
-            "name": "AIT-547 pinned contact: opaque heading and first signal above the fade, stable status EN/DE",
-            "seconds": 153.666019597
-          },
-          {
-            "name": "AIT-547 status measurement: bounded layout work for the complete catalog",
-            "seconds": 1.1603566719999998
-          },
-          {
-            "name": "AIT-547 status measurement: isolated full remeasurement with classic scrollbars",
-            "seconds": 1.115144793
-          }
-        ]
-      },
-      {
-        "runId": "44500373409",
-        "attempt": 1,
-        "sha": "f152e427e02e5bc390b909bde2a214c43bc0a402",
-        "observedAt": "2026-11-19T09:52:39.253Z",
-        "tests": [
-          {
-            "name": "AIT-524 status-only hit testing, real padding and stationary rows: EN/DE light/dark 390/1024/1440",
-            "seconds": 140.514112437
-          },
-          {
-            "name": "AIT-547 pinned contact: opaque heading and first signal above the fade, stable status EN/DE",
-            "seconds": 177.60957343700002
-          },
-          {
-            "name": "AIT-547 status measurement: bounded layout work for the complete catalog",
-            "seconds": 1.416135052
-          },
-          {
-            "name": "AIT-547 status measurement: isolated full remeasurement with classic scrollbars",
-            "seconds": 1.413020464
+            "seconds": 1.082993789
           }
         ]
       }

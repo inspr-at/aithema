@@ -1,20 +1,248 @@
 {
-  "seconds": 63.452,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 42947874534-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "seconds": 55.855,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 44399683830-1, 44475421367-1, 44484221831-1, 44500373409-1, 44526016960-1, 44526018340-1, 44527954945-1, 44542067051-1, 44543973862-1, 44568256946-1, 44576083632-1, 44607365746-1, 44613164647-1, 44650109778-1, 44682541019-1, 44688985679-1, 44707193689-1, 44725948096-1, 44736662387-1, 44742965802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "1a3912cc9f5e61d2a94acafa45964d9970796ce523ea99eba735509f973f57b7",
+    "workload": "0668d67218e15ae4025f5c606ecfd8c3acc4d29db01388d0eb6c1e31ec64f51a",
     "samples": [
       {
-        "runId": "42947874534",
+        "runId": "44399683830",
         "attempt": 1,
-        "sha": "0c4c4b1af999e4a3163e3676123e99140120bb89",
-        "observedAt": "2026-11-11T02:43:02.304Z",
+        "sha": "7de34739a61754a39a887663f35b3983db29ae2f",
+        "observedAt": "2026-11-18T21:16:29.525Z",
         "tests": [
           {
             "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
-            "seconds": 50.760293856
+            "seconds": 54.298440582000005
+          }
+        ]
+      },
+      {
+        "runId": "44475421367",
+        "attempt": 1,
+        "sha": "488a7b28c323d634998ac64d4abb38a2ee829dc3",
+        "observedAt": "2026-11-19T06:53:25.172Z",
+        "tests": [
+          {
+            "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
+            "seconds": 51.65446979
+          }
+        ]
+      },
+      {
+        "runId": "44484221831",
+        "attempt": 1,
+        "sha": "cf76a680942a36ce0be68ce84e92e8df1e8fd15a",
+        "observedAt": "2026-11-19T08:02:23.372Z",
+        "tests": [
+          {
+            "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
+            "seconds": 51.477728505
+          }
+        ]
+      },
+      {
+        "runId": "44500373409",
+        "attempt": 1,
+        "sha": "f152e427e02e5bc390b909bde2a214c43bc0a402",
+        "observedAt": "2026-11-19T09:52:39.124Z",
+        "tests": [
+          {
+            "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
+            "seconds": 55.484627593
+          }
+        ]
+      },
+      {
+        "runId": "44526016960",
+        "attempt": 1,
+        "sha": "1260f82a11eebec113a83972ff9bf6529c2b361b",
+        "observedAt": "2026-11-19T12:40:28.834Z",
+        "tests": [
+          {
+            "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
+            "seconds": 54.297071179999996
+          }
+        ]
+      },
+      {
+        "runId": "44526018340",
+        "attempt": 1,
+        "sha": "2f0db3f8190cf0bdeda4d53561db632144942703",
+        "observedAt": "2026-11-19T12:40:35.397Z",
+        "tests": [
+          {
+            "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
+            "seconds": 53.670088973
+          }
+        ]
+      },
+      {
+        "runId": "44527954945",
+        "attempt": 1,
+        "sha": "47d7ce55921b8c96cc309b45e1ea1f4efa6d6816",
+        "observedAt": "2026-11-19T12:52:53.835Z",
+        "tests": [
+          {
+            "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
+            "seconds": 55.601506803999996
+          }
+        ]
+      },
+      {
+        "runId": "44542067051",
+        "attempt": 1,
+        "sha": "8e142a67ed4746ff548b173546f8219f4ece2e8f",
+        "observedAt": "2026-11-19T14:17:26.637Z",
+        "tests": [
+          {
+            "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
+            "seconds": 54.923414240999996
+          }
+        ]
+      },
+      {
+        "runId": "44543973862",
+        "attempt": 1,
+        "sha": "55933f7ff519a2c5b60c6a2ff52039c0495794bf",
+        "observedAt": "2026-11-19T14:28:01.111Z",
+        "tests": [
+          {
+            "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
+            "seconds": 55.056609769000005
+          }
+        ]
+      },
+      {
+        "runId": "44568256946",
+        "attempt": 1,
+        "sha": "c6153be8ff45ab695cfd191d32a512446ce87aef",
+        "observedAt": "2026-11-19T16:38:20.497Z",
+        "tests": [
+          {
+            "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
+            "seconds": 51.558697211
+          }
+        ]
+      },
+      {
+        "runId": "44576083632",
+        "attempt": 1,
+        "sha": "0d40a127e17dda064df3a626a8134f403faf54c6",
+        "observedAt": "2026-11-19T17:20:41.859Z",
+        "tests": [
+          {
+            "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
+            "seconds": 48.283989254
+          }
+        ]
+      },
+      {
+        "runId": "44607365746",
+        "attempt": 1,
+        "sha": "f394364da286d742a4c9799f0f543be70ea13f62",
+        "observedAt": "2026-11-19T20:19:07.172Z",
+        "tests": [
+          {
+            "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
+            "seconds": 55.211561159999995
+          }
+        ]
+      },
+      {
+        "runId": "44613164647",
+        "attempt": 1,
+        "sha": "72512711b37c46a32f9b2d049f77b85bacec4d86",
+        "observedAt": "2026-11-19T20:53:21.565Z",
+        "tests": [
+          {
+            "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
+            "seconds": 55.214264291
+          }
+        ]
+      },
+      {
+        "runId": "44650109778",
+        "attempt": 1,
+        "sha": "09a22c5713ac3f96033f1b4bee8300132c3ac45e",
+        "observedAt": "2026-11-20T00:59:10.459Z",
+        "tests": [
+          {
+            "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
+            "seconds": 51.048687052
+          }
+        ]
+      },
+      {
+        "runId": "44682541019",
+        "attempt": 1,
+        "sha": "29bf20c22fbd533dca879c382810a704e0f090e8",
+        "observedAt": "2026-11-20T05:40:26.757Z",
+        "tests": [
+          {
+            "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
+            "seconds": 54.727019704
+          }
+        ]
+      },
+      {
+        "runId": "44688985679",
+        "attempt": 1,
+        "sha": "5d507e04ee24aba5b308eff6c60ee5a0d26d8f61",
+        "observedAt": "2026-11-20T06:36:37.635Z",
+        "tests": [
+          {
+            "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
+            "seconds": 51.771139173
+          }
+        ]
+      },
+      {
+        "runId": "44707193689",
+        "attempt": 1,
+        "sha": "81da7bef5ad3f181bc68e1a6d2bc2df8f039c463",
+        "observedAt": "2026-11-20T09:01:50.602Z",
+        "tests": [
+          {
+            "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
+            "seconds": 52.088969454
+          }
+        ]
+      },
+      {
+        "runId": "44725948096",
+        "attempt": 1,
+        "sha": "2f1001c51c3a9a585b3233762f3cc8cca6ef23a9",
+        "observedAt": "2026-11-20T11:14:42.082Z",
+        "tests": [
+          {
+            "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
+            "seconds": 56.26831614
+          }
+        ]
+      },
+      {
+        "runId": "44736662387",
+        "attempt": 1,
+        "sha": "d24d320fb50018e9b3d2984fc6e964d336bc045d",
+        "observedAt": "2026-11-20T12:33:08.303Z",
+        "tests": [
+          {
+            "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
+            "seconds": 51.979421066
+          }
+        ]
+      },
+      {
+        "runId": "44742965802",
+        "attempt": 1,
+        "sha": "ddb1e06dbf1a3ebb8fea75cfffd86401ea9c1fab",
+        "observedAt": "2026-11-20T13:17:28.129Z",
+        "tests": [
+          {
+            "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
+            "seconds": 55.854955032999996
           }
         ]
       }

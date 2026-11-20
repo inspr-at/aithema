@@ -292,3 +292,78 @@ test('AIT-281: actor role state matrix has exactly 0px movement at 1440/1024/390
     t.diagnostic(`PASS AIT-281: ${pass.length} state/viewport/theme/locale cases; exact 0px movement; one page`);
     if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, fonts: 'Chrome baseline UI/display stacks pinned', shots, pass, errors }, null, 2)+'\n');
   });
+
+// AIT-584: a compact footer measures its natural width on an offscreen clone in
+// the same shadow tree. The clone carries the open role popover's checked radio;
+// a checked radio that becomes connected unchecks the rest of its group, so the
+// live selection was lost while the trigger kept the acknowledged role. The
+// order is explicit: popover open, compact fit held, role event, footer
+// re-measure (MutationObserver), read. No timer decides the outcome.
+test('AIT-584: a compact footer re-measure keeps the acknowledged role checked in the open popover',
+  { timeout: 60_000 }, async t => {
+    const { browserForFile } = await import('./shared-browser.js');
+    const directory = await mkdtemp(join(tmpdir(), 'aithema-role-probe-'));
+    const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'role.sqlite'), {
+      AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
+    });
+    const browser = await browserForFile(), page = await browser.newPage(), errors = [];
+    t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
+    page.on('pageerror', error => errors.push(error.message));
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await page.setViewport({ width: 1024, height: 900 });
+    await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+    await until(page, () => document.querySelector('aithema-session')?.session?.id);
+    await shadow(page, async c => {
+      const base = structuredClone(c.session);
+      const view = { available: true, roles: ['private', 'company', 'representative', 'agency'], role: null, source: 'inferred', reasoning: null, revision: base.seq };
+      window.ait584 = { view, probes: 0 };
+      const original = window.fetch.bind(window);
+      window.fetch = async (url, init = {}) => {
+        const path = new URL(url, location.href).pathname;
+        if (path.endsWith('/identity')) return Response.json({ roleChoice: window.ait584.view });
+        if (path.endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+          if (init.signal?.aborted) controller.close(); else init.signal?.addEventListener('abort', () => controller.close(), { once: true });
+        } }));
+        return original(url, init);
+      };
+      const { en: copy } = await import('/packages/ui/src/i18n/en.js');
+      const session = structuredClone(base); session.locale = 'en'; session.demo = false; session.roleChoice = view; session.actor = null;
+      session.settings = { ...session.settings, origin: 'chosen', voice: 'off', visuals: 'off' };
+      c.setAttribute('motion', 'off');
+      c.configure({ session, copy, host: { actorRole: { labels: { en: { private: 'Private individual', company: 'Company', representative: 'Representative', agency: 'Agency' } } } } });
+    });
+    // The popover is open on a role-capable width before the compact fit is held.
+    await shadow(page, c => c.shadowRoot.querySelector('.actor-trigger').click());
+    await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.actor-popover').hidden);
+    await settle(page);
+    const result = await shadow(page, async c => {
+      const root = c.shadowRoot, footer = root.querySelector('.display-foot');
+      new MutationObserver(records => {
+        for (const record of records) for (const added of record.addedNodes) if (added !== footer && added.classList?.contains('display-foot')) window.ait584.probes++;
+      }).observe(footer.parentNode, { childList: true });
+      // A compact fit is the product's own state whenever the full row does not fit.
+      footer.dataset.fit = 'identity';
+      const f = window.ait584, actor = { type: 'company', evidence: 'inferred', reasoning: 'Fixture: several people approve invoices.' };
+      f.view = { ...f.view, role: 'company', reasoning: actor.reasoning, revision: c.session.seq + 1 };
+      c.receive({ seq: f.view.revision, type: 'understanding.updated', data: { ...c.session.understanding, actor } });
+      const committed = root.querySelector('.actor-popover input:checked')?.value;
+      // The role text change re-measures the footer in this microtask checkpoint.
+      await Promise.resolve();
+      return { committed };
+    });
+    await settle(page);
+    const after = await shadow(page, c => {
+      const root = c.shadowRoot, popover = root.querySelector('.actor-popover'), box = popover.getBoundingClientRect();
+      return { probes: window.ait584.probes, checked: popover.querySelector('input:checked')?.value,
+        value: root.querySelector('.actor-trigger .actor-value').textContent, open: !popover.hidden, box: [box.width, box.height],
+        names: [...root.querySelectorAll('.actor-popover input')].map(input => input.name) };
+    });
+    assert.equal(result.committed, 'company', 'the acknowledged role paints synchronously');
+    assert.ok(after.probes >= 1, `the compact footer re-measured on its offscreen clone (${after.probes})`);
+    assert.equal(after.value, 'Company');
+    assert.equal(after.open, true);
+    assert.ok(after.box[0] > 0 && after.box[1] > 0, `open popover has a painted box ${JSON.stringify(after.box)}`);
+    assert.ok(after.names.every(name => name === 'actor-role-0'), 'live radios keep their group');
+    assert.equal(after.checked, 'company', 'footer re-measure must not uncheck the live role');
+    assert.deepEqual(errors, []);
+  });

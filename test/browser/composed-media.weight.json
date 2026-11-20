@@ -1,36 +1,568 @@
 {
-  "seconds": 39.822,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 42947874534-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "seconds": 35.681,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 44399683830-1, 44475421367-1, 44484221831-1, 44500373409-1, 44526018340-1, 44526016960-1, 44527954945-1, 44542067051-1, 44543973862-1, 44568256946-1, 44576083632-1, 44607365746-1, 44613164647-1, 44650109778-1, 44682541019-1, 44688985679-1, 44707193689-1, 44725948096-1, 44736662387-1, 44742965802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "8eaac9ebf5f40d230af924b7bb709a006be7c6efec9589e8967f369c6b796616",
+    "workload": "9ff3688f1774521b4e5d6fbab4e4296e69c5943a231f703d9dc5592f504183c7",
     "samples": [
       {
-        "runId": "42947874534",
+        "runId": "44399683830",
         "attempt": 1,
-        "sha": "0c4c4b1af999e4a3163e3676123e99140120bb89",
-        "observedAt": "2026-11-11T02:43:04.606Z",
+        "sha": "7de34739a61754a39a887663f35b3983db29ae2f",
+        "observedAt": "2026-11-18T21:16:24.182Z",
         "tests": [
           {
             "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
-            "seconds": 1.137996504
+            "seconds": 1.032237673
           },
           {
             "name": "AIT-348: Grok DE light lifecycle viewports and typed composer keep controls at 0 px",
-            "seconds": 2.9849794889999997
+            "seconds": 2.7881508239999997
           },
           {
             "name": "AIT-349: interrupted bubble viewport matrix and metadata stays at 0 px",
-            "seconds": 2.865086258
+            "seconds": 2.1963531859999996
           },
           {
             "name": "AIT-350: Settings provider switch viewports, focus and 0 px geometry",
-            "seconds": 21.888365943
+            "seconds": 17.549581971
           },
           {
             "name": "AIT-378: confirmed interruption and provider cooldown viewport evidence",
-            "seconds": 2.980397419
+            "seconds": 2.35726493
+          }
+        ]
+      },
+      {
+        "runId": "44475421367",
+        "attempt": 1,
+        "sha": "488a7b28c323d634998ac64d4abb38a2ee829dc3",
+        "observedAt": "2026-11-19T06:53:22.568Z",
+        "tests": [
+          {
+            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
+            "seconds": 2.583066692
+          },
+          {
+            "name": "AIT-348: Grok DE light lifecycle viewports and typed composer keep controls at 0 px",
+            "seconds": 3.424501122
+          },
+          {
+            "name": "AIT-349: interrupted bubble viewport matrix and metadata stays at 0 px",
+            "seconds": 3.1951877410000002
+          },
+          {
+            "name": "AIT-350: Settings provider switch viewports, focus and 0 px geometry",
+            "seconds": 22.55850752
+          },
+          {
+            "name": "AIT-378: confirmed interruption and provider cooldown viewport evidence",
+            "seconds": 3.609425572
+          }
+        ]
+      },
+      {
+        "runId": "44484221831",
+        "attempt": 1,
+        "sha": "cf76a680942a36ce0be68ce84e92e8df1e8fd15a",
+        "observedAt": "2026-11-19T08:02:25.219Z",
+        "tests": [
+          {
+            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
+            "seconds": 2.3229303249999997
+          },
+          {
+            "name": "AIT-348: Grok DE light lifecycle viewports and typed composer keep controls at 0 px",
+            "seconds": 3.069528305
+          },
+          {
+            "name": "AIT-349: interrupted bubble viewport matrix and metadata stays at 0 px",
+            "seconds": 2.5505023660000004
+          },
+          {
+            "name": "AIT-350: Settings provider switch viewports, focus and 0 px geometry",
+            "seconds": 19.7516897
+          },
+          {
+            "name": "AIT-378: confirmed interruption and provider cooldown viewport evidence",
+            "seconds": 2.796815252
+          }
+        ]
+      },
+      {
+        "runId": "44500373409",
+        "attempt": 1,
+        "sha": "f152e427e02e5bc390b909bde2a214c43bc0a402",
+        "observedAt": "2026-11-19T09:52:42.201Z",
+        "tests": [
+          {
+            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
+            "seconds": 1.257518529
+          },
+          {
+            "name": "AIT-348: Grok DE light lifecycle viewports and typed composer keep controls at 0 px",
+            "seconds": 3.4318715269999998
+          },
+          {
+            "name": "AIT-349: interrupted bubble viewport matrix and metadata stays at 0 px",
+            "seconds": 3.178929857
+          },
+          {
+            "name": "AIT-350: Settings provider switch viewports, focus and 0 px geometry",
+            "seconds": 22.967787686
+          },
+          {
+            "name": "AIT-378: confirmed interruption and provider cooldown viewport evidence",
+            "seconds": 3.40670462
+          }
+        ]
+      },
+      {
+        "runId": "44526018340",
+        "attempt": 1,
+        "sha": "2f0db3f8190cf0bdeda4d53561db632144942703",
+        "observedAt": "2026-11-19T12:40:27.066Z",
+        "tests": [
+          {
+            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
+            "seconds": 0.8456492379999999
+          },
+          {
+            "name": "AIT-348: Grok DE light lifecycle viewports and typed composer keep controls at 0 px",
+            "seconds": 2.416086507
+          },
+          {
+            "name": "AIT-349: interrupted bubble viewport matrix and metadata stays at 0 px",
+            "seconds": 2.0815688359999998
+          },
+          {
+            "name": "AIT-350: Settings provider switch viewports, focus and 0 px geometry",
+            "seconds": 16.903860625
+          },
+          {
+            "name": "AIT-378: confirmed interruption and provider cooldown viewport evidence",
+            "seconds": 2.2478887199999997
+          }
+        ]
+      },
+      {
+        "runId": "44526016960",
+        "attempt": 1,
+        "sha": "1260f82a11eebec113a83972ff9bf6529c2b361b",
+        "observedAt": "2026-11-19T12:40:31.616Z",
+        "tests": [
+          {
+            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
+            "seconds": 2.651819037
+          },
+          {
+            "name": "AIT-348: Grok DE light lifecycle viewports and typed composer keep controls at 0 px",
+            "seconds": 3.329649904
+          },
+          {
+            "name": "AIT-349: interrupted bubble viewport matrix and metadata stays at 0 px",
+            "seconds": 3.160074332
+          },
+          {
+            "name": "AIT-350: Settings provider switch viewports, focus and 0 px geometry",
+            "seconds": 22.528830897
+          },
+          {
+            "name": "AIT-378: confirmed interruption and provider cooldown viewport evidence",
+            "seconds": 3.388326778
+          }
+        ]
+      },
+      {
+        "runId": "44527954945",
+        "attempt": 1,
+        "sha": "47d7ce55921b8c96cc309b45e1ea1f4efa6d6816",
+        "observedAt": "2026-11-19T12:52:50.750Z",
+        "tests": [
+          {
+            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
+            "seconds": 0.950846922
+          },
+          {
+            "name": "AIT-348: Grok DE light lifecycle viewports and typed composer keep controls at 0 px",
+            "seconds": 2.5370368119999998
+          },
+          {
+            "name": "AIT-349: interrupted bubble viewport matrix and metadata stays at 0 px",
+            "seconds": 2.285998983
+          },
+          {
+            "name": "AIT-350: Settings provider switch viewports, focus and 0 px geometry",
+            "seconds": 17.665172853
+          },
+          {
+            "name": "AIT-378: confirmed interruption and provider cooldown viewport evidence",
+            "seconds": 2.438363084
+          }
+        ]
+      },
+      {
+        "runId": "44542067051",
+        "attempt": 1,
+        "sha": "8e142a67ed4746ff548b173546f8219f4ece2e8f",
+        "observedAt": "2026-11-19T14:17:24.992Z",
+        "tests": [
+          {
+            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
+            "seconds": 0.8658504779999999
+          },
+          {
+            "name": "AIT-348: Grok DE light lifecycle viewports and typed composer keep controls at 0 px",
+            "seconds": 2.434311659
+          },
+          {
+            "name": "AIT-349: interrupted bubble viewport matrix and metadata stays at 0 px",
+            "seconds": 2.096117327
+          },
+          {
+            "name": "AIT-350: Settings provider switch viewports, focus and 0 px geometry",
+            "seconds": 17.174469388000002
+          },
+          {
+            "name": "AIT-378: confirmed interruption and provider cooldown viewport evidence",
+            "seconds": 2.276538633
+          }
+        ]
+      },
+      {
+        "runId": "44543973862",
+        "attempt": 1,
+        "sha": "55933f7ff519a2c5b60c6a2ff52039c0495794bf",
+        "observedAt": "2026-11-19T14:27:58.169Z",
+        "tests": [
+          {
+            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
+            "seconds": 1.177880912
+          },
+          {
+            "name": "AIT-348: Grok DE light lifecycle viewports and typed composer keep controls at 0 px",
+            "seconds": 3.264251899
+          },
+          {
+            "name": "AIT-349: interrupted bubble viewport matrix and metadata stays at 0 px",
+            "seconds": 3.1646332299999997
+          },
+          {
+            "name": "AIT-350: Settings provider switch viewports, focus and 0 px geometry",
+            "seconds": 22.357021939
+          },
+          {
+            "name": "AIT-378: confirmed interruption and provider cooldown viewport evidence",
+            "seconds": 3.320222312
+          }
+        ]
+      },
+      {
+        "runId": "44568256946",
+        "attempt": 1,
+        "sha": "c6153be8ff45ab695cfd191d32a512446ce87aef",
+        "observedAt": "2026-11-19T16:38:12.541Z",
+        "tests": [
+          {
+            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
+            "seconds": 1.084838241
+          },
+          {
+            "name": "AIT-348: Grok DE light lifecycle viewports and typed composer keep controls at 0 px",
+            "seconds": 3.2255920970000003
+          },
+          {
+            "name": "AIT-349: interrupted bubble viewport matrix and metadata stays at 0 px",
+            "seconds": 3.053036766
+          },
+          {
+            "name": "AIT-350: Settings provider switch viewports, focus and 0 px geometry",
+            "seconds": 22.284017943
+          },
+          {
+            "name": "AIT-378: confirmed interruption and provider cooldown viewport evidence",
+            "seconds": 3.341273143
+          }
+        ]
+      },
+      {
+        "runId": "44576083632",
+        "attempt": 1,
+        "sha": "0d40a127e17dda064df3a626a8134f403faf54c6",
+        "observedAt": "2026-11-19T17:20:44.753Z",
+        "tests": [
+          {
+            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
+            "seconds": 1.1326570610000002
+          },
+          {
+            "name": "AIT-348: Grok DE light lifecycle viewports and typed composer keep controls at 0 px",
+            "seconds": 3.337060373
+          },
+          {
+            "name": "AIT-349: interrupted bubble viewport matrix and metadata stays at 0 px",
+            "seconds": 3.091409102
+          },
+          {
+            "name": "AIT-350: Settings provider switch viewports, focus and 0 px geometry",
+            "seconds": 22.410848171
+          },
+          {
+            "name": "AIT-378: confirmed interruption and provider cooldown viewport evidence",
+            "seconds": 3.543135228
+          }
+        ]
+      },
+      {
+        "runId": "44607365746",
+        "attempt": 1,
+        "sha": "f394364da286d742a4c9799f0f543be70ea13f62",
+        "observedAt": "2026-11-19T20:19:06.191Z",
+        "tests": [
+          {
+            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
+            "seconds": 1.180792435
+          },
+          {
+            "name": "AIT-348: Grok DE light lifecycle viewports and typed composer keep controls at 0 px",
+            "seconds": 3.379372926
+          },
+          {
+            "name": "AIT-349: interrupted bubble viewport matrix and metadata stays at 0 px",
+            "seconds": 3.299202985
+          },
+          {
+            "name": "AIT-350: Settings provider switch viewports, focus and 0 px geometry",
+            "seconds": 22.795227301
+          },
+          {
+            "name": "AIT-378: confirmed interruption and provider cooldown viewport evidence",
+            "seconds": 3.46159009
+          }
+        ]
+      },
+      {
+        "runId": "44613164647",
+        "attempt": 1,
+        "sha": "72512711b37c46a32f9b2d049f77b85bacec4d86",
+        "observedAt": "2026-11-19T20:53:26.747Z",
+        "tests": [
+          {
+            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
+            "seconds": 1.1261049840000001
+          },
+          {
+            "name": "AIT-348: Grok DE light lifecycle viewports and typed composer keep controls at 0 px",
+            "seconds": 3.325386984
+          },
+          {
+            "name": "AIT-349: interrupted bubble viewport matrix and metadata stays at 0 px",
+            "seconds": 3.247407929
+          },
+          {
+            "name": "AIT-350: Settings provider switch viewports, focus and 0 px geometry",
+            "seconds": 22.863236649999997
+          },
+          {
+            "name": "AIT-378: confirmed interruption and provider cooldown viewport evidence",
+            "seconds": 3.5499826309999998
+          }
+        ]
+      },
+      {
+        "runId": "44650109778",
+        "attempt": 1,
+        "sha": "09a22c5713ac3f96033f1b4bee8300132c3ac45e",
+        "observedAt": "2026-11-20T00:59:17.262Z",
+        "tests": [
+          {
+            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
+            "seconds": 1.086600807
+          },
+          {
+            "name": "AIT-348: Grok DE light lifecycle viewports and typed composer keep controls at 0 px",
+            "seconds": 3.185870526
+          },
+          {
+            "name": "AIT-349: interrupted bubble viewport matrix and metadata stays at 0 px",
+            "seconds": 2.9983446049999998
+          },
+          {
+            "name": "AIT-350: Settings provider switch viewports, focus and 0 px geometry",
+            "seconds": 22.042641614
+          },
+          {
+            "name": "AIT-378: confirmed interruption and provider cooldown viewport evidence",
+            "seconds": 3.256540203
+          }
+        ]
+      },
+      {
+        "runId": "44682541019",
+        "attempt": 1,
+        "sha": "29bf20c22fbd533dca879c382810a704e0f090e8",
+        "observedAt": "2026-11-20T05:40:21.956Z",
+        "tests": [
+          {
+            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
+            "seconds": 1.02695953
+          },
+          {
+            "name": "AIT-348: Grok DE light lifecycle viewports and typed composer keep controls at 0 px",
+            "seconds": 2.682246077
+          },
+          {
+            "name": "AIT-349: interrupted bubble viewport matrix and metadata stays at 0 px",
+            "seconds": 2.559164363
+          },
+          {
+            "name": "AIT-350: Settings provider switch viewports, focus and 0 px geometry",
+            "seconds": 18.662131147
+          },
+          {
+            "name": "AIT-378: confirmed interruption and provider cooldown viewport evidence",
+            "seconds": 2.739747257
+          }
+        ]
+      },
+      {
+        "runId": "44688985679",
+        "attempt": 1,
+        "sha": "5d507e04ee24aba5b308eff6c60ee5a0d26d8f61",
+        "observedAt": "2026-11-20T06:36:38.220Z",
+        "tests": [
+          {
+            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
+            "seconds": 0.9533900710000001
+          },
+          {
+            "name": "AIT-348: Grok DE light lifecycle viewports and typed composer keep controls at 0 px",
+            "seconds": 2.813208992
+          },
+          {
+            "name": "AIT-349: interrupted bubble viewport matrix and metadata stays at 0 px",
+            "seconds": 2.581171668
+          },
+          {
+            "name": "AIT-350: Settings provider switch viewports, focus and 0 px geometry",
+            "seconds": 19.894757753
+          },
+          {
+            "name": "AIT-378: confirmed interruption and provider cooldown viewport evidence",
+            "seconds": 2.791205051
+          }
+        ]
+      },
+      {
+        "runId": "44707193689",
+        "attempt": 1,
+        "sha": "81da7bef5ad3f181bc68e1a6d2bc2df8f039c463",
+        "observedAt": "2026-11-20T09:01:49.360Z",
+        "tests": [
+          {
+            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
+            "seconds": 1.140402337
+          },
+          {
+            "name": "AIT-348: Grok DE light lifecycle viewports and typed composer keep controls at 0 px",
+            "seconds": 3.305263011
+          },
+          {
+            "name": "AIT-349: interrupted bubble viewport matrix and metadata stays at 0 px",
+            "seconds": 3.259766392
+          },
+          {
+            "name": "AIT-350: Settings provider switch viewports, focus and 0 px geometry",
+            "seconds": 22.822861522
+          },
+          {
+            "name": "AIT-378: confirmed interruption and provider cooldown viewport evidence",
+            "seconds": 3.518915736
+          }
+        ]
+      },
+      {
+        "runId": "44725948096",
+        "attempt": 1,
+        "sha": "2f1001c51c3a9a585b3233762f3cc8cca6ef23a9",
+        "observedAt": "2026-11-20T11:14:45.255Z",
+        "tests": [
+          {
+            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
+            "seconds": 1.1151320949999999
+          },
+          {
+            "name": "AIT-348: Grok DE light lifecycle viewports and typed composer keep controls at 0 px",
+            "seconds": 3.2417086169999996
+          },
+          {
+            "name": "AIT-349: interrupted bubble viewport matrix and metadata stays at 0 px",
+            "seconds": 3.03500441
+          },
+          {
+            "name": "AIT-350: Settings provider switch viewports, focus and 0 px geometry",
+            "seconds": 22.129130176
+          },
+          {
+            "name": "AIT-378: confirmed interruption and provider cooldown viewport evidence",
+            "seconds": 3.29140345
+          }
+        ]
+      },
+      {
+        "runId": "44736662387",
+        "attempt": 1,
+        "sha": "d24d320fb50018e9b3d2984fc6e964d336bc045d",
+        "observedAt": "2026-11-20T12:33:04.234Z",
+        "tests": [
+          {
+            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
+            "seconds": 0.996977879
+          },
+          {
+            "name": "AIT-348: Grok DE light lifecycle viewports and typed composer keep controls at 0 px",
+            "seconds": 2.979073364
+          },
+          {
+            "name": "AIT-349: interrupted bubble viewport matrix and metadata stays at 0 px",
+            "seconds": 2.6316400050000004
+          },
+          {
+            "name": "AIT-350: Settings provider switch viewports, focus and 0 px geometry",
+            "seconds": 20.076194854
+          },
+          {
+            "name": "AIT-378: confirmed interruption and provider cooldown viewport evidence",
+            "seconds": 2.803956944
+          }
+        ]
+      },
+      {
+        "runId": "44742965802",
+        "attempt": 1,
+        "sha": "ddb1e06dbf1a3ebb8fea75cfffd86401ea9c1fab",
+        "observedAt": "2026-11-20T13:17:25.271Z",
+        "tests": [
+          {
+            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
+            "seconds": 1.034732988
+          },
+          {
+            "name": "AIT-348: Grok DE light lifecycle viewports and typed composer keep controls at 0 px",
+            "seconds": 2.6544583229999996
+          },
+          {
+            "name": "AIT-349: interrupted bubble viewport matrix and metadata stays at 0 px",
+            "seconds": 2.371065368
+          },
+          {
+            "name": "AIT-350: Settings provider switch viewports, focus and 0 px geometry",
+            "seconds": 18.369804016
+          },
+          {
+            "name": "AIT-378: confirmed interruption and provider cooldown viewport evidence",
+            "seconds": 2.540410202
           }
         ]
       }

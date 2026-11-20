@@ -1,32 +1,488 @@
 {
-  "seconds": 4.364,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 42947874534-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "seconds": 6.445,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 44399683830-1, 44475421367-1, 44484221831-1, 44500373409-1, 44526018340-1, 44526016960-1, 44527954945-1, 44542067051-1, 44543973862-1, 44568256946-1, 44576083632-1, 44607365746-1, 44613164647-1, 44650109778-1, 44682541019-1, 44688985679-1, 44707193689-1, 44725948096-1, 44736662387-1, 44742965802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "4312d2918d63063171f6c7ab146643ac76ebf1b5772b4ef45d9d208dd08687d3",
+    "workload": "4c804a10895f1fb190c03a50a7c9c8015ac180f8c2bd01b4692d4096f98f1a87",
     "samples": [
       {
-        "runId": "42947874534",
+        "runId": "44399683830",
         "attempt": 1,
-        "sha": "0c4c4b1af999e4a3163e3676123e99140120bb89",
-        "observedAt": "2026-11-11T02:43:01.260Z",
+        "sha": "7de34739a61754a39a887663f35b3983db29ae2f",
+        "observedAt": "2026-11-18T21:16:27.139Z",
         "tests": [
           {
             "name": "AIT-197 be304ae reply ends preparation",
-            "seconds": 0.28261574300000003
+            "seconds": 0.452100516
           },
           {
             "name": "AIT-197 e155043 pause retains pending overview",
-            "seconds": 0.29687255900000004
+            "seconds": 0.48732926600000004
           },
           {
             "name": "AIT-197 e5bb795 purpose stop versus stuck reply",
-            "seconds": 0.289513794
+            "seconds": 0.474561405
           },
           {
             "name": "AIT-201 all six real lane pairs render settled states in both orders; one Retry after unbilled 400",
-            "seconds": 2.621141197
+            "seconds": 4.526264251
+          }
+        ]
+      },
+      {
+        "runId": "44475421367",
+        "attempt": 1,
+        "sha": "488a7b28c323d634998ac64d4abb38a2ee829dc3",
+        "observedAt": "2026-11-19T06:53:20.712Z",
+        "tests": [
+          {
+            "name": "AIT-197 be304ae reply ends preparation",
+            "seconds": 0.46782476900000003
+          },
+          {
+            "name": "AIT-197 e155043 pause retains pending overview",
+            "seconds": 0.504310876
+          },
+          {
+            "name": "AIT-197 e5bb795 purpose stop versus stuck reply",
+            "seconds": 0.490718477
+          },
+          {
+            "name": "AIT-201 all six real lane pairs render settled states in both orders; one Retry after unbilled 400",
+            "seconds": 4.742626787
+          }
+        ]
+      },
+      {
+        "runId": "44484221831",
+        "attempt": 1,
+        "sha": "cf76a680942a36ce0be68ce84e92e8df1e8fd15a",
+        "observedAt": "2026-11-19T08:02:20.441Z",
+        "tests": [
+          {
+            "name": "AIT-197 be304ae reply ends preparation",
+            "seconds": 0.358447428
+          },
+          {
+            "name": "AIT-197 e155043 pause retains pending overview",
+            "seconds": 0.386714523
+          },
+          {
+            "name": "AIT-197 e5bb795 purpose stop versus stuck reply",
+            "seconds": 0.37227908200000004
+          },
+          {
+            "name": "AIT-201 all six real lane pairs render settled states in both orders; one Retry after unbilled 400",
+            "seconds": 3.694075129
+          }
+        ]
+      },
+      {
+        "runId": "44500373409",
+        "attempt": 1,
+        "sha": "f152e427e02e5bc390b909bde2a214c43bc0a402",
+        "observedAt": "2026-11-19T09:52:39.253Z",
+        "tests": [
+          {
+            "name": "AIT-197 be304ae reply ends preparation",
+            "seconds": 0.46069432899999996
+          },
+          {
+            "name": "AIT-197 e155043 pause retains pending overview",
+            "seconds": 0.496222948
+          },
+          {
+            "name": "AIT-197 e5bb795 purpose stop versus stuck reply",
+            "seconds": 0.488143486
+          },
+          {
+            "name": "AIT-201 all six real lane pairs render settled states in both orders; one Retry after unbilled 400",
+            "seconds": 4.806649322
+          }
+        ]
+      },
+      {
+        "runId": "44526018340",
+        "attempt": 1,
+        "sha": "2f0db3f8190cf0bdeda4d53561db632144942703",
+        "observedAt": "2026-11-19T12:40:35.397Z",
+        "tests": [
+          {
+            "name": "AIT-197 be304ae reply ends preparation",
+            "seconds": 0.427611259
+          },
+          {
+            "name": "AIT-197 e155043 pause retains pending overview",
+            "seconds": 0.448262182
+          },
+          {
+            "name": "AIT-197 e5bb795 purpose stop versus stuck reply",
+            "seconds": 0.463920848
+          },
+          {
+            "name": "AIT-201 all six real lane pairs render settled states in both orders; one Retry after unbilled 400",
+            "seconds": 4.493098595999999
+          }
+        ]
+      },
+      {
+        "runId": "44526016960",
+        "attempt": 1,
+        "sha": "1260f82a11eebec113a83972ff9bf6529c2b361b",
+        "observedAt": "2026-11-19T12:40:38.815Z",
+        "tests": [
+          {
+            "name": "AIT-197 be304ae reply ends preparation",
+            "seconds": 0.365587888
+          },
+          {
+            "name": "AIT-197 e155043 pause retains pending overview",
+            "seconds": 0.38341483
+          },
+          {
+            "name": "AIT-197 e5bb795 purpose stop versus stuck reply",
+            "seconds": 0.369790803
+          },
+          {
+            "name": "AIT-201 all six real lane pairs render settled states in both orders; one Retry after unbilled 400",
+            "seconds": 3.851270914
+          }
+        ]
+      },
+      {
+        "runId": "44527954945",
+        "attempt": 1,
+        "sha": "47d7ce55921b8c96cc309b45e1ea1f4efa6d6816",
+        "observedAt": "2026-11-19T12:52:53.835Z",
+        "tests": [
+          {
+            "name": "AIT-197 be304ae reply ends preparation",
+            "seconds": 0.5137534920000001
+          },
+          {
+            "name": "AIT-197 e155043 pause retains pending overview",
+            "seconds": 0.514699181
+          },
+          {
+            "name": "AIT-197 e5bb795 purpose stop versus stuck reply",
+            "seconds": 0.482831999
+          },
+          {
+            "name": "AIT-201 all six real lane pairs render settled states in both orders; one Retry after unbilled 400",
+            "seconds": 4.634451136
+          }
+        ]
+      },
+      {
+        "runId": "44542067051",
+        "attempt": 1,
+        "sha": "8e142a67ed4746ff548b173546f8219f4ece2e8f",
+        "observedAt": "2026-11-19T14:17:26.637Z",
+        "tests": [
+          {
+            "name": "AIT-197 be304ae reply ends preparation",
+            "seconds": 0.454901191
+          },
+          {
+            "name": "AIT-197 e155043 pause retains pending overview",
+            "seconds": 0.486658411
+          },
+          {
+            "name": "AIT-197 e5bb795 purpose stop versus stuck reply",
+            "seconds": 0.477796247
+          },
+          {
+            "name": "AIT-201 all six real lane pairs render settled states in both orders; one Retry after unbilled 400",
+            "seconds": 4.740087647
+          }
+        ]
+      },
+      {
+        "runId": "44543973862",
+        "attempt": 1,
+        "sha": "55933f7ff519a2c5b60c6a2ff52039c0495794bf",
+        "observedAt": "2026-11-19T14:28:01.111Z",
+        "tests": [
+          {
+            "name": "AIT-197 be304ae reply ends preparation",
+            "seconds": 0.45707226700000003
+          },
+          {
+            "name": "AIT-197 e155043 pause retains pending overview",
+            "seconds": 0.487867707
+          },
+          {
+            "name": "AIT-197 e5bb795 purpose stop versus stuck reply",
+            "seconds": 0.478271834
+          },
+          {
+            "name": "AIT-201 all six real lane pairs render settled states in both orders; one Retry after unbilled 400",
+            "seconds": 4.666769648000001
+          }
+        ]
+      },
+      {
+        "runId": "44568256946",
+        "attempt": 1,
+        "sha": "c6153be8ff45ab695cfd191d32a512446ce87aef",
+        "observedAt": "2026-11-19T16:38:20.497Z",
+        "tests": [
+          {
+            "name": "AIT-197 be304ae reply ends preparation",
+            "seconds": 0.360660577
+          },
+          {
+            "name": "AIT-197 e155043 pause retains pending overview",
+            "seconds": 0.387625969
+          },
+          {
+            "name": "AIT-197 e5bb795 purpose stop versus stuck reply",
+            "seconds": 0.38070499999999996
+          },
+          {
+            "name": "AIT-201 all six real lane pairs render settled states in both orders; one Retry after unbilled 400",
+            "seconds": 4.621449941
+          }
+        ]
+      },
+      {
+        "runId": "44576083632",
+        "attempt": 1,
+        "sha": "0d40a127e17dda064df3a626a8134f403faf54c6",
+        "observedAt": "2026-11-19T17:20:41.859Z",
+        "tests": [
+          {
+            "name": "AIT-197 be304ae reply ends preparation",
+            "seconds": 0.28492092
+          },
+          {
+            "name": "AIT-197 e155043 pause retains pending overview",
+            "seconds": 0.312028309
+          },
+          {
+            "name": "AIT-197 e5bb795 purpose stop versus stuck reply",
+            "seconds": 0.30638867399999997
+          },
+          {
+            "name": "AIT-201 all six real lane pairs render settled states in both orders; one Retry after unbilled 400",
+            "seconds": 3.090512291
+          }
+        ]
+      },
+      {
+        "runId": "44607365746",
+        "attempt": 1,
+        "sha": "f394364da286d742a4c9799f0f543be70ea13f62",
+        "observedAt": "2026-11-19T20:19:07.172Z",
+        "tests": [
+          {
+            "name": "AIT-197 be304ae reply ends preparation",
+            "seconds": 0.558232174
+          },
+          {
+            "name": "AIT-197 e155043 pause retains pending overview",
+            "seconds": 0.5706845859999999
+          },
+          {
+            "name": "AIT-197 e5bb795 purpose stop versus stuck reply",
+            "seconds": 0.499582921
+          },
+          {
+            "name": "AIT-201 all six real lane pairs render settled states in both orders; one Retry after unbilled 400",
+            "seconds": 4.782749864
+          }
+        ]
+      },
+      {
+        "runId": "44613164647",
+        "attempt": 1,
+        "sha": "72512711b37c46a32f9b2d049f77b85bacec4d86",
+        "observedAt": "2026-11-19T20:53:21.565Z",
+        "tests": [
+          {
+            "name": "AIT-197 be304ae reply ends preparation",
+            "seconds": 0.460002075
+          },
+          {
+            "name": "AIT-197 e155043 pause retains pending overview",
+            "seconds": 0.5014231419999999
+          },
+          {
+            "name": "AIT-197 e5bb795 purpose stop versus stuck reply",
+            "seconds": 0.49173534
+          },
+          {
+            "name": "AIT-201 all six real lane pairs render settled states in both orders; one Retry after unbilled 400",
+            "seconds": 4.769480208
+          }
+        ]
+      },
+      {
+        "runId": "44650109778",
+        "attempt": 1,
+        "sha": "09a22c5713ac3f96033f1b4bee8300132c3ac45e",
+        "observedAt": "2026-11-20T00:59:10.459Z",
+        "tests": [
+          {
+            "name": "AIT-197 be304ae reply ends preparation",
+            "seconds": 0.35204426
+          },
+          {
+            "name": "AIT-197 e155043 pause retains pending overview",
+            "seconds": 0.37794144999999996
+          },
+          {
+            "name": "AIT-197 e5bb795 purpose stop versus stuck reply",
+            "seconds": 0.37081924299999997
+          },
+          {
+            "name": "AIT-201 all six real lane pairs render settled states in both orders; one Retry after unbilled 400",
+            "seconds": 3.587259227
+          }
+        ]
+      },
+      {
+        "runId": "44682541019",
+        "attempt": 1,
+        "sha": "29bf20c22fbd533dca879c382810a704e0f090e8",
+        "observedAt": "2026-11-20T05:40:26.757Z",
+        "tests": [
+          {
+            "name": "AIT-197 be304ae reply ends preparation",
+            "seconds": 0.456041694
+          },
+          {
+            "name": "AIT-197 e155043 pause retains pending overview",
+            "seconds": 0.489082243
+          },
+          {
+            "name": "AIT-197 e5bb795 purpose stop versus stuck reply",
+            "seconds": 0.473016601
+          },
+          {
+            "name": "AIT-201 all six real lane pairs render settled states in both orders; one Retry after unbilled 400",
+            "seconds": 4.58439757
+          }
+        ]
+      },
+      {
+        "runId": "44688985679",
+        "attempt": 1,
+        "sha": "5d507e04ee24aba5b308eff6c60ee5a0d26d8f61",
+        "observedAt": "2026-11-20T06:36:37.635Z",
+        "tests": [
+          {
+            "name": "AIT-197 be304ae reply ends preparation",
+            "seconds": 0.35833676000000003
+          },
+          {
+            "name": "AIT-197 e155043 pause retains pending overview",
+            "seconds": 0.482865794
+          },
+          {
+            "name": "AIT-197 e5bb795 purpose stop versus stuck reply",
+            "seconds": 0.684885497
+          },
+          {
+            "name": "AIT-201 all six real lane pairs render settled states in both orders; one Retry after unbilled 400",
+            "seconds": 4.236679274
+          }
+        ]
+      },
+      {
+        "runId": "44707193689",
+        "attempt": 1,
+        "sha": "81da7bef5ad3f181bc68e1a6d2bc2df8f039c463",
+        "observedAt": "2026-11-20T09:01:50.602Z",
+        "tests": [
+          {
+            "name": "AIT-197 be304ae reply ends preparation",
+            "seconds": 0.371729592
+          },
+          {
+            "name": "AIT-197 e155043 pause retains pending overview",
+            "seconds": 0.41586101600000003
+          },
+          {
+            "name": "AIT-197 e5bb795 purpose stop versus stuck reply",
+            "seconds": 0.3960825
+          },
+          {
+            "name": "AIT-201 all six real lane pairs render settled states in both orders; one Retry after unbilled 400",
+            "seconds": 5.546597474
+          }
+        ]
+      },
+      {
+        "runId": "44725948096",
+        "attempt": 1,
+        "sha": "2f1001c51c3a9a585b3233762f3cc8cca6ef23a9",
+        "observedAt": "2026-11-20T11:14:42.082Z",
+        "tests": [
+          {
+            "name": "AIT-197 be304ae reply ends preparation",
+            "seconds": 0.460281336
+          },
+          {
+            "name": "AIT-197 e155043 pause retains pending overview",
+            "seconds": 0.49093668
+          },
+          {
+            "name": "AIT-197 e5bb795 purpose stop versus stuck reply",
+            "seconds": 0.487360713
+          },
+          {
+            "name": "AIT-201 all six real lane pairs render settled states in both orders; one Retry after unbilled 400",
+            "seconds": 4.757327104
+          }
+        ]
+      },
+      {
+        "runId": "44736662387",
+        "attempt": 1,
+        "sha": "d24d320fb50018e9b3d2984fc6e964d336bc045d",
+        "observedAt": "2026-11-20T12:33:08.303Z",
+        "tests": [
+          {
+            "name": "AIT-197 be304ae reply ends preparation",
+            "seconds": 0.364717372
+          },
+          {
+            "name": "AIT-197 e155043 pause retains pending overview",
+            "seconds": 0.390119416
+          },
+          {
+            "name": "AIT-197 e5bb795 purpose stop versus stuck reply",
+            "seconds": 0.381714944
+          },
+          {
+            "name": "AIT-201 all six real lane pairs render settled states in both orders; one Retry after unbilled 400",
+            "seconds": 4.916500351
+          }
+        ]
+      },
+      {
+        "runId": "44742965802",
+        "attempt": 1,
+        "sha": "ddb1e06dbf1a3ebb8fea75cfffd86401ea9c1fab",
+        "observedAt": "2026-11-20T13:17:28.129Z",
+        "tests": [
+          {
+            "name": "AIT-197 be304ae reply ends preparation",
+            "seconds": 0.470259434
+          },
+          {
+            "name": "AIT-197 e155043 pause retains pending overview",
+            "seconds": 0.494738363
+          },
+          {
+            "name": "AIT-197 e5bb795 purpose stop versus stuck reply",
+            "seconds": 0.489188906
+          },
+          {
+            "name": "AIT-201 all six real lane pairs render settled states in both orders; one Retry after unbilled 400",
+            "seconds": 4.621232536000001
           }
         ]
       }
