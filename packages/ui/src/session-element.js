@@ -2378,7 +2378,7 @@ export class AithemaSession extends HTMLElement {
       out.querySelector('.composer-out__bar').dataset.upgradeMeasure = out.dataset.delivery === 'true' ? credits.confirm : credits.give;
       out.querySelector('.composer-out__bar').dataset.exportMeasure = u.export;
       const actions = out.querySelector('.composer-out__actions');
-      if (kind !== 'none') {
+      if (this.#combined && kind !== 'none') {
         actions.dataset.upgradeMeasure = out.querySelector('.composer-out__bar').dataset.upgradeMeasure;
         actions.dataset.exportMeasure = u.export;
       } else { delete actions.dataset.upgradeMeasure; delete actions.dataset.exportMeasure; }
@@ -2424,7 +2424,7 @@ export class AithemaSession extends HTMLElement {
       footer.hidden = limit.footer === false; setText(footer, limit.footer === false ? '' : u.none);
       setText(out.querySelector('.composer-out__upgrade [data-next="give"]'), credits.give); setText(out.querySelector('.composer-out__upgrade [data-next="confirm"]'), credits.confirm);
       let stepsReserve = out.querySelector('[data-credit-steps-reserve]');
-      if (kind !== 'none') {
+      if (this.#combined && kind !== 'none') {
         if (!stepsReserve) {
           stepsReserve = node('span', 'composer-out__steps');
           stepsReserve.dataset.creditStepsReserve = ''; stepsReserve.style.visibility = 'hidden';
@@ -2438,13 +2438,13 @@ export class AithemaSession extends HTMLElement {
       } else stepsReserve?.remove();
       setText(out.querySelector('.composer-out__export span'), u.export);
       const exportAction = out.querySelector('.composer-out__export');
-      if (kind !== 'none') {
+      if (this.#combined && kind !== 'none') {
         exportAction.dataset.short = resolveCopy(copy, 'usedUpExportShort', undefined, this.#session.locale);
         exportAction.setAttribute('aria-label', u.export);
       } else { delete exportAction.dataset.short; exportAction.removeAttribute('aria-label'); }
       out.querySelector('.composer-out__export').href = `${this.#base}/api/sessions/${this.#session.id}/export`;
       for (const node of out.querySelectorAll('[data-next]')) { const shown = node.dataset.next === kind && !node.hidden; node.setAttribute('aria-hidden', String(!shown)); node.inert = !shown; }
-      const exportLink = out.querySelector('.composer-out__export'), exportShown = !noAction;
+      const exportLink = out.querySelector('.composer-out__export'), exportShown = !noAction && (this.#combined || kind === 'none' || newConversationEnabled || ['host-limit', 'session'].includes(this.#host?.endReason));
       exportLink.toggleAttribute('data-export', exportShown); exportLink.inert = !exportShown; exportLink.setAttribute('aria-hidden', String(!exportShown));
       const upgrade = out.querySelector('.composer-out__upgrade'); upgrade.inert = kind === 'none' || noAction; upgrade.setAttribute('aria-hidden', String(kind === 'none' || noAction));
       if (noAction) out.querySelector('.composer-out__actions').setAttribute('aria-hidden', 'true');

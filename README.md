@@ -714,7 +714,7 @@ unpressed appearance while idle. Combined readiness uses the conversation's
 full width and scrolls above the pinned composer when space is short. The
 render-only opener ends at its text and normal padding; playback controls take
 their own space once the opener becomes a canonical reply.
-The used-up upgrade offer exposes the existing export link, alongside the email
+The combined used-up upgrade offer exposes the existing export link, alongside the email
 action; host daily-cap action suppression still applies. On phones the email
 action sits below the offer text with its full label on one line. These rows
 remain reserved before exhaustion.
