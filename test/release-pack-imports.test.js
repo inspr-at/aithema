@@ -33,19 +33,22 @@ test('verify accepts in-package relative imports and non-specifier strings and c
   const scans = [];
   // Built through moduleFiles, so the module stays bound to the workspace. Comment-only
   // forms the rewrite itself would reject are covered by the scanner unit tests.
+  // New files stay under src/: package.json `files` follows first-seen top-level order,
+  // and the fixture Map (unlike a Git tree) is not sorted.
   const { directory } = releaseSet(t, { mutateFiles: files => {
-    files.set('packages/server/src/a.js', Buffer.from("import { b } from '../lib/b.js';\nexport const a = () => import('./index.js');\n"));
-    files.set('packages/server/lib/b.js', Buffer.from([
+    files.set('packages/server/src/a.js', Buffer.from("import { b } from './lib/b.js';\nexport const a = () => import('./index.js');\n"));
+    files.set('packages/server/src/lib/b.js', Buffer.from([
+      "export { fixture } from '../index.js';",
       '// see ../../core/src/x.js before changing this',
       "export const b = 'copied ../x.js', c = \"require('../x.js')\", d = `${c} ../../core/x.js`;",
       "export const e = /require\\('..\\/x.js'\\)/u.test(b) ? b.replace('../x.js', '') : null;",
     ].join('\n')));
-    files.set('packages/server/src/index.d.ts', Buffer.from("export * from './index.js';\nexport type B = typeof import('../lib/b.js').b;\n"));
+    files.set('packages/server/src/index.d.ts', Buffer.from("export * from './index.js';\nexport type B = typeof import('./lib/b.js').b;\n"));
   } });
   verifyRelease(directory, { onImportScan: scan => scans.push(scan) });
   assert.deepEqual(scans, [
     { tarball: `aithema-reset-${version.version}.tgz`, scanned: 4 },
-    { tarball: moduleTarball, scanned: 4 }, // src/index.js, src/a.js, lib/b.js, src/index.d.ts
+    { tarball: moduleTarball, scanned: 4 }, // src/index.js, src/a.js, src/lib/b.js, src/index.d.ts
   ]);
   assert.match(normalizedDigest(directory), /^sha256:[a-f0-9]{64}$/u);
 });
