@@ -45,7 +45,7 @@ import { orbStyles, createOrb } from './orb.js';
 import { icon } from './icons.js';
 import { modelDisplayName, languageFlag, formatCredits } from './display.js';
 import { bandStyles } from './band-styles.js';
-import { voiceSingleRowMinWidth, voiceRailMinWidth } from './first-paint.js';
+import { voiceSingleRowMinWidth, voiceRailMinWidth, voiceRailFlexMinWidth } from './first-paint.js';
 import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, FooterPopups, PhoneComposerViewport } from './layout.js';
 import { createReveal } from './reveal.js';
 import { mountVersionDetails, renderHostVersion } from './version-display.js';
@@ -2917,7 +2917,11 @@ export class AithemaSession extends HTMLElement {
     // marked by the rail, r3) still measure their rendered text, as on main.
     const whole = label.querySelector('.consent-action:not([hidden])') || label.hasAttribute('data-notice');
     const textWidth = rail.hasAttribute('data-message') || !whole ? 0 : range.getBoundingClientRect().width;
-    const required = Math.max(voiceRailMinWidth, Math.ceil(textWidth + parseFloat(labelStyle.paddingLeft)
+    // Slice 3: with the host's opt-in reservation (railMinWidth) an ordinary
+    // line flexes down to its 160 px floor before the band takes a second row;
+    // a whole line and every other host keep main's status-inclusive floor.
+    const floor = Math.max(voiceRailFlexMinWidth, parseFloat(style.getPropertyValue('--aithema-header-rail-floor')) || voiceRailMinWidth);
+    const required = Math.max(whole ? voiceRailMinWidth : floor, Math.ceil(textWidth + parseFloat(labelStyle.paddingLeft)
       + parseFloat(labelStyle.paddingRight) + 4 * (44 + parseFloat(railStyle.columnGap))));
     const tracks = style.gridTemplateColumns.split(' ').map(Number.parseFloat);
     const railTrack = tracks.length === 3 ? tracks[1] : 0;
