@@ -570,7 +570,9 @@ test('AIT-553 slice 3 r2: with the opt-in at a 384-543 px track an overflowing c
   const { page, server } = await harness(t), records = [];
   for (const variant of midTrack) {
     const label = `${variant.width}x${variant.height}-${variant.locale}-${variant.theme}`;
-    await open(page, server, variant);
+    // The combined entrance hands voice consent to the composer (audio-rail.js composerOwnsConsent);
+    // the choice entrance keeps the inline consent action in the band line.
+    await open(page, server, variant, 'choice');
     await page.evaluate(async text => {
       const copy = structuredClone((await import(`/packages/ui/src/i18n/${c.session.locale}.js`))[c.session.locale]);
       copy.featureConsent.voice = text; c.configure({ session: c.session, copy });
