@@ -2,9 +2,9 @@
   "schema": "aithema-version/1",
   "status": "reserved",
   "version_scheme": "inspr-calver-3",
-  "version": "261118191311.0.0",
+  "version": "261120065345.0.0",
   "release_channel": "stable",
-  "release_sequence": 37,
+  "release_sequence": 38,
   "migration": {
     "ticket": "AIT-32",
     "target_scheme": "inspr-calver-3",
@@ -15,5 +15,5 @@
     "first_calendar_sequence": 12
   },
   "dry_run_version": "261014000000.0.0",
-  "reservation_purpose": "AIT-555 RC26 round 2; UTC reservation 2026-11-18T19:13:11Z; sequence 37 (previous 36), base 83a097a9b5c26de79bd6325e75fd7a4fff5b099d; release-lock/seq-37 remains at e2ce9bfb62f535a974bc1ea7370e0e1d31045568; supersedes unmarked 261118140803.0.0 after M1 fixed by AIT-556; LEAD option (a) 2026-11-18 15:5x; eighteenth release on the AIT-363 fixed-candidate route; preparation only"
+  "reservation_purpose": "AIT-588 RC27; UTC reservation 2026-11-20T06:53:45Z; sequence 38 (previous 37), base 5d507e04ee24aba5b308eff6c60ee5a0d26d8f61; release-lock/seq-38 at 5d507e04ee24aba5b308eff6c60ee5a0d26d8f61; nineteenth release on the AIT-363 fixed-candidate route; preparation only"
 }
