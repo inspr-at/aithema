@@ -112,6 +112,9 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"] .ready__row[data-ready="consent"]::before,
   .workspace[data-entrance="combined"] .ready__actions::before { content:'·' / ''; margin-inline:.5rem; color:var(--aithema-muted); }
   .workspace[data-entrance="combined"] .ready__actions { display:flex; flex-wrap:nowrap; align-items:center; justify-content:flex-start; gap:0; }
+  /* Before the conversation the render-only welcome cannot scroll, so its
+     hidden Latest control keeps no 54px end slot (as on short phones). */
+  .workspace[data-entrance="combined"]:not([data-stage="live"]) .transcript-shell:has([data-host-opener]) > .transcript-latest { position:absolute; right:0; bottom:0; margin:0; }
 }
 @media(width < 600px) {
   .composer-notice { position:static; max-height:none; }
