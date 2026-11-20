@@ -186,7 +186,13 @@ export async function overviewFadeCheck(t) {
       signal: box('.signals li'), contact: contact.getBoundingClientRect().toJSON(), retry: retry.hidden ? null : retry.getBoundingClientRect().toJSON(),
       foot: box('.understanding > .foot'), topFade: pane.hasAttribute('data-top'), bottomFade: pane.hasAttribute('data-bottom'), mask: getComputedStyle(pane).maskImage,
       scrollTop: pane.scrollTop, lines: r.querySelector('.summary-text').style.getPropertyValue('--summary-lines'),
-      summaryExpanded: r.querySelector('.summary-toggle').getAttribute('aria-expanded'), signalsExpanded: r.querySelector('.signals-toggle').getAttribute('aria-expanded') };
+      summaryExpanded: r.querySelector('.summary-toggle').getAttribute('aria-expanded'), signalsExpanded: r.querySelector('.signals-toggle').getAttribute('aria-expanded'),
+      // AIT-587: the visible label ink of both overview toggles, for their shared right edge.
+      toggleLabels: Object.fromEntries([['summary', '.summary-toggle'], ['signals', '.signals-toggle > span']].map(([key, selector]) => {
+        const label = r.querySelector(selector), shown = label.checkVisibility({ checkVisibilityCSS: true });
+        const ink = document.createRange(); ink.selectNodeContents(label);
+        return [key, shown ? ink.getBoundingClientRect().toJSON() : null];
+      })) };
     });
     for (const [key, value] of Object.entries(result)) if (value && typeof value === 'object' && 'width' in value) positive(value, key);
     return result;
@@ -235,6 +241,10 @@ export async function overviewFadeCheck(t) {
         }
         for (const key of ['pane', 'status', 'statusText', 'summary', 'summaryText', 'heading', 'toggle', 'signal', 'foot']) positive(initial[key], `${name}: ${key}`);
         assert.equal(initial.summaryExpanded, 'false'); assert.equal(initial.signalsExpanded, 'false');
+        // AIT-587 (AIT-515/547 Tick): "Mehr anzeigen" and "Alle anzeigen (n)" end on one right edge, 0 px apart.
+        for (const [key, label] of Object.entries(initial.toggleLabels)) { assert.ok(label, `${name}: ${key} toggle label shows`); positive(label, `${name}: ${key} toggle label`); }
+        assert.ok(Math.abs(initial.toggleLabels.summary.right - initial.toggleLabels.signals.right) <= .5,
+          `${name}: both overview toggles share a right edge: ${JSON.stringify(initial.toggleLabels)}`);
         if (width >= 1366) {
           positive(initial.contact, `${name}: contact`);
           assert.equal(initial.scrollTop, 0, `${name}: initial overview is unscrolled`);
