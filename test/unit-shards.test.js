@@ -50,7 +50,7 @@ test('AIT-456: three is the smallest count with average-file growth room; the bo
   const files = Array.from({ length: 9 }, (_, index) => `measured-${index}`);
   const weights = Object.fromEntries(files.map(file => [file, 180]));
   assert.equal(unitUnknownFileSeconds, 8);
-  assert.equal(unitShardCount, 3);
+  assert.equal(unitShardCount, 4);
   for (const count of [1, 2]) assert.throws(() => assertUnitHeadroom(packUnitTests(files, weights, count)), /exceeds 420/u);
   const withGrowth = count => packUnitTests([...files,
     ...Array.from({ length: count }, (_, index) => `test/future-${String(index).padStart(4, '0')}.test.js`)], weights);
@@ -154,7 +154,7 @@ test('AIT-456: workflow retains attempt-specific evidence and grants only the ag
   assert.deepEqual(ci.permissions, { contents: 'read' });
   assert.deepEqual(ci.jobs.test.permissions, { contents: 'read', actions: 'read' });
   const download = ci.jobs.test.steps.find(step => step.name === 'Download unit result manifests');
-  assert.equal(download.with.pattern, 'unit-timings-*-of-3-attempt-*');
+  assert.equal(download.with.pattern, 'unit-timings-*-of-4-attempt-*');
   const verify = ci.jobs.test.steps.find(step => step.run?.includes('check-unit-results.js'));
   assert.deepEqual(verify.env, { GH_TOKEN: '${{ github.token }}' });
   for (const id of ['test', 'unit']) {
