@@ -448,7 +448,7 @@ browserTestWeights['test/browser/start-look.test.js'] = Math.max(
 // plan to 414.210s in thirteen bins. Coordinator Round 5 adds a fourteenth
 // shard under AIT-410/AIT-419; keep the 405s target and 420s ceiling.
 // AIT-597 (2026-11-20): after the split and floor retirement the measured plan
-// totals 5731.668s > 14 * 405s. LEAD decision (c) adds a fifteenth shard under
+// totals 5731.723s > 14 * 405s. LEAD decision (c) adds a fifteenth shard under
 // AIT-410/AIT-419; the 405s target, 420s ceiling and job timeouts stay.
 export const browserShardCount = 15;
 export const browserShardBudget = 420;

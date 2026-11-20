@@ -4,8 +4,8 @@ import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { plannedSeconds, assertMeasuredWeight } from '../scripts/browser-timings.js';
-import { readBrowserTestWeights, assertBrowserShardHeadroom, assertBrowserShardBudget, assertBrowserShardCoverage, browserShardCount, browserShards, browserTestWeights, browserShardTotals, packBrowserTests, discoverBrowserTests, selectBrowserTests } from '../scripts/browser-shards.js';
+import { plannedSeconds, assertMeasuredWeight, measuredSeconds, timingMinimumSamples } from '../scripts/browser-timings.js';
+import { provisionalSplitFiles, readBrowserTestWeights, assertBrowserShardHeadroom, assertBrowserShardBudget, assertBrowserShardCoverage, browserShardCount, browserShards, browserTestWeights, browserShardTotals, packBrowserTests, discoverBrowserTests, selectBrowserTests } from '../scripts/browser-shards.js';
 
 const measuredWeight = (seconds = 90) => {
   const samples = [{ runId: '123', attempt: 1, sha: 'b'.repeat(40), observedAt: '2026-10-16T12:00:00Z',
@@ -352,21 +352,38 @@ test('whole-file refinement recovers headroom that greedy LPT leaves unused', ()
 });
 
 // AIT-597: pause-phone and host-surface split along whole top-level tests.
-const splitReservations = {
-  'pause-phone': 260.625918641, 'pause-phone-uploads': 192.373785211,
-  'host-surface': 271.585382161, 'host-surface-email': 158.596611386,
+// Recorded seed inputs (r2 evidence): each half's moved per-test CI p95 sum
+// and the provisional seed derived from it, ceil(1.25 * sum).
+const splitSeeds = {
+  'pause-phone': [260.625918641, 326], 'pause-phone-uploads': [192.373785211, 241],
+  'host-surface': [271.585382161, 340], 'host-surface-email': [158.596611386, 199],
 };
 
-test('AIT-597: split halves keep provisional reservations from the moved CI work', () => {
-  for (const [name, moved] of Object.entries(splitReservations)) {
-    const measurement = JSON.parse(readFileSync(new URL(`../test/browser/${name}.weight.json`, import.meta.url)));
-    assert.equal(measurement.provisional, true, `${name}: provisional until rolling-main samples arrive`);
-    assert.equal(measurement.seconds, Math.ceil(moved * 1.25), `${name}: ceil(1.25 * moved CI p95)`);
-    assert.equal(browserTestWeights[`test/browser/${name}.test.js`], measurement.seconds);
+test('AIT-597: split halves keep seed arithmetic from the moved CI work and let live weights roll forward', () => {
+  for (const [name, [moved, seed]] of Object.entries(splitSeeds)) {
+    assert.equal(Math.ceil(moved * 1.25), seed, `${name}: ceil(1.25 * moved CI p95)`);
   }
-  // The halves never reserve less than the mature pre-split series (48d2c753).
-  assert.ok(browserTestWeights['test/browser/pause-phone.test.js'] + browserTestWeights['test/browser/pause-phone-uploads.test.js'] >= 453);
-  assert.ok(browserTestWeights['test/browser/host-surface.test.js'] + browserTestWeights['test/browser/host-surface-email.test.js'] >= 430.182);
+  // The seeds never reserved less than the mature pre-split series (48d2c753).
+  assert.ok(splitSeeds['pause-phone'][1] + splitSeeds['pause-phone-uploads'][1] >= 453);
+  assert.ok(splitSeeds['host-surface'][1] + splitSeeds['host-surface-email'][1] >= 430.182);
+  // Live weights are invariants only: a measured refresh or a re-reservation
+  // (for example #488's) replaces the seeds without editing this test.
+  assert.deepEqual([...provisionalSplitFiles].sort(), Object.keys(splitSeeds).map(name => `test/browser/${name}.test.js`).sort());
+  for (const file of discoverBrowserTests()) {
+    const measurement = JSON.parse(readFileSync(new URL(`../${file.replace(/\.test\.js$/u, '.weight.json')}`, import.meta.url)));
+    const weight = browserTestWeights[file];
+    assert.ok(Number.isFinite(weight) && weight > 0, `${file}: positive weight`);
+    // Diagnostic floors only ever raise a weight above its file's seconds.
+    assert.ok(weight >= measurement.seconds, file);
+    if (measurement.provisional === true) {
+      assert.ok(provisionalSplitFiles.has(file), `${file}: provisional only for the four split files`);
+      continue;
+    }
+    assert.doesNotThrow(() => assertMeasuredWeight(measurement), file);
+    if (measurement.timing.samples.length >= timingMinimumSamples) {
+      assert.ok(weight >= measuredSeconds(measurement.timing.samples), `${file}: at least the mature measured series`);
+    }
+  }
 });
 
 test('AIT-597: the provisional bypass covers only the four split files', () => {
@@ -405,7 +422,9 @@ test('AIT-597: mature rolling-main series replace the eleven superseded floors',
   for (const name of ['email-ask', 'start2-display-geometry', 'voice-presentation', 'question-card', 'start2-display',
     'tick-followups', 'html-preview', 'email-mail-space', 'visitor-credit-tiers', 'audio-replay', 'composed-media']) {
     const measurement = JSON.parse(readFileSync(new URL(`../test/browser/${name}.weight.json`, import.meta.url)));
-    assert.ok(measurement.timing.samples.length >= 5, `${name}: mature series`);
+    // AIT-558 rule: maturity at retirement is point-in-time evidence; a
+    // workload edit may restart the series with the standard warmup margin.
+    assert.doesNotThrow(() => assertMeasuredWeight(measurement), name);
     assert.equal(browserTestWeights[`test/browser/${name}.test.js`], measurement.seconds, `${name}: no diagnostic floor`);
   }
 });
