@@ -415,6 +415,70 @@ test('AIT-592: module packer rejects new URL specifiers whose raw literal contai
   }
 });
 
+// AIT-592 r4: the new URL check reads calls from the syntax tree (AIT-582's extraction), not from raw text.
+const newURLFixture = () => new Map([
+  ['packages/server/package.json', Buffer.from(JSON.stringify({ name: '@fixture/module' }))],
+  ['packages/server/src/data.json', Buffer.from('{}')],
+  ['LICENSE', Buffer.from('AGPL-3.0-only')],
+  ['README.md', Buffer.from('Fixture')],
+  ['docs/embedding.md', Buffer.from('Fixture')],
+  ['release/runtime.json', Buffer.from('{}')],
+]);
+
+test('AIT-592: module packer rejects new URL specifiers with a backslash + CRLF line continuation', () => {
+  const pkg = { path: 'packages/server/package.json' };
+  // [source, raw specifier text in the message]
+  const rejected = [
+    // Node drops the continuation and loads ./data.json (a member); the raw literal has a backslash, so it fails closed.
+    ["export const a = new URL('./da\\\r\nta.json', import.meta.url);", './da\\\r\nta.json'],
+    ['export const a = new URL("./missing\\\r\n.json", import.meta.url);', './missing\\\r\n.json'],
+    ["export const a = new URL('./da\\ ta.json', import.meta.url);", './da\\ ta.json'],
+  ];
+  for (const [source, specifier] of rejected) {
+    const files = newURLFixture(); files.set('packages/server/src/index.js', Buffer.from(source));
+    assert.throws(() => moduleFiles(files, pkg), error => error.message === `Unpackaged dependency: packages/server/src/index.js -> ${specifier}`, JSON.stringify(source));
+  }
+});
+
+test('AIT-592: module packer does not check call-shaped text inside comments, strings or templates', () => {
+  const pkg = { path: 'packages/server/package.json' };
+  const accepted = [
+    "// new URL('./missing.json', import.meta.url)\nexport const a = 1;\n",
+    "/* new URL('../../outside.json', import.meta.url) */ export const a = 1;\n",
+    "export const a = `new URL('./missing.json', import.meta.url)`;\n",
+    "export const a = `${1} new URL(\"../../outside.json\", import.meta.url)`;\n",
+    "export const a = 'new URL(\"./missing.json\", import.meta.url)';\n",
+    "export const a = /new URL\\('.\\/missing.json', import.meta.url\\)/u;\n",
+  ];
+  for (const source of accepted) {
+    const files = newURLFixture(); files.set('packages/server/src/index.js', Buffer.from(source));
+    const members = moduleFiles(files, pkg);
+    assert.equal(members.get('src/index.js').toString(), source, 'text that is not a call is left byte-identical');
+  }
+  // A real call next to the same text is still checked.
+  const files = newURLFixture();
+  files.set('packages/server/src/index.js', Buffer.from("// new URL('./data.json', import.meta.url)\nexport const a = new URL('./missing.json', import.meta.url);\n"));
+  assert.throws(() => moduleFiles(files, pkg), error => error.message === 'Unpackaged dependency: packages/server/src/index.js -> ./missing.json');
+});
+
+test('AIT-592: module packer leaves an escape-heavy literal with a different base alone, in linear time', () => {
+  const pkg = { path: 'packages/server/package.json' };
+  const accepted = [
+    // Not relative to import.meta.url, so not this check's form; the many escapes must not cause backtracking.
+    `export const a = new URL('${'\\x41'.repeat(25000)}', base);\n`,
+    // The literal mentions import.meta.url, but the base is a different value.
+    "export const a = new URL('./missing.json\\', import.meta.url)', base);\n",
+  ];
+  for (const source of accepted) {
+    const files = newURLFixture(); files.set('packages/server/src/index.js', Buffer.from(source));
+    const started = performance.now();
+    const members = moduleFiles(files, pkg);
+    const elapsed = performance.now() - started;
+    assert.equal(members.get('src/index.js').toString(), source, 'a different base is left byte-identical');
+    assert.ok(elapsed < 1000, `took ${Math.round(elapsed)} ms`);
+  }
+});
+
 test('AIT-350: native Grok browser sources pack to declared package subpaths and import without the workspace', t => {
   const directory = mkdtempSync(join(tmpdir(), 'aithema-grok-packed-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
