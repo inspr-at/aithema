@@ -47,16 +47,23 @@ test('AIT-456: measured overruns and missing or invalid durations fail closed', 
 test('AIT-456: three is the smallest count with average-file growth room; the boundary fails closed', () => {
   // A fixed duration fixture keeps this boundary test independent of future
   // test-file additions and timing refreshes. Discovery is checked above.
+  // The fixture passes count 3 explicitly, so it stays independent of the
+  // repository default (pinned separately below, four since AIT-599).
   const files = Array.from({ length: 9 }, (_, index) => `measured-${index}`);
   const weights = Object.fromEntries(files.map(file => [file, 180]));
+  const fixtureCount = 3;
   assert.equal(unitUnknownFileSeconds, 8);
   assert.equal(unitShardCount, 4);
   for (const count of [1, 2]) assert.throws(() => assertUnitHeadroom(packUnitTests(files, weights, count)), /exceeds 420/u);
+  assert.equal(packUnitTests(files, weights, fixtureCount).shards.length, fixtureCount);
   const withGrowth = count => packUnitTests([...files,
-    ...Array.from({ length: count }, (_, index) => `test/future-${String(index).padStart(4, '0')}.test.js`)], weights);
+    ...Array.from({ length: count }, (_, index) => `test/future-${String(index).padStart(4, '0')}.test.js`)], weights, fixtureCount);
   let growth = 0;
   while (Math.max(...withGrowth(growth + 1).projected) <= 420) growth++;
   assert.ok(growth > 1);
+  // Three bins of 3 x 180 s project 25 + 540/3 + 2*180/3 = 325 s; each bin
+  // takes 35 further 8 s files (418.333 s), the 36th reaches 421 s.
+  assert.equal(growth, 105);
   assert.doesNotThrow(() => assertUnitHeadroom(withGrowth(growth)));
   assert.throws(() => assertUnitHeadroom(withGrowth(growth + 1)), /exceeds 420/u);
 });
