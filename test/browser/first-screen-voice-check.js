@@ -243,10 +243,12 @@ async function hostChrome(page) {
 const longStatus = { en: 'Welcome. Your AI assistant is ready to help. Tell us about your idea and requirements, your goals, resources and next steps, in your own time.',
   de: 'Willkommen. Ihre KI-Assistenz ist für Sie bereit. Erzählen Sie uns von Ihrer Idee, Ihren Zielen, Ressourcen und nächsten Schritten, ganz in Ruhe.' };
 async function bandRecord(page, state) {
+  // A click may scroll the host page; measure every state from the page top.
+  await page.evaluate(() => window.scrollTo(0, 0));
   await observe(page);
   return page.evaluate(state => {
-    const root = c.shadowRoot, box = n => { const b = n.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
-    const band = root.querySelector('.band'), rail = root.querySelector('.audio-rail');
+    const root = c.shadowRoot, band = root.querySelector('.band'), rail = root.querySelector('.audio-rail'), top = band.getBoundingClientRect().y;
+    const box = n => { const b = n.getBoundingClientRect(); return [b.x, b.y - top, b.width, b.height]; };
     const cells = Object.fromEntries(['output', 'pause', 'mic', 'end'].map(name => [name, box(root.querySelector(`.voice-cell--${name}`))]));
     const visibleControls = [...rail.querySelectorAll('button')].filter(b => b.checkVisibility({ checkVisibilityCSS: true }))
       .map(b => ({ name: b.className, box: box(b) }));
@@ -254,7 +256,7 @@ async function bandRecord(page, state) {
     return { state, railState: rail.dataset.state, call: rail.dataset.call, band: box(band), rail: box(rail), cells, visibleControls,
       signal: box(signal), status: { text: status.textContent, box: box(status), visible: status.checkVisibility({ checkVisibilityCSS: true }),
         scrollWidth: status.scrollWidth, clientWidth: status.clientWidth, overflow: getComputedStyle(status).overflowX },
-      rowAttr: band.hasAttribute('data-rail-row') };
+      rowAttr: band.hasAttribute('data-rail-row'), scrollY, bandTop: top };
   }, state);
 }
 
