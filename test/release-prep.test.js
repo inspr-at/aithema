@@ -255,6 +255,17 @@ test('server release metadata imports with only its own package present', () => 
   assert.equal(JSON.parse(output).version, JSON.parse(readFileSync(join(fixture, 'package.json'))).version);
 });
 
+test('server release metadata in the source checkout reports the reserved coordinate from package-local files', () => {
+  const declared = JSON.parse(readFileSync(new URL('release/version.json', root)));
+  const output = execFileSync(process.execPath, ['--input-type=module', '-e',
+    "import { releaseInfo } from './packages/server/src/release-info.js'; console.log(JSON.stringify(releaseInfo));"], { cwd: root, encoding: 'utf8', stdio: 'pipe' });
+  const info = JSON.parse(output);
+  assert.equal(existsSync(new URL('packages/server/src/release-runtime.json', root)), false);
+  assert.deepEqual([info.version, info.version_scheme, info.release_channel], [declared.version, declared.version_scheme, declared.release_channel]);
+  assert.equal(info.release_sequence, null, 'only a packed artifact carries a release sequence');
+  assert.doesNotMatch(readFileSync(new URL('packages/server/src/release-info.js', root), 'utf8'), /release\/version\.json/u);
+});
+
 test('module packer refuses same-package imports of every excluded source file', () => {
   for (const [folder, excluded] of [
     ['plugins/elevenlabs', 'components.js'],
