@@ -199,3 +199,21 @@ test('r3: legacy octal and identifier escapes are read like the engine', () => {
     'require() ../../escaped.cjs -> escaped.cjs',
   ]);
 });
+
+test('r3: a member the tokenizer cannot finish cleanly fails closed', () => {
+  const reasons = files => scan(files).escapes.map(({ member, reason }) => `${member}: ${reason}`);
+  assert.deepEqual(reasons({
+    'src/template.js': 'const a = `unterminated ${b}',
+    'src/comment.js': '/* unterminated',
+    'src/string.js': "const s = 'unterminated\nimport '../../x.js';",
+    'src/open.js': 'if (x) { f(',
+    'src/close.js': 'f(x)) }',
+    'src/ok.js': 'export default { a: 1 } / 2;\nif (x) { y = [`${z}`]; }',
+  }), [
+    'src/template.js: could not be scanned completely (unterminated template), so its imports cannot be checked',
+    'src/comment.js: could not be scanned completely (unterminated comment), so its imports cannot be checked',
+    'src/string.js: could not be scanned completely (unterminated string), so its imports cannot be checked',
+    'src/open.js: could not be scanned completely (unclosed bracket), so its imports cannot be checked',
+    'src/close.js: could not be scanned completely (unmatched closing bracket), so its imports cannot be checked',
+  ]);
+});
