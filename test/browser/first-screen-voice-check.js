@@ -310,10 +310,12 @@ test('AIT-553 slice 2 item 1: the call band keeps one row in every voice state o
     const pressed = value => page.waitForFunction(v => c.shadowRoot.querySelector('.pause').getAttribute('aria-pressed') === v
       || c.shadowRoot.querySelector('.voice-pause').getAttribute('aria-pressed') === v, { timeout: 10_000 }, value).then(() => true, () => false);
     await page.evaluate(() => c.shadowRoot.querySelector('.pause').click());
-    const paused = await pressed('true');
-    states.push({ ...await bandRecord(page, 'paused'), pauseAcknowledged: paused });
+    // AIT-587: an unacknowledged pause fails here; it is never recorded as a paused state.
+    assert.equal(await pressed('true'), true, `${label}: the pause is acknowledged within 10 s`);
+    states.push(await bandRecord(page, 'paused'));
     if (variant.width === 1366 || variant.locale === 'de') await retain(page, `s2-${label}-band-paused`, states.at(-1));
-    if (paused) { await page.evaluate(() => c.shadowRoot.querySelector('.pause').click()); await pressed('false'); }
+    await page.evaluate(() => c.shadowRoot.querySelector('.pause').click());
+    assert.equal(await pressed('false'), true, `${label}: the resume is acknowledged within 10 s`);
     states.push(await bandRecord(page, 'resumed'));
     await retain(page, `s2-${label}-band-live`, states.at(-1));
     await page.evaluate(() => c.shadowRoot.querySelector('.voice-close').click());
@@ -458,7 +460,9 @@ test('AIT-553 slice 3 M1: beside a host header the opener playback row keeps one
     states.push(await bandRecord(page, 'opener playback'));
     await retain(page, `s3-${label}-band-opener-playback`, { track, ...states.at(-1) });
     await page.evaluate(() => c.shadowRoot.querySelector('.pause').click());
-    await page.waitForFunction(() => c.shadowRoot.querySelector('.pause').getAttribute('aria-pressed') === 'true', { timeout: 10_000 }).catch(() => {});
+    // AIT-587: the paused record exists only once the pause is acknowledged; a timeout fails the test.
+    await page.waitForFunction(() => c.shadowRoot.querySelector('.pause').getAttribute('aria-pressed') === 'true', { timeout: 10_000 })
+      .catch(error => { throw new Error(`${label}: the pause was not acknowledged within 10 s`, { cause: error }); });
     states.push(await bandRecord(page, 'paused'));
     await page.evaluate(() => c.shadowRoot.querySelector('.voice-close').click());
     await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.call === 'none');
