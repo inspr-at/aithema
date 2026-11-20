@@ -132,6 +132,9 @@ export class AudioRail {
   }
   measureLabel() {
     const wave = this.root.querySelector('.voice-wave'), caption = this.root.querySelector('.voice-caption');
+    // Paint only: a band line clipped in its own track ends in the AIT-239 fade (AIT-553).
+    const status = this.root.querySelector('.voice-state');
+    status.toggleAttribute('data-clipped', status.scrollWidth > status.clientWidth);
     if (this.root.hasAttribute('data-message')) {
       const signal = this.root.querySelector('.voice-signal').getBoundingClientRect();
       const viewport = this.root.ownerDocument.documentElement.clientWidth;
@@ -258,6 +261,12 @@ export class AudioRail {
     this.root.querySelector('.voice-state').classList.toggle('low', Boolean(low));
     if (low) setText(this.root.querySelector('.voice-state'), c.voiceStates.low);
     const status = this.root.querySelector('.voice-state');
+    // AIT-553: only an ordinary voice state (connecting, listening, speaking,
+    // paused, startup) may clip, fade or hide in the band. A failure, credit,
+    // cooldown, low-credit or unavailability notice is marked and stays whole.
+    const ordinary = !this.error && !usedUp && !creditEnding && !creditLabel && !low && this.startupPhase !== 'cooldown' &&
+      !(this.timeBoundEnd && !active && !transitional) && Boolean(this.startupPhase || active || transitional || available.available && this.client);
+    status.toggleAttribute('data-notice', Boolean(status.textContent) && !ordinary);
     const sentence = status.dataset.consentFeature ? featureConsentText(c, 'voice') : status.textContent;
     if (sentence && !status.dataset.consentFeature) paintNarrowText(status, sentence, this.startupPhase === 'cooldown' ? c.voiceCooldownNarrow.replace('{s}', this.countdown) : narrowVoiceStatus(c, sentence, {
       reason, creditReason: this.creditReason?.(), messageKey: this.errorKey, locale: this.locale?.(),

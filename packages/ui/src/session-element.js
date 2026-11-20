@@ -2913,9 +2913,10 @@ export class AithemaSession extends HTMLElement {
     // text-only status (an opener-length host line included) truncates in its
     // own track instead of moving the rail to a second row, so the band keeps
     // one height in every voice state. Only an inline consent action, which
-    // must not be cut, still measures its rendered text.
-    const action = label.querySelector('.consent-action:not([hidden])');
-    const textWidth = rail.hasAttribute('data-message') || !action ? 0 : range.getBoundingClientRect().width;
+    // must not be cut, and an important notice (failure, credit, cooldown;
+    // marked by the rail, r3) still measure their rendered text, as on main.
+    const whole = label.querySelector('.consent-action:not([hidden])') || label.hasAttribute('data-notice');
+    const textWidth = rail.hasAttribute('data-message') || !whole ? 0 : range.getBoundingClientRect().width;
     const required = Math.max(voiceRailMinWidth, Math.ceil(textWidth + parseFloat(labelStyle.paddingLeft)
       + parseFloat(labelStyle.paddingRight) + 4 * (44 + parseFloat(railStyle.columnGap))));
     const tracks = style.gridTemplateColumns.split(' ').map(Number.parseFloat);
