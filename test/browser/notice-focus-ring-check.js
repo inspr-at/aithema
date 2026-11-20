@@ -17,6 +17,12 @@ const scenarios = {
 };
 // The TICK RC27 look cited these combinations; each must show the control.
 const cited = new Set(['ait563-refused/390/en', 'ait566-mixed/390/de', 'ait566-document-only/1440/en', 'ait561-refused/1440/en']);
+// At 340px and below the image composer drops the gap beside Attach (styles.js, max-width:340px), so the
+// control starts at Attach's edge; 360 keeps the gap. Theme never changes geometry: the narrow widths run the
+// EN light and DE dark pairs, 390 and 1440 keep all four.
+const runs = [320, 340, 360].flatMap(width => [[width, 'en', 'light'], [width, 'de', 'dark']])
+  .concat([390, 1440].flatMap(width => ['en', 'de'].flatMap(locale => ['light', 'dark'].map(theme => [width, locale, theme]))));
+const narrow = width => width <= 340;
 const overlap = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > .01 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > .01;
 
 function measure(c) {
@@ -40,8 +46,12 @@ function measure(c) {
   for (const pseudo of ['::before', '::after']) {
     const p = getComputedStyle(more, pseudo);
     if (p.content === 'none' || p.display === 'none' || p.position !== 'absolute') continue;
-    const width = Math.max(px(p.borderTopWidth), px(p.outlineWidth));
-    if (!width) continue;
+    // A ring is as thin as its thinnest painted side; a side without a border style paints nothing,
+    // and an outline counts only when it has a style (outline-width reads 3px for 'medium' even with none).
+    const sides = ['Top', 'Right', 'Bottom', 'Left'].map(side => p[`border${side}Style`] === 'none' ? 0 : px(p[`border${side}Width`]));
+    const outline = p.outlineStyle === 'none' ? 0 : px(p.outlineWidth);
+    const width = Math.max(Math.min(...sides), outline);
+    if (!Math.max(...sides, outline)) continue;
     const left = m.left + px(css.borderLeftWidth) + px(p.left), top = m.top + px(css.borderTopWidth) + px(p.top);
     const right = m.right - px(css.borderRightWidth) - px(p.right), bottom = m.bottom - px(css.borderBottomWidth) - px(p.bottom);
     rings.push({ kind:pseudo, width, colour:p.borderTopColor, box:{ left, top, right, bottom } });
@@ -56,7 +66,7 @@ function measure(c) {
   }
   for (const action of [root.querySelector('.attach'), root.querySelector('.send'), ...reason.querySelectorAll('button')])
     if (action && action !== more && !action.closest('[hidden]')) neighbours.push({ action:action.className, box:box(action.getBoundingClientRect()) });
-  return { focused:root.activeElement === more, focusVisible:more.matches(':focus-visible'), token, control:box(m), text:more.textContent,
+  return { image:root.querySelector('.composer').hasAttribute('data-image-input'), focused:root.activeElement === more, focusVisible:more.matches(':focus-visible'), token, control:box(m), text:more.textContent,
     inline:more.parentElement.hasAttribute('data-more-inline'), summary:more.hasAttribute('data-summary'), composer:box(root.querySelector('.composer').getBoundingClientRect()), rings, neighbours };
 }
 
@@ -69,12 +79,12 @@ function geometry(c) {
 }
 
 export function noticeFocusRingCheck() {
-  for (const width of [390, 1440]) for (const locale of ['en', 'de']) for (const theme of ['light', 'dark'])
+  for (const [width, locale, theme] of runs)
     test(`AIT-589: ${width}/${locale}/${theme} keyboard focus ring on more notices clears neighbouring text`, { timeout: 120000 }, async t => {
       const directory = await mkdtemp(join(tmpdir(), 'aithema-notice-focus-'));
       const demo = await startDemo(directory), browser = await browserForFile(), page = await browser.newPage();
       t.after(async () => { await page.close(); await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); });
-      await preparePage(page, [locale]); await page.setViewport({ width, height: width === 390 ? 844 : 900, hasTouch: width === 390 });
+      await preparePage(page, [locale]); await page.setViewport({ width, height: width < 600 ? 844 : 900, hasTouch: width < 600 });
       await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
       await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
       const settle = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -127,6 +137,8 @@ export function noticeFocusRingCheck() {
         } else await pick(spec.then);
         const present = await inShadow(page, c => Boolean(c.shadowRoot.querySelector('.composer-feedback .upload-notices-more')));
         if (cited.has(`${scenario}/${width}/${locale}`)) assert.ok(present, `${scenario}: the cited state offers the more-notices control`);
+        // The image composer at 340px and below is the case without a gap beside Attach: it must be measured.
+        if (narrow(width) && spec.image) assert.ok(present, `${scenario}: the gapless image composer at ${width} offers the more-notices control`);
         if (!present) { scene.skip(`${scenario} fits without a more-notices control at ${width}/${locale}`); return; }
         // Idle notice geometry, then keyboard focus: Tab from the textarea.
         await inShadow(page, c => c.shadowRoot.querySelector('textarea').focus()); await settle();
@@ -158,7 +170,8 @@ export function noticeFocusRingCheck() {
         }
         // A summary control ("Can't upload · Details") replaces every row; otherwise a notice line shares the slot.
         if (!result.summary) assert.ok(result.neighbours.some(n => n.text), 'a neighbouring notice text is measured');
-        assert.ok(result.neighbours.some(n => n.action), 'the neighbouring actions are measured');
+        assert.ok(result.neighbours.some(n => /\battach\b/u.test(n.action ?? '')) && result.neighbours.some(n => /\bsend\b/u.test(n.action ?? '')), 'Attach and Send are measured');
+        if (narrow(width) && spec.image) assert.equal(result.image, true, `${scenario}: the image composer is measured at ${width}`);
         for (const neighbour of result.neighbours) {
           assert.ok(neighbour.box.width > 0 && neighbour.box.height > 0, `${neighbour.text ?? neighbour.action}: positive neighbour box`);
           for (const ring of result.rings)
