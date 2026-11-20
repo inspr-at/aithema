@@ -97,11 +97,16 @@ export async function combinedImageOpenerCheck(t) {
       await page.click('aithema-session >>> .send');
       await page.waitForFunction(() => trace.includes('consent'));
       // The server persists the render-only welcome with the first turn; this
-      // fixture's /turns returns only the visitor turn, so persist it here.
+      // fixture's /turns returns only the visitor turn. As in the AIT-506 check:
+      // the grant (which invalidates earlier turns) comes first, its automatic
+      // send fails, the welcome is persisted, then the visitor sends again.
+      await page.evaluate(() => { failSend = true; grant(); });
+      await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason').hasAttribute('data-send-failed'));
       await page.evaluate(() => {
         c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'host:opener', role: 'assistant', origin: 'host', content: c.session.opener.text } });
-        failSend = false; grant();
+        failSend = false;
       });
+      await page.click('aithema-session >>> .send');
       await page.waitForFunction(() => sent.length === 1 && document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').dataset.stage === 'live');
       const after = await measure('live');
       assert.equal(after.layout, 'image'); assert.equal(after.openerRows, 1);
