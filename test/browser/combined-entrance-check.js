@@ -114,7 +114,10 @@ export async function combinedEntranceCheck(t) {
       await page.goto(`${server.url}/combined-fixture?locale=${locale}`); await page.waitForFunction(() => globalThis.ready);
       const shot = async state => {
         const measured = await boxes(page); positive(measured); await readableNotice(page); tables.push({ locale, theme, width, state, boxes: measured });
-        if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, 'shots', `ait-506-${locale}-${theme}-${width}-${state}.png`), fullPage: false });
+        // AIT-587 (RC25 look 14): the fixture fixes the widget at 900 px in a 1000 px viewport; shoot the widget,
+        // not the empty test page below it.
+        const widget = await page.evaluate(() => { const r = document.querySelector('aithema-session').getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: Math.min(r.height, innerHeight - r.y) }; });
+        if (evidence && width !== 1024) await page.screenshot({ path: join(evidence, 'shots', `ait-506-${locale}-${theme}-${width}-${state}.png`), clip: widget });
         return measured;
       };
       const initial = await shot('ready');
