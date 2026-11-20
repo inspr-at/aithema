@@ -251,3 +251,44 @@ test('AIT-553 item 6: phone used-up confirmation stacks a one-line 44 px action 
     assert.ok(record.boxes.button[0] + record.boxes.button[2] + 8 <= record.boxes.export[0], `independent phone actions have an 8 px gap: ${JSON.stringify(record)}`);
   }
 });
+
+// Gate1 M1: the combined entrance hides the idle band Start, so a keyboard End
+// must hand focus to the composer microphone instead of dropping it to <body>.
+async function keyboardEnd(page, startSelector) {
+  await page.evaluate(() => grant());
+  await page.waitForFunction(() => c.session.featureMatrix.best.voice.available);
+  await page.click(`aithema-session >>> ${startSelector}`);
+  await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.call === 'active');
+  await page.waitForFunction(() => !c.shadowRoot.querySelector('.voice-close').disabled);
+  await page.evaluate(() => c.shadowRoot.querySelector('.voice-close').focus());
+  const before = await page.evaluate(() => c.shadowRoot.activeElement?.className ?? null);
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.call === 'none');
+  await page.evaluate(async () => { await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); await new Promise(resolve => setTimeout(resolve, 250)); });
+  return page.evaluate(before => {
+    const active = c.shadowRoot.activeElement, b = active?.getBoundingClientRect();
+    return { before, active: active?.className ?? null, documentActive: document.activeElement?.localName ?? null,
+      disabled: Boolean(active?.disabled), box: b ? [b.x, b.y, b.width, b.height] : null,
+      visible: Boolean(active?.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) };
+  }, before);
+}
+
+test('AIT-553 M1: keyboard End keeps focus on the composer mic in combined and on Start in choice', { timeout: 120_000 }, async t => {
+  const { page, server } = await harness(t), records = [];
+  for (const variant of variants) {
+    const label = `${variant.width}-${variant.locale}`;
+    await open(page, server, variant);
+    records.push({ label, entrance: 'combined', expected: 'composer-mic', ...await keyboardEnd(page, '.composer-mic') });
+    await open(page, server, variant, 'choice');
+    records.push({ label, entrance: 'choice', expected: 'voice-start', ...await keyboardEnd(page, '.voice-start') });
+  }
+  for (const record of records) {
+    const label = `${record.label} ${record.entrance}: ${JSON.stringify(record)}`;
+    assert.match(record.before ?? '', /\bvoice-close\b/, `band End holds keyboard focus before Enter: ${label}`);
+    assert.equal(record.documentActive, 'aithema-session', `focus stays inside the element, not <body>: ${label}`);
+    assert.ok(record.active?.split(/\s+/).includes(record.expected), `End returns focus to ${record.expected}: ${label}`);
+    assert.equal(record.disabled, false, `focused control is enabled: ${label}`);
+    assert.equal(record.visible, true, `focused control is visible: ${label}`);
+    assert.ok(record.box[2] > 0 && record.box[3] > 0, `focused control has a positive box: ${label}`);
+  }
+});
