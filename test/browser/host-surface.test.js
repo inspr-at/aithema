@@ -425,16 +425,24 @@ test('AIT-214: retiring an idle session removes its export and reload creates a 
 });
 
 test('AIT-261: every terminal reason disables the demo UI and preserves export in DE and EN', { timeout: 90_000 }, async t => {
+  // AIT-598: where the time goes (phases, milliseconds).
+  const started = performance.now(), timing = { phases: {}, post297: {} };
+  let mark = started;
+  const phase = name => { const now = performance.now(); timing.phases[name] = Math.round(now - mark); mark = now; };
+  t.after(() => t.diagnostic('AIT598_TIMING ' + JSON.stringify({ totalMs: Math.round(performance.now() - started), ...timing })));
   const directory = await mkdtemp(join(tmpdir(), 'aithema-terminal-browser-'));
   const demo = await startDemo(directory); let browser;
   t.after(async () => {
     try { await browser?.close(); } finally { await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); }
   });
+  phase('demoStart');
   browser = await launch(directory, 'terminal-profile');
+  phase('launch');
   const page = await browser.newPage(), problems = [];
   await preparePage(page, ['de'], problems);
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: 'light' }]);
   await page.goto(demo.url); await shadow(page, '.composer');
+  phase('pageLoad');
   const original = await inShadow(page, c => c.session);
   const legal297 = await inShadow(page, c => c.querySelector('#demo-legal').outerHTML);
   const export294Checks = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
@@ -515,6 +523,7 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
       await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, `ait-291-${locale}-light-1440-${reason}.png`), fullPage: false });
     }
   }
+  phase('terminalReasons');
   // AIT-291 r2: extend this in-page matrix; no extra browser process or test file.
   for (const locale of ['de', 'en']) for (const width of [390, 1024, 1440]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
@@ -578,8 +587,11 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
       }
     }
   }
+  phase('ait291r2');
   await normalComposerEvidence(page, t);
-  await postRelease297(page, t, legal297);
+  phase('normalComposer');
+  await postRelease297(page, t, legal297, timing.post297);
+  phase('postRelease297');
   assert.equal(export294Checks.length, 66, 'AIT-294: every terminal, upgrade variant and overview export width');
   const export294Pass = 'AIT-294 r2 PASS: export text/icon one unwrapped unit at 320/360/390 DE/EN; all terminal reasons, host-limit upgrade variants and overview; no overflow or clipping.';
   t.diagnostic(export294Pass);
@@ -621,6 +633,7 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
     });
     await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, 'ait-291-de-light-1440-gauges.png'), fullPage: false });
   }
+  phase('tail');
   assert.deepEqual(problems, []);
 });
 
@@ -638,7 +651,8 @@ function textAlignment297(c) {
 }
 
 // AIT-297: reuse the terminal test's browser; exercise both action rows and real host legal links.
-async function postRelease297(browserPage, t, legalHTML) {
+async function postRelease297(browserPage, t, legalHTML, timing = {}) {
+  const lapAt = { at: performance.now() }, lap = key => { const now = performance.now(); timing[key] = Math.round((timing[key] ?? 0) + now - lapAt.at); lapAt.at = now; };
   const checks = [], fractionalChecks = [], narrow360Checks = [], alignmentChecks = [], audits = [], footerHeights = new Map(), evidence = process.env.AITHEMA_EVIDENCE_DIR;
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390, 320, 388.5]) {
     const height = width < 600 ? 844 : 1000;
@@ -826,6 +840,7 @@ async function postRelease297(browserPage, t, legalHTML) {
       }
     }
     if (frameElement) await capturePage.close();
+    lap(`${locale}/${theme}/${width}`);
   }
   assert.equal(checks.length, 48);
   assert.equal(fractionalChecks.length, 12);
