@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -76,14 +76,18 @@ test('pack fails when a packaged source escapes its package in a form the rewrit
 test('the real candidate release set has no cross-package import in any tarball', t => {
   const output = mkdtempSync(join(tmpdir(), 'aithema-pack-imports-real-'));
   t.after(() => rmSync(output, { recursive: true, force: true }));
-  const { directory, manifest } = packRelease({ root: fileURLToPath(root), output: join(output, 'candidate') });
-  const scans = [];
-  verifyRelease(directory, { onImportScan: scan => scans.push(scan) });
+  const directory = join(output, 'candidate');
+  // pack verifies at its end and leaves the set on disk, so a failure still yields per-tarball evidence.
+  let packError, verifyError; const scans = [];
+  try { packRelease({ root: fileURLToPath(root), output: directory }); } catch (error) { packError = error; }
+  try { verifyRelease(directory, { onImportScan: scan => scans.push(scan) }); } catch (error) { verifyError = error; }
+  for (const scan of scans) t.diagnostic(`import check: ${scan.tarball} scanned ${scan.scanned} files, ${scan.escapes} cross-package imports`);
+  assert.ifError(packError); assert.ifError(verifyError);
+  const manifest = JSON.parse(readFileSync(join(directory, 'release-set.json')));
   assert.deepEqual(scans.map(scan => scan.tarball), manifest.artifacts.map(artifact => artifact.path));
   assert.equal(scans.length, 18); // the workspace and 17 modules
   for (const scan of scans) {
     assert.ok(scan.scanned > 0, `${scan.tarball} has scanned members`);
     assert.equal(scan.escapes, 0, scan.tarball);
-    t.diagnostic(`import check: ${scan.tarball} scanned ${scan.scanned} files, 0 cross-package imports`);
   }
 });
