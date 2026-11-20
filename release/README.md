@@ -71,7 +71,9 @@ an alias (`const load = require`), `createRequire`, `module.require` and
 `new URL` bases that do not mention `import.meta.url` are not followed. `require`, `require.resolve` and
 reference paths resolve as file paths (`?` and `#` are literal, `\` is a
 separator); the ES module forms and `new URL` resolve as URLs. A specifier with
-a malformed escape or an invalid URL fails as unreadable. Any specifier that
+a malformed escape or an invalid URL fails as unreadable, and so does a member
+that ends inside a template, comment or string or with unbalanced brackets (a
+sign the tokenizer misread it). Any specifier that
 resolves outside the archive's `package/` root fails the run, after every tarball
 has been scanned, so one run names all failing tarballs. The check runs at the end of `release:pack`, in
 `release:verify` (and so in `release:candidate`) and in normalization, so a
