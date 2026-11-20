@@ -3,10 +3,11 @@
 // inside the monorepo; a consumer installing the tarball gets a broken import.
 // Each member is parsed with TypeScript's parser and the scan walks the syntax
 // tree, so comments, ordinary strings and regular expressions are never read as
-// specifiers, and it covers more forms than modules.mjs rewrites. Where the scan
-// cannot tell what a specifier is, it fails closed: a syntax error, a malformed
-// escape, an invalid URL, an absolute path or file: URL, or an escaping literal
-// inside a non-literal argument fails the check instead of passing silently.
+// specifiers, and it covers more forms than modules.mjs rewrites. It is a tripwire
+// for packing mistakes in repository code, not a validator of adversarial input.
+// Where the scan cannot tell what a specifier is, it fails closed: a parse error, a
+// malformed escape, an invalid URL, an absolute path, drive letter or file: URL, or
+// an escaping literal inside a non-literal argument fails the check.
 import { createRequire } from 'node:module';
 import { posix } from 'node:path';
 
@@ -48,7 +49,9 @@ function cook(raw, template = false) {
   return { value, malformed };
 }
 
-const climbs = value => /(?:^|[/\\])\.\.(?:[/\\]|$)/u.test(value);
+// Percent-encoded dots and separators count as written out (URL forms decode them).
+const climbs = value => /(?:^|[/\\])\.\.(?:[/\\]|$)/u.test(value
+  .replace(/%2e/giu, '.').replace(/%2f/giu, '/').replace(/%5c/giu, '\\'));
 
 /** Every module specifier in one member: static, dynamic, URL, require, resolve and TS forms. */
 export function moduleSpecifiers(text, member = 'module.js') {
@@ -64,10 +67,21 @@ export function moduleSpecifiers(text, member = 'module.js') {
     }
     return chunks.get(node);
   };
+  // Pre-order walk with an explicit stack, so no nesting depth can overflow the call
+  // stack. `enter` returns false to skip a node's children.
+  const walk = (root, enter) => {
+    const stack = [root];
+    while (stack.length) {
+      const node = stack.pop();
+      if (enter(node) === false) continue;
+      const children = [];
+      ts.forEachChild(node, child => { children.push(child); });
+      for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]);
+    }
+  };
   const chunksIn = node => {
     const found = [];
-    const visit = child => { if (chunkKinds.has(child.kind)) found.push(chunk(child)); ts.forEachChild(child, visit); };
-    visit(node);
+    walk(node, child => { if (chunkKinds.has(child.kind)) found.push(chunk(child)); });
     return found;
   };
   const unwrap = node => {
@@ -78,6 +92,9 @@ export function moduleSpecifiers(text, member = 'module.js') {
   // Constant-fold literals and `+` through parentheses. A template with substitutions
   // or `literal + expression` yields its static prefix (partial); `rest` holds the
   // literal chunks after the prefix. Anything else is not foldable (null).
+  // A left-associative `+` chain is flattened with a loop and folded left to right;
+  // only a parenthesized right operand recurses.
+  const plus = node => ts.isBinaryExpression(node) && node.operatorToken.kind === kind.PlusToken;
   const fold = node => {
     node = unwrap(node);
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return { ...chunk(node), partial: false, rest: [] };
@@ -85,15 +102,18 @@ export function moduleSpecifiers(text, member = 'module.js') {
       const rest = node.templateSpans.flatMap(span => [...chunksIn(span.expression), chunk(span.literal)]);
       return { ...chunk(node.head), partial: true, rest };
     }
-    if (ts.isBinaryExpression(node) && node.operatorToken.kind === kind.PlusToken) {
-      const left = fold(node.left);
-      if (!left) return null;
-      if (left.partial) return { ...left, rest: [...left.rest, ...chunksIn(node.right)] };
-      const right = fold(node.right);
-      if (!right) return { ...left, partial: true, rest: chunksIn(node.right) };
-      return { value: left.value + right.value, malformed: left.malformed || right.malformed, partial: right.partial, rest: right.rest };
+    if (!plus(node)) return null;
+    const rights = [];
+    while (plus(node)) { rights.push(node.right); node = unwrap(node.left); }
+    let unit = fold(node);
+    if (!unit) return null;
+    for (let i = rights.length - 1; i >= 0; i--) {
+      if (unit.partial) { for (const part of chunksIn(rights[i])) unit.rest.push(part); continue; }
+      const right = fold(rights[i]);
+      unit = right ? { value: unit.value + right.value, malformed: unit.malformed || right.malformed, partial: right.partial, rest: right.rest }
+        : { ...unit, partial: true, rest: chunksIn(rights[i]) };
     }
-    return null;
+    return unit;
   };
   const finish = (unit, node, ambiguous) => ({
     specifier: unit.value, partial: unit.partial, malformed: unit.malformed || unit.rest.some(part => part.malformed),
@@ -105,29 +125,30 @@ export function moduleSpecifiers(text, member = 'module.js') {
     const unit = fold(arg);
     if (unit) return [finish(unit, arg)];
     const candidates = [];
-    const visit = node => {
+    walk(arg, node => {
       if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isTemplateExpression(node)) candidates.push(finish(fold(node), node, true));
-      if (ts.isTemplateExpression(node)) for (const span of node.templateSpans) visit(span.expression);
-      else ts.forEachChild(node, visit);
-    };
-    visit(arg);
+    });
     return candidates;
   };
-  const isImportMeta = node => ts.isMetaProperty(node) && node.keywordToken === kind.ImportKeyword && node.name.text === 'meta';
-  const mentionsMetaUrl = node => (ts.isPropertyAccessExpression(node) && isImportMeta(node.expression) && node.name.text === 'url')
-    || ts.forEachChild(node, mentionsMetaUrl) === true;
-  const named = (node, name) => ts.isIdentifier(node) && node.text === name;
+  // Callees and receivers are read through parentheses and TypeScript wrappers too.
+  const isImportMeta = node => (node = unwrap(node), ts.isMetaProperty(node) && node.keywordToken === kind.ImportKeyword && node.name.text === 'meta');
+  const mentionsMetaUrl = root => {
+    let hit = false;
+    walk(root, node => { if (ts.isPropertyAccessExpression(node) && isImportMeta(node.expression) && node.name.text === 'url') hit = true; return !hit; });
+    return hit;
+  };
+  const named = (node, name) => (node = unwrap(node), ts.isIdentifier(node) && node.text === name);
 
   const found = source.referencedFiles.map(reference => ({ kind: 'reference path', specifier: reference.fileName, partial: false, malformed: false, index: reference.pos }));
   const take = (form, arg) => { if (arg) for (const specifier of argumentSpecifiers(arg)) found.push({ kind: form, ...specifier }); };
-  const visit = node => {
-    if (chunkKinds.has(node.kind)) spans.push([node.getStart(source) + 1, node.end - 1]);
+  walk(source, node => {
+    if (chunkKinds.has(node.kind) && !node.isUnterminated) spans.push([node.getStart(source) + 1, node.end - 1]);
     if (ts.isImportDeclaration(node)) take(node.importClause ? 'from' : 'import', node.moduleSpecifier);
     else if (ts.isExportDeclaration(node)) take('from', node.moduleSpecifier);
     else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) take('import = require()', node.moduleReference.expression);
     else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) take('import()', node.argument.literal);
     else if (ts.isCallExpression(node)) {
-      const callee = node.expression, [first] = node.arguments;
+      const callee = unwrap(node.expression), [first] = node.arguments;
       if (callee.kind === kind.ImportKeyword) take('import()', first);
       else if (named(callee, 'require')) take('require()', first);
       else if (ts.isPropertyAccessExpression(callee) && callee.name.text === 'resolve') {
@@ -137,15 +158,13 @@ export function moduleSpecifiers(text, member = 'module.js') {
     } else if (ts.isNewExpression(node) && named(node.expression, 'URL') && node.arguments?.length > 1 && mentionsMetaUrl(node.arguments[1])) {
       take('new URL(…, import.meta.url)', node.arguments[0]);
     }
-    ts.forEachChild(node, visit);
-  };
-  visit(source);
+  });
 
-  // Any syntax error means the tree may not be what the engine sees, so the member
-  // fails. An escape error inside a literal is not structural: cook() decides it, and
-  // a specifier with a malformed escape fails on its own.
+  // Any parse error fails the member closed. The one exception is an escape error
+  // inside a closed string or template chunk: cook() decides it, and a specifier with
+  // a malformed escape fails on its own. An unterminated literal always fails.
   const message = diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, ' ');
-  const structural = source.parseDiagnostics.filter(diagnostic => /^Unterminated/u.test(message(diagnostic))
+  const structural = source.parseDiagnostics.filter(diagnostic => /^Unterminated (?:string|template)/u.test(message(diagnostic))
     || !spans.some(([start, end]) => diagnostic.start >= start && diagnostic.start + (diagnostic.length ?? 0) <= end))
     .sort((a, b) => a.start - b.start);
   if (structural.length) {
@@ -182,14 +201,18 @@ const urlTarget = url => {
 function resolveTarget(member, { kind, specifier, partial }) {
   const file = fileKinds.has(kind), backslash = file && specifier.includes('\\');
   if (file) specifier = specifier.replaceAll('\\', '/');
-  if (partial) specifier = directoryPrefix(specifier);
-  if (!specifier) return null;
-  // An absolute path or file: URL never stays inside the installed package.
+  // An absolute path, drive letter or file: URL never stays inside the installed
+  // package. It is classified on the whole static text, before a partial specifier
+  // is cut back to its directory.
   if (/^file:/iu.test(specifier)) {
     let target; try { target = urlTarget(new URL(specifier)).target; } catch { target = specifier; }
     return { target, reason: 'is a file: URL, so it is not inside package/' };
   }
-  if (/^[/\\]/u.test(specifier) || file && /^[a-z]:\//iu.test(specifier)) {
+  if (/^[a-z]:(?:[/\\]|$)/iu.test(specifier)) return { target: posix.normalize(specifier.replaceAll('\\', '/')), reason: 'is absolute, so it is not inside package/' };
+  const absolute = /^[/\\]/u.test(specifier);
+  if (partial) specifier = directoryPrefix(specifier) || (absolute ? '/' : '');
+  if (!specifier) return null;
+  if (absolute) {
     let target; try { target = file ? posix.normalize(specifier).replace(/^\/+/u, '') || '/' : urlTarget(new URL(specifier, 'file:///')).target; } catch { target = specifier; }
     return { target, reason: 'is absolute, so it is not inside package/' };
   }
