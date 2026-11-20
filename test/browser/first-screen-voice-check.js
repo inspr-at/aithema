@@ -341,6 +341,40 @@ test('AIT-553 slice 2 item 1: the call band keeps one row in every voice state o
   }
 });
 
+// r3: only ordinary status may clip, fade or hide. A notice the visitor must
+// read (here the used-up credit notice, a text-only band line without a message
+// bubble) stays whole, as on main: it still drives the band's row decision.
+const longNotice = { en: 'Your conversation time is used up for now. Your conversation is saved; you can export it or continue later with new credits.',
+  de: 'Ihre Gesprächszeit ist vorerst aufgebraucht. Ihr Gespräch ist gespeichert; Sie können es exportieren oder später mit neuem Guthaben fortsetzen.' };
+test('AIT-553 slice 2 r3: an important band notice is never clipped, faded or hidden on short desktops with host chrome', { timeout: 240_000 }, async t => {
+  const { page, server } = await harness(t), records = [];
+  for (const variant of shortDesktops.slice(0, 4)) {
+    const label = `${variant.width}x${variant.height}-${variant.locale}-${variant.theme}`;
+    await open(page, server, variant); await hostChrome(page);
+    await creditFixture(page, variant.locale, { spent: 12_000_000 });
+    await page.evaluate(async text => {
+      const copy = structuredClone((await import(`/packages/ui/src/i18n/${c.session.locale}.js`))[c.session.locale]);
+      for (const key of Object.keys(copy.voiceCreditStatus)) copy.voiceCreditStatus[key] = text;
+      copy.voiceStates.usedUp = text;
+      c.configure({ session: c.session, copy, host: { credits: true } });
+    }, longNotice[variant.locale]);
+    await page.waitForFunction(text => c.shadowRoot.querySelector('.voice-state').textContent === text, { timeout: 10_000 }, longNotice[variant.locale]);
+    const record = await bandRecord(page, 'used-up notice');
+    record.viewport = await page.evaluate(() => [innerWidth, innerHeight]);
+    await retain(page, `s2r3-${label}-band-notice`, record);
+    records.push({ label, record });
+  }
+  for (const { label, record: s } of records) {
+    const where = `${label}: ${JSON.stringify(s)}`;
+    positive({ band: s.band, rail: s.rail, signal: s.signal, status: s.status.box });
+    assert.equal(s.status.visible, true, `important notice stays visible: ${where}`);
+    assert.ok(s.status.scrollWidth <= s.status.clientWidth, `important notice is never cut: ${where}`);
+    assert.equal(s.status.mask, 'none', `important notice is never faded: ${where}`);
+    assert.notEqual(s.status.textOverflow, 'ellipsis', `important notice never ends in an ellipsis: ${where}`);
+    assert.ok(s.status.box[0] >= -.5 && s.status.box[0] + s.status.box[2] <= s.viewport[0] + .5, `important notice lies inside the viewport: ${where}`);
+  }
+});
+
 test('AIT-553 slice 2 item 2: on short desktops the readiness card is whole at first paint above the pinned composer', { timeout: 240_000 }, async t => {
   const { page, server } = await harness(t), records = [];
   for (const variant of shortDesktops) {
