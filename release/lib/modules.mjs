@@ -30,18 +30,20 @@ const packageTarget = (local, specifier) => {
 
 // AIT-592: a new URL(…, import.meta.url) asset (.js, .json, .wasm, any extension) must be a member of this
 // package. Calls come from AIT-582's syntax-tree extraction, so text in comments, strings and templates is never
-// a call. The argument must be one quoted literal whose raw text is its cooked value; a backslash (an escape or a
-// line continuation), a fold, or a partial, ambiguous or malformed specifier fails closed. A template-literal
-// argument is not this check's form (the post-pack scan checks it); a URL with a scheme other than file: is no member.
+// a call. The argument must be one literal ('…', "…" or a template without substitutions) whose raw text is its
+// cooked value; a backslash (an escape or a line continuation), a fold (also one with a template), a template with
+// substitutions, or a partial, ambiguous or malformed specifier fails closed. A URL with a scheme other than file:
+// is no member.
 const newURL = 'new URL(…, import.meta.url)';
 function checkNewURLs(text, path, local, packaged) {
   for (const found of moduleSpecifiers(text, local)) {
     if (found.problem) throw new Error(`Unpackaged dependency: ${path} could not be scanned (${found.problem})`);
     if (found.kind !== newURL) continue;
     const raw = text.slice(found.index, found.end), quote = raw[0];
-    if (quote === '`') continue;
-    const quoted = (quote === "'" || quote === '"') && raw.length > 1 && raw.endsWith(quote), specifier = quoted ? raw.slice(1, -1) : raw;
-    const single = quoted && specifier === found.specifier && !found.partial && !found.ambiguous && !found.malformed;
+    const quoted = (quote === "'" || quote === '"' || quote === '`') && raw.length > 1 && raw.endsWith(quote), specifier = quoted ? raw.slice(1, -1) : raw;
+    // The engine cooks a raw CR or CRLF in a template to LF, so the raw body is not the cooked value then.
+    const single = quoted && specifier === found.specifier && !(quote === '`' && specifier.includes('\r'))
+      && !found.partial && !found.ambiguous && !found.malformed;
     if (single && /^[a-z][a-z0-9+.-]+:/iu.test(specifier) && !/^file:/iu.test(specifier)) continue;
     if (!single || !packaged.has(packageTarget(local, specifier))) throw new Error(`Unpackaged dependency: ${path} -> ${specifier}`);
   }

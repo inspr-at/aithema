@@ -495,6 +495,8 @@ test('AIT-592: module packer checks template-literal new URL specifiers like quo
     ["export const a = new URL('./data' + `.json`, import.meta.url);", "'./data' + `.json`"],
     // A backslash in the raw template: cooks to ./a.json, fails closed on the raw text.
     [String.raw`export const a = new URL(` + '`' + String.raw`./a\x2ejson` + '`' + ', import.meta.url);', String.raw`./a\x2ejson`],
+    // A raw CRLF in a template cooks to LF: the raw body is not the cooked value.
+    ['export const a = new URL(`./da\r\nta.json`, import.meta.url);', './da\r\nta.json'],
   ];
   for (const [source, specifier] of rejected) {
     const files = newURLFixture(); files.set('packages/server/src/index.js', Buffer.from(source));
