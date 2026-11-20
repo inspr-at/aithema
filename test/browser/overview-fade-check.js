@@ -148,6 +148,22 @@ export async function overviewStatusLayoutBudgetCheck(t, classicScrollbars = fal
         `frame ${i}/${selector}.${axis} stays constant during full remeasurement`);
     }
     t.diagnostic(`AIT-547 isolated remeasurement classic=${classicScrollbars}: ${frames.samples.length} stable samples, ${frames.measurements} measurements`);
+    // AIT-587 (AIT-547 gate3 L2): the comment above claims real width changes, which the isolated
+    // remeasurement never makes. Narrow the size-contained stack without a window resize (the
+    // ResizeObserver path) and read the slot in the next frame, after the change was painted.
+    const wide = await compactStatusMaximum(page);
+    const resized = await shadow(page, async c => {
+      const r = c.shadowRoot, stack = r.querySelector('.analysis-stack'), slot = r.querySelector('.overview-status');
+      const width = stack.getBoundingClientRect().width;
+      await new Promise(resolve => requestAnimationFrame(() => { stack.style.width = `${Math.round(width * .55)}px`; resolve(); }));
+      return new Promise(resolve => requestAnimationFrame(() => resolve({ width, slot: slot.getBoundingClientRect().toJSON(), stack: stack.getBoundingClientRect().toJSON() })));
+    });
+    positive(resized.slot, 'narrowed slot'); positive(resized.stack, 'narrowed stack');
+    assert.ok(resized.stack.width < resized.width - 1, `the stack really narrowed: ${JSON.stringify(resized)}`);
+    const narrow = await compactStatusMaximum(page);
+    assert.ok(narrow > wide + .5, `the narrower stack needs a taller reserve (${wide} -> ${narrow}), so this sample can fail`);
+    assert.ok(Math.abs(resized.slot.height - narrow) <= .5,
+      `the first frame painted after a width change already reserves the new maximum ${narrow}: ${JSON.stringify(resized)}`);
   } finally { await client.detach(); }
 }
 
