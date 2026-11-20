@@ -1556,16 +1556,33 @@ export class AithemaSession extends HTMLElement {
   // AIT-601: the desktop image layout keeps a render-label reserve at the end of
   // its transcript (--aithema-render-reserve) so the label of a running render
   // (.concept-bottom, state "gen") never covers a turn. Before the first reply
-  // no render can run: a render needs a recorded visual wish, the concept status
-  // stays idle until one exists, and no concept exists yet. Until then the
-  // reserve is idle and D511a's fit test leaves it out, so fitting content never
-  // follows because of it. A reply, a concept or a non-idle status counts it
-  // again; phones keep the label outside the thread and are unchanged.
+  // and before a visual wish no render can run: the host admits a render only
+  // for a recorded wish (conceptIntent.visualIntent, then .pending), and no
+  // concept exists yet. Until then the reserve is idle and D511a's fit test
+  // leaves it out, so fitting content never follows because of it. A wish (the
+  // concept status may still read idle then), a running or finished render, a
+  // concept, or a reply, persisted or still streaming, counts it again; phones
+  // keep the label outside the thread and are unchanged.
   #renderReserveIdle(shell) {
     const session = this.#session, label = shell.parentElement?.querySelector(':scope > .concept-bottom');
     return Boolean(label) && label.dataset.state !== 'gen' && !this.ownerDocument.defaultView.matchMedia('(max-width:600px)').matches
-      && [undefined, 'idle'].includes(session.conceptStatus?.phase) && !session.concepts?.length
+      && [undefined, 'idle'].includes(session.conceptStatus?.phase) && !session.conceptIntent?.visualIntent && !session.conceptIntent?.pending
+      && !session.concepts?.length && !this.#partials.size
       && !session.transcript.some(turn => turn.role === 'assistant' && turn.origin !== 'host' && !turn.erased && !turn.withdrawn);
+  }
+  // AIT-601: once the render label shows, the end of the transcript must not
+  // sit under it. Follow suspension (a resting pointer, D2 anchoring) keeps the
+  // reading place only where that leaves no content under the label: when the
+  // reader is still at the latest position (not scrolled away, no held long
+  // reply, not folded) and the last item reaches into the label's reserve, the
+  // transcript follows exactly as after a reply.
+  #underRenderLabel() {
+    const shell = this.shadowRoot?.querySelector('.transcript-shell'), label = shell?.parentElement?.querySelector(':scope > .concept-bottom');
+    if (label?.dataset.state !== 'gen' || !this.#follow || this.#longReply || this.#fold?.folded || this.#followsTranscript()) return false;
+    const reserve = parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).getPropertyValue('--aithema-render-reserve')) || 0;
+    const pane = shell.getBoundingClientRect();
+    const last = [...shell.querySelectorAll('ol > *')].map(item => item.getBoundingClientRect()).filter(box => box.width > 0 && box.height > 0).at(-1);
+    return reserve > 0 && pane.height > 0 && Boolean(last) && last.top < pane.bottom && last.bottom > pane.bottom - reserve + .5;
   }
   #hovered() {
     const point = this.#pointer;
@@ -1579,7 +1596,11 @@ export class AithemaSession extends HTMLElement {
   #anchored(update) {
     this.#anchorDepth++;
     try { this.#anchoredUpdate(update); }
-    finally { if (--this.#anchorDepth === 0 && this.#erased) this.#paintErased(); }
+    finally {
+      // After the pointer anchor: a render label that now shows over the
+      // transcript's end overrides it (#underRenderLabel).
+      if (--this.#anchorDepth === 0) { if (this.#erased) this.#paintErased(); else if (this.#underRenderLabel()) this.#scrollToLatest(); }
+    }
   }
   #anchoredUpdate(update) {
     const focused = this.shadowRoot.activeElement, pointer = this.#hovered();
