@@ -389,6 +389,32 @@ test('AIT-592: module packer resolves new URL targets in package space, among th
   }
 });
 
+test('AIT-592: module packer rejects new URL specifiers whose raw literal contains a backslash (escape sequences fail closed)', () => {
+  const pkg = { path: 'packages/server/package.json' };
+  const fixture = () => new Map([
+    [pkg.path, Buffer.from(JSON.stringify({ name: '@fixture/module' }))],
+    ['packages/server/src/data.json', Buffer.from('{}')],
+    // The member the raw text of the first case resolves to; Node resolves the cooked string to src/data.json.
+    ['packages/server/src/assets/data.json', Buffer.from('{}')],
+    ['LICENSE', Buffer.from('AGPL-3.0-only')],
+    ['README.md', Buffer.from('Fixture')],
+    ['docs/embedding.md', Buffer.from('Fixture')],
+    ['release/runtime.json', Buffer.from('{}')],
+  ]);
+  // [source, raw specifier text in the message]
+  const rejected = [
+    [String.raw`export const a = new URL('./assets\x20/../data.json', import.meta.url);`, String.raw`./assets\x20/../data.json`],
+    // Cooks to './data.json', an existing member: the rejection is on the raw backslash, not on resolution.
+    [String.raw`export const a = new URL('.\/data.json', import.meta.url);`, String.raw`.\/data.json`],
+    [String.raw`export const a = new URL('./a\\b.json', import.meta.url);`, String.raw`./a\\b.json`],
+    [String.raw`export const a = new URL("./a\"b.json", import.meta.url);`, String.raw`./a\"b.json`],
+  ];
+  for (const [source, specifier] of rejected) {
+    const files = fixture(); files.set('packages/server/src/index.js', Buffer.from(source));
+    assert.throws(() => moduleFiles(files, pkg), error => error.message === `Unpackaged dependency: packages/server/src/index.js -> ${specifier}`, source);
+  }
+});
+
 test('AIT-350: native Grok browser sources pack to declared package subpaths and import without the workspace', t => {
   const directory = mkdtempSync(join(tmpdir(), 'aithema-grok-packed-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
