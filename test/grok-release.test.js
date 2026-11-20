@@ -18,6 +18,8 @@ test('AIT-351: Grok is a release module with exact dependencies, all exports and
   const lock = JSON.parse(tree.get('package-lock.json'));
   assert.deepEqual(lock.packages['plugins/grok-voice'].dependencies, metadata.dependencies);
   const grok = moduleFiles(tree, { path: packagePath });
+  // packRelease generates the runtime that release-info.js reads through new URL before moduleFiles runs.
+  tree.set('packages/server/src/release-runtime.json', Buffer.from('{}'));
   const server = moduleFiles(tree, { path: 'packages/server/package.json' });
   for (const target of Object.values(metadata.exports)) assert.ok(grok.has(target.slice(2)), target);
   for (const path of ['src/voice-coordinator.js', 'src/composed/accounting.js', 'src/composed/server.js',

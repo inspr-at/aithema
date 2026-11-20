@@ -66,9 +66,10 @@ function copiedRelease(t, extra = {}) {
 }
 
 test('pack fails when a packaged source escapes its package in a form the rewrite does not touch', t => {
-  // modules.mjs rewrites from/import specifiers and only .js new URL targets; these two pass it unchanged.
+  // modules.mjs checks quoted from/import and new URL specifiers (AIT-592: every extension); a template-literal
+  // new URL and require() are not its forms, so these two pass it unchanged and only the post-pack check sees them.
   const fixture = copiedRelease(t, { 'packages/server/src/escape-fixture.js':
-    "export const data = new URL('../../core/src/data.json', import.meta.url);\nexport const legacy = () => require('../../core/src/index.js');\n" });
+    "export const data = new URL(`../../core/src/data.json`, import.meta.url);\nexport const legacy = () => require('../../core/src/index.js');\n" });
   assert.throws(() => packRelease({ root: fixture, output: join(fixture, 'out'), dryRun: true }),
     /Cross-package import in inspr-aithema-server-[0-9.]+\.tgz: .*package\/src\/escape-fixture\.js new URL\(…, import\.meta\.url\) '\.\.\/\.\.\/core\/src\/data\.json' resolves to core\/src\/data\.json, outside package\/; package\/src\/escape-fixture\.js require\(\) '\.\.\/\.\.\/core\/src\/index\.js' resolves to core\/src\/index\.js, outside package\//u);
 });

@@ -31,7 +31,8 @@ export function moduleFiles(files, pkg) {
         const subpath = Object.entries(metadata.exports ?? {}).find(([, value]) => exportTargets(value).includes(sourcePath))?.[0];
         if (!subpath) throw new Error(`Missing package export: ${metadata.name}/${sourcePath}`);
         return introducer + quote + metadata.name + (subpath === '.' ? '' : '/' + subpath.slice(2)) + quote;
-      }).replace(/new\s+URL\(\s*(['"])(\.{1,2}\/[^'"\n]+\.js)\1\s*,\s*import\.meta\.url\s*\)/gu, (match, _quote, specifier) => {
+        // AIT-592: a new URL asset (.js, .json, .wasm, any extension) must be a packaged file of this package.
+      }).replace(/new\s+URL\(\s*(['"])(\.{1,2}\/[^'"\n]+)\1\s*,\s*import\.meta\.url\s*\)/gu, (match, _quote, specifier) => {
         const target = posix.normalize(posix.join(posix.dirname(path), specifier));
         if (excluded.has(target) || !target.startsWith(prefix) || !files.has(target)) throw new Error(`Unpackaged dependency: ${path} -> ${specifier}`);
         return match;
