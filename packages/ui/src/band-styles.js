@@ -31,9 +31,10 @@ export const bandStyles = `
 .audio-rail button { background:color-mix(in srgb,var(--aithema-surface) 50%,transparent); }
 .audio-rail button:hover:not(:disabled) { background:color-mix(in srgb,var(--aithema-surface) 50%,transparent); }
 .audio-rail .pause, .audio-rail .pause:hover:not(:disabled) { background:var(--aithema-ink); }
-/* Idle still offers the conversation pause, without the live call's filled treatment. */
-.audio-rail[data-state="idle"][data-call="none"] .pause[aria-pressed="false"]:not(:disabled),
-.audio-rail[data-state="idle"][data-call="none"] .pause[aria-pressed="false"]:not(:disabled):hover:not(:disabled) {
+/* Only a pressed pause (Resume) is filled. An unpressed pause stays outlined in every state,
+   idle, live and closing alike, so it never reads as active (AIT-587, AIT-553 gate1 L4). */
+.audio-rail[data-state][data-call] :is(.pause,.voice-pause)[aria-pressed="false"]:not(:disabled),
+.audio-rail[data-state][data-call] :is(.pause,.voice-pause)[aria-pressed="false"]:not(:disabled):hover {
   background:transparent; color:var(--aithema-ink); border-color:var(--aithema-line); }
 /* Ownership stays a rail status, with Resume's ink fill during takeover. */
 .band .audio-rail:focus-visible { outline:none; }
