@@ -34,7 +34,8 @@ function fixture(t, mode = 'type', active) {
   t.after(() => { c.remove(); document.body.replaceChildren(); sessionStorage.clear(); });
   return { get c() { return c; }, starts, configure,
     start() { c.shadowRoot.querySelector('.ready__start').click(); },
-    async grant() { c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, changed: ['text', 'voice'], removed: [] } }); await tick(); },
+    revise() { c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true, changed: ['text', 'voice'], removed: [] } }); },
+    async grant() { this.revise(); await tick(); },
     set covering(value) { covering = value; }, set lag(value) { lag = value; } };
 }
 for (const mode of ['type', 'voice']) test(`AIT-501: ${mode} Start resumes exactly once after a covering refresh`, async t => {
@@ -62,10 +63,16 @@ test('AIT-501: partial grant clears Start after refresh settles', async t => {
   assert.equal(f.c.shadowRoot.querySelector('.intro').hidden, false);
 });
 test('AIT-501: ledger lag and two revision events consume one Start', async t => {
-  const f = fixture(t, 'voice', true); f.start(); f.lag = true; await f.grant(); await f.grant();
+  // AIT-574: consent timers run on a virtual clock, so no wall-clock sleep can
+  // race the 2 s event deadline. Steps below mirror the loaded CI runner (~2x).
+  const clock = consentClock(t), f = fixture(t, 'voice', true); f.start(); f.lag = true;
+  f.revise(); await clock.flush();
+  assert.ok(clock.has(2000, 'consentTimer'), 'the first event owns the 2 s deadline');
+  assert.ok(clock.has(100, 'consentTimer'), 'the lagging ledger is re-read in 100 ms');
+  await clock.advance(1000); f.revise(); await clock.flush(); await clock.advance(1000);
   assert.equal(f.starts.length, 0);
   f.lag = false;
-  await new Promise(resolve => setTimeout(resolve, 150)); await tick();
+  await clock.advance(300); await clock.advance(300);
   assert.equal(f.starts.length, 1);
 });
 for (const mode of ['type', 'voice']) test(`AIT-501: navigation restores ${mode} once; voice requires Start call`, async t => {
@@ -159,6 +166,22 @@ function consentClock(t) {
       const entry = [...timers].find(([, timer]) => timer.delay === delay && (!domain || timer.callback.name === domain));
       assert.ok(entry, `pending consent timer at ${delay} ms`);
       timers.delete(entry[0]); entry[1].callback(); await tick();
+    },
+    // Event-loop turns only (the fetch fixture settles in microtasks): no wall clock.
+    async flush() { for (let i = 0; i < 20; i++) await new Promise(resolve => setImmediate(resolve)); },
+    // Virtual time: fire due timers in deadline order (ties in arming order),
+    // settling each callback's async work before the next one runs.
+    async advance(ms) {
+      for (let left = ms; ;) {
+        const due = Math.min(...[...timers.values()].map(timer => timer.delay));
+        if (!(due <= left)) { for (const timer of timers.values()) timer.delay -= left; return; }
+        for (const timer of timers.values()) timer.delay -= due;
+        left -= due;
+        for (const [id, timer] of [...timers]) {
+          if (timer.delay > 0 || !timers.has(id)) continue;
+          timers.delete(id); timer.callback(); await this.flush();
+        }
+      }
     } };
 }
 for (const mode of ['type', 'voice']) test(`AIT-501 v2.2: open/adopt/configure consumes the granted ${mode} snapshot without an event or GET`, async t => {
