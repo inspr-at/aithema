@@ -681,6 +681,46 @@ CI observations. The +180 s start-journey growth
 scenario, fourteen shards, packer, every other weight and floor, job timeouts,
 and **405/420 s** limits remain unchanged.
 
+### AIT-597 pause-phone and host-surface split (2026-11-20)
+
+The read-only refresh at `48d2c753` imported 20 verified merge-group runs
+(`44371370170` .. `44742965802`, all attempt 1). Two mature series then exceed
+the 420 s ceiling on their own: pause-phone **453.000 s** (7 samples) and
+host-surface **430.182 s** (8 samples). LEAD's decision splits both along whole
+top-level tests, as AIT-557 split clarify-now. No assertion changes; every test
+still runs exactly once.
+
+| Source | New file | Moved top-level tests | Per-test CI p95 sum (s) | Provisional reservation (s) |
+| --- | --- | --- | ---: | ---: |
+| pause-phone | `pause-phone.test.js` (kept) | 31: AIT-188/189/190/194/244 pause tests, AIT-556 r3 paused refusal, AIT-510 image input at 390 | 260.625918641 | 326 |
+| pause-phone | `pause-phone-uploads.test.js` | 48: `documentUploadCheck()` (AIT-556/559/561/563/566), AIT-510 image input at 1440 | 192.373785211 | 241 |
+| host-surface | `host-surface.test.js` (kept) | 11: AIT-104 B2 lock, AIT-214, AIT-261, AIT-376 x2, AIT-395, AIT-411, AIT-433, AIT-484, AIT-486, AIT-569 | 271.585382161 | 340 |
+| host-surface | `host-surface-email.test.js` | 4: AIT-506 combined offer, AIT-507 integration, AIT-517, AIT-507 inline offer | 158.596611386 | 199 |
+
+Each reservation is `ceil(1.25 * sum of the moved tests' nearest-rank p95)`
+over the trusted pre-split series: runs `44650109778` .. `44742965802` for
+pause-phone and `44613164647` .. `44742965802` for host-surface. The sum is at
+least every single run's work for those tests. The image-input check already
+takes its widths as an argument (start-look runs 1024), so 390 and 1440 are
+whole top-level tests. All four weights are explicitly `provisional`; the
+file-specific bypass in `scripts/browser-shards.js` covers only these four
+files. As in AIT-558, the next refresh replaces them with measured rolling-main
+timings of the new workload hashes. The pre-split floors retire with the
+pre-split workloads: pause-phone 214/220/231 s and host-surface
+151/210/240/395 s.
+
+Mature (at least five-sample) rolling-main series now supersede eleven PR or
+remote diagnostic floors. As in AIT-314, the floor statements are removed and
+their values are recorded here (old effective floor → measured weight, samples):
+email-ask 358 → 277.496 (11), start2-display-geometry 281 → 244.545 (20),
+voice-presentation 270 → 218.978 (17), question-card 230 → 205.445 (20),
+start2-display 270 → 246.750 (9), tick-followups 110 → 81.747 (20),
+html-preview 113 → 89.697 (15), email-mail-space 100 → 78.328 (20),
+visitor-credit-tiers 200 → 180.678 (20), audio-replay 41 → 29.229 (20),
+composed-media 36 → 35.681 (20). The script's provenance comments for these
+floors remain as history. Floors that do not bind (start-journey, start-look, demo, footer-width-sweep,
+consent-lines, start2-display-continuity) stay unchanged.
+
 Helper-defined top-level records are attributed only when the verified CI
 commit's import graph identifies exactly one test file in the same batch's
 manifest. The importer parses source syntax so comments and fixture strings
