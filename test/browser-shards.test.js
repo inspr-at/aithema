@@ -39,10 +39,10 @@ test('the actual CI matrix runs every manifest shard exactly once', () => {
   assertBrowserShardCoverage(discoverBrowserTests(), ciShards);
 });
 
-test('AIT-557: nightly includes all fourteen browser shards exactly once', () => {
+test('AIT-597: nightly includes all fifteen browser shards exactly once', () => {
   const workflow = readFileSync(new URL('../.github/workflows/nightly.yml', import.meta.url), 'utf8');
   const indices = JSON.parse(/shard: (\[[^\n]+\])/u.exec(workflow)[1]);
-  assert.deepEqual(indices, Array.from({ length: 14 }, (_, index) => index + 1));
+  assert.deepEqual(indices, Array.from({ length: 15 }, (_, index) => index + 1));
   assertBrowserShardCoverage(discoverBrowserTests(), indices.map(index => selectBrowserTests(['--shard', `${index}/${browserShards.length}`]).files));
 });
 
@@ -273,19 +273,19 @@ test('current measured packing keeps every shard at or below the 405s headroom t
   assertBrowserShardHeadroom();
 });
 
-test('AIT-557: current measured workloads fit fourteen bins without changing either limit', t => {
-  assert.equal(browserShardCount, 14);
+test('AIT-597: current measured workloads fit fifteen bins without changing either limit', t => {
+  assert.equal(browserShardCount, 15);
   const files = discoverBrowserTests();
   const packing = packBrowserTests(files);
   retainPlan('current', packing);
-  assert.equal(packing.shards.length, 14);
+  assert.equal(packing.shards.length, 15);
   assertBrowserShardCoverage(files, packing.shards);
   assertBrowserShardBudget(packing.totals);
-  t.diagnostic(`Current fourteen-bin seconds: ${packing.totals.map(total => total.toFixed(3)).join(', ')}`);
+  t.diagnostic(`Current fifteen-bin seconds: ${packing.totals.map(total => total.toFixed(3)).join(', ')}`);
   assertBrowserShardHeadroom(packing);
 });
 
-test('AIT-557: fourteen bins retain 405s headroom with AIT-506 and AIT-524 measured growth', t => {
+test('AIT-597: fifteen bins retain 405s headroom with AIT-506 and AIT-524 measured growth', t => {
   const files = discoverBrowserTests();
   // Reserve the moved pre-split CI work independently of the current weight's
   // own samples, without the provisional 25% margin retired by AIT-558.
@@ -295,15 +295,18 @@ test('AIT-557: fourteen bins retain 405s headroom with AIT-506 and AIT-524 measu
     + browserTestWeights['test/browser/clarify-now-status.test.js']
     >= 378.094,
     'the halves cover the inherited combined reservation');
+  // AIT-597: AIT-506's combined entrance matrix is now inside start-journey's
+  // mature rolling-main series. Keep AIT-532's inherited 205s + 180s projection
+  // as a lower bound instead of adding the same growth twice.
   const weights = { ...browserTestWeights,
-    'test/browser/start-journey.test.js': browserTestWeights['test/browser/start-journey.test.js'] + 180,
+    'test/browser/start-journey.test.js': Math.max(browserTestWeights['test/browser/start-journey.test.js'], 205 + 180),
   };
   const packing = packBrowserTests(files, weights, browserShardCount);
   retainPlan('growth', packing);
-  assert.equal(packing.shards.length, 14);
+  assert.equal(packing.shards.length, 15);
   assertBrowserShardCoverage(files, packing.shards, weights);
   assertBrowserShardBudget(packing.totals);
-  t.diagnostic(`Growth fourteen-bin seconds: ${packing.totals.map(total => total.toFixed(3)).join(', ')}`);
+  t.diagnostic(`Growth fifteen-bin seconds: ${packing.totals.map(total => total.toFixed(3)).join(', ')}`);
   assertBrowserShardHeadroom(packing, weights);
 });
 
@@ -316,11 +319,11 @@ test('AIT-558: the growth guard rejects measured status work below the independe
       ? JSON.stringify(${JSON.stringify(measuredWeight(190))}) : read(path, ...args);
     syncBuiltinESMExports();
   `;
-  const result = spawnSync(process.execPath, ['--test', '--test-name-pattern=^AIT-557: fourteen bins retain',
+  const result = spawnSync(process.execPath, ['--test', '--test-name-pattern=^AIT-597: fifteen bins retain',
     '--import', `data:text/javascript,${encodeURIComponent(setup)}`, 'test/browser-shards.test.js'], {
     cwd: new URL('../', import.meta.url), encoding: 'utf8', env: {},
   });
-  assert.match(result.stdout, /AIT-557: fourteen bins retain/u, result.stdout + result.stderr);
+  assert.match(result.stdout, /AIT-597: fifteen bins retain/u, result.stdout + result.stderr);
   assert.equal(result.status, 1, result.stdout + result.stderr);
   assert.match(result.stdout, /the moved status work remains reserved/u);
 });
@@ -346,4 +349,63 @@ test('whole-file refinement recovers headroom that greedy LPT leaves unused', ()
   assert.deepEqual(packed.totals, [6, 6]);
   assert.deepEqual(packed.shards.flat().sort(), Object.keys(weights));
   assert.deepEqual(packBrowserTests(Object.keys(weights).reverse(), Object.fromEntries(Object.entries(weights).reverse()), 2), packed);
+});
+
+// AIT-597: pause-phone and host-surface split along whole top-level tests.
+const splitReservations = {
+  'pause-phone': 260.625918641, 'pause-phone-uploads': 192.373785211,
+  'host-surface': 271.585382161, 'host-surface-email': 158.596611386,
+};
+
+test('AIT-597: split halves keep provisional reservations from the moved CI work', () => {
+  for (const [name, moved] of Object.entries(splitReservations)) {
+    const measurement = JSON.parse(readFileSync(new URL(`../test/browser/${name}.weight.json`, import.meta.url)));
+    assert.equal(measurement.provisional, true, `${name}: provisional until rolling-main samples arrive`);
+    assert.equal(measurement.seconds, Math.ceil(moved * 1.25), `${name}: ceil(1.25 * moved CI p95)`);
+    assert.equal(browserTestWeights[`test/browser/${name}.test.js`], measurement.seconds);
+  }
+  // The halves never reserve less than the mature pre-split series (48d2c753).
+  assert.ok(browserTestWeights['test/browser/pause-phone.test.js'] + browserTestWeights['test/browser/pause-phone-uploads.test.js'] >= 453);
+  assert.ok(browserTestWeights['test/browser/host-surface.test.js'] + browserTestWeights['test/browser/host-surface-email.test.js'] >= 430.182);
+});
+
+test('AIT-597: the provisional bypass covers only the four split files', () => {
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', `
+    import fs from 'node:fs';
+    import { syncBuiltinESMExports } from 'node:module';
+    const read = fs.readFileSync;
+    fs.readFileSync = (path, ...args) => String(path).endsWith('/start-look.weight.json')
+      ? JSON.stringify({ seconds: 45, evidence: 'unmeasured reservation', provisional: true })
+      : read(path, ...args);
+    syncBuiltinESMExports();
+    await import('./scripts/browser-shards.js');
+  `], { cwd: new URL('../', import.meta.url), encoding: 'utf8' });
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stderr, /Missing rolling p95 CI timing samples/u);
+});
+
+test('AIT-597: every moved top-level test is registered by exactly one browser file', () => {
+  const all = discoverBrowserTests().map(file => [file, readFileSync(new URL(`../${file}`, import.meta.url), 'utf8')]);
+  const callers = pattern => all.filter(([, text]) => pattern.test(text)).map(([file]) => file);
+  assert.deepEqual(callers(/^documentUploadCheck\(\);$/mu), ['test/browser/pause-phone-uploads.test.js']);
+  assert.deepEqual(callers(/^pausedImageInputCheck\(\);$/mu), ['test/browser/pause-phone.test.js']);
+  assert.deepEqual(callers(/\bcombinedOfferCheck\b|\binlineOfferCheck\b/u), ['test/browser/host-surface-email.test.js']);
+  const widths = all.flatMap(([file, text]) => [...text.matchAll(/^imageInputCheck\((\[[^\]]*\])\);$/gmu)].map(match => [file, JSON.parse(match[1])]));
+  assert.deepEqual(widths, [
+    ['test/browser/pause-phone-uploads.test.js', [1440]],
+    ['test/browser/pause-phone.test.js', [390]],
+    ['test/browser/start-look.test.js', [1024]],
+  ]);
+  for (const name of ['AIT-506 combined offer', 'AIT-507 integration', 'AIT-517: pinned contact', 'AIT-507 inline offer']) {
+    assert.equal(all.filter(([, text]) => text.includes(`test('${name}`)).length, 1, name);
+  }
+});
+
+test('AIT-597: mature rolling-main series replace the eleven superseded floors', () => {
+  for (const name of ['email-ask', 'start2-display-geometry', 'voice-presentation', 'question-card', 'start2-display',
+    'tick-followups', 'html-preview', 'email-mail-space', 'visitor-credit-tiers', 'audio-replay', 'composed-media']) {
+    const measurement = JSON.parse(readFileSync(new URL(`../test/browser/${name}.weight.json`, import.meta.url)));
+    assert.ok(measurement.timing.samples.length >= 5, `${name}: mature series`);
+    assert.equal(browserTestWeights[`test/browser/${name}.test.js`], measurement.seconds, `${name}: no diagnostic floor`);
+  }
 });

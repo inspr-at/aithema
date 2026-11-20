@@ -174,7 +174,7 @@ test('resource caps and required summaries stay fixed while AIT-511 adds browser
     changes: ['changes', 5, undefined], test: ['test', 10, undefined],
     'npm-cache': ['npm-cache', 3, undefined],
     'preview-cache': ['preview-cache', 10, undefined],
-    browser: ['browser (${{ matrix.shard }}/14)', 10, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]],
+    browser: ['browser (${{ matrix.shard }}/15)', 10, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]],
     'browser-required': ['browser (${{ matrix.shard }}/4)', 1, [1, 2, 3, 4]],
     'browser-aggregate': ['browser', 1, undefined],
     unit: ['unit (${{ matrix.shard }}/3)', 10, [1, 2, 3]], 'preview-security': ['preview-security', 6, undefined],
