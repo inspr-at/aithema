@@ -303,3 +303,44 @@ test('AIT-553 M1: keyboard End keeps focus on the composer mic in combined and o
     assert.ok(record.box[2] > 0 && record.box[3] > 0, `focused control has a positive box: ${label}`);
   }
 });
+
+async function micUnavailableAfterFocusMove(page) {
+  await page.evaluate(() => grant());
+  await page.waitForFunction(() => c.session.featureMatrix.best.voice.available);
+  // Hold the start open, then fail it with "no microphone API" once focus has moved on.
+  await page.evaluate(() => {
+    globalThis.failStart = null;
+    fixtureClient.start = () => new Promise((resolve, reject) => {
+      globalThis.failStart = () => reject(Object.assign(new Error('fixture: no media API'), { name: 'NoMediaAPIError' }));
+    });
+  });
+  await page.click('aithema-session >>> .composer-mic');
+  await page.waitForFunction(() => typeof globalThis.failStart === 'function');
+  const moved = await page.evaluate(() => {
+    const field = c.shadowRoot.querySelector('textarea'); field.focus();
+    return c.shadowRoot.activeElement === field ? 'textarea' : (c.shadowRoot.activeElement?.className ?? null);
+  });
+  await page.evaluate(() => failStart());
+  await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail[data-no-mic-api]'));
+  await page.evaluate(async () => { await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); await new Promise(resolve => setTimeout(resolve, 250)); });
+  return page.evaluate(moved => {
+    const active = c.shadowRoot.activeElement, b = active?.getBoundingClientRect();
+    return { moved, active: active?.localName === 'textarea' ? 'textarea' : (active?.className ?? null),
+      documentActive: document.activeElement?.localName ?? null, box: b ? [b.x, b.y, b.width, b.height] : null };
+  }, moved);
+}
+
+test('AIT-553 gate2c: an asynchronous mic-unavailable failure leaves focus on the control the user moved to', { timeout: 120_000 }, async t => {
+  const { page, server } = await harness(t), records = [];
+  for (const variant of variants) {
+    await open(page, server, variant);
+    records.push({ label: `${variant.width}-${variant.locale}`, ...await micUnavailableAfterFocusMove(page) });
+  }
+  for (const record of records) {
+    const label = `${record.label} combined: ${JSON.stringify(record)}`;
+    assert.equal(record.moved, 'textarea', `focus moved to the message field during startup: ${label}`);
+    assert.equal(record.documentActive, 'aithema-session', `focus stays inside the element: ${label}`);
+    assert.equal(record.active, 'textarea', `the failure does not take focus from the message field: ${label}`);
+    assert.ok(record.box[2] > 0 && record.box[3] > 0, `focused control has a positive box: ${label}`);
+  }
+});
