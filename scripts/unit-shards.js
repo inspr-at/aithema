@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 
 export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 // The smallest N that this packer (packUnitTests) fits under the growth rule:
-// projections <= 420s and room for one further average file (docs/ci.md).
+// projections <= 420s and room for one further average file (see the CI docs).
 export const unitShardCount = 4;
 export const unitConcurrency = 3;
 export const unitJobTargetSeconds = 420; // 70% of the unchanged ten-minute cap.
