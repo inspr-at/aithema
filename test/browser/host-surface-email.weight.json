@@ -1,0 +1,5 @@
+{
+  "seconds": 199,
+  "provisional": true,
+  "evidence": "AIT-597, 2026-11-20: provisional split reservation for 4 whole top-level tests: the moved contact-email offer tests (AIT-506, AIT-507 x2, AIT-517). Trusted pre-split host-surface rolling-main CI series (44613164647-1, 44650109778-1, 44682541019-1, 44688985679-1, 44707193689-1, 44725948096-1, 44736662387-1, 44742965802-1; merge-group, attempt 1): sum of these tests' per-test nearest-rank p95 = 158.596611386s (largest single-run sum 158.226570829s). Provisional reservation = ceil(1.25 * 158.596611386) = 199s, as AIT-557 reserved the clarify split. Replaces the pre-split host-surface weight and floors; rolling-main timings of the new workload will replace it, as AIT-558 did. Remote lane diagnostics stay outside trusted rolling CI samples."
+}

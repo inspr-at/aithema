@@ -4,8 +4,8 @@ import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { plannedSeconds, assertMeasuredWeight } from '../scripts/browser-timings.js';
-import { readBrowserTestWeights, assertBrowserShardHeadroom, assertBrowserShardBudget, assertBrowserShardCoverage, browserShardCount, browserShards, browserTestWeights, browserShardTotals, packBrowserTests, discoverBrowserTests, selectBrowserTests } from '../scripts/browser-shards.js';
+import { plannedSeconds, assertMeasuredWeight, measuredSeconds, timingMinimumSamples } from '../scripts/browser-timings.js';
+import { provisionalSplitFiles, readBrowserTestWeights, assertBrowserShardHeadroom, assertBrowserShardBudget, assertBrowserShardCoverage, browserShardCount, browserShards, browserTestWeights, browserShardTotals, packBrowserTests, discoverBrowserTests, selectBrowserTests } from '../scripts/browser-shards.js';
 
 const measuredWeight = (seconds = 90) => {
   const samples = [{ runId: '123', attempt: 1, sha: 'b'.repeat(40), observedAt: '2026-10-16T12:00:00Z',
@@ -39,10 +39,10 @@ test('the actual CI matrix runs every manifest shard exactly once', () => {
   assertBrowserShardCoverage(discoverBrowserTests(), ciShards);
 });
 
-test('AIT-557: nightly includes all fourteen browser shards exactly once', () => {
+test('AIT-597: nightly includes all fifteen browser shards exactly once', () => {
   const workflow = readFileSync(new URL('../.github/workflows/nightly.yml', import.meta.url), 'utf8');
   const indices = JSON.parse(/shard: (\[[^\n]+\])/u.exec(workflow)[1]);
-  assert.deepEqual(indices, Array.from({ length: 14 }, (_, index) => index + 1));
+  assert.deepEqual(indices, Array.from({ length: 15 }, (_, index) => index + 1));
   assertBrowserShardCoverage(discoverBrowserTests(), indices.map(index => selectBrowserTests(['--shard', `${index}/${browserShards.length}`]).files));
 });
 
@@ -273,19 +273,19 @@ test('current measured packing keeps every shard at or below the 405s headroom t
   assertBrowserShardHeadroom();
 });
 
-test('AIT-557: current measured workloads fit fourteen bins without changing either limit', t => {
-  assert.equal(browserShardCount, 14);
+test('AIT-597: current measured workloads fit fifteen bins without changing either limit', t => {
+  assert.equal(browserShardCount, 15);
   const files = discoverBrowserTests();
   const packing = packBrowserTests(files);
   retainPlan('current', packing);
-  assert.equal(packing.shards.length, 14);
+  assert.equal(packing.shards.length, 15);
   assertBrowserShardCoverage(files, packing.shards);
   assertBrowserShardBudget(packing.totals);
-  t.diagnostic(`Current fourteen-bin seconds: ${packing.totals.map(total => total.toFixed(3)).join(', ')}`);
+  t.diagnostic(`Current fifteen-bin seconds: ${packing.totals.map(total => total.toFixed(3)).join(', ')}`);
   assertBrowserShardHeadroom(packing);
 });
 
-test('AIT-557: fourteen bins retain 405s headroom with AIT-506 and AIT-524 measured growth', t => {
+test('AIT-597: fifteen bins retain 405s headroom with AIT-506 and AIT-524 measured growth', t => {
   const files = discoverBrowserTests();
   // Reserve the moved pre-split CI work independently of the current weight's
   // own samples, without the provisional 25% margin retired by AIT-558.
@@ -295,15 +295,18 @@ test('AIT-557: fourteen bins retain 405s headroom with AIT-506 and AIT-524 measu
     + browserTestWeights['test/browser/clarify-now-status.test.js']
     >= 378.094,
     'the halves cover the inherited combined reservation');
+  // AIT-597: AIT-506's combined entrance matrix is now inside start-journey's
+  // mature rolling-main series. Keep AIT-532's inherited 205s + 180s projection
+  // as a lower bound instead of adding the same growth twice.
   const weights = { ...browserTestWeights,
-    'test/browser/start-journey.test.js': browserTestWeights['test/browser/start-journey.test.js'] + 180,
+    'test/browser/start-journey.test.js': Math.max(browserTestWeights['test/browser/start-journey.test.js'], 205 + 180),
   };
   const packing = packBrowserTests(files, weights, browserShardCount);
   retainPlan('growth', packing);
-  assert.equal(packing.shards.length, 14);
+  assert.equal(packing.shards.length, 15);
   assertBrowserShardCoverage(files, packing.shards, weights);
   assertBrowserShardBudget(packing.totals);
-  t.diagnostic(`Growth fourteen-bin seconds: ${packing.totals.map(total => total.toFixed(3)).join(', ')}`);
+  t.diagnostic(`Growth fifteen-bin seconds: ${packing.totals.map(total => total.toFixed(3)).join(', ')}`);
   assertBrowserShardHeadroom(packing, weights);
 });
 
@@ -316,11 +319,11 @@ test('AIT-558: the growth guard rejects measured status work below the independe
       ? JSON.stringify(${JSON.stringify(measuredWeight(190))}) : read(path, ...args);
     syncBuiltinESMExports();
   `;
-  const result = spawnSync(process.execPath, ['--test', '--test-name-pattern=^AIT-557: fourteen bins retain',
+  const result = spawnSync(process.execPath, ['--test', '--test-name-pattern=^AIT-597: fifteen bins retain',
     '--import', `data:text/javascript,${encodeURIComponent(setup)}`, 'test/browser-shards.test.js'], {
     cwd: new URL('../', import.meta.url), encoding: 'utf8', env: {},
   });
-  assert.match(result.stdout, /AIT-557: fourteen bins retain/u, result.stdout + result.stderr);
+  assert.match(result.stdout, /AIT-597: fifteen bins retain/u, result.stdout + result.stderr);
   assert.equal(result.status, 1, result.stdout + result.stderr);
   assert.match(result.stdout, /the moved status work remains reserved/u);
 });
@@ -346,4 +349,153 @@ test('whole-file refinement recovers headroom that greedy LPT leaves unused', ()
   assert.deepEqual(packed.totals, [6, 6]);
   assert.deepEqual(packed.shards.flat().sort(), Object.keys(weights));
   assert.deepEqual(packBrowserTests(Object.keys(weights).reverse(), Object.fromEntries(Object.entries(weights).reverse()), 2), packed);
+});
+
+// AIT-597: pause-phone and host-surface split along whole top-level tests.
+// Recorded seed inputs (r2 evidence): each half's moved per-test CI p95 sum
+// and the provisional seed derived from it, ceil(1.25 * sum).
+const splitSeeds = {
+  'pause-phone': [260.625918641, 326], 'pause-phone-uploads': [192.373785211, 241],
+  'host-surface': [271.585382161, 340], 'host-surface-email': [158.596611386, 199],
+};
+
+test('AIT-597: split halves keep seed arithmetic from the moved CI work and let live weights roll forward', () => {
+  for (const [name, [moved, seed]] of Object.entries(splitSeeds)) {
+    assert.equal(Math.ceil(moved * 1.25), seed, `${name}: ceil(1.25 * moved CI p95)`);
+  }
+  // The seeds never reserved less than the mature pre-split series (48d2c753).
+  assert.ok(splitSeeds['pause-phone'][1] + splitSeeds['pause-phone-uploads'][1] >= 453);
+  assert.ok(splitSeeds['host-surface'][1] + splitSeeds['host-surface-email'][1] >= 430.182);
+  // Live weights are invariants only: a measured refresh or a re-reservation
+  // (for example #488's) replaces the seeds without editing this test.
+  assert.deepEqual([...provisionalSplitFiles].sort(), Object.keys(splitSeeds).map(name => `test/browser/${name}.test.js`).sort());
+  for (const file of discoverBrowserTests()) {
+    const measurement = JSON.parse(readFileSync(new URL(`../${file.replace(/\.test\.js$/u, '.weight.json')}`, import.meta.url)));
+    const weight = browserTestWeights[file];
+    assert.ok(Number.isFinite(weight) && weight > 0, `${file}: positive weight`);
+    // Diagnostic floors only ever raise a weight above its file's seconds.
+    assert.ok(weight >= measurement.seconds, file);
+    if (measurement.provisional === true) {
+      assert.ok(provisionalSplitFiles.has(file), `${file}: provisional only for the four split files`);
+      continue;
+    }
+    assert.doesNotThrow(() => assertMeasuredWeight(measurement), file);
+    if (measurement.timing.samples.length >= timingMinimumSamples) {
+      assert.ok(weight >= measuredSeconds(measurement.timing.samples), `${file}: at least the mature measured series`);
+    }
+  }
+});
+
+test('AIT-597: the provisional bypass covers only the four split files', () => {
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', `
+    import fs from 'node:fs';
+    import { syncBuiltinESMExports } from 'node:module';
+    const read = fs.readFileSync;
+    fs.readFileSync = (path, ...args) => String(path).endsWith('/start-look.weight.json')
+      ? JSON.stringify({ seconds: 45, evidence: 'unmeasured reservation', provisional: true })
+      : read(path, ...args);
+    syncBuiltinESMExports();
+    await import('./scripts/browser-shards.js');
+  `], { cwd: new URL('../', import.meta.url), encoding: 'utf8' });
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stderr, /Missing rolling p95 CI timing samples/u);
+});
+
+test('AIT-597: every moved top-level test is registered by exactly one browser file', () => {
+  const all = discoverBrowserTests().map(file => [file, readFileSync(new URL(`../${file}`, import.meta.url), 'utf8')]);
+  const callers = pattern => all.filter(([, text]) => pattern.test(text)).map(([file]) => file);
+  assert.deepEqual(callers(/^documentUploadCheck\(\);$/mu), ['test/browser/pause-phone-uploads.test.js']);
+  assert.deepEqual(callers(/^pausedImageInputCheck\(\);$/mu), ['test/browser/pause-phone.test.js']);
+  assert.deepEqual(callers(/\bcombinedOfferCheck\b|\binlineOfferCheck\b/u), ['test/browser/host-surface-email.test.js']);
+  const widths = all.flatMap(([file, text]) => [...text.matchAll(/^imageInputCheck\((\[[^\]]*\])\);$/gmu)].map(match => [file, JSON.parse(match[1])]));
+  assert.deepEqual(widths, [
+    ['test/browser/pause-phone-uploads.test.js', [1440]],
+    ['test/browser/pause-phone.test.js', [390]],
+    ['test/browser/start-look.test.js', [1024]],
+  ]);
+  for (const name of ['AIT-506 combined offer', 'AIT-507 integration', 'AIT-517: pinned contact', 'AIT-507 inline offer']) {
+    assert.equal(all.filter(([, text]) => text.includes(`test('${name}`)).length, 1, name);
+  }
+});
+
+test('AIT-597: mature rolling-main series replace the eleven superseded floors', () => {
+  for (const name of ['email-ask', 'start2-display-geometry', 'voice-presentation', 'question-card', 'start2-display',
+    'tick-followups', 'html-preview', 'email-mail-space', 'visitor-credit-tiers', 'audio-replay', 'composed-media']) {
+    const measurement = JSON.parse(readFileSync(new URL(`../test/browser/${name}.weight.json`, import.meta.url)));
+    // AIT-558 rule: maturity at retirement is point-in-time evidence; a
+    // workload edit may restart the series with the standard warmup margin.
+    assert.doesNotThrow(() => assertMeasuredWeight(measurement), name);
+    assert.equal(browserTestWeights[`test/browser/${name}.test.js`], measurement.seconds, `${name}: no diagnostic floor`);
+  }
+});
+
+// AIT-597 r3: a mature (>= five-sample) series for one top-level fixture test.
+const matureWeight = (seconds, workload = 'f') => {
+  const samples = Array.from({ length: 5 }, (_, index) => ({ runId: String(900 + index), attempt: 1, sha: 'c'.repeat(40),
+    observedAt: '2026-11-20T12:00:00Z', tests: [{ name: 'fixture', seconds }] }));
+  return { seconds: plannedSeconds(samples), evidence: 'CI artifact measurement',
+    timing: { schema: 1, window: 20, workload: workload.repeat(64), samples } };
+};
+
+function rerunWithWeights(pattern, stubs) {
+  const setup = `
+    import fs from 'node:fs';
+    import { syncBuiltinESMExports } from 'node:module';
+    const stubs = ${JSON.stringify(stubs)};
+    const read = fs.readFileSync;
+    fs.readFileSync = (path, ...args) => {
+      const name = Object.keys(stubs).find(name => String(path).endsWith('/' + name + '.weight.json'));
+      return name ? JSON.stringify(stubs[name]) : read(path, ...args);
+    };
+    syncBuiltinESMExports();
+  `;
+  return spawnSync(process.execPath, ['--test', `--test-name-pattern=${pattern}`,
+    '--import', `data:text/javascript,${encodeURIComponent(setup)}`, 'test/browser-shards.test.js'], {
+    cwd: new URL('../', import.meta.url), encoding: 'utf8', env: {},
+  });
+}
+
+test('AIT-597: split halves accept measured and re-reserved live weights', () => {
+  // First measured refresh (mature, flag removed) and the projected #488
+  // provisional re-reservation ceil(1.25 * (192.374 + 81)) = 342s. The 342s
+  // fixture is self-contained, so it stays valid whatever the live file holds.
+  for (const stub of [matureWeight(273), { seconds: 342, provisional: true,
+    evidence: 'AIT-597 fixture: provisional re-reservation ceil(1.25 * (192.374 + 81)) = 342s' }]) {
+    const result = rerunWithWeights('^AIT-597: split halves keep', { 'pause-phone-uploads': stub });
+    assert.match(result.stdout, /AIT-597: split halves keep/u, result.stdout + result.stderr);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+  }
+});
+
+test('AIT-597 r4: the re-reservation fixture stays valid when the live file is a measured series', () => {
+  // After a valid measured refresh to 273s, the live file has no provisional
+  // flag and carries measured samples; the 342s fixture must not inherit them.
+  const result = rerunWithWeights('^AIT-597: split halves accept', { 'pause-phone-uploads': matureWeight(273) });
+  assert.match(result.stdout, /AIT-597: split halves accept/u, result.stdout + result.stderr);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+});
+
+test('AIT-597: a restarted workload series with the warmup margin keeps the floor retirement green', () => {
+  // A legitimate workload edit restarts the series: one sample, 25% warmup.
+  const samples = [{ runId: '901', attempt: 1, sha: 'c'.repeat(40), observedAt: '2026-11-20T12:00:00Z',
+    tests: [{ name: 'fixture', seconds: 222 }] }];
+  assert.equal(plannedSeconds(samples), 277.5);
+  assert.equal(plannedSeconds(Array.from({ length: 5 }, (_, index) => ({ ...samples[0], runId: String(910 + index) }))), 222);
+  const restarted = { seconds: plannedSeconds(samples), evidence: 'CI artifact measurement',
+    timing: { schema: 1, window: 20, workload: 'e'.repeat(64), samples } };
+  const result = rerunWithWeights('^AIT-597: mature rolling-main series replace', { 'email-ask': restarted });
+  assert.match(result.stdout, /AIT-597: mature rolling-main series replace/u, result.stdout + result.stderr);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+});
+
+test('AIT-597: the growth guard still rejects a real overflow', t => {
+  // Math.max(start-journey, 205 + 180) must pass measured growth through: a
+  // mature 421s start-journey series puts a shard above the 420s ceiling.
+  const result = rerunWithWeights('^AIT-597: fifteen bins retain', { 'start-journey': matureWeight(421) });
+  assert.match(result.stdout, /AIT-597: fifteen bins retain/u, result.stdout + result.stderr);
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  const failure = /Planned browser shard exceeds 420s: [^\n']*/u.exec(result.stdout);
+  assert.ok(failure, result.stdout + result.stderr);
+  assert.ok(failure[0].split(' / ').some(total => Number(total.replace(/^.*: /u, '')) > 420), failure[0]);
+  t.diagnostic(`stubbed growth run failed as intended: ${failure[0]}`);
 });

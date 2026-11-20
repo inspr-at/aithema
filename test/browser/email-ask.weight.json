@@ -1,28 +1,800 @@
 {
-  "seconds": 120.415,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 42947874534-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "seconds": 277.496,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 44568256946-1, 44576083632-1, 44607365746-1, 44613164647-1, 44650109778-1, 44682541019-1, 44688985679-1, 44707193689-1, 44725948096-1, 44736662387-1, 44742965802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "fdbbad429e2e83aa8721d2348930b81b9989a6a44da2f3f9c0eb00234934c6a3",
+    "workload": "95240857563463e4b37534137ac732ab8037636de4643aac2b739a4be7c06005",
     "samples": [
       {
-        "runId": "42947874534",
+        "runId": "44568256946",
         "attempt": 1,
-        "sha": "0c4c4b1af999e4a3163e3676123e99140120bb89",
-        "observedAt": "2026-11-11T02:43:02.304Z",
+        "sha": "c6153be8ff45ab695cfd191d32a512446ce87aef",
+        "observedAt": "2026-11-19T16:38:14.861Z",
         "tests": [
           {
             "name": "AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layout shift",
-            "seconds": 60.050757057000006
+            "seconds": 64.587095916
           },
           {
             "name": "AIT-168: Settings saves only with confirmation disabled and saves plus requests a link when enabled",
-            "seconds": 4.216591705
+            "seconds": 4.25535679
           },
           {
             "name": "AIT-172: email ask privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
-            "seconds": 32.063923353
+            "seconds": 33.07958834
+          },
+          {
+            "name": "AIT-490: typed CONTEXTJ ZWNJ domain is converted or blocked before any recipient request",
+            "seconds": 6.015778994000001
+          },
+          {
+            "name": "AIT-507 b7 no-next-tier: before-input recovery and stable geometry",
+            "seconds": 17.315194154
+          },
+          {
+            "name": "AIT-507 b7 refused-focus: before-input recovery and stable geometry",
+            "seconds": 11.710634008000001
+          },
+          {
+            "name": "AIT-507 b7 saved-address: before-input recovery and stable geometry",
+            "seconds": 17.117083921000003
+          },
+          {
+            "name": "AIT-507 b7 used-up-mail: before-input recovery and stable geometry",
+            "seconds": 19.347433934
+          },
+          {
+            "name": "AIT-507 b7 used-up: before-input recovery and stable geometry",
+            "seconds": 17.833972312
+          },
+          {
+            "name": "AIT-507 deferred credits email link is hidden with reserved positive geometry",
+            "seconds": 16.192375379999998
+          },
+          {
+            "name": "AIT-540 M3: one readable in-chat offer from page scroll zero",
+            "seconds": 5.304303328
+          },
+          {
+            "name": "AIT-540 M4: one readable in-chat offer from page scroll zero",
+            "seconds": 8.254609445
+          },
+          {
+            "name": "AIT-540 M6: one readable in-chat offer from page scroll zero",
+            "seconds": 9.509233937000001
+          },
+          {
+            "name": "AIT-540 M6: reloaded open offer preserves the latest turn, page scroll and focus",
+            "seconds": 5.559618559
+          },
+          {
+            "name": "AIT-543: identity-only offer sent and failure matrix, EN/DE light/dark 390/1440; zero layout shift",
+            "seconds": 16.541684005
+          },
+          {
+            "name": "AIT-568: reconfigure during an identity read never probes the replacement no-store host",
+            "seconds": 0.8461458199999999
+          }
+        ]
+      },
+      {
+        "runId": "44576083632",
+        "attempt": 1,
+        "sha": "0d40a127e17dda064df3a626a8134f403faf54c6",
+        "observedAt": "2026-11-19T17:20:44.681Z",
+        "tests": [
+          {
+            "name": "AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layout shift",
+            "seconds": 66.831815397
+          },
+          {
+            "name": "AIT-168: Settings saves only with confirmation disabled and saves plus requests a link when enabled",
+            "seconds": 4.612483579
+          },
+          {
+            "name": "AIT-172: email ask privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 34.717025650000004
+          },
+          {
+            "name": "AIT-490: typed CONTEXTJ ZWNJ domain is converted or blocked before any recipient request",
+            "seconds": 7.000173442
+          },
+          {
+            "name": "AIT-507 b7 no-next-tier: before-input recovery and stable geometry",
+            "seconds": 17.860029452
+          },
+          {
+            "name": "AIT-507 b7 refused-focus: before-input recovery and stable geometry",
+            "seconds": 12.410918068
+          },
+          {
+            "name": "AIT-507 b7 saved-address: before-input recovery and stable geometry",
+            "seconds": 18.077652000999997
+          },
+          {
+            "name": "AIT-507 b7 used-up-mail: before-input recovery and stable geometry",
+            "seconds": 21.381506636999998
+          },
+          {
+            "name": "AIT-507 b7 used-up: before-input recovery and stable geometry",
+            "seconds": 19.419672455
+          },
+          {
+            "name": "AIT-507 deferred credits email link is hidden with reserved positive geometry",
+            "seconds": 17.171224611000003
+          },
+          {
+            "name": "AIT-540 M3: one readable in-chat offer from page scroll zero",
+            "seconds": 6.027932304
+          },
+          {
+            "name": "AIT-540 M4: one readable in-chat offer from page scroll zero",
+            "seconds": 9.381502144
+          },
+          {
+            "name": "AIT-540 M6: one readable in-chat offer from page scroll zero",
+            "seconds": 11.591508028
+          },
+          {
+            "name": "AIT-540 M6: reloaded open offer preserves the latest turn, page scroll and focus",
+            "seconds": 7.007512112000001
+          },
+          {
+            "name": "AIT-543: identity-only offer sent and failure matrix, EN/DE light/dark 390/1440; zero layout shift",
+            "seconds": 17.763584895
+          },
+          {
+            "name": "AIT-568: reconfigure during an identity read never probes the replacement no-store host",
+            "seconds": 0.996297962
+          }
+        ]
+      },
+      {
+        "runId": "44607365746",
+        "attempt": 1,
+        "sha": "f394364da286d742a4c9799f0f543be70ea13f62",
+        "observedAt": "2026-11-19T20:19:08.804Z",
+        "tests": [
+          {
+            "name": "AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layout shift",
+            "seconds": 66.58385855099999
+          },
+          {
+            "name": "AIT-168: Settings saves only with confirmation disabled and saves plus requests a link when enabled",
+            "seconds": 4.7147334899999995
+          },
+          {
+            "name": "AIT-172: email ask privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 34.960105588
+          },
+          {
+            "name": "AIT-490: typed CONTEXTJ ZWNJ domain is converted or blocked before any recipient request",
+            "seconds": 7.093695253
+          },
+          {
+            "name": "AIT-507 b7 no-next-tier: before-input recovery and stable geometry",
+            "seconds": 18.276109734000002
+          },
+          {
+            "name": "AIT-507 b7 refused-focus: before-input recovery and stable geometry",
+            "seconds": 12.443857975999999
+          },
+          {
+            "name": "AIT-507 b7 saved-address: before-input recovery and stable geometry",
+            "seconds": 17.839986061
+          },
+          {
+            "name": "AIT-507 b7 used-up-mail: before-input recovery and stable geometry",
+            "seconds": 21.017347787
+          },
+          {
+            "name": "AIT-507 b7 used-up: before-input recovery and stable geometry",
+            "seconds": 20.125694620999997
+          },
+          {
+            "name": "AIT-507 deferred credits email link is hidden with reserved positive geometry",
+            "seconds": 17.543992153999998
+          },
+          {
+            "name": "AIT-540 M3: one readable in-chat offer from page scroll zero",
+            "seconds": 6.182081104
+          },
+          {
+            "name": "AIT-540 M4: one readable in-chat offer from page scroll zero",
+            "seconds": 9.401818086999999
+          },
+          {
+            "name": "AIT-540 M6: one readable in-chat offer from page scroll zero",
+            "seconds": 11.632213735999999
+          },
+          {
+            "name": "AIT-540 M6: reloaded open offer preserves the latest turn, page scroll and focus",
+            "seconds": 7.270283833000001
+          },
+          {
+            "name": "AIT-543: identity-only offer sent and failure matrix, EN/DE light/dark 390/1440; zero layout shift",
+            "seconds": 18.306210395999997
+          },
+          {
+            "name": "AIT-568: reconfigure during an identity read never probes the replacement no-store host",
+            "seconds": 1.011376581
+          }
+        ]
+      },
+      {
+        "runId": "44613164647",
+        "attempt": 1,
+        "sha": "72512711b37c46a32f9b2d049f77b85bacec4d86",
+        "observedAt": "2026-11-19T20:53:22.078Z",
+        "tests": [
+          {
+            "name": "AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layout shift",
+            "seconds": 66.411628847
+          },
+          {
+            "name": "AIT-168: Settings saves only with confirmation disabled and saves plus requests a link when enabled",
+            "seconds": 4.892953743
+          },
+          {
+            "name": "AIT-172: email ask privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 35.049074781
+          },
+          {
+            "name": "AIT-490: typed CONTEXTJ ZWNJ domain is converted or blocked before any recipient request",
+            "seconds": 7.223738999999999
+          },
+          {
+            "name": "AIT-507 b7 no-next-tier: before-input recovery and stable geometry",
+            "seconds": 17.959721771
+          },
+          {
+            "name": "AIT-507 b7 refused-focus: before-input recovery and stable geometry",
+            "seconds": 12.594970658
+          },
+          {
+            "name": "AIT-507 b7 saved-address: before-input recovery and stable geometry",
+            "seconds": 17.992841767
+          },
+          {
+            "name": "AIT-507 b7 used-up-mail: before-input recovery and stable geometry",
+            "seconds": 21.260204829
+          },
+          {
+            "name": "AIT-507 b7 used-up: before-input recovery and stable geometry",
+            "seconds": 19.629571209999998
+          },
+          {
+            "name": "AIT-507 deferred credits email link is hidden with reserved positive geometry",
+            "seconds": 17.414308156
+          },
+          {
+            "name": "AIT-540 M3: one readable in-chat offer from page scroll zero",
+            "seconds": 6.2925397290000005
+          },
+          {
+            "name": "AIT-540 M4: one readable in-chat offer from page scroll zero",
+            "seconds": 9.565330688
+          },
+          {
+            "name": "AIT-540 M6: one readable in-chat offer from page scroll zero",
+            "seconds": 12.161536387
+          },
+          {
+            "name": "AIT-540 M6: reloaded open offer preserves the latest turn, page scroll and focus",
+            "seconds": 8.086054467
+          },
+          {
+            "name": "AIT-543: identity-only offer sent and failure matrix, EN/DE light/dark 390/1440; zero layout shift",
+            "seconds": 18.360619949
+          },
+          {
+            "name": "AIT-568: reconfigure during an identity read never probes the replacement no-store host",
+            "seconds": 1.032016101
+          }
+        ]
+      },
+      {
+        "runId": "44650109778",
+        "attempt": 1,
+        "sha": "09a22c5713ac3f96033f1b4bee8300132c3ac45e",
+        "observedAt": "2026-11-20T00:59:10.915Z",
+        "tests": [
+          {
+            "name": "AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layout shift",
+            "seconds": 62.53933033
+          },
+          {
+            "name": "AIT-168: Settings saves only with confirmation disabled and saves plus requests a link when enabled",
+            "seconds": 4.312468609
+          },
+          {
+            "name": "AIT-172: email ask privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 33.020029838
+          },
+          {
+            "name": "AIT-490: typed CONTEXTJ ZWNJ domain is converted or blocked before any recipient request",
+            "seconds": 6.185402161
+          },
+          {
+            "name": "AIT-507 b7 no-next-tier: before-input recovery and stable geometry",
+            "seconds": 16.775582154
+          },
+          {
+            "name": "AIT-507 b7 refused-focus: before-input recovery and stable geometry",
+            "seconds": 11.644503388999999
+          },
+          {
+            "name": "AIT-507 b7 saved-address: before-input recovery and stable geometry",
+            "seconds": 17.216142695
+          },
+          {
+            "name": "AIT-507 b7 used-up-mail: before-input recovery and stable geometry",
+            "seconds": 19.20940001
+          },
+          {
+            "name": "AIT-507 b7 used-up: before-input recovery and stable geometry",
+            "seconds": 17.937558532
+          },
+          {
+            "name": "AIT-507 deferred credits email link is hidden with reserved positive geometry",
+            "seconds": 16.291189603
+          },
+          {
+            "name": "AIT-540 M3: one readable in-chat offer from page scroll zero",
+            "seconds": 5.37078658
+          },
+          {
+            "name": "AIT-540 M4: one readable in-chat offer from page scroll zero",
+            "seconds": 8.309487183
+          },
+          {
+            "name": "AIT-540 M6: one readable in-chat offer from page scroll zero",
+            "seconds": 9.705909390999999
+          },
+          {
+            "name": "AIT-540 M6: reloaded open offer preserves the latest turn, page scroll and focus",
+            "seconds": 6.074862003
+          },
+          {
+            "name": "AIT-543: identity-only offer sent and failure matrix, EN/DE light/dark 390/1440; zero layout shift",
+            "seconds": 16.279149649
+          },
+          {
+            "name": "AIT-568: reconfigure during an identity read never probes the replacement no-store host",
+            "seconds": 0.9046324640000001
+          }
+        ]
+      },
+      {
+        "runId": "44682541019",
+        "attempt": 1,
+        "sha": "29bf20c22fbd533dca879c382810a704e0f090e8",
+        "observedAt": "2026-11-20T05:40:21.385Z",
+        "tests": [
+          {
+            "name": "AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layout shift",
+            "seconds": 59.715035913
+          },
+          {
+            "name": "AIT-168: Settings saves only with confirmation disabled and saves plus requests a link when enabled",
+            "seconds": 4.062158968
+          },
+          {
+            "name": "AIT-172: email ask privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 32.143498131
+          },
+          {
+            "name": "AIT-490: typed CONTEXTJ ZWNJ domain is converted or blocked before any recipient request",
+            "seconds": 5.731606278999999
+          },
+          {
+            "name": "AIT-507 b7 no-next-tier: before-input recovery and stable geometry",
+            "seconds": 16.249208108999998
+          },
+          {
+            "name": "AIT-507 b7 refused-focus: before-input recovery and stable geometry",
+            "seconds": 10.838880876
+          },
+          {
+            "name": "AIT-507 b7 saved-address: before-input recovery and stable geometry",
+            "seconds": 15.943609553
+          },
+          {
+            "name": "AIT-507 b7 used-up-mail: before-input recovery and stable geometry",
+            "seconds": 17.729214865000003
+          },
+          {
+            "name": "AIT-507 b7 used-up: before-input recovery and stable geometry",
+            "seconds": 16.498885738000002
+          },
+          {
+            "name": "AIT-507 deferred credits email link is hidden with reserved positive geometry",
+            "seconds": 15.389491932
+          },
+          {
+            "name": "AIT-540 M3: one readable in-chat offer from page scroll zero",
+            "seconds": 4.497842304
+          },
+          {
+            "name": "AIT-540 M4: one readable in-chat offer from page scroll zero",
+            "seconds": 6.9341531100000005
+          },
+          {
+            "name": "AIT-540 M6: one readable in-chat offer from page scroll zero",
+            "seconds": 8.422405176
+          },
+          {
+            "name": "AIT-540 M6: reloaded open offer preserves the latest turn, page scroll and focus",
+            "seconds": 4.91197016
+          },
+          {
+            "name": "AIT-543: identity-only offer sent and failure matrix, EN/DE light/dark 390/1440; zero layout shift",
+            "seconds": 14.856855968
+          },
+          {
+            "name": "AIT-568: reconfigure during an identity read never probes the replacement no-store host",
+            "seconds": 0.6617445729999999
+          }
+        ]
+      },
+      {
+        "runId": "44688985679",
+        "attempt": 1,
+        "sha": "5d507e04ee24aba5b308eff6c60ee5a0d26d8f61",
+        "observedAt": "2026-11-20T06:36:38.931Z",
+        "tests": [
+          {
+            "name": "AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layout shift",
+            "seconds": 63.020788397
+          },
+          {
+            "name": "AIT-168: Settings saves only with confirmation disabled and saves plus requests a link when enabled",
+            "seconds": 4.276986096
+          },
+          {
+            "name": "AIT-172: email ask privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 32.90916624
+          },
+          {
+            "name": "AIT-490: typed CONTEXTJ ZWNJ domain is converted or blocked before any recipient request",
+            "seconds": 6.176194815
+          },
+          {
+            "name": "AIT-507 b7 no-next-tier: before-input recovery and stable geometry",
+            "seconds": 17.180796759
+          },
+          {
+            "name": "AIT-507 b7 refused-focus: before-input recovery and stable geometry",
+            "seconds": 11.672865266
+          },
+          {
+            "name": "AIT-507 b7 saved-address: before-input recovery and stable geometry",
+            "seconds": 17.240969264
+          },
+          {
+            "name": "AIT-507 b7 used-up-mail: before-input recovery and stable geometry",
+            "seconds": 19.218812955
+          },
+          {
+            "name": "AIT-507 b7 used-up: before-input recovery and stable geometry",
+            "seconds": 18.117539772
+          },
+          {
+            "name": "AIT-507 deferred credits email link is hidden with reserved positive geometry",
+            "seconds": 16.244539073
+          },
+          {
+            "name": "AIT-540 M3: one readable in-chat offer from page scroll zero",
+            "seconds": 5.491153123
+          },
+          {
+            "name": "AIT-540 M4: one readable in-chat offer from page scroll zero",
+            "seconds": 8.556573075000001
+          },
+          {
+            "name": "AIT-540 M6: one readable in-chat offer from page scroll zero",
+            "seconds": 9.999050186
+          },
+          {
+            "name": "AIT-540 M6: reloaded open offer preserves the latest turn, page scroll and focus",
+            "seconds": 6.166831726000001
+          },
+          {
+            "name": "AIT-543: identity-only offer sent and failure matrix, EN/DE light/dark 390/1440; zero layout shift",
+            "seconds": 16.372900973
+          },
+          {
+            "name": "AIT-568: reconfigure during an identity read never probes the replacement no-store host",
+            "seconds": 0.8561503340000001
+          }
+        ]
+      },
+      {
+        "runId": "44707193689",
+        "attempt": 1,
+        "sha": "81da7bef5ad3f181bc68e1a6d2bc2df8f039c463",
+        "observedAt": "2026-11-20T09:01:44.655Z",
+        "tests": [
+          {
+            "name": "AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layout shift",
+            "seconds": 59.843549425
+          },
+          {
+            "name": "AIT-168: Settings saves only with confirmation disabled and saves plus requests a link when enabled",
+            "seconds": 4.028919134000001
+          },
+          {
+            "name": "AIT-172: email ask privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 32.363749173
+          },
+          {
+            "name": "AIT-490: typed CONTEXTJ ZWNJ domain is converted or blocked before any recipient request",
+            "seconds": 5.915555997
+          },
+          {
+            "name": "AIT-507 b7 no-next-tier: before-input recovery and stable geometry",
+            "seconds": 16.831084266999998
+          },
+          {
+            "name": "AIT-507 b7 refused-focus: before-input recovery and stable geometry",
+            "seconds": 11.39897536
+          },
+          {
+            "name": "AIT-507 b7 saved-address: before-input recovery and stable geometry",
+            "seconds": 16.078144131
+          },
+          {
+            "name": "AIT-507 b7 used-up-mail: before-input recovery and stable geometry",
+            "seconds": 18.026413321
+          },
+          {
+            "name": "AIT-507 b7 used-up: before-input recovery and stable geometry",
+            "seconds": 17.008574359999997
+          },
+          {
+            "name": "AIT-507 deferred credits email link is hidden with reserved positive geometry",
+            "seconds": 15.945267064
+          },
+          {
+            "name": "AIT-540 M3: one readable in-chat offer from page scroll zero",
+            "seconds": 4.981893594
+          },
+          {
+            "name": "AIT-540 M4: one readable in-chat offer from page scroll zero",
+            "seconds": 7.779939489
+          },
+          {
+            "name": "AIT-540 M6: one readable in-chat offer from page scroll zero",
+            "seconds": 8.553339248
+          },
+          {
+            "name": "AIT-540 M6: reloaded open offer preserves the latest turn, page scroll and focus",
+            "seconds": 5.607131827
+          },
+          {
+            "name": "AIT-543: identity-only offer sent and failure matrix, EN/DE light/dark 390/1440; zero layout shift",
+            "seconds": 15.758796397
+          },
+          {
+            "name": "AIT-568: reconfigure during an identity read never probes the replacement no-store host",
+            "seconds": 0.727409022
+          }
+        ]
+      },
+      {
+        "runId": "44725948096",
+        "attempt": 1,
+        "sha": "2f1001c51c3a9a585b3233762f3cc8cca6ef23a9",
+        "observedAt": "2026-11-20T11:14:43.461Z",
+        "tests": [
+          {
+            "name": "AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layout shift",
+            "seconds": 63.639569571
+          },
+          {
+            "name": "AIT-168: Settings saves only with confirmation disabled and saves plus requests a link when enabled",
+            "seconds": 4.533178177
+          },
+          {
+            "name": "AIT-172: email ask privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 33.752305146
+          },
+          {
+            "name": "AIT-490: typed CONTEXTJ ZWNJ domain is converted or blocked before any recipient request",
+            "seconds": 6.309014613
+          },
+          {
+            "name": "AIT-507 b7 no-next-tier: before-input recovery and stable geometry",
+            "seconds": 17.126709234000003
+          },
+          {
+            "name": "AIT-507 b7 refused-focus: before-input recovery and stable geometry",
+            "seconds": 11.785375700000001
+          },
+          {
+            "name": "AIT-507 b7 saved-address: before-input recovery and stable geometry",
+            "seconds": 17.287442186
+          },
+          {
+            "name": "AIT-507 b7 used-up-mail: before-input recovery and stable geometry",
+            "seconds": 19.401364881000003
+          },
+          {
+            "name": "AIT-507 b7 used-up: before-input recovery and stable geometry",
+            "seconds": 17.945943056
+          },
+          {
+            "name": "AIT-507 deferred credits email link is hidden with reserved positive geometry",
+            "seconds": 16.31460942
+          },
+          {
+            "name": "AIT-540 M3: one readable in-chat offer from page scroll zero",
+            "seconds": 5.3828030600000005
+          },
+          {
+            "name": "AIT-540 M4: one readable in-chat offer from page scroll zero",
+            "seconds": 9.024905716
+          },
+          {
+            "name": "AIT-540 M6: one readable in-chat offer from page scroll zero",
+            "seconds": 10.617842052
+          },
+          {
+            "name": "AIT-540 M6: reloaded open offer preserves the latest turn, page scroll and focus",
+            "seconds": 6.4799362170000006
+          },
+          {
+            "name": "AIT-543: identity-only offer sent and failure matrix, EN/DE light/dark 390/1440; zero layout shift",
+            "seconds": 17.277794545
+          },
+          {
+            "name": "AIT-568: reconfigure during an identity read never probes the replacement no-store host",
+            "seconds": 0.9063054540000001
+          }
+        ]
+      },
+      {
+        "runId": "44736662387",
+        "attempt": 1,
+        "sha": "d24d320fb50018e9b3d2984fc6e964d336bc045d",
+        "observedAt": "2026-11-20T12:33:01.535Z",
+        "tests": [
+          {
+            "name": "AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layout shift",
+            "seconds": 65.854135821
+          },
+          {
+            "name": "AIT-168: Settings saves only with confirmation disabled and saves plus requests a link when enabled",
+            "seconds": 4.588733843
+          },
+          {
+            "name": "AIT-172: email ask privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 34.661889123
+          },
+          {
+            "name": "AIT-490: typed CONTEXTJ ZWNJ domain is converted or blocked before any recipient request",
+            "seconds": 6.858850354
+          },
+          {
+            "name": "AIT-507 b7 no-next-tier: before-input recovery and stable geometry",
+            "seconds": 17.769733185
+          },
+          {
+            "name": "AIT-507 b7 refused-focus: before-input recovery and stable geometry",
+            "seconds": 12.438251560000001
+          },
+          {
+            "name": "AIT-507 b7 saved-address: before-input recovery and stable geometry",
+            "seconds": 18.07172656
+          },
+          {
+            "name": "AIT-507 b7 used-up-mail: before-input recovery and stable geometry",
+            "seconds": 20.703844488999998
+          },
+          {
+            "name": "AIT-507 b7 used-up: before-input recovery and stable geometry",
+            "seconds": 19.321483124
+          },
+          {
+            "name": "AIT-507 deferred credits email link is hidden with reserved positive geometry",
+            "seconds": 17.021137532
+          },
+          {
+            "name": "AIT-540 M3: one readable in-chat offer from page scroll zero",
+            "seconds": 6.063425797
+          },
+          {
+            "name": "AIT-540 M4: one readable in-chat offer from page scroll zero",
+            "seconds": 9.296865244000001
+          },
+          {
+            "name": "AIT-540 M6: one readable in-chat offer from page scroll zero",
+            "seconds": 11.310613701
+          },
+          {
+            "name": "AIT-540 M6: reloaded open offer preserves the latest turn, page scroll and focus",
+            "seconds": 6.9527430379999995
+          },
+          {
+            "name": "AIT-543: identity-only offer sent and failure matrix, EN/DE light/dark 390/1440; zero layout shift",
+            "seconds": 17.894527825
+          },
+          {
+            "name": "AIT-568: reconfigure during an identity read never probes the replacement no-store host",
+            "seconds": 0.9828019920000001
+          }
+        ]
+      },
+      {
+        "runId": "44742965802",
+        "attempt": 1,
+        "sha": "ddb1e06dbf1a3ebb8fea75cfffd86401ea9c1fab",
+        "observedAt": "2026-11-20T13:17:24.055Z",
+        "tests": [
+          {
+            "name": "AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layout shift",
+            "seconds": 59.081201836
+          },
+          {
+            "name": "AIT-168: Settings saves only with confirmation disabled and saves plus requests a link when enabled",
+            "seconds": 4.028612766
+          },
+          {
+            "name": "AIT-172: email ask privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 32.234814798
+          },
+          {
+            "name": "AIT-490: typed CONTEXTJ ZWNJ domain is converted or blocked before any recipient request",
+            "seconds": 5.721138129
+          },
+          {
+            "name": "AIT-507 b7 no-next-tier: before-input recovery and stable geometry",
+            "seconds": 16.538548582
+          },
+          {
+            "name": "AIT-507 b7 refused-focus: before-input recovery and stable geometry",
+            "seconds": 11.145512799
+          },
+          {
+            "name": "AIT-507 b7 saved-address: before-input recovery and stable geometry",
+            "seconds": 16.093447376
+          },
+          {
+            "name": "AIT-507 b7 used-up-mail: before-input recovery and stable geometry",
+            "seconds": 17.804325341
+          },
+          {
+            "name": "AIT-507 b7 used-up: before-input recovery and stable geometry",
+            "seconds": 16.453209162
+          },
+          {
+            "name": "AIT-507 deferred credits email link is hidden with reserved positive geometry",
+            "seconds": 15.504735694999999
+          },
+          {
+            "name": "AIT-540 M3: one readable in-chat offer from page scroll zero",
+            "seconds": 4.753207483
+          },
+          {
+            "name": "AIT-540 M4: one readable in-chat offer from page scroll zero",
+            "seconds": 7.592147133
+          },
+          {
+            "name": "AIT-540 M6: one readable in-chat offer from page scroll zero",
+            "seconds": 8.671373702999999
+          },
+          {
+            "name": "AIT-540 M6: reloaded open offer preserves the latest turn, page scroll and focus",
+            "seconds": 5.638974642
+          },
+          {
+            "name": "AIT-543: identity-only offer sent and failure matrix, EN/DE light/dark 390/1440; zero layout shift",
+            "seconds": 15.797661513
+          },
+          {
+            "name": "AIT-568: reconfigure during an identity read never probes the replacement no-store host",
+            "seconds": 0.70473801
           }
         ]
       }

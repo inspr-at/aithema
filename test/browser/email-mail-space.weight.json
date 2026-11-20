@@ -1,44 +1,728 @@
 {
-  "seconds": 89.407,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 42947874534-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
+  "seconds": 78.328,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 44399683830-1, 44475421367-1, 44484221831-1, 44500373409-1, 44526016960-1, 44526018340-1, 44527954945-1, 44542067051-1, 44543973862-1, 44568256946-1, 44576083632-1, 44607365746-1, 44613164647-1, 44650109778-1, 44682541019-1, 44688985679-1, 44707193689-1, 44725948096-1, 44736662387-1, 44742965802-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "762fae0f07fdd4ac576d4c2ca2968c114d3a3188ad5b6069205d04f3ebcb1c77",
+    "workload": "647760e251541045189a92fae86f9d0f5cd7e49878d38cb685ce3f60a65ba497",
     "samples": [
       {
-        "runId": "42947874534",
+        "runId": "44399683830",
         "attempt": 1,
-        "sha": "0c4c4b1af999e4a3163e3676123e99140120bb89",
-        "observedAt": "2026-11-11T02:43:05.987Z",
+        "sha": "7de34739a61754a39a887663f35b3983db29ae2f",
+        "observedAt": "2026-11-18T21:16:26.461Z",
         "tests": [
           {
             "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
-            "seconds": 12.660018988
+            "seconds": 11.815371663
           },
           {
             "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
-            "seconds": 16.322391019
+            "seconds": 15.557423478999999
           },
           {
             "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
-            "seconds": 22.018933987
+            "seconds": 19.415219806
           },
           {
             "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
-            "seconds": 15.425548005000001
+            "seconds": 14.027833229
           },
           {
             "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
-            "seconds": 1.298309276
+            "seconds": 1.3215304819999998
           },
           {
             "name": "AIT-414: credit tiers with identity only confirm and change without visitor persistence",
-            "seconds": 1.4728056360000001
+            "seconds": 1.427732221
           },
           {
             "name": "AIT-418 O9: address change waits in place during reply; race keeps failed reply and retry",
-            "seconds": 2.32636549
+            "seconds": 2.2420657150000003
+          }
+        ]
+      },
+      {
+        "runId": "44475421367",
+        "attempt": 1,
+        "sha": "488a7b28c323d634998ac64d4abb38a2ee829dc3",
+        "observedAt": "2026-11-19T06:53:17.501Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 11.11447035
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 15.002980401999999
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 18.741323342
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 12.461472144
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.266904262
+          },
+          {
+            "name": "AIT-414: credit tiers with identity only confirm and change without visitor persistence",
+            "seconds": 1.428514251
+          },
+          {
+            "name": "AIT-418 O9: address change waits in place during reply; race keeps failed reply and retry",
+            "seconds": 2.043240934
+          }
+        ]
+      },
+      {
+        "runId": "44484221831",
+        "attempt": 1,
+        "sha": "cf76a680942a36ce0be68ce84e92e8df1e8fd15a",
+        "observedAt": "2026-11-19T08:02:25.744Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 13.520463638999999
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 17.488676989
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 22.345682198
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 16.627680876
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.631240863
+          },
+          {
+            "name": "AIT-414: credit tiers with identity only confirm and change without visitor persistence",
+            "seconds": 1.512800009
+          },
+          {
+            "name": "AIT-418 O9: address change waits in place during reply; race keeps failed reply and retry",
+            "seconds": 2.507593951
+          }
+        ]
+      },
+      {
+        "runId": "44500373409",
+        "attempt": 1,
+        "sha": "f152e427e02e5bc390b909bde2a214c43bc0a402",
+        "observedAt": "2026-11-19T09:52:38.660Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 13.714024547000001
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 17.771703162999998
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 22.961021097
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 16.624233625000002
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.574544202
+          },
+          {
+            "name": "AIT-414: credit tiers with identity only confirm and change without visitor persistence",
+            "seconds": 1.536195968
+          },
+          {
+            "name": "AIT-418 O9: address change waits in place during reply; race keeps failed reply and retry",
+            "seconds": 2.5549880939999996
+          }
+        ]
+      },
+      {
+        "runId": "44526016960",
+        "attempt": 1,
+        "sha": "1260f82a11eebec113a83972ff9bf6529c2b361b",
+        "observedAt": "2026-11-19T12:40:28.348Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 13.52786377
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 17.486335695
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 23.995672804999998
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 16.59821927
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.7316160870000001
+          },
+          {
+            "name": "AIT-414: credit tiers with identity only confirm and change without visitor persistence",
+            "seconds": 1.4931149929999998
+          },
+          {
+            "name": "AIT-418 O9: address change waits in place during reply; race keeps failed reply and retry",
+            "seconds": 2.557656947
+          }
+        ]
+      },
+      {
+        "runId": "44526018340",
+        "attempt": 1,
+        "sha": "2f0db3f8190cf0bdeda4d53561db632144942703",
+        "observedAt": "2026-11-19T12:40:29.237Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 13.353100693
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 17.234833156
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 22.223770994
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 16.172943644
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.6126839099999999
+          },
+          {
+            "name": "AIT-414: credit tiers with identity only confirm and change without visitor persistence",
+            "seconds": 1.5440479820000002
+          },
+          {
+            "name": "AIT-418 O9: address change waits in place during reply; race keeps failed reply and retry",
+            "seconds": 2.425789156
+          }
+        ]
+      },
+      {
+        "runId": "44527954945",
+        "attempt": 1,
+        "sha": "47d7ce55921b8c96cc309b45e1ea1f4efa6d6816",
+        "observedAt": "2026-11-19T12:52:54.052Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 13.630024802
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 17.869207838999998
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 23.459573411
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 16.738363720000002
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 2.757325568
+          },
+          {
+            "name": "AIT-414: credit tiers with identity only confirm and change without visitor persistence",
+            "seconds": 1.518418163
+          },
+          {
+            "name": "AIT-418 O9: address change waits in place during reply; race keeps failed reply and retry",
+            "seconds": 2.4973312329999997
+          }
+        ]
+      },
+      {
+        "runId": "44542067051",
+        "attempt": 1,
+        "sha": "8e142a67ed4746ff548b173546f8219f4ece2e8f",
+        "observedAt": "2026-11-19T14:17:24.863Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 11.322789301999999
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 15.427450533
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 19.020493603
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 14.119018625
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 2.315711625
+          },
+          {
+            "name": "AIT-414: credit tiers with identity only confirm and change without visitor persistence",
+            "seconds": 1.455610925
+          },
+          {
+            "name": "AIT-418 O9: address change waits in place during reply; race keeps failed reply and retry",
+            "seconds": 2.178452697
+          }
+        ]
+      },
+      {
+        "runId": "44543973862",
+        "attempt": 1,
+        "sha": "55933f7ff519a2c5b60c6a2ff52039c0495794bf",
+        "observedAt": "2026-11-19T14:28:01.848Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 13.761511284000001
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 18.195293338
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 23.388031072
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 16.680882556
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 2.045167287
+          },
+          {
+            "name": "AIT-414: credit tiers with identity only confirm and change without visitor persistence",
+            "seconds": 1.5091716919999998
+          },
+          {
+            "name": "AIT-418 O9: address change waits in place during reply; race keeps failed reply and retry",
+            "seconds": 2.555563048
+          }
+        ]
+      },
+      {
+        "runId": "44568256946",
+        "attempt": 1,
+        "sha": "c6153be8ff45ab695cfd191d32a512446ce87aef",
+        "observedAt": "2026-11-19T16:38:12.787Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 13.818720742
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 17.742822873
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 22.822092632
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 16.60776821
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.547524322
+          },
+          {
+            "name": "AIT-414: credit tiers with identity only confirm and change without visitor persistence",
+            "seconds": 1.524652168
+          },
+          {
+            "name": "AIT-418 O9: address change waits in place during reply; race keeps failed reply and retry",
+            "seconds": 2.495662764
+          }
+        ]
+      },
+      {
+        "runId": "44576083632",
+        "attempt": 1,
+        "sha": "0d40a127e17dda064df3a626a8134f403faf54c6",
+        "observedAt": "2026-11-19T17:20:41.356Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 10.083482674999999
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 13.572349877
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 13.970856927000002
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 10.355424338999999
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 2.341259048
+          },
+          {
+            "name": "AIT-414: credit tiers with identity only confirm and change without visitor persistence",
+            "seconds": 1.300045888
+          },
+          {
+            "name": "AIT-418 O9: address change waits in place during reply; race keeps failed reply and retry",
+            "seconds": 1.781156894
+          }
+        ]
+      },
+      {
+        "runId": "44607365746",
+        "attempt": 1,
+        "sha": "f394364da286d742a4c9799f0f543be70ea13f62",
+        "observedAt": "2026-11-19T20:19:04.167Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 11.214981241
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 14.862158777000001
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 17.502939182
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 12.377443081
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.299191389
+          },
+          {
+            "name": "AIT-414: credit tiers with identity only confirm and change without visitor persistence",
+            "seconds": 1.432074805
+          },
+          {
+            "name": "AIT-418 O9: address change waits in place during reply; race keeps failed reply and retry",
+            "seconds": 2.11023504
+          }
+        ]
+      },
+      {
+        "runId": "44613164647",
+        "attempt": 1,
+        "sha": "72512711b37c46a32f9b2d049f77b85bacec4d86",
+        "observedAt": "2026-11-19T20:53:22.047Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 13.371025501
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 17.633763365
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 22.995697768000003
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 16.163187936
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.532149729
+          },
+          {
+            "name": "AIT-414: credit tiers with identity only confirm and change without visitor persistence",
+            "seconds": 1.5373711399999999
+          },
+          {
+            "name": "AIT-418 O9: address change waits in place during reply; race keeps failed reply and retry",
+            "seconds": 2.524480209
+          }
+        ]
+      },
+      {
+        "runId": "44650109778",
+        "attempt": 1,
+        "sha": "09a22c5713ac3f96033f1b4bee8300132c3ac45e",
+        "observedAt": "2026-11-20T00:59:11.961Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 13.137571312
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 17.377854896000002
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 22.385233101
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 15.907612907999999
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.47808846
+          },
+          {
+            "name": "AIT-414: credit tiers with identity only confirm and change without visitor persistence",
+            "seconds": 1.494863739
+          },
+          {
+            "name": "AIT-418 O9: address change waits in place during reply; race keeps failed reply and retry",
+            "seconds": 2.492773659
+          }
+        ]
+      },
+      {
+        "runId": "44682541019",
+        "attempt": 1,
+        "sha": "29bf20c22fbd533dca879c382810a704e0f090e8",
+        "observedAt": "2026-11-20T05:40:23.671Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 14.035419478
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 17.93185425
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 23.350970775
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 16.138096992999998
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.5731324750000002
+          },
+          {
+            "name": "AIT-414: credit tiers with identity only confirm and change without visitor persistence",
+            "seconds": 1.524422969
+          },
+          {
+            "name": "AIT-418 O9: address change waits in place during reply; race keeps failed reply and retry",
+            "seconds": 2.572133207
+          }
+        ]
+      },
+      {
+        "runId": "44688985679",
+        "attempt": 1,
+        "sha": "5d507e04ee24aba5b308eff6c60ee5a0d26d8f61",
+        "observedAt": "2026-11-20T06:36:36.921Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 9.856417222
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 13.678191291
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 15.439888627
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 11.483926238
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.7809902850000001
+          },
+          {
+            "name": "AIT-414: credit tiers with identity only confirm and change without visitor persistence",
+            "seconds": 1.3325880239999999
+          },
+          {
+            "name": "AIT-418 O9: address change waits in place during reply; race keeps failed reply and retry",
+            "seconds": 1.9422958049999999
+          }
+        ]
+      },
+      {
+        "runId": "44707193689",
+        "attempt": 1,
+        "sha": "81da7bef5ad3f181bc68e1a6d2bc2df8f039c463",
+        "observedAt": "2026-11-20T09:01:46.978Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 11.992735227999999
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 16.104966133
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 19.413663124
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 13.414705652
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.547462868
+          },
+          {
+            "name": "AIT-414: credit tiers with identity only confirm and change without visitor persistence",
+            "seconds": 1.4031694769999998
+          },
+          {
+            "name": "AIT-418 O9: address change waits in place during reply; race keeps failed reply and retry",
+            "seconds": 2.252249796
+          }
+        ]
+      },
+      {
+        "runId": "44725948096",
+        "attempt": 1,
+        "sha": "2f1001c51c3a9a585b3233762f3cc8cca6ef23a9",
+        "observedAt": "2026-11-20T11:14:41.811Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 13.408795991000002
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 17.423528278000003
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 23.139140337
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 16.164766885
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.5263899120000002
+          },
+          {
+            "name": "AIT-414: credit tiers with identity only confirm and change without visitor persistence",
+            "seconds": 1.50024954
+          },
+          {
+            "name": "AIT-418 O9: address change waits in place during reply; race keeps failed reply and retry",
+            "seconds": 2.52663621
+          }
+        ]
+      },
+      {
+        "runId": "44736662387",
+        "attempt": 1,
+        "sha": "d24d320fb50018e9b3d2984fc6e964d336bc045d",
+        "observedAt": "2026-11-20T12:33:00.762Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 12.053437281
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 16.86310673
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 19.786972443
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 13.390912744
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.502931891
+          },
+          {
+            "name": "AIT-414: credit tiers with identity only confirm and change without visitor persistence",
+            "seconds": 0.982231238
+          },
+          {
+            "name": "AIT-418 O9: address change waits in place during reply; race keeps failed reply and retry",
+            "seconds": 2.143949199
+          }
+        ]
+      },
+      {
+        "runId": "44742965802",
+        "attempt": 1,
+        "sha": "ddb1e06dbf1a3ebb8fea75cfffd86401ea9c1fab",
+        "observedAt": "2026-11-20T13:17:27.732Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 11.996603949
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 15.616397493000001
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 18.838308981999997
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 13.199156284999999
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.827864993
+          },
+          {
+            "name": "AIT-414: credit tiers with identity only confirm and change without visitor persistence",
+            "seconds": 0.963799408
+          },
+          {
+            "name": "AIT-418 O9: address change waits in place during reply; race keeps failed reply and retry",
+            "seconds": 2.3123240959999998
           }
         ]
       }

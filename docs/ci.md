@@ -2,7 +2,7 @@
 
 Aithema runs on the organization's hosted runners. The organization is on GitHub
 Enterprise (about 500 concurrent hosted jobs), and Aithema uses about 2 % of its
-CI hours (measured baseline AEON-1407, 2026-10-15). All fourteen browser shards run
+CI hours (measured baseline AEON-1407, 2026-10-15). All fifteen browser shards run
 at once on full runs. Per-PR cancellation and the docs-only light path stay
 because they save runner minutes.
 
@@ -27,11 +27,11 @@ Detection errors fail the changes job and run all heavy checks. The heavy jobs
 use `!cancelled()` so a failed dependency cannot silently skip required checks;
 only successful PR detection with an explicit `true` output can skip heavy steps.
 
-Fourteen worker shards report `browser (1/14)` through `browser (14/14)`. The ruleset
+Fifteen worker shards report `browser (1/15)` through `browser (15/15)`. The ruleset
 keeps its existing `browser (1/4)` through `browser (4/4)` required checks; each
 is a summary that requires every worker shard to succeed on PR and merge-group runs.
 A failed, cancelled, skipped or missing shard fails those summaries. All four aliases deliberately
-retain their dependency on the entire matrix, so each requires all fourteen workers.
+retain their dependency on the entire matrix, so each requires all fifteen workers.
 PR and merge-group events use the same jobs. Both aliases and the parallel `browser`
 aggregate retain `!cancelled()` and the same unconditional result gate. The sole skip
 exception is a verified first-attempt duplicate main push, described below.
@@ -81,7 +81,7 @@ exception: they accept skipped workers only on the first push attempt to main,
 after successful change detection provides a nonempty verified `duplicate-of`.
 Failures, cancellations and missing results always fail the result gate. PRs,
 merge groups, reruns and other refs never accept skipped workers. Required names and
-existing job caps stay unchanged. The lookup, npm and preview cache warmers, fourteen cheap
+existing job caps stay unchanged. The lookup, npm and preview cache warmers, fifteen cheap
 browser workers and six aggregate jobs execute. The previous five-aggregate-only
 60/150 runner-second estimate no longer applies; no new runtime claim is made.
 The npm warmer preserves main-scoped npm caches with a script-free install only
@@ -349,7 +349,7 @@ Every `test/browser/<name>.test.js` owns a sibling `<name>.weight.json`.
 The `seconds` value is the sum of **measured per-test rolling p95** durations,
 with a **25% safety margin while a workload has fewer than five samples**.
 At five or more samples the planner uses the measured sum directly. Packing remains
-deterministic LPT across **fourteen** bins, followed by whole-file moves/swaps
+deterministic LPT across **fifteen** bins (AIT-597), followed by whole-file moves/swaps
 that reduce the maximum load, then squared load, without worsening LPT's
 makespan bound. Equal candidates keep stable iteration order. If local
 refinement still exceeds 405 s, a deterministic whole-file placement search
@@ -721,16 +721,79 @@ CI observations. The +180 s start-journey growth
 scenario, fourteen shards, packer, every other weight and floor, job timeouts,
 and **405/420 s** limits remain unchanged.
 
+### AIT-597 pause-phone and host-surface split (2026-11-20)
+
+The read-only refresh at `48d2c753` imported 20 verified merge-group runs
+(`44371370170` .. `44742965802`, all attempt 1). Two mature series then exceed
+the 420 s ceiling on their own: pause-phone **453.000 s** (7 samples) and
+host-surface **430.182 s** (8 samples). LEAD's decision splits both along whole
+top-level tests, as AIT-557 split clarify-now. No assertion changes; every test
+still runs exactly once.
+
+| Source | New file | Moved top-level tests | Per-test CI p95 sum (s) | Provisional reservation (s) |
+| --- | --- | --- | ---: | ---: |
+| pause-phone | `pause-phone.test.js` (kept) | 31: AIT-188/189/190/194/244 pause tests, AIT-556 r3 paused refusal, AIT-510 image input at 390 | 260.625918641 | 326 |
+| pause-phone | `pause-phone-uploads.test.js` | 48: `documentUploadCheck()` (AIT-556/559/561/563/566), AIT-510 image input at 1440 | 192.373785211 | 241 |
+| host-surface | `host-surface.test.js` (kept) | 11: AIT-104 B2 lock, AIT-214, AIT-261, AIT-376 x2, AIT-395, AIT-411, AIT-433, AIT-484, AIT-486, AIT-569 | 271.585382161 | 340 |
+| host-surface | `host-surface-email.test.js` | 4: AIT-506 combined offer, AIT-507 integration, AIT-517, AIT-507 inline offer | 158.596611386 | 199 |
+
+Each reservation is `ceil(1.25 * sum of the moved tests' nearest-rank p95)`
+over the trusted pre-split series: runs `44650109778` .. `44742965802` for
+pause-phone and `44613164647` .. `44742965802` for host-surface. The sum is at
+least every single run's work for those tests. The image-input check already
+takes its widths as an argument (start-look runs 1024), so 390 and 1440 are
+whole top-level tests. All four weights are explicitly `provisional`; the
+file-specific bypass in `scripts/browser-shards.js` covers only these four
+files. As in AIT-558, the next refresh replaces them with measured rolling-main
+timings of the new workload hashes. The pre-split floors retire with the
+pre-split workloads: pause-phone 214/220/231 s and host-surface
+151/210/240/395 s.
+
+Mature (at least five-sample) rolling-main series now supersede eleven PR or
+remote diagnostic floors. As in AIT-314, the floor statements are removed and
+their values are recorded here (old effective floor → measured weight, samples):
+email-ask 358 → 277.496 (11), start2-display-geometry 281 → 244.545 (20),
+voice-presentation 270 → 218.978 (17), question-card 230 → 205.445 (20),
+start2-display 270 → 246.750 (9), tick-followups 110 → 81.747 (20),
+html-preview 113 → 89.697 (15), email-mail-space 100 → 78.328 (20),
+visitor-credit-tiers 200 → 180.678 (20), audio-replay 41 → 29.229 (20),
+composed-media 36 → 35.681 (20). The script's provenance comments for these
+floors remain as history. Floors that do not bind (start-journey, start-look, demo, footer-width-sweep,
+consent-lines, start2-display-continuity) stay unchanged.
+
+After the split and floor retirement the measured plan totals **5731.723 s**,
+above fourteen bins' **5670 s** at the 405 s target. LEAD's decision (c) applies
+the AIT-410/AIT-419 standing rule exactly as AIT-557 did: CI and nightly move
+from 14 to 15 workers (matrices, worker names, selectors, artifacts, aggregate
+comment), and the importer admits complete 15-shard histories. The **405 s
+target**, **420 s ceiling**, the 10-minute PR job cap, the nightly timeout, the
+packer, the four `browser (n/4)` aliases and the aggregate `browser` gate stay
+unchanged. The public repository runs on GitHub-hosted `ubuntu-latest`.
+
+| Plan | Total (s) | Fifteen-bin maximum (s) |
+| --- | ---: | ---: |
+| Current reservations | 5731.723 | 400.883 |
+| AIT-532 growth, start-journey max(measured, 205 + 180) | 5760.503 | 400.883 |
+| Expected #488 (AIT-589): pause-phone-uploads ceil(1.25 × (192.374 + 81)) = 342 | 5832.723 | 400.883 |
+
+- 15 bins, current: `400.883 / 373.192 / 373.169 / 381.911 / 381.855 / 374.943 / 385.053 / 386.657 / 388.413 / 388.767 / 377.832 / 381.967 / 377.500 / 379.903 / 379.678`.
+
+The largest bin is clarify-now-status alone. The AIT-532 growth fixture adds
+AIT-506's 180 s to start-journey's 205 s floor (385 s). Start-journey's mature
+series (356.220 s) now contains that matrix, so the fixture keeps the inherited
+385 s as a lower bound instead of adding 180 s to the measured weight again.
+AIT-589's document-upload checks run in `pause-phone-uploads.test.js`, which
+leaves room for its measured +81 s (+21 %) pause-phone growth.
+
 Helper-defined top-level records are attributed only when the verified CI
 commit's import graph identifies exactly one test file in the same batch's
 manifest. The importer parses source syntax so comments and fixture strings
 cannot invent import edges. Ambiguous and unassigned helpers are rejected;
 workload hashing and every existing provenance and coverage check remain intact.
 
-The AIT-557 capacity decision above extends the merged AIT-511/AIT-513 plan
-to fourteen shards and retains all AIT-510 reservations above; earlier
-twelve/thirteen-shard observations remain historical. Each CI shard writes
-`browser-timings-N-of-14` artifacts
+The AIT-597 capacity decision above extends the AIT-557 plan to fifteen
+shards; earlier twelve/thirteen/fourteen-shard observations remain historical.
+Each CI shard writes `browser-timings-N-of-15` artifacts
 (14-day retention).
 `scripts/browser-timing-reporter.js` records passing top-level `node:test`
 durations in seconds alongside the run ID, attempt, commit and workload hash.
@@ -747,12 +810,12 @@ npm run update:browser-timings -- --run RUN_ID --run ANOTHER_RUN_ID
 npm run test:browser-shards
 ```
 
-The importer accepts complete historical six/seven/eight/nine/twelve/thirteen-shard and current fourteen-shard runs;
+The importer accepts complete historical six/seven/eight/nine/twelve/thirteen/fourteen-shard and current fifteen-shard runs;
 it rejects mixed counts, missing indices, duplicates, and expired artifacts.
-CI screenshots use `browser-evidence-N-of-14`; the full nightly matrix uses
-`full-browser-evidence-N-of-14`. CI creates its evidence directory before tests;
+CI screenshots use `browser-evidence-N-of-15`; the full nightly matrix uses
+`full-browser-evidence-N-of-15`. CI creates its evidence directory before tests;
 individual evidence writers also create their destination for isolated runs.
-All fourteen workers run concurrently, so this adds
+All fifteen workers run concurrently, so this adds
 runner minutes while keeping wall-clock time comparable.
 
 Nightly selects the full Cartesian matrix with `AITHEMA_FULL_MATRIX=1`.
@@ -760,9 +823,9 @@ It retains GitHub Actions' `CI=true`, including the CI timing budgets in
 fixtures such as `scoped-consent-edges.js`. An evidence directory alone keeps
 PR width rotation when `CI` is set; local manual evidence retains its existing
 full-matrix path. GitHub Actions never enables the manual axe audit. Nightly
-retains fourteen shards and a 25-minute job timeout; successful complete jobs must
+retains fifteen shards and a 25-minute job timeout; successful complete jobs must
 finish within 17:30 (70%) before claiming measured headroom. Small timing
-artifacts are `full-browser-timings-N-of-14`, separate from viewport screenshots.
+artifacts are `full-browser-timings-N-of-15`, separate from viewport screenshots.
 
 The script downloads only the small timing artifacts through the selected `gh`
 account, pinned to `inspr-at/aithema`. Both automatic selection and explicit
