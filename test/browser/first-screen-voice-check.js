@@ -8,7 +8,19 @@ import { browserForFile } from './shared-browser.js';
 import { fixture as combinedFixture } from './combined-entrance-check.js';
 import { fixture as creditFixture } from './visitor-credit-tiers-helpers.js';
 
-const html = combinedFixture.replace('globalThis.mount=', 'globalThis.fixtureClient=client;globalThis.mount=').replace("entrance:'combined'", "entrance:new URL(location.href).searchParams.get('entrance')||'combined'");
+// Slice 3 (?hostrow=<brand px>): a host header row like the consumer's real page, modelled on its
+// shipped geometry: 288 px host actions (account slot), headerRailReservation({ actionsWidth: '288px' }),
+// a visible host brand and a 16 px host column beside the shell. The rail track is then about 700 px
+// at 1366 and about 600 px at 1280.
+const hostRow = `const hostRow=new URL(location.href).searchParams.get('hostrow');
+if(hostRow){const {headerRailReservation}=await import('/packages/ui/src/first-paint.js');
+const style=document.createElement('style');style.textContent='body{display:flex}.host-side{flex:none;width:16px}.aithema-shell{container:aithema-shell / inline-size;flex:1;min-width:0}.aithema-shell>aithema-session{--aithema-header-actions-width:288px}'+headerRailReservation({actionsWidth:'288px'});document.head.append(style);
+const side=document.createElement('div');side.className='host-side';const shell=document.createElement('div');shell.className='aithema-shell';
+const brand=document.createElement('span');brand.slot='brand';brand.textContent='Host';brand.style.cssText='display:inline-block;width:'+Number(hostRow)+'px';
+const account=document.createElement('span');account.slot='account';account.style.cssText='display:inline-block;width:200px;height:44px';
+c.append(brand,account);shell.append(c);document.body.append(side,shell);}else document.body.append(c);`;
+const html = combinedFixture.replace('globalThis.mount=', 'globalThis.fixtureClient=client;globalThis.mount=').replace("entrance:'combined'", "entrance:new URL(location.href).searchParams.get('entrance')||'combined'")
+  .replace("const c=document.createElement('aithema-session');document.body.append(c);", () => `const c=document.createElement('aithema-session');${hostRow}`);
 const variants = [{ width: 390, locale: 'de', theme: 'dark' }, { width: 1440, locale: 'en', theme: 'light' }];
 async function harness(t) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-first-screen-'));
@@ -25,7 +37,7 @@ async function harness(t) {
 async function open(page, server, variant, entrance = 'combined') {
   await page.setViewport({ width: variant.width, height: variant.height ?? 1000 });
   await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: variant.theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
-  await page.goto(`${server.url}/first-screen-fixture?locale=${variant.locale}&entrance=${entrance}${variant.opener ? '&opener' : ''}`);
+  await page.goto(`${server.url}/first-screen-fixture?locale=${variant.locale}&entrance=${entrance}${variant.opener ? '&opener' : ''}${variant.brand ? `&hostrow=${variant.brand}` : ''}`);
   await page.waitForFunction(() => globalThis.ready);
   await page.evaluate(({ theme, entrance }) => {
     c.setAttribute('theme', theme); c.style.setProperty('--aithema-height', '100dvh');
@@ -407,6 +419,92 @@ test('AIT-553 slice 2 item 2: on short desktops the readiness card is whole at f
     assert.match(first.text, /Before you start|Vor dem Gespräch/u, `card keeps its title: ${where}`);
     assert.match(first.text, /Change settings|Einstellungen ändern/u, `card keeps its settings action: ${where}`);
     for (const line of first.lines.filter(l => /button/.test(l.name) || /ready__change/.test(l.name))) assert.ok(line.box[3] >= 44, `44 px action: ${where}`);
+  }
+});
+
+// Slice 3: beside the consumer's real header the opener playback row (speaker,
+// progress line, pause) flexes its line down to a 160 px floor before the band
+// takes a second row; the compact readiness then clears the pinned composer.
+const hostRowDesktops = [
+  { width: 1366, height: 768, locale: 'en', theme: 'light', opener: true, brand: 150 },
+  { width: 1366, height: 768, locale: 'de', theme: 'dark', opener: true, brand: 150 },
+  { width: 1280, height: 720, locale: 'en', theme: 'light', opener: true, brand: 167 },
+  { width: 1280, height: 720, locale: 'de', theme: 'dark', opener: true, brand: 167 }
+];
+test('AIT-553 slice 3 M1: beside a host header the opener playback row keeps one band row', { timeout: 240_000 }, async t => {
+  assert.match(html, /hostRow/u, 'the host header row fixture is installed');
+  const { page, server } = await harness(t), records = [];
+  for (const variant of hostRowDesktops) {
+    const label = `${variant.width}x${variant.height}-${variant.locale}-${variant.theme}`;
+    await open(page, server, variant);
+    await page.evaluate(async text => {
+      const copy = structuredClone((await import(`/packages/ui/src/i18n/${c.session.locale}.js`))[c.session.locale]);
+      for (const key of ['connecting', 'listening', 'speaking', 'paused']) copy.voiceStates[key] = text;
+      c.configure({ session: c.session, copy });
+    }, longStatus[variant.locale]);
+    const track = await page.evaluate(() => {
+      const band = c.shadowRoot.querySelector('.band'); return getComputedStyle(band).gridTemplateColumns.split(' ').map(Number.parseFloat)[1];
+    });
+    const states = [await bandRecord(page, 'idle')];
+    await page.evaluate(() => grant());
+    await page.waitForFunction(() => c.session.featureMatrix.best.voice.available);
+    await page.click('aithema-session >>> .composer-mic');
+    await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.call === 'active');
+    await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.state !== 'connecting', { timeout: 10_000 }).catch(() => {});
+    states.push(await bandRecord(page, 'opener playback'));
+    await retain(page, `s3-${label}-band-opener-playback`, { track, ...states.at(-1) });
+    await page.evaluate(() => c.shadowRoot.querySelector('.pause').click());
+    await page.waitForFunction(() => c.shadowRoot.querySelector('.pause').getAttribute('aria-pressed') === 'true', { timeout: 10_000 }).catch(() => {});
+    states.push(await bandRecord(page, 'paused'));
+    await page.evaluate(() => c.shadowRoot.querySelector('.voice-close').click());
+    await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.call === 'none');
+    records.push({ label, track, states });
+  }
+  for (const { label, track, states } of records) {
+    const [idle] = states;
+    assert.ok(track > 0, `${label}: positive rail track`);
+    for (const s of states) {
+      const where = `${label}/${s.state} (rail track ${track}): ${JSON.stringify(s)}`;
+      positive({ band: s.band, rail: s.rail, signal: s.signal, ...s.cells });
+      for (const control of s.visibleControls) positive({ [control.name]: control.box });
+      assert.equal(s.rowAttr, false, `no data-rail-row: ${where}`);
+      assert.ok(s.band[3] <= 90.5, `band is one 90 px row: ${where}`);
+      assert.deepEqual(s.cells, idle.cells, `control cells do not move: ${where}`);
+      for (const box of Object.values(s.cells)) assert.ok(box[2] >= 44 && box[3] >= 44, `44 px control cells: ${where}`);
+      for (const control of s.visibleControls) assert.ok(control.box[2] >= 44 && control.box[3] >= 44, `44 px target ${control.name}: ${where}`);
+      if (s.status.visible) assert.ok(s.status.box[0] + s.status.box[2] <= s.signal[0] + s.signal[2] + .5, `status stays in its track: ${where}`);
+    }
+  }
+});
+
+test('AIT-553 slice 3 M2: beside a host header the compact readiness clears the pinned composer with its whole outline', { timeout: 240_000 }, async t => {
+  const { page, server } = await harness(t), records = [];
+  for (const variant of hostRowDesktops) {
+    await openIntro(page, server, variant);
+    const pinned = (await observe(page)).geometry;
+    const first = await page.evaluate(() => {
+      const root = c.shadowRoot, box = n => { const r = n.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; };
+      const card = root.querySelector('.ready'), scroller = root.querySelector('.conversation-scroll'), style = getComputedStyle(card);
+      const [x, y, w, h] = box(card);
+      // The bottom outline (border) row, sampled across the card: nothing covers it.
+      const hits = [.1, .5, .9].map(f => { const hit = root.elementFromPoint(x + w * f, y + h - .5); return Boolean(hit && card.contains(hit)); });
+      return { viewport: [innerWidth, innerHeight], card: [x, y, w, h], scroller: box(scroller), composer: box(root.querySelector('.composer')),
+        band: box(root.querySelector('.band')), border: parseFloat(style.borderBottomWidth), borderStyle: style.borderBottomStyle, hits };
+    });
+    const label = `${variant.width}x${variant.height}-${variant.locale}-${variant.theme}`;
+    await retain(page, `s3-${label}-readiness-first-paint`, first);
+    await page.evaluate(() => { const s = c.shadowRoot.querySelector('.conversation-scroll'); s.scrollTop = s.scrollHeight; });
+    records.push({ label, first, pinned, after: (await observe(page)).geometry });
+  }
+  for (const { label, first, pinned, after } of records) {
+    const where = `${label}: ${JSON.stringify(first)}`, [, cy, , ch] = first.card, [, sy, , sh] = first.scroller;
+    positive({ card: first.card, scroller: first.scroller, composer: first.composer, band: first.band });
+    positive(pinned); assert.deepEqual(after, pinned, `composer stays pinned: ${label}`);
+    assert.ok(first.band[3] <= 90.5, `band is one row at first paint: ${where}`);
+    assert.ok(first.border > 0 && first.borderStyle !== 'none', `the card has a bottom outline: ${where}`);
+    assert.ok(cy >= sy - .5 && cy + ch <= sy + sh - .5, `card and its outline inside the visible conversation area: ${where}`);
+    assert.ok(cy + ch <= first.composer[1] - 8, `card clears the composer by 8 px: ${where}`);
+    assert.deepEqual(first.hits, [true, true, true], `the bottom outline is not covered: ${where}`);
   }
 });
 
