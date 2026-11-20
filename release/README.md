@@ -55,27 +55,37 @@ must have the same normalized member digest; exact archive hashes remain specifi
 to the candidate or published set.
 
 Every tarball is checked for cross-package imports (AIT-582,
-`release/lib/package-imports.mjs`). `verifyRelease` opens each archive and scans
-its `.js`, `.mjs`, `.cjs`, `.ts` and `.d.ts` members for relative module specifiers:
-`import`/`export … from`, bare `import '…'`, `import(…)`,
-`new URL(…, import.meta.url)`, `require(…)`, `require.resolve(…)`,
-`import.meta.resolve(…)` and `/// <reference path>`. The scanner is a tokenizer,
-not a parser: comments and ordinary strings are not specifiers, and whether `/`
-starts a regular expression follows the previous token and the open brackets.
-It checks what is written literally. A specifier argument may be one literal,
-literals joined by `+`, or a template; a template or `literal + expression` is
-checked by its static prefix (`` `../../${name}` `` fails, `` `./${name}` ``
-passes). Any other argument is checked through every literal inside it, so
-`import(flag ? '../../a.js' : './b.js')` fails. A computed path without a literal,
-an alias (`const load = require`), `createRequire`, `module.require` and
-`new URL` bases that do not mention `import.meta.url` are not followed. `require`, `require.resolve` and
-reference paths resolve as file paths (`?` and `#` are literal, `\` is a
-separator); the ES module forms and `new URL` resolve as URLs. A specifier with
-a malformed escape or an invalid URL fails as unreadable, and so does a member
-that ends inside a template, comment or string or with unbalanced brackets (a
-sign the tokenizer misread it). Any specifier that
-resolves outside the archive's `package/` root fails the run, after every tarball
-has been scanned, so one run names all failing tarballs. The check runs at the end of `release:pack`, in
+`release/lib/package-imports.mjs`). `verifyRelease` opens each archive and parses
+its `.js`, `.mjs`, `.cjs`, `.ts`, `.mts`, `.cts` and `.d.ts` members with
+TypeScript's parser (the pinned `typescript` devDependency; JavaScript and
+TypeScript script kinds), then walks the syntax tree for module specifiers:
+`import`/`export … from` (including `import type` and `export type`), bare
+`import '…'`, `import(…)` and TypeScript `import('…')` types,
+`import x = require('…')`, `require(…)`, `require.resolve(…)`,
+`import.meta.resolve(…)`, `new URL(…, base)` when the base mentions
+`import.meta.url`, and `/// <reference path>`. Comments, ordinary strings and
+regular expressions are never specifiers. The check reads what is written
+literally. One literal, literals joined by `+` (through any parentheses) or a
+template without substitutions is the specifier. A template with substitutions or
+`literal + expression` is checked by its static prefix (`` `../../${name}` ``
+fails, `` `./${name}` `` passes; a prefix ending in `.` or `..` counts one more
+level up), and fails when a later literal part contains a `..` segment
+(`` `./${dir}/../x` ``). Any other argument is checked through every literal inside
+it, so `import(flag ? '../../a.js' : './b.js')` fails. Not followed: a computed
+path without a literal, an alias (`const load = require`), `createRequire`,
+`module.require`, and `new URL` bases that do not mention `import.meta.url`.
+`require`, `require.resolve`, `import = require` and reference paths resolve as
+file paths (`?`, `#` and `%2e` are literal; a `\` that stays inside fails, because
+it is a separator only on Windows); the ES module forms, `import.meta.resolve`
+and `new URL` resolve as URLs. Bare package names and other URL schemes are
+skipped. Every absolute specifier (`/…`, `//…`) and every `file:` URL fails, in
+every form. A specifier with a malformed escape (in any part of a template) or an
+invalid URL fails as unreadable. A member with any syntax error fails as "could
+not be scanned completely", because its tree may not be what the engine runs; an
+escape error inside a literal is not a syntax error here and fails only when that
+literal is part of a specifier. Any specifier that resolves outside the archive's
+`package/` root fails the run, after every tarball has been scanned, so one run
+names all failing tarballs. The check runs at the end of `release:pack`, in
 `release:verify` (and so in `release:candidate`) and in normalization, so a
 downloaded set is checked as well. The failure names the tarball, member,
 specifier and target, for example `Cross-package import in
