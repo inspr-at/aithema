@@ -217,3 +217,120 @@ test('r3: a member the tokenizer cannot finish cleanly fails closed', () => {
     'src/close.js: could not be scanned completely (unmatched closing bracket), so its imports cannot be checked',
   ]);
 });
+
+// AIT-582 r4: the scanner parses with TypeScript; one fixture per r3 re-gate finding.
+const reasons = files => scan(files).escapes.map(({ member, kind, specifier, reason }) =>
+  specifier === undefined ? `${member}: ${reason}` : `${member} ${kind} ${specifier}: ${reason}`);
+
+test('r4 finding 1: a contextual keyword used as a name divides like any other name', () => {
+  assert.deepEqual(cjs([
+    "let of = 6; of / [require('../../outside.cjs')][0] / 2;",
+    "let async = 6; async / [require('../../async.cjs')][0] / 2;",
+    "let get = 6; get / [require('../../get.cjs')][0] / 2;",
+  ].join('\n')), [
+    'require() ../../outside.cjs -> outside.cjs',
+    'require() ../../async.cjs -> async.cjs',
+    'require() ../../get.cjs -> get.cjs',
+  ]);
+});
+
+test('r4 finding 2: literals fold through any parentheses', () => {
+  assert.deepEqual(escapes('src/a.js', [
+    "import('../' + ('../outside.js'));",
+    "import(('../') + '../left.js');",
+    "import('../' + ('../' + name));",
+    "require.resolve(('./' + ('../' + '../nested.cjs')));",
+  ].join('\n')), [
+    'import() ../../outside.js -> outside.js',
+    'import() ../../left.js -> left.js',
+    'import() ../../ -> /',
+    'require.resolve() ./../../nested.cjs -> nested.cjs',
+  ]);
+});
+
+test('r4 finding 3: every absolute specifier and file: URL fails, in every form', () => {
+  assert.deepEqual(reasons({
+    'src/a.cjs': [
+      "require('//package/outside.cjs');",
+      "require('/package/src/b.cjs');",
+      "require.resolve('file:///package/src/b.cjs');",
+    ].join('\n'),
+    'src/b.js': [
+      "import '//package/src/b.js';",
+      "new URL('/package/src/c.json', import.meta.url);",
+      "import.meta.resolve('FILE:///package/src/c.js');",
+    ].join('\n'),
+    'src/c.d.ts': '/// <reference path="/package/src/types.d.ts" />',
+  }), [
+    'src/a.cjs require() //package/outside.cjs: is absolute, so it is not inside package/',
+    'src/a.cjs require() /package/src/b.cjs: is absolute, so it is not inside package/',
+    'src/a.cjs require.resolve() file:///package/src/b.cjs: is a file: URL, so it is not inside package/',
+    'src/b.js import //package/src/b.js: is absolute, so it is not inside package/',
+    'src/b.js new URL(…, import.meta.url) /package/src/c.json: is absolute, so it is not inside package/',
+    'src/b.js import.meta.resolve() FILE:///package/src/c.js: is a file: URL, so it is not inside package/',
+    'src/c.d.ts reference path /package/src/types.d.ts: is absolute, so it is not inside package/',
+  ]);
+});
+
+test('r4 finding 4: legal code after debugger and other statement ends is never a scan failure', () => {
+  const text = [
+    'debugger',
+    "/[)]/.test(')');",
+    "if (a) b(); else /[}]/.test('}');",
+    "do /[(]/.test('('); while (false)",
+    "import './inside.js';",
+  ].join('\n');
+  assert.deepEqual(scan({ 'src/a.js': text }), { scanned: 1, escapes: [] });
+});
+
+test('r4 low: a malformed escape in any template chunk fails as unreadable', () => {
+  assert.deepEqual(reasons({
+    'src/a.js': 'import(`./${name}\\xZZ`);',
+    'src/b.js': 'import(`./${a}/${b}\\u{110000}`);',
+    'src/c.js': "require.resolve(flag ? `./${a}\\u12` : './inside.js');",
+  }), [
+    'src/a.js import() ./: has a malformed escape and cannot be checked',
+    'src/b.js import() ./: has a malformed escape and cannot be checked',
+    'src/c.js require.resolve() ./: has a malformed escape and cannot be checked',
+  ]);
+});
+
+test('r4: TypeScript import forms and .mts/.cts members are scanned', () => {
+  assert.equal(scannedMember('src/a.mts'), true);
+  assert.equal(scannedMember('src/a.cts'), true);
+  assert.deepEqual(reasons({
+    'src/a.ts': [
+      "import fs = require('../../equals.cjs');",
+      "import type { T } from '../../types.js';",
+      "export type { U } from '../../reexport.js';",
+      "type Q = typeof import('../../query.js');",
+      "import ok = require('./inside.cjs');",
+    ].join('\n'),
+    'src/b.mts': "export * from '../../module.mjs';",
+    'src/c.cts': "import x = require('../../common.cjs');",
+  }), [
+    'src/a.ts import = require() ../../equals.cjs: resolves to equals.cjs, outside package/',
+    'src/a.ts from ../../types.js: resolves to types.js, outside package/',
+    'src/a.ts from ../../reexport.js: resolves to reexport.js, outside package/',
+    'src/a.ts import() ../../query.js: resolves to query.js, outside package/',
+    'src/b.mts from ../../module.mjs: resolves to module.mjs, outside package/',
+    'src/c.cts import = require() ../../common.cjs: resolves to common.cjs, outside package/',
+  ]);
+});
+
+test('r4: a member with a syntax error fails as not scanned completely', () => {
+  const [failure, ...rest] = reasons({ 'src/a.js': "const = 1;\nimport './inside.js';", 'src/ok.js': "import './inside.js';" });
+  assert.deepEqual(rest, []);
+  assert.match(failure, /^src\/a\.js: could not be scanned completely \(line 1: .+\), so its imports cannot be checked$/u);
+});
+
+test('r4: a later chunk that climbs after a computed part fails closed', () => {
+  assert.deepEqual(reasons({
+    'src/a.js': 'import(`./${dir}/../../x.js`);',
+    'src/b.js': "import('./' + dir + '/../../y.js');",
+    'src/ok.js': "import(`./locales/${lang}.json`); import('./' + name + '.js');",
+  }), [
+    'src/a.js import() ./: may climb outside package/ (a later part of the argument contains ..)',
+    'src/b.js import() ./: may climb outside package/ (a later part of the argument contains ..)',
+  ]);
+});
