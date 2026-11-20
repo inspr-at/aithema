@@ -1489,14 +1489,16 @@ test('AIT-569: delayed host reads and header fit never move a visible chooser', 
           probe.releaseReads = release;
           const fetch = window.fetch.bind(window);
           window.fetch = async (url, init) => {
+            const target = new URL(url, location.href).pathname;
+            // AIT-594: the variants share one profile, so a page can restore the previous
+            // variant's conversation in the other language; the host then switches it.
+            // Hold that switch (the slow CI case, made deterministic). The request itself
+            // waits: the server also announces the new language over the event stream.
+            if (/\/api\/sessions\/[^/]+\/locale$/u.test(target) && init?.method === 'POST') { probe.locales.push(target); await probe.lateReads; }
             const response = await fetch(url, init), path = new URL(url, location.href).pathname;
             if (/\/api\/sessions\/[^/]+\/(identity|credits)$/u.test(path) && (!init?.method || init.method === 'GET')) {
               probe.reads.push(path); await probe.lateReads; probe.landed.push(path);
             }
-            // AIT-594: the variants share one profile, so a page can restore the previous
-            // variant's conversation in the other language; the host then switches it.
-            // Hold that switch's acknowledgement too (the slow CI case, made deterministic).
-            if (/\/api\/sessions\/[^/]+\/locale$/u.test(path) && init?.method === 'POST') { probe.locales.push(path); await probe.lateReads; }
             return response;
           };
         });
