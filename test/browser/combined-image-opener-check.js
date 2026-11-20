@@ -442,6 +442,10 @@ export async function combinedImageOpenerFoldCheck(t) {
       try {
         page.on('pageerror', error => problems.push(error.message));
         await handOff(page, wishTurn[locale]);
+        // The persisted visitor turn lands before the concept lane's events.
+        await page.waitForFunction(() => c.session.transcript.some(turn => turn.role === 'user') &&
+          document.querySelector('aithema-session').shadowRoot.querySelector('.transcript-shell .turn.user'));
+        await settled(page);
         await recordWish(page);
         await renderStarts(page);
         const running = await foldState(page);
