@@ -439,9 +439,13 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
   browser = await launch(directory, 'terminal-profile');
   phase('launch');
   const page = await browser.newPage(), problems = [];
-  await preparePage(page, ['de'], problems);
-  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: 'light' }]);
-  await page.goto(demo.url); await shadow(page, '.composer');
+  // AIT-598: every page of this test opens the demo the same way.
+  const openPage = async page => {
+    await preparePage(page, ['de'], problems);
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: 'light' }]);
+    await page.goto(demo.url); await shadow(page, '.composer');
+  };
+  await openPage(page);
   phase('pageLoad');
   const original = await inShadow(page, c => c.session);
   const legal297 = await inShadow(page, c => c.querySelector('#demo-legal').outerHTML);
@@ -474,7 +478,9 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
   };
   // Reuse a single page/browser for this state-only matrix. The server's actual
   // deadline and spend paths are covered with fake clocks in the unit suite.
-  for (const locale of ['de', 'en']) for (const reason of ['one-hour', 'session', 'voiceVisitor', 'host-limit']) {
+  // One terminal scene: configure the reason and wait for its body. The AIT-297
+  // theme pages replay the matrix's last scene, so they start from the same session.
+  const terminalScene = async (page, locale, reason) => {
     const ended = (locale === 'de' ? de : en).hostSurface.credits.ended;
     const expected = reason === 'session' ? ended.sessionDefaultBody : ended[reason].body;
     await page.setViewport({ width: 390, height: 844 });
@@ -493,6 +499,18 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
       const r = document.querySelector('aithema-session').shadowRoot;
       return r.querySelector('form.composer').inert && r.querySelector('.composer-out__body > [data-active="true"]').textContent === expected;
     }, expected);
+  };
+  // AIT-598: the AIT-297 matrix runs on one page per theme, in parallel with the
+  // matrices below. Each theme page opens the demo like this page and replays the
+  // terminal matrix's last scene (EN, host-limit): the AIT-297 fixtures clone that
+  // session, as they did on this page. Its result is awaited in the original place.
+  const post297 = postRelease297(['light', 'dark'], async theme => {
+    const own = await browser.newPage();
+    await openPage(own); await terminalScene(own, 'en', 'host-limit');
+    return own;
+  }, t, legal297, timing.post297).then(() => ({}), error => ({ error }));
+  for (const locale of ['de', 'en']) for (const reason of ['one-hour', 'session', 'voiceVisitor', 'host-limit']) {
+    await terminalScene(page, locale, reason);
     const state = await inShadow(page, c => {
       const r = c.shadowRoot, link = r.querySelector('.composer-out__export');
       return { inert: r.querySelector('form.composer').inert, voiceDisabled: r.querySelector('.voice-start').disabled,
@@ -590,7 +608,8 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
   phase('ait291r2');
   await normalComposerEvidence(page, t);
   phase('normalComposer');
-  await postRelease297(page, t, legal297, timing.post297);
+  const { error: post297Error } = await post297;
+  if (post297Error) throw post297Error;
   phase('postRelease297');
   assert.equal(export294Checks.length, 66, 'AIT-294: every terminal, upgrade variant and overview export width');
   const export294Pass = 'AIT-294 r2 PASS: export text/icon one unwrapped unit at 320/360/390 DE/EN; all terminal reasons, host-limit upgrade variants and overview; no overflow or clipping.';
@@ -651,10 +670,49 @@ function textAlignment297(c) {
 }
 
 // AIT-297: reuse the terminal test's browser; exercise both action rows and real host legal links.
-async function postRelease297(browserPage, t, legalHTML, timing = {}) {
+// AIT-598: the matrix runs one page per theme, in parallel. The footer-height
+// invariant is keyed by theme and width, so each theme page keeps its own map
+// with the original DE-then-EN comparison. Diagnostics, evidence lists and the
+// first failure are reported in the original locale → theme → width order.
+const order297 = ({ locale, theme }) => ['de', 'en'].indexOf(locale) * 2 + ['light', 'dark'].indexOf(theme);
+async function postRelease297(themes, openThemePage, t, legalHTML, timing = {}) {
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  const groups = await Promise.all(themes.map(async theme => {
+    const group = { theme, at: { locale: 'de', theme }, diagnostics: [], checks: [], fractionalChecks: [], narrow360Checks: [], alignmentChecks: [], audits: [] };
+    let page;
+    try { page = await openThemePage(theme); await postRelease297Theme(page, group, legalHTML, timing); }
+    catch (error) { group.error = error; }
+    finally { await page?.close().catch(() => {}); }
+    return group;
+  }));
+  const merged = key => groups.flatMap(group => group[key]).sort((a, b) => order297(a) - order297(b));
+  const [failed] = groups.filter(group => group.error).sort((a, b) => order297(a.at) - order297(b.at));
+  for (const diagnostic of merged('diagnostics')) if (!failed || order297(diagnostic) <= order297(failed.at)) t.diagnostic(diagnostic.message);
+  if (failed) throw failed.error;
+  const checks = merged('checks'), fractionalChecks = merged('fractionalChecks'), narrow360Checks = merged('narrow360Checks'),
+    alignmentChecks = merged('alignmentChecks'), audits = merged('audits');
+  assert.equal(checks.length, 48);
+  assert.equal(fractionalChecks.length, 12);
+  t.diagnostic('AIT-297 PASS: DE/EN light/dark 1440/1024/390/360/320/388.5; clear single-line actions, zero layout shift, unbroken licence, legal targets >=44px.');
+  if (evidence) await writeFile(join(evidence, 'ait-297-host-limit-checks.json'), JSON.stringify({ head: evidenceCommit, checks, fractionalChecks, narrow360Checks, alignmentChecks, audits }, null, 2));
+  assert.equal(narrow360Checks.length, 12);
+  assert.equal(alignmentChecks.length, 16);
+  for (const { locale, theme, width, card, title, body } of alignmentChecks) {
+    for (const [name, text] of Object.entries({ title, body })) assert.ok(Math.abs(text.x - card.x) <= 1,
+      `${locale}/${theme}/${width}: host-limit ${name} x=${text.x} equals card text x=${card.x} (±1 px)`);
+    if (width === 320) {
+      assert.ok(title.lines <= 2, `${locale}/${theme}/320: title fits its reserved two lines`);
+      assert.ok(title.right <= title.boxRight + 1, `${locale}/${theme}/320: title stays inside its inline padding`);
+    }
+  }
+}
+
+async function postRelease297Theme(browserPage, group, legalHTML, timing) {
+  const { theme, checks, fractionalChecks, narrow360Checks, alignmentChecks, audits } = group, footerHeights = new Map(), evidence = process.env.AITHEMA_EVIDENCE_DIR;
   const lapAt = { at: performance.now() }, lap = key => { const now = performance.now(); timing[key] = Math.round((timing[key] ?? 0) + now - lapAt.at); lapAt.at = now; };
-  const checks = [], fractionalChecks = [], narrow360Checks = [], alignmentChecks = [], audits = [], footerHeights = new Map(), evidence = process.env.AITHEMA_EVIDENCE_DIR;
-  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390, 320, 388.5]) {
+  for (const locale of ['de', 'en']) for (const width of [1440, 1024, 390, 320, 388.5]) {
+    group.at = { locale, theme };
+    const diagnostic = message => group.diagnostics.push({ locale, theme, message });
     const height = width < 600 ? 844 : 1000;
     await browserPage.setViewport({ width: Math.ceil(width), height });
     await browserPage.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: theme }]);
@@ -739,7 +797,7 @@ async function postRelease297(browserPage, t, legalHTML, timing = {}) {
         `${label}: ${name} aligns with the card text (±1 px)`);
       if (width < 389) {
         const { title, body } = state.textAlignment;
-        t.diagnostic(`AIT-297 reserved title ${label}: ${JSON.stringify(title)}`);
+        diagnostic(`AIT-297 reserved title ${label}: ${JSON.stringify(title)}`);
         assert.ok(title.lines >= 1 && title.lines <= 2, `${label}: title occupies at most two lines`);
         assert.ok(Math.abs(title.height - 2 * title.lineHeight) <= .1, `${label}: title reserves exactly two line boxes`);
         assert.ok(title.textTop >= title.top && title.textBottom <= title.bottom, `${label}: title text fits inside the reserved block`);
@@ -750,7 +808,7 @@ async function postRelease297(browserPage, t, legalHTML, timing = {}) {
       assert.deepEqual(state.boxes, reserved, `${label}: action targets stay in place across tier receipts`);
       assert.deepEqual(state.lines, [1, 1], `${label}: both action labels occupy one line`);
       assert.equal(state.upgradeVisible, variant !== 'no-upgrade', `${label}: fixture renders the requested tier action`);
-      if (!state.bodyClear) t.diagnostic(`${label}: clearance geometry ${JSON.stringify(state)}`);
+      if (!state.bodyClear) diagnostic(`${label}: clearance geometry ${JSON.stringify(state)}`);
       assert.equal(state.bodyClear, true, `${label}: body clears both actions`);
       if (width < 389) assert.ok(state.legal.every(n => n.top >= Math.max(...state.boxes.map(([, y, , h]) => y + h))), `${label}: stacked action targets clear legal targets`);
       assert.equal(state.overlap, false, `${label}: action targets do not overlap`);
@@ -765,7 +823,7 @@ async function postRelease297(browserPage, t, legalHTML, timing = {}) {
       assert.equal(await overflow(page), 0, `${label}: no horizontal overflow`);
       if (variant === 'upgrade' && width < 600) {
         alignmentChecks.push({ locale, theme, width, ...state.textAlignment });
-        t.diagnostic(`AIT-297 alignment ${label}: ${JSON.stringify(state.textAlignment)}`);
+        diagnostic(`AIT-297 alignment ${label}: ${JSON.stringify(state.textAlignment)}`);
       }
       (Number.isInteger(width) ? checks : fractionalChecks).push({ head: evidenceCommit, locale, theme, width, variant, shift: 0, ...state });
       if (evidence && ['upgrade', 'no-upgrade'].includes(variant)) {
@@ -815,13 +873,13 @@ async function postRelease297(browserPage, t, legalHTML, timing = {}) {
           return { actionsTop: Math.min(...boxes.map(b => b.top)), actionsBottom: Math.max(...boxes.map(b => b.bottom)),
             legalTop: Math.min(...[...(innerWidth < 600 ? c.shadowRoot.querySelectorAll('.legal-toggle') : c.querySelectorAll('#demo-legal a'))].map(n => n.getBoundingClientRect().top)) };
         });
-        t.diagnostic(`AIT-297 360 geometry ${label}: ${JSON.stringify({ before, after, title, body, actionsTop })}`);
+        diagnostic(`AIT-297 360 geometry ${label}: ${JSON.stringify({ before, after, title, body, actionsTop })}`);
         assert.ok(body.bottom <= actionsTop, `${label}: body clears both actions`);
         assert.ok(actionsBottom <= legalTop, `${label}: stacked action targets clear legal targets`);
         narrow360Checks.push({ head: evidenceCommit, locale, theme, width: 360, variant, shift: 0, textAlignment: alignment, actionsTop, actionsBottom, legalTop });
         if (variant === 'upgrade') {
           alignmentChecks.push({ locale, theme, width: 360, ...alignment });
-          t.diagnostic(`AIT-297 alignment ${label}: ${JSON.stringify(alignment)}`);
+          diagnostic(`AIT-297 alignment ${label}: ${JSON.stringify(alignment)}`);
         }
         if (evidence && ['upgrade', 'no-upgrade'].includes(variant)) {
           await settleEvidenceFrame(page);
@@ -841,20 +899,6 @@ async function postRelease297(browserPage, t, legalHTML, timing = {}) {
     }
     if (frameElement) await capturePage.close();
     lap(`${locale}/${theme}/${width}`);
-  }
-  assert.equal(checks.length, 48);
-  assert.equal(fractionalChecks.length, 12);
-  t.diagnostic('AIT-297 PASS: DE/EN light/dark 1440/1024/390/360/320/388.5; clear single-line actions, zero layout shift, unbroken licence, legal targets >=44px.');
-  if (evidence) await writeFile(join(evidence, 'ait-297-host-limit-checks.json'), JSON.stringify({ head: evidenceCommit, checks, fractionalChecks, narrow360Checks, alignmentChecks, audits }, null, 2));
-  assert.equal(narrow360Checks.length, 12);
-  assert.equal(alignmentChecks.length, 16);
-  for (const { locale, theme, width, card, title, body } of alignmentChecks) {
-    for (const [name, text] of Object.entries({ title, body })) assert.ok(Math.abs(text.x - card.x) <= 1,
-      `${locale}/${theme}/${width}: host-limit ${name} x=${text.x} equals card text x=${card.x} (±1 px)`);
-    if (width === 320) {
-      assert.ok(title.lines <= 2, `${locale}/${theme}/320: title fits its reserved two lines`);
-      assert.ok(title.right <= title.boxRight + 1, `${locale}/${theme}/320: title stays inside its inline padding`);
-    }
   }
 }
 
