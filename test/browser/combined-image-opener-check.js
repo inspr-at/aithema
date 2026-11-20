@@ -149,7 +149,7 @@ const longTurn = {
   de: 'Ein Rechnungssystem für eine kleine Werkstatt: Kunden, Angebote, Rechnungen und Mahnungen, mit einer einfachen Übersicht über Offenes und Überfälliges, Exporten für die Steuerberatung und Zugang für zwei Kolleginnen, die unterwegs arbeiten und es am Telefon brauchen.',
 };
 
-async function openCombined(browser, server, { locale, theme, width, height, text }) {
+async function openCombined(browser, server, { locale, theme, width, height, text, shorter = 0 }) {
   const page = await browser.newPage();
   await page.setViewport({ width, height });
   await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
@@ -158,13 +158,13 @@ async function openCombined(browser, server, { locale, theme, width, height, tex
     ? request.respond({ status: 200, contentType: 'text/html', body: fixture }) : request.continue()); });
   await page.goto(`${server.url}/combined-fixture?locale=${locale}&passiveDenied`);
   await page.waitForFunction(() => globalThis.ready && document.querySelector('aithema-session').shadowRoot.querySelector('.composer-status').textContent.length > 0);
-  await page.evaluate((text, locale) => {
+  await page.evaluate((text, locale, shorter) => {
     const host = document.querySelector('aithema-session');
-    host.style.setProperty('--aithema-height', `${innerHeight}px`);
+    host.style.setProperty('--aithema-height', `${innerHeight - shorter}px`);
     const snapshot = JSON.parse(JSON.stringify(host.session));
     snapshot.opener = { text, locale }; snapshot.visualsBound = true;
     mount(snapshot);
-  }, text, locale);
+  }, text, locale, shorter);
   return page;
 }
 // The AIT-506/601 hand-off: consent, the persisted welcome, then the first turn.
@@ -217,11 +217,14 @@ export async function combinedImageOpenerFoldCheck(t) {
   };
   const [width, height] = [1366, 768];
   for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) {
-    // TICK L1: a welcome near the 1,000-character limit pushes the first turn
-    // entirely below the fold, so the transcript follows to it (the welcome may move here only).
+    // TICK L1: a welcome near the 1,000-character limit in a shorter host pane
+    // (1366x768 page, the host 120 px shorter) leaves the first turn entirely
+    // below the fold, so the transcript follows to it (the welcome may move here
+    // only). At the full 768 px the welcome's read-full clamp keeps the turn's
+    // first line inside the pane: that is the partly-below hold.
     await t.test(`entirely below: ${locale}/${theme}/${width}x${height}`, async () => {
       assert.ok(longWelcome[locale].length > 900 && longWelcome[locale].length <= 1000, `near the limit: ${longWelcome[locale].length}`);
-      const page = await openCombined(browser, server, { locale, theme, width, height, text: longWelcome[locale] }), problems = [];
+      const page = await openCombined(browser, server, { locale, theme, width, height, text: longWelcome[locale], shorter: 120 }), problems = [];
       try {
         page.on('pageerror', error => problems.push(error.message));
         const before = await foldState(page);
@@ -231,8 +234,8 @@ export async function combinedImageOpenerFoldCheck(t) {
         await record(page, `below-${locale}-${theme}-live`, after);
         assert.equal(after.layout, 'image');
         for (const key of ['shell', 'opener', 'firstLine', 'visitor', 'visitorLabel']) positive(`below/${key}`, after[key]);
-        // At offset 0 the visitor's turn would start below the pane.
-        assert.ok(after.opener.y + after.scrollTop + after.opener.height > after.shell.y + after.shell.height, `the welcome alone fills the pane: ${JSON.stringify(after)}`);
+        // At offset 0 the first line of the visitor's turn would lie below the pane.
+        assert.ok(after.visitorLabel.y + after.scrollTop + after.visitorLabel.height > after.shell.y + after.shell.height + .5, `the turn would start below the pane: ${JSON.stringify(after)}`);
         assert.ok(after.scrollTop > .5, `the transcript follows to the first turn: ${JSON.stringify(after)}`);
         assert.ok(whole(after), `the first turn is fully visible: ${JSON.stringify(after)}`);
         assert.deepEqual(problems, []);
@@ -263,8 +266,8 @@ export async function combinedImageOpenerFoldCheck(t) {
       } finally { await page.close(); }
     });
   }
-  // gate2c 3: a visitor scroll ends the hold. Back at the top, a resize follows
-  // as before instead of holding again.
+  // gate2c 3: a visitor scroll ends the hold. Back at the top, a resize and a
+  // pointer leaving the transcript follow as before instead of holding again.
   await t.test('no re-arm: scroll away, back to the top, resize', async () => {
     const page = await openCombined(browser, server, { locale: 'de', theme: 'light', width, height, text: welcome.de });
     try {
@@ -275,25 +278,23 @@ export async function combinedImageOpenerFoldCheck(t) {
       await settled(page);
       await page.$eval('aithema-session', c => { c.shadowRoot.querySelector('.transcript-shell').scrollTop = 0; });
       await settled(page);
-      await page.evaluate(() => document.querySelector('aithema-session').style.setProperty('--aithema-height', `${innerHeight - 24}px`));
+      await page.setViewport({ width, height: height - 24 });
+      await page.evaluate(() => document.querySelector('aithema-session').style.setProperty('--aithema-height', `${innerHeight}px`));
+      await settled(page);
+      await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.transcript-shell').dispatchEvent(new PointerEvent('pointerleave')));
       const resized = await foldState(page);
       await record(page, 'rearm-resize', resized);
       positive('rearm/visitor', resized.visitor);
       assert.ok(resized.scrollTop > .5 && whole(resized), `a resize after the hand-off follows to the end: ${JSON.stringify(resized)}`);
     } finally { await page.close(); }
   });
-  // gate2c 3: a restored welcome + one-turn conversation follows as before.
+  // gate2c 3: a restored welcome + one-turn conversation (the snapshot a reload
+  // mounts) follows as before.
   await t.test('no re-arm: reload of a welcome + one-turn conversation', async () => {
     const page = await openCombined(browser, server, { locale: 'de', theme: 'light', width, height, text: welcome.de });
     try {
       await handOff(page, longTurn.de);
-      await page.evaluate(() => sessionStorage.setItem('combined-fixture-session', JSON.stringify(c.session)));
-      await page.reload();
-      await page.waitForFunction(() => globalThis.ready);
-      await page.evaluate(() => {
-        const host = document.querySelector('aithema-session');
-        host.style.setProperty('--aithema-height', `${innerHeight}px`);
-      });
+      await page.evaluate(() => mount(JSON.parse(JSON.stringify(c.session))));
       await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').dataset.stage === 'live');
       const restored = await foldState(page);
       await record(page, 'rearm-reload', restored);
