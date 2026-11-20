@@ -13,15 +13,18 @@ import { fixture as creditFixture } from './visitor-credit-tiers-helpers.js';
 // with the flexing rail floor (railMinWidth: voiceRailFlexMinWidth, the host's opt-in),
 // a visible host brand and a 16 px host column beside the shell. The rail track is then about 700 px
 // at 1366 and about 600 px at 1280.
-const hostRow = `const hostRow=new URL(location.href).searchParams.get('hostrow');
-if(hostRow){const {headerRailReservation,voiceRailFlexMinWidth}=await import('/packages/ui/src/first-paint.js');
-const style=document.createElement('style');style.textContent='body{display:flex}.host-side{flex:none;width:16px}.aithema-shell{container:aithema-shell / inline-size;flex:1;min-width:0}.aithema-shell>aithema-session{--aithema-header-actions-width:288px}'+headerRailReservation({actionsWidth:'288px',railMinWidth:voiceRailFlexMinWidth});document.head.append(style);
+// r2: &optout omits the opt-in (the library's default 544 px floor); &fp serves the render-blocking
+// firstPaintStyles and placeholder and defers mount until the test calls mount(pendingSession).
+const hostRow = `const hostRow=new URL(location.href).searchParams.get('hostrow'),hostParams=new URL(location.href).searchParams;
+if(hostRow){const {headerRailReservation,voiceRailFlexMinWidth,firstPaintStyles,firstPaintMarkup}=await import('/packages/ui/src/first-paint.js');
+const style=document.createElement('style');style.textContent=(hostParams.has('fp')?firstPaintStyles:'')+'body{display:flex}.host-side{flex:none;width:16px}.aithema-shell{container:aithema-shell / inline-size;flex:1;min-width:0}.aithema-shell>:is(aithema-session,.aithema-first-paint){--aithema-header-actions-width:288px}'+headerRailReservation({actionsWidth:'288px',...hostParams.has('optout')?{}:{railMinWidth:voiceRailFlexMinWidth}});document.head.append(style);
 const side=document.createElement('div');side.className='host-side';const shell=document.createElement('div');shell.className='aithema-shell';
 const brand=document.createElement('span');brand.slot='brand';brand.textContent='Host';brand.style.cssText='display:inline-block;width:'+Number(hostRow)+'px';
 const account=document.createElement('span');account.slot='account';account.style.cssText='display:inline-block;width:200px;height:44px';
-c.append(brand,account);shell.append(c);document.body.append(side,shell);}else document.body.append(c);`;
+c.append(brand,account);shell.append(c);if(hostParams.has('fp'))shell.insertAdjacentHTML('beforeend',firstPaintMarkup);document.body.append(side,shell);}else document.body.append(c);`;
 const html = combinedFixture.replace('globalThis.mount=', 'globalThis.fixtureClient=client;globalThis.mount=').replace("entrance:'combined'", "entrance:new URL(location.href).searchParams.get('entrance')||'combined'")
-  .replace("const c=document.createElement('aithema-session');document.body.append(c);", () => `const c=document.createElement('aithema-session');${hostRow}`);
+  .replace("const c=document.createElement('aithema-session');document.body.append(c);", () => `const c=document.createElement('aithema-session');${hostRow}`)
+  .replace('mount(session);', () => "globalThis.pendingSession=session;if(!new URL(location.href).searchParams.has('fp'))mount(session);");
 const variants = [{ width: 390, locale: 'de', theme: 'dark' }, { width: 1440, locale: 'en', theme: 'light' }];
 async function harness(t) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-first-screen-'));
@@ -38,7 +41,7 @@ async function harness(t) {
 async function open(page, server, variant, entrance = 'combined') {
   await page.setViewport({ width: variant.width, height: variant.height ?? 1000 });
   await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: variant.theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
-  await page.goto(`${server.url}/first-screen-fixture?locale=${variant.locale}&entrance=${entrance}${variant.opener ? '&opener' : ''}${variant.brand ? `&hostrow=${variant.brand}` : ''}`);
+  await page.goto(`${server.url}/first-screen-fixture?locale=${variant.locale}&entrance=${entrance}${variant.opener ? '&opener' : ''}${variant.brand ? `&hostrow=${variant.brand}` : ''}${variant.query ? `&${variant.query}` : ''}`);
   await page.waitForFunction(() => globalThis.ready);
   await page.evaluate(({ theme, entrance }) => {
     c.setAttribute('theme', theme); c.style.setProperty('--aithema-height', '100dvh');
@@ -506,6 +509,164 @@ test('AIT-553 slice 3 M2: beside a host header the compact readiness clears the 
     assert.ok(cy >= sy - .5 && cy + ch <= sy + sh - .5, `card and its outline inside the visible conversation area: ${where}`);
     assert.ok(cy + ch <= first.composer[1] - 8, `card clears the composer by 8 px: ${where}`);
     assert.deepEqual(first.hits, [true, true, true], `the bottom outline is not covered: ${where}`);
+  }
+});
+
+// Slice 3 r2: the opt-in matters below the default 544 px floor. A 1200 px viewport with a
+// 240 px host brand gives a rail track of about 450 px (inside 384-543 px): the CSS
+// reservation keeps one row with the opt-in and reserves two without it.
+const midTrack = [
+  { width: 1200, height: 720, locale: 'en', theme: 'light', opener: true, brand: 240 },
+  { width: 1200, height: 720, locale: 'de', theme: 'dark', opener: true, brand: 240 }
+];
+const railTrack = page => page.evaluate(() => getComputedStyle(c.shadowRoot.querySelector('.band')).gridTemplateColumns.split(' ').map(Number.parseFloat)[1]);
+async function longOrdinaryStatus(page, locale) {
+  await page.evaluate(async text => {
+    const copy = structuredClone((await import(`/packages/ui/src/i18n/${c.session.locale}.js`))[c.session.locale]);
+    for (const key of ['connecting', 'listening', 'speaking', 'paused']) copy.voiceStates[key] = text;
+    c.configure({ session: c.session, copy });
+  }, longStatus[locale]);
+}
+test('AIT-553 slice 3 r2: with the opt-in a 384-543 px rail track keeps an ordinary line in one band row; without it the same geometry takes two', { timeout: 240_000 }, async t => {
+  const { page, server } = await harness(t), records = [];
+  for (const variant of midTrack) {
+    const label = `${variant.width}x${variant.height}-${variant.locale}-${variant.theme}`;
+    await open(page, server, variant); await longOrdinaryStatus(page, variant.locale);
+    const track = await railTrack(page), states = [await bandRecord(page, 'idle')];
+    await page.evaluate(() => grant());
+    await page.waitForFunction(() => c.session.featureMatrix.best.voice.available);
+    await page.click('aithema-session >>> .composer-mic');
+    await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.call === 'active');
+    await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.state !== 'connecting', { timeout: 10_000 }).catch(() => {});
+    states.push(await bandRecord(page, 'opener playback'));
+    await retain(page, `s3r2-${label}-mid-track-opt-in`, { track, ...states.at(-1) });
+    await page.evaluate(() => c.shadowRoot.querySelector('.voice-close').click());
+    await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.call === 'none');
+    await open(page, server, { ...variant, query: 'optout' }); await longOrdinaryStatus(page, variant.locale);
+    const optout = { track: await railTrack(page), ...await bandRecord(page, 'idle without the opt-in') };
+    await retain(page, `s3r2-${label}-mid-track-opt-out`, optout);
+    records.push({ label, track, states, optout });
+  }
+  for (const { label, track, states, optout } of records) {
+    assert.ok(track >= 384 && track < 544, `${label}: the rail track lies between the flexing floor and the default floor (${track})`);
+    for (const s of states) {
+      const where = `${label}/${s.state} (rail track ${track}): ${JSON.stringify(s)}`;
+      positive({ band: s.band, rail: s.rail, signal: s.signal, ...s.cells });
+      assert.equal(s.rowAttr, false, `opt-in: no data-rail-row: ${where}`);
+      assert.ok(s.band[3] <= 90.5, `opt-in: band is one 90 px row: ${where}`);
+      for (const box of Object.values(s.cells)) assert.ok(box[2] >= 44 && box[3] >= 44, `44 px control cells: ${where}`);
+      if (s.status.visible) assert.ok(s.status.box[0] + s.status.box[2] <= s.signal[0] + s.signal[2] + .5, `status stays in its track: ${where}`);
+    }
+    const where = `${label}/without the opt-in: ${JSON.stringify(optout)}`;
+    positive({ band: optout.band, rail: optout.rail, signal: optout.signal, ...optout.cells });
+    assert.ok(Math.abs(optout.track - track) <= .5, `same rail track without the opt-in: ${where}`);
+    assert.ok(optout.band[3] >= 149.5, `without the opt-in the same geometry takes two band rows: ${where}`);
+  }
+});
+
+const longConsent = { en: 'Voice needs your consent before the assistant can listen and answer aloud',
+  de: 'Die Stimme braucht Ihre Zustimmung, bevor die Assistenz zuhören und antworten kann' };
+test('AIT-553 slice 3 r2: with the opt-in at a 384-543 px track an overflowing consent action and an important notice take two rows, whole', { timeout: 240_000 }, async t => {
+  const { page, server } = await harness(t), records = [];
+  for (const variant of midTrack) {
+    const label = `${variant.width}x${variant.height}-${variant.locale}-${variant.theme}`;
+    await open(page, server, variant);
+    await page.evaluate(async text => {
+      const copy = structuredClone((await import(`/packages/ui/src/i18n/${c.session.locale}.js`))[c.session.locale]);
+      copy.featureConsent.voice = text; c.configure({ session: c.session, copy });
+    }, longConsent[variant.locale]);
+    await page.waitForFunction(() => Boolean(c.shadowRoot.querySelector('.voice-state .consent-action:not([hidden])')), { timeout: 10_000 });
+    const consent = { track: await railTrack(page), ...await bandRecord(page, 'consent action') };
+    consent.action = await page.evaluate(() => { const a = c.shadowRoot.querySelector('.voice-state .consent-action'), b = a.getBoundingClientRect();
+      return { box: [b.x, b.y, b.width, b.height], scrollWidth: a.scrollWidth, clientWidth: a.clientWidth, visible: a.checkVisibility({ checkVisibilityCSS: true }) }; });
+    consent.viewport = await page.evaluate(() => [innerWidth, innerHeight]);
+    await retain(page, `s3r2-${label}-mid-track-consent`, consent);
+    await open(page, server, variant);
+    await creditFixture(page, variant.locale, { spent: 12_000_000 });
+    await page.evaluate(async text => {
+      const copy = structuredClone((await import(`/packages/ui/src/i18n/${c.session.locale}.js`))[c.session.locale]);
+      for (const key of Object.keys(copy.voiceCreditStatus)) copy.voiceCreditStatus[key] = text;
+      copy.voiceStates.usedUp = text;
+      c.configure({ session: c.session, copy, host: { credits: true } });
+    }, longNotice[variant.locale]);
+    await page.waitForFunction(text => c.shadowRoot.querySelector('.voice-state').textContent === text, { timeout: 10_000 }, longNotice[variant.locale]);
+    const notice = { track: await railTrack(page), ...await bandRecord(page, 'used-up notice'), notice: await page.evaluate(() => c.shadowRoot.querySelector('.voice-state').hasAttribute('data-notice')) };
+    notice.viewport = consent.viewport;
+    await retain(page, `s3r2-${label}-mid-track-notice`, notice);
+    records.push({ label, consent, notice });
+  }
+  for (const { label, consent, notice } of records) {
+    for (const s of [consent, notice]) {
+      const where = `${label}/${s.state}: ${JSON.stringify(s)}`;
+      assert.ok(s.track >= 384 && s.track < 544, `rail track between the floors: ${where}`);
+      positive({ band: s.band, rail: s.rail, signal: s.signal, status: s.status.box, ...s.cells });
+      assert.equal(s.rowAttr, true, `the whole line takes the second row: ${where}`);
+      assert.ok(s.band[3] >= 149.5, `band takes two rows: ${where}`);
+      assert.equal(s.status.visible, true, `line stays visible: ${where}`);
+      assert.ok(s.status.scrollWidth <= s.status.clientWidth, `line is never cut: ${where}`);
+      assert.equal(s.status.mask, 'none', `line is never faded: ${where}`);
+      assert.ok(s.status.box[0] >= -.5 && s.status.box[0] + s.status.box[2] <= s.viewport[0] + .5, `line lies inside the viewport: ${where}`);
+    }
+    const where = `${label}/consent: ${JSON.stringify(consent)}`;
+    assert.equal(consent.action.visible, true, `consent action visible: ${where}`);
+    positive({ action: consent.action.box });
+    assert.ok(consent.action.scrollWidth <= consent.action.clientWidth, `consent action is never cut: ${where}`);
+    assert.ok(consent.action.box[0] + consent.action.box[2] <= consent.status.box[0] + consent.status.box[2] + .5, `consent action inside its line: ${where}`);
+    assert.equal(notice.notice, true, `the used-up line is marked as an important notice: ${label}`);
+  }
+});
+
+// First paint (render-blocking placeholder) against the mounted widget, with the opt-in:
+// the placeholder's band equals the mounted band, and the mounted fit adds no row or shift.
+const firstPaintVariants = [
+  { ...hostRowDesktops[0], query: 'fp' }, { ...hostRowDesktops[3], query: 'fp' }, { ...midTrack[0], query: 'fp' }, { ...midTrack[1], query: 'fp' }
+];
+test('AIT-553 slice 3 r2: with the opt-in the first-paint placeholder band equals the mounted band and mount shifts nothing', { timeout: 240_000 }, async t => {
+  const { page, server } = await harness(t), records = [];
+  for (const variant of firstPaintVariants) {
+    const label = `${variant.width}x${variant.height}-${variant.locale}-${variant.theme}`;
+    await open(page, server, variant);
+    await page.evaluate(async () => { await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
+    const placeholder = await page.evaluate(() => {
+      const band = document.querySelector('.aithema-first-paint'), rail = band.querySelector('.audio-rail'), b = band.getBoundingClientRect(), r = rail.getBoundingClientRect();
+      return { mounted: c.hasAttribute('data-aithema-mounted'), sessionVisible: c.checkVisibility(), band: [b.x, b.y, b.width, b.height], rail: [r.x, r.y, r.width, r.height],
+        row: getComputedStyle(rail).gridRowStart, reserved: getComputedStyle(band).getPropertyValue('--aithema-header-rail-row').trim() };
+    });
+    // Mount, then measure in the same task (before any observer runs) and again once settled.
+    await page.evaluate(() => {
+      globalThis.measureMount = () => {
+        const root = c.shadowRoot, box = n => { const r = n.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; };
+        const band = root.querySelector('.band'), rail = band.querySelector('.audio-rail');
+        return { band: box(band), rail: box(rail), row: band.hasAttribute('data-rail-row'), railRow: getComputedStyle(rail).gridRowStart,
+          scroller: box(root.querySelector('.conversation-scroll')), composer: box(root.querySelector('.composer')), card: box(root.querySelector('.ready')),
+          placeholderShown: document.querySelector('.aithema-first-paint').checkVisibility() };
+      };
+    });
+    const mountFrame = await page.evaluate(() => { mount(globalThis.pendingSession); return measureMount(); });
+    await page.evaluate(async () => { await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
+    const settled = await page.evaluate(() => measureMount());
+    settled.track = await railTrack(page);
+    await retain(page, `s3r2-${label}-first-paint-vs-mounted`, { placeholder, mountFrame, settled });
+    records.push({ label, placeholder, mountFrame, settled });
+  }
+  const near = (a, b) => a.every((v, i) => Math.abs(v - b[i]) <= .5);
+  for (const { label, placeholder, mountFrame, settled } of records) {
+    const where = `${label}: ${JSON.stringify({ placeholder, mountFrame, settled })}`;
+    assert.equal(placeholder.mounted, false, `the placeholder is measured before mount: ${where}`);
+    positive({ placeholderBand: placeholder.band, placeholderRail: placeholder.rail });
+    for (const s of [mountFrame, settled]) positive({ band: s.band, rail: s.rail, scroller: s.scroller, composer: s.composer, card: s.card });
+    assert.equal(settled.placeholderShown, false, `the placeholder hides once mounted: ${where}`);
+    assert.equal(placeholder.reserved, '1', `the opt-in reservation keeps one row before mount: ${where}`);
+    assert.equal(placeholder.row, '1', `placeholder rail in the first row: ${where}`);
+    assert.ok(placeholder.band[3] <= 90.5, `placeholder band is one 90 px row: ${where}`);
+    assert.ok(Math.abs(settled.band[3] - placeholder.band[3]) <= .5, `mounted band height equals the placeholder: ${where}`);
+    assert.ok(Math.abs(settled.band[1] - placeholder.band[1]) <= .5, `mounted band top equals the placeholder: ${where}`);
+    assert.equal(settled.row, false, `the mounted fit adds no second row: ${where}`);
+    assert.equal(settled.railRow, placeholder.row, `mounted rail row equals the placeholder: ${where}`);
+    assert.ok(near(settled.band, mountFrame.band), `band does not move after mount: ${where}`);
+    assert.ok(near(settled.scroller, mountFrame.scroller), `conversation does not move after mount: ${where}`);
+    assert.ok(near(settled.composer, mountFrame.composer), `composer does not move after mount: ${where}`);
+    assert.ok(near(settled.card, mountFrame.card), `readiness does not move after mount: ${where}`);
   }
 });
 

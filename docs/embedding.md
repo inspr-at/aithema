@@ -964,7 +964,9 @@ and `brandWidth` bounds when customized. With wide actions, also pass
 `railMinWidth: voiceRailFlexMinWidth` (same module): an ordinary voice status
 then clips and fades in its track down to a 160px line before the band reserves
 a second row; consent actions and important notices still take the second row
-when they do not fit whole. Arguments must be literal CSS lengths
+when they do not fit whole. `railMinWidth` is a number of pixels, not a CSS
+length: `voiceRailFlexMinWidth` is `384`, and the default is
+`voiceRailMinWidth` (`544`). The other arguments must be literal CSS lengths
 or expressions because queries cannot read custom properties. Stay within these
 bounds so mount never adds an unreserved row. Supply `--paper`, `--surface`,
 `--accent` and `--line` with the same theme selection before paint.
