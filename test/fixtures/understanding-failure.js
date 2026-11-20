@@ -43,6 +43,10 @@ const makeHandlers = () => {
 };
 let handlers = makeHandlers();
 const inertSessions = new Set();
+// AIT-585: a test can hold a seeded session's initial stream events (replay and
+// the seeded lane.status) until it releases them, so the order between that
+// initial state and an injected event is chosen by the test, not by load.
+const streamHolds = new Map();
 const call = (action, data) => handlers.handle(new Request(`http://fixture/api/sessions/${current.id}/${action}`, {
   method: 'POST', headers: { 'content-type': 'application/json', 'x-aithema-session-token': owner }, body: JSON.stringify(data),
 }));
@@ -59,6 +63,18 @@ const { server, url } = await listen(async request => {
       JSON.stringify({ ...session, ownerHash: createHash('sha256').update(owner).digest('hex') }));
     storage.transitionHost(session.id, () => ({ state: {}, events: [] }));
     return Response.json({ ok: true }, { headers: { 'x-aithema-session-token': owner } });
+  }
+  if (path === '/hold-stream') {
+    streamHolds.set(u.searchParams.get('id'), { opened: Promise.withResolvers(), flushes: [] });
+    return Response.json({ ok: true });
+  }
+  if (path === '/release-stream') {
+    const id = u.searchParams.get('id'), hold = streamHolds.get(id);
+    if (!hold) return Response.json({ error: 'stream-not-held' }, { status: 409 });
+    // Rendezvous with the element's own stream request, not with elapsed time.
+    await hold.opened.promise; streamHolds.delete(id);
+    for (const flush of hold.flushes) flush();
+    return Response.json({ ok: true });
   }
   if (path === '/hold-reply') { replyHold = { entered: Promise.withResolvers(), release: null }; return Response.json({ ok: true }); }
   if (path === '/release-reply') {
@@ -146,17 +162,21 @@ const { server, url } = await listen(async request => {
     const raw = request.headers.get('last-event-id') ?? u.searchParams.get('after') ?? '0';
     if (!/^\d+$/u.test(raw) || !Number.isSafeInteger(Number(raw)) || Number(raw) > session.seq)
       return Response.json({ error: 'invalid-cursor' }, { status: 400 });
-    let cleanup;
+    let cleanup, closed = false;
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       start(controller) {
-        const send = event => controller.enqueue(encoder.encode(`${event.seq ? `id: ${event.seq}\n` : ''}event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`));
-        for (const event of storage.read(id, Number(raw))) send(event);
-        // Preserve the seeded operations instead of rebuilding them from jobs.
-        if (session.operations) send({ sessionId: id, type: 'lane.status', data: session.operations });
-        const heartbeat = setInterval(() => controller.enqueue(encoder.encode(': heartbeat\n\n')), 15_000);
+        const send = event => { if (!closed) controller.enqueue(encoder.encode(`${event.seq ? `id: ${event.seq}\n` : ''}event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`)); };
+        const initial = () => {
+          for (const event of storage.read(id, Number(raw))) send(event);
+          // Preserve the seeded operations instead of rebuilding them from jobs.
+          if (session.operations) send({ sessionId: id, type: 'lane.status', data: session.operations });
+        };
+        const hold = streamHolds.get(id);
+        if (hold) { hold.flushes.push(initial); hold.opened.resolve(); } else initial();
+        const heartbeat = setInterval(() => { if (!closed) controller.enqueue(encoder.encode(': heartbeat\n\n')); }, 15_000);
         const abort = () => { cleanup(); controller.close(); };
-        cleanup = () => { clearInterval(heartbeat); request.signal.removeEventListener('abort', abort); };
+        cleanup = () => { closed = true; clearInterval(heartbeat); request.signal.removeEventListener('abort', abort); };
         request.signal.addEventListener('abort', abort, { once: true });
         if (request.signal.aborted) abort();
       },
