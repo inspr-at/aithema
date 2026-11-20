@@ -67,6 +67,10 @@ function wordLength(text, j) {
  */
 export function tokenize(text) {
   const tokens = [], references = [], frames = [{ kind: 'block', ternary: 0 }], bodies = [];
+  // A clean scan ends with every bracket, template, comment and string closed;
+  // anything else means the member may have been misread.
+  let problem;
+  const fail = reason => { problem ??= reason; };
   let i = text.startsWith('#!') ? lineEnd(text, 0) : 0, lastEnd = i;
   const frame = () => frames.at(-1);
   const add = (type, value, start, end, regexAfter, extra) => {
@@ -78,6 +82,7 @@ export function tokenize(text) {
   const templateChunk = start => {
     let j = start;
     while (j < text.length && text[j] !== '`' && !(text[j] === '$' && text[j + 1] === '{')) j += text[j] === '\\' ? 2 : 1;
+    if (j >= text.length) fail('unterminated template');
     return { ...cook(text.slice(start, Math.min(j, text.length))), end: j, open: text[j] === '$' };
   };
   const braceIsBlock = (prev, newline) => {
@@ -90,7 +95,7 @@ export function tokenize(text) {
     if (prev.type === 'word' && !prev.property) {
       if (blockKeywords.has(prev.value)) return true;
       if (prev.value === 'return' || prev.value === 'yield') return newline;
-      return !expressionKeywords.has(prev.value) && !['const', 'let', 'var'].includes(prev.value);
+      return !expressionKeywords.has(prev.value) && !['const', 'let', 'var', 'default'].includes(prev.value);
     }
     return !(prev.type === 'template' || prev.type === 'template-part') || !prev.open;
   };
@@ -103,10 +108,15 @@ export function tokenize(text) {
       if (reference) references.push({ kind: 'reference path', specifier: reference[2], partial: false, index: i });
       i = end; continue;
     }
-    if (c === '/' && text[i + 1] === '*') { const end = text.indexOf('*/', i + 2); i = end < 0 ? text.length : end + 2; continue; }
+    if (c === '/' && text[i + 1] === '*') {
+      const end = text.indexOf('*/', i + 2);
+      if (end < 0) fail('unterminated comment');
+      i = end < 0 ? text.length : end + 2; continue;
+    }
     if (c === '\'' || c === '"') {
       let j = i + 1;
       while (j < text.length && text[j] !== c && text[j] !== '\n' && text[j] !== '\r') j += text[j] === '\\' ? (text.startsWith('\r\n', j + 1) ? 3 : 2) : 1;
+      if (text[j] !== c) fail('unterminated string');
       const { value, malformed } = cook(text.slice(i + 1, Math.min(j, text.length)));
       add('string', value, i, j + 1, false, { malformed }); i = j + 1; continue;
     }
@@ -167,7 +177,7 @@ export function tokenize(text) {
       frames.push({ kind: '[', ternary: 0 }); add('punct', c, i, i + 1, true);
     } else if (c === ')' || c === ']') {
       const top = frame(), matched = top.kind === (c === ')' ? '(' : '[');
-      if (matched) frames.pop();
+      if (matched) frames.pop(); else fail('unmatched closing bracket');
       const head = matched && top.head === true;
       add('punct', c, i, i + 1, head, { statement: head });
     } else if (c === '{') {
@@ -177,6 +187,7 @@ export function tokenize(text) {
       add('punct', c, i, i + 1, true, { statement: kind === 'block' });
     } else if (c === '}') {
       const top = frame();
+      if (top.kind !== 'block' && top.kind !== 'object' || frames.length === 1) fail('unmatched closing bracket');
       if (frames.length > 1) frames.pop();
       const block = top.kind === 'block' && top.function !== 'expression';
       add('punct', c, i, i + 1, block, { statement: block });
@@ -196,7 +207,8 @@ export function tokenize(text) {
     } else add('punct', c, i, i + 1, c !== '.');
     i++;
   }
-  return { tokens, references };
+  if (frames.length > 1) fail('unclosed bracket');
+  return { tokens, references, problem };
 }
 
 const depthChange = token => token.type === 'punct' ? (opens.has(token.value) ? 1 : closes.has(token.value) ? -1 : 0)
@@ -255,7 +267,8 @@ function argumentSpecifiers(arg) {
 
 /** Every module specifier in the source: static, dynamic, URL, require, resolve and TS reference forms. */
 export function moduleSpecifiers(text) {
-  const { tokens, references } = tokenize(text), found = [...references];
+  const { tokens, references, problem } = tokenize(text), found = [...references];
+  if (problem) return [{ kind: 'scan', problem, index: 0 }];
   const word = (k, value) => tokens[k]?.type === 'word' && tokens[k].value === value && !tokens[k].property;
   const take = (kind, token) => found.push({ kind, specifier: token.value, partial: false, malformed: token.malformed === true, index: token.index });
   const call = (kind, k, base) => {
@@ -319,6 +332,7 @@ export function crossPackageImports(members) {
     scanned++;
     for (const found of moduleSpecifiers(bytes.toString('utf8'))) {
       const { kind, specifier } = found;
+      if (found.problem) { escapes.push({ member, kind, reason: `could not be scanned completely (${found.problem}), so its imports cannot be checked` }); continue; }
       if (found.malformed) { escapes.push({ member, kind, specifier, reason: 'has a malformed escape and cannot be checked' }); continue; }
       const resolved = resolveTarget(member, found);
       if (resolved?.reason) escapes.push({ member, kind, specifier, reason: resolved.reason });
@@ -336,7 +350,7 @@ export function crossPackageImports(members) {
 export function scanPackageImports(tarball, members) {
   const { scanned, escapes } = crossPackageImports(members);
   const message = escapes.length ? `Cross-package import in ${tarball}: ` + escapes.map(({ member, kind, specifier, reason }) =>
-    `package/${member} ${kind} '${specifier}' ${reason}`).join('; ') : undefined;
+    specifier === undefined ? `package/${member} ${reason}` : `package/${member} ${kind} '${specifier}' ${reason}`).join('; ') : undefined;
   return { tarball, scanned, escapes: escapes.length, message };
 }
 
