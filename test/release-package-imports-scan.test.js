@@ -94,3 +94,108 @@ test('TypeScript declarations and reference paths are scanned', () => {
     'import() ../../core/src/a.js -> core/src/a.js',
   ]);
 });
+
+// AIT-582 r3: the five scanner findings from the cross-family gate, one fixture each.
+const cjs = text => escapes('src/a.cjs', text);
+
+test('r3 finding 1: division after an expression never swallows a specifier', () => {
+  assert.deepEqual(cjs([
+    "n++ / require('../../outside.cjs') / 2;",
+    "x.y-- / require('../../postfix.cjs') / 2;",
+    "const o = {} / require('../../object.cjs') / 2;",
+    "const f = function () {} / require('../../function.cjs') / 2;",
+    "const k = class {} / require('../../class.cjs') / 2;",
+    'const t = `${a}` / require(\'../../template.cjs\') / 2;',
+    "a.return / require('../../member.cjs') / 2;",
+    "𝑥 / require('../../astral.cjs') / 2;",
+  ].join('\n')), [
+    'require() ../../outside.cjs -> outside.cjs',
+    'require() ../../postfix.cjs -> postfix.cjs',
+    'require() ../../object.cjs -> object.cjs',
+    'require() ../../function.cjs -> function.cjs',
+    'require() ../../class.cjs -> class.cjs',
+    'require() ../../template.cjs -> template.cjs',
+    'require() ../../member.cjs -> member.cjs',
+    'require() ../../astral.cjs -> astral.cjs',
+  ]);
+});
+
+test('r3 finding 1: a regular expression after a statement head is not read as code', () => {
+  const text = [
+    "if (x) /import('..\\/..\\/if.js')/.test(y);",
+    "while (x) /from '..\\/..\\/while.js'/.exec(y);",
+    "for (;;) /require('..\\/..\\/for.cjs')/.test(y);",
+    "with (x) /import('..\\/..\\/with.js')/.test(y);",
+    "{ } /import('..\\/..\\/block.js')/.test(y);",
+    "function f() {} /import('..\\/..\\/declaration.js')/.test(y);",
+    "class C {} /import('..\\/..\\/class.js')/.test(y);",
+    "const g = () => {}\n/import('..\\/..\\/arrow.js')/.test(y);",
+    "label: { } /import('..\\/..\\/label.js')/.test(y);",
+    "a\n++/import('..\\/..\\/prefix.js')/.lastIndex;",
+    "const h = `${/import('..\\/..\\/substitution.js')/.source}`;",
+  ].join('\n');
+  assert.deepEqual(moduleSpecifiers(text), []);
+  assert.deepEqual(escapes('src/a.js', text), []);
+});
+
+test('r3 finding 2: the specifier argument is parsed as a balanced expression', () => {
+  assert.deepEqual(escapes('src/a.js', [
+    "import(('../../outside.js'));",
+    'new URL(`../../${name}.json`, import.meta.url);',
+    'new URL(`../../${a}/${b}.json`, (import.meta.url));',
+    "import(/* why */ ('../../comment.js'), { with: { type: 'json' } });",
+    "import('../../' + name);",
+    "import('../' + '../joined.js');",
+    'import(`../..${sep}x.js`);',
+    "import(flag ? '../../ternary.js' : './inside.js');",
+  ].join('\n')), [
+    'import() ../../outside.js -> outside.js',
+    'new URL(…, import.meta.url) ../../ -> /',
+    'new URL(…, import.meta.url) ../../ -> /',
+    'import() ../../comment.js -> comment.js',
+    'import() ../../ -> /',
+    'import() ../../joined.js -> joined.js',
+    'import() ../.. -> /',
+    'import() ../../ternary.js -> ternary.js',
+  ]);
+});
+
+test('r3 finding 3: require and require.resolve resolve as file paths, not URLs', () => {
+  assert.deepEqual(cjs([
+    "require('./dir?/../../../outside.cjs');",
+    "require.resolve('./dir#/../../../hash.cjs');",
+    "require('..\\\\..\\\\windows.cjs');",
+    "require('./inside?/../ok.cjs');",
+    "require('%2e%2e/%2e%2e/literal.cjs');",
+  ].join('\n')), [
+    'require() ./dir?/../../../outside.cjs -> outside.cjs',
+    'require.resolve() ./dir#/../../../hash.cjs -> hash.cjs',
+    'require() ..\\..\\windows.cjs -> windows.cjs',
+  ]);
+});
+
+test('r3 finding 4: CR, U+2028 and U+2029 end a line comment', () => {
+  for (const terminator of ['\r', '\u2028', '\u2029']) {
+    assert.deepEqual(escapes('src/a.js', `// note${terminator}import '../../outside.js';`), ['import ../../outside.js -> outside.js'], JSON.stringify(terminator));
+    assert.deepEqual(escapes('src/a.js', `#!/usr/bin/env node${terminator}import '../../hashbang.js';`), ['import ../../hashbang.js -> hashbang.js'], JSON.stringify(terminator));
+  }
+});
+
+test('r3 finding 5: legal raw templates and malformed cooked escapes never crash the scan', () => {
+  assert.deepEqual(escapes('src/a.js', [
+    'const raw = String.raw`\\u{110000}`, other = String.raw`\\u{FFFFFFFFFFFF}\\x\\u12`;',
+    "import '../../after.js';",
+  ].join('\n')), ['import ../../after.js -> after.js']);
+  assert.deepEqual(scan({ 'src/a.js': "import('\\u{110000}/../../x.js');" }).escapes.map(({ kind, reason }) => `${kind}: ${reason}`),
+    ['import(): has a malformed escape and cannot be checked']);
+});
+
+test('r3: legacy octal and identifier escapes are read like the engine', () => {
+  assert.deepEqual(cjs([
+    "require('\\56\\56/\\56\\56/octal.cjs');",
+    "\\u0072equire('../../escaped.cjs');",
+  ].join('\n')), [
+    'require() ../../octal.cjs -> octal.cjs',
+    'require() ../../escaped.cjs -> escaped.cjs',
+  ]);
+});
