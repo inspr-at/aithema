@@ -21,6 +21,13 @@ export const combinedEntranceStyles = `
 /* Before input, the full welcome owns its intrinsic height above readiness. */
 .workspace[data-entrance="combined"]:not([data-stage="live"]) .concept-thread:has([data-host-opener]) { flex:none; }
 .workspace[data-entrance="combined"]:not([data-stage="live"]) .concept-thread:not(:has(ol > li)) { display:none; }
+/* AIT-601: the image concept layout makes the thread a size container, whose
+   content cannot size it. Before live, contain only the inline axis so the
+   welcome owns its height above readiness; cqw stays thread-relative for the
+   backdrop. Live keeps the size container. Phones already use normal. */
+@media(min-width:601px) {
+  .workspace[data-entrance="combined"][data-concept-layout="image"]:not([data-stage="live"]) .concept-thread:has([data-host-opener]) { container-type:inline-size; }
+}
 /* The sticky-header guard adds a top margin after page scroll. Deduct that
    inset and the card-owned outside margin from the pane height. Neither
    reservation is additional transcript padding. */
