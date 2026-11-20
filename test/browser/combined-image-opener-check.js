@@ -96,7 +96,12 @@ export async function combinedImageOpenerCheck(t) {
       await page.type('aithema-session >>> textarea', locale === 'de' ? 'Ein Rechnungssystem.' : 'An invoice system.');
       await page.click('aithema-session >>> .send');
       await page.waitForFunction(() => trace.includes('consent'));
-      await page.evaluate(() => { failSend = false; grant(); });
+      // The server persists the render-only welcome with the first turn; this
+      // fixture's /turns returns only the visitor turn, so persist it here.
+      await page.evaluate(() => {
+        c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'host:opener', role: 'assistant', origin: 'host', content: c.session.opener.text } });
+        failSend = false; grant();
+      });
       await page.waitForFunction(() => sent.length === 1 && document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').dataset.stage === 'live');
       const after = await measure('live');
       assert.equal(after.layout, 'image'); assert.equal(after.openerRows, 1);
