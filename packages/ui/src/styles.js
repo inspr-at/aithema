@@ -470,7 +470,8 @@ textarea { resize:none; width:100%; min-height:3.5rem; height:var(--composer-fie
 .composer-shell[data-purpose-paused] .composer-actions { visibility:hidden; }
 textarea:focus-visible { outline:0; }
 textarea::placeholder { color:var(--aithema-muted); opacity:1; }
-.composer-actions { align-self:end; display:flex; align-items:center; justify-content:space-between; gap:.5rem; }
+/* The gap is a property so a focus ring inside the actions row can stay within it (AIT-589). */
+.composer-actions { --composer-actions-gap:.5rem; align-self:end; display:flex; align-items:center; justify-content:space-between; gap:var(--composer-actions-gap); }
 .composer-actions small { font-size:.72rem; color:var(--aithema-muted); }
 /* A long reason wraps to a second line rather than ending in "…"; a longer upload refusal scrolls in its two lines. */
 .composer-reason { flex:1; min-width:0; line-height:1.3; max-height:2.6em; overflow-wrap:anywhere; overflow-y:auto; overscroll-behavior:contain; }
@@ -525,10 +526,10 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .composer-reason[data-consent-feature="text"] .consent-narrow { display:none; }
 @media(max-width:340px) {
   /* Reclaim only gaps: Attach and Send keep their normal positions. */
-  .composer-actions:has(.composer-reason[data-consent-feature="text"]) { gap:0; }
-  .composer-actions:has(.composer-reason[data-send-failed]) { gap:0; }
+  .composer-actions:has(.composer-reason[data-consent-feature="text"]) { --composer-actions-gap:0px; }
+  .composer-actions:has(.composer-reason[data-send-failed]) { --composer-actions-gap:0px; }
   /* Image feedback keeps its measured width when consent becomes a shortcut. */
-  .composer[data-image-input] .composer-actions { gap:0; }
+  .composer[data-image-input] .composer-actions { --composer-actions-gap:0px; }
   .composer-reason[data-send-failed] { letter-spacing:-.03em; }
   .composer-reason[data-send-failed] .consent-action { letter-spacing:inherit; }
   /* Keep the 12px DE label on one line with the wider Linux baseline font. */
@@ -1039,6 +1040,18 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .upload-notices-more-join { display:none; white-space:pre; text-decoration:none; }
 [data-more-inline] > .upload-notices-more .upload-notices-more-join { display:inline; }
 .upload-notices-more[data-summary] { white-space:normal; text-decoration:none; }
+/* AIT-589: the shared 2px ring at a 3px offset reached into the line above (phone) and the preceding full stop
+   (shared line). This control's ring stays inside its 44px box vertically and only extends sideways into the actions
+   gap, by at most 4px and never more than the gap: where the gap is 0 (narrow image composer) it stays inside the box.
+   r3: a constant 6px inline padding in every state (idle, hover, focus) keeps the ring's inner edge 4px clear of the
+   control's own first and last glyphs where the ring sits on the control's edge. Reserved space, not a focus shift. */
+.upload-notices-more { position:relative; padding-inline:6px; }
+.upload-notices-more:focus-visible { outline:none; }
+.upload-notices-more:focus-visible::after { content:''; position:absolute; inset:2px -4px; border:2px solid var(--aithema-accent-bright);
+  border-radius:4px; pointer-events:none; }
+.composer-actions .upload-notices-more:focus-visible::after { inset-inline:calc(-1 * min(4px, var(--composer-actions-gap))); }
+.composer-actions [data-more-inline] > .upload-notices-more:focus-visible::after,
+[data-more-inline] > .upload-notices-more:focus-visible::after { left:1px; }
 .upload-notices-details { text-decoration:underline; text-underline-offset:3px; }
 .upload-notices-sheet { position:fixed; inset:16px 0 auto; margin:0 auto; width:min(36rem,calc(100vw - 32px)); max-width:100vw;
   max-height:calc(100dvh - 32px); padding:0; color:var(--aithema-ink); background:var(--aithema-surface);
