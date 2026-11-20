@@ -1574,15 +1574,16 @@ export class AithemaSession extends HTMLElement {
   // sit under it. Follow suspension (a resting pointer, D2 anchoring) keeps the
   // reading place only where that leaves no content under the label: when the
   // reader is still at the latest position (not scrolled away, no held long
-  // reply, not folded) and the last item reaches into the label's reserve, the
-  // transcript follows exactly as after a reply.
+  // reply, not folded) and the last item ends inside the label's reserve, the
+  // transcript follows exactly as after a reply. The move stays within that
+  // reserve: an item that runs past the pane keeps D2's reading place.
   #underRenderLabel() {
     const shell = this.shadowRoot?.querySelector('.transcript-shell'), label = shell?.parentElement?.querySelector(':scope > .concept-bottom');
     if (label?.dataset.state !== 'gen' || !this.#follow || this.#longReply || this.#fold?.folded || this.#followsTranscript()) return false;
     const reserve = parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).getPropertyValue('--aithema-render-reserve')) || 0;
     const pane = shell.getBoundingClientRect();
     const last = [...shell.querySelectorAll('ol > *')].map(item => item.getBoundingClientRect()).filter(box => box.width > 0 && box.height > 0).at(-1);
-    return reserve > 0 && pane.height > 0 && Boolean(last) && last.top < pane.bottom && last.bottom > pane.bottom - reserve + .5;
+    return reserve > 0 && pane.height > 0 && Boolean(last) && last.bottom > pane.bottom - reserve + .5 && last.bottom <= pane.bottom + .5;
   }
   #hovered() {
     const point = this.#pointer;
