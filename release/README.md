@@ -61,7 +61,8 @@ its `.js`, `.mjs`, `.cjs`, `.ts` and `.d.ts` members for relative module specifi
 `new URL('…', import.meta.url)`, `require('…')`, `require.resolve('…')`,
 `import.meta.resolve('…')` and `/// <reference path>`. Comments and ordinary
 strings are not specifiers. Any specifier that resolves outside the archive's
-`package/` root fails the run. The check runs at the end of `release:pack`, in
+`package/` root fails the run, after every tarball has been scanned, so one
+run names all failing tarballs. The check runs at the end of `release:pack`, in
 `release:verify` (and so in `release:candidate`) and in normalization, so a
 downloaded set is checked as well. The failure names the tarball, member,
 specifier and target, for example `Cross-package import in

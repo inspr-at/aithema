@@ -47,8 +47,8 @@ test('verify accepts in-package relative imports and non-specifier strings and c
   } });
   verifyRelease(directory, { onImportScan: scan => scans.push(scan) });
   assert.deepEqual(scans, [
-    { tarball: `aithema-reset-${version.version}.tgz`, scanned: 4 },
-    { tarball: moduleTarball, scanned: 4 }, // src/index.js, src/a.js, src/lib/b.js, src/index.d.ts
+    { tarball: `aithema-reset-${version.version}.tgz`, scanned: 4, escapes: 0 },
+    { tarball: moduleTarball, scanned: 4, escapes: 0 }, // src/index.js, src/a.js, src/lib/b.js, src/index.d.ts
   ]);
   assert.match(normalizedDigest(directory), /^sha256:[a-f0-9]{64}$/u);
 });
@@ -83,6 +83,7 @@ test('the real candidate release set has no cross-package import in any tarball'
   assert.equal(scans.length, 18); // the workspace and 17 modules
   for (const scan of scans) {
     assert.ok(scan.scanned > 0, `${scan.tarball} has scanned members`);
+    assert.equal(scan.escapes, 0, scan.tarball);
     t.diagnostic(`import check: ${scan.tarball} scanned ${scan.scanned} files, 0 cross-package imports`);
   }
 });

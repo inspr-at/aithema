@@ -128,7 +128,8 @@ function resolveTarget(member, { kind, specifier, partial }) {
   const resolved = new URL(kind === 'reference path' && !/^\.{0,2}\//u.test(specifier) ? './' + specifier : specifier,
     `file:///package/${member}`);
   if (resolved.protocol !== 'file:') return null;
-  const path = decodeURIComponent(resolved.pathname);
+  let path = resolved.pathname;
+  try { path = decodeURIComponent(path); } catch { /* Keep the encoded path for the message. */ }
   return { target: path.slice(1) || '/', inside: resolved.host === '' && path.startsWith('/package/') };
 }
 
@@ -146,12 +147,16 @@ export function crossPackageImports(members) {
   return { scanned, escapes };
 }
 
-/** Throw when any member of the named tarball imports outside its package root. */
-export function assertPackageImports(tarball, members) {
+/** Scan one tarball; `message` is set when any member imports outside its package root. */
+export function scanPackageImports(tarball, members) {
   const { scanned, escapes } = crossPackageImports(members);
-  if (escapes.length) {
-    throw new Error(`Cross-package import in ${tarball}: ` + escapes.map(({ member, kind, specifier, target }) =>
-      `package/${member} ${kind} '${specifier}' resolves to ${target}, outside package/`).join('; '));
-  }
-  return { tarball, scanned };
+  const message = escapes.length ? `Cross-package import in ${tarball}: ` + escapes.map(({ member, kind, specifier, target }) =>
+    `package/${member} ${kind} '${specifier}' resolves to ${target}, outside package/`).join('; ') : undefined;
+  return { tarball, scanned, escapes: escapes.length, message };
+}
+
+/** Throw once, naming every failing tarball; `cause` is a later verification error, if any. */
+export function assertPackageImportScans(scans, cause) {
+  const failures = scans.filter(scan => scan.message);
+  if (failures.length) throw new Error(failures.map(scan => scan.message).join('\n'), cause ? { cause } : undefined);
 }

@@ -10,7 +10,7 @@ import { stagePackageTree, createDeterministicTarball, assertCanonicalReleaseToo
 import { assertRuntimeProvenanceBinding, buildSourceProvenanceText } from './lib/provenance.mjs';
 import { parseVersion, assertReleaseTag } from './lib/version.mjs';
 import { moduleFiles } from './lib/modules.mjs';
-import { assertPackageImports } from './lib/package-imports.mjs';
+import { assertPackageImportScans, scanPackageImports } from './lib/package-imports.mjs';
 import { verifyPresentation } from './presentation-pin.mjs';
 const json = value => JSON.stringify(value, null, 2) + '\n';
 const digest = bytes => `sha256:${sha256(bytes)}`;
@@ -146,7 +146,9 @@ export function verifyRelease(directory, { onArtifact = () => {}, onImportScan =
   const artifactNames = new Set(manifest.artifacts.map(artifact => artifact.path));
   if (artifactNames.size !== manifest.artifacts.length || manifest.artifacts.filter(artifact => artifact.kind === 'workspace').length !== 1 ||
     manifest.packages.filter(pkg => pkg.publish).some(pkg => manifest.artifacts.filter(artifact => artifact.kind === 'module' && artifact.name === pkg.name).length !== 1)) throw new Error('Incomplete artifact set');
-  let workspaceMembers;
+  let workspaceMembers; const importScans = [];
+  // A later check failing must not hide an import failure already found.
+  try {
   for (const artifact of manifest.artifacts) {
     if (!['workspace', 'module'].includes(artifact.kind)) throw new Error('Unknown artifact kind');
     const inventory = artifact.kind === 'workspace' ? manifest.files : artifact.files;
@@ -179,7 +181,9 @@ export function verifyRelease(directory, { onArtifact = () => {}, onImportScan =
       members.set(file.path, bytes);
     }
     // AIT-582: no member may import outside this tarball's package/ root (pack, verify and normalize).
-    onImportScan(assertPackageImports(artifact.path, members));
+    // Every tarball is scanned before the failure, so one run names all of them.
+    const importScan = scanPackageImports(artifact.path, members);
+    importScans.push(importScan); onImportScan({ tarball: importScan.tarball, scanned: importScan.scanned, escapes: importScan.escapes });
     // Consumers such as normalization reuse the verified member bytes, without extracting twice.
     onArtifact(artifact, members);
     if (artifact.kind === 'module') {
@@ -205,6 +209,8 @@ export function verifyRelease(directory, { onArtifact = () => {}, onImportScan =
       const emitted = JSON.parse(members.get(pkg.path)); if (emitted.name !== pkg.name || emitted.version !== manifest.version || pkg.version !== manifest.version) throw new Error('Package version mapping mismatch');
     }
   }
+  } catch (error) { assertPackageImportScans(importScans, error); throw error; }
+  assertPackageImportScans(importScans);
   return manifest;
 }
 export function rollbackArtifact(directory, trustedManifest, coordinate) {
@@ -219,8 +225,8 @@ export function rollbackArtifact(directory, trustedManifest, coordinate) {
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [command, output = 'dist/release', ref, sourceRef] = process.argv.slice(2);
-  if (command === 'verify') console.log(JSON.stringify(verifyRelease(output, { onImportScan: ({ tarball, scanned }) =>
-    console.error(`import check: ${tarball} scanned ${scanned} files, 0 cross-package imports`) })));
+  if (command === 'verify') console.log(JSON.stringify(verifyRelease(output, { onImportScan: ({ tarball, scanned, escapes }) =>
+    console.error(`import check: ${tarball} scanned ${scanned} files, ${escapes} cross-package imports`) })));
   else if (command === 'pack') console.log(JSON.stringify(packRelease({ output, ref: ref === '--candidate' ? undefined : ref, sourceRef }).manifest));
   else throw new Error('Usage: node release/pack.mjs pack [new-output-directory] [--candidate | refs/tags/vVERSION] [source-commit] | verify <directory>');
 }
