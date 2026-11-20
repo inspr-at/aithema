@@ -8,12 +8,19 @@ import { browserForFile } from './shared-browser.js';
 import { evidenceCommit, shadow, until } from './start2-display-helpers.js';
 
 export async function creditHostOptionsCheck(t) {
+  // AIT-546: where the time goes (phases and per-scene parts, milliseconds).
+  const started = performance.now(), timing = { phases: {}, scene: { count: 0, configure: 0, wait: 0, settings: 0, measure: 0 } };
+  let mark = started;
+  const phase = name => { const now = performance.now(); timing.phases[name] = Math.round(now - mark); mark = now; };
+  t.after(() => t.diagnostic('AIT546_TIMING ' + JSON.stringify({ totalMs: Math.round(performance.now() - started), ...timing,
+    scene: Object.fromEntries(Object.entries(timing.scene).map(([k, v]) => [k, Math.round(v)])) })));
   const directory = await mkdtemp(join(tmpdir(), 'aithema-credit-options-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
   });
   const browser = await browserForFile(), page = await browser.newPage();
   t.after(async () => { await browser.close(); await demo.kill(); });
+  phase('launch');
   const evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [], shots = [], errors = [];
   const round2 = [], footer80 = [], round2Shots = [], legalChecks = [], legalShots = [], emailCopyChecks = [];
   t.after(async () => {
@@ -59,8 +66,12 @@ export async function creditHostOptionsCheck(t) {
       return nativeFetch(url, options);
     };
   });
+  phase('pageLoad');
   const states = ['B1', 'U1', 'U2', 'U3', 'offer', 'confirmed', 'reconciling', 'reconciled', 'low-off', 'low-on', 'S1', 'S2', 'S3', 'delete-false', 'delete-true'];
   const scene = async (state, locale, theme, profile = 'all') => {
+    let at = performance.now();
+    const lap = key => { const now = performance.now(); timing.scene[key] += now - at; at = now; };
+    timing.scene.count++;
     await shadow(page, async (c, { state, locale, theme, profile }) => {
       const f = window.ait411, { [locale]: source } = await import(`/packages/ui/src/i18n/${locale}.js`), copy = structuredClone(source);
       const confirmed = ['U2', 'S2', 'S3', 'confirmed', 'delete-false', 'delete-true'].includes(state);
@@ -102,10 +113,13 @@ export async function creditHostOptionsCheck(t) {
       if (!legal) { legal = document.createElement('a'); legal.slot = 'legal'; legal.setAttribute('data-aithema-privacy', ''); legal.href = '/privacy'; legal.textContent = 'Privacy'; c.append(legal); }
       await document.fonts.ready;
     }, { state, locale, theme, profile });
+    lap('configure');
     await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__value').textContent !== '…', { polling: 'raf', timeout: 30_000 });
+    lap('wait');
     if (state.startsWith('delete-')) await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
+    lap('settings');
     // Settle once after all mutations, then read every box in the same frame.
-    return shadow(page, async c => {
+    try { return await shadow(page, async c => {
       await document.fonts.ready;
       // Measure the settled endpoint of incidental mount transitions. Finishing
       // them avoids paying their wall-clock duration in every matrix scene;
@@ -213,7 +227,7 @@ export async function creditHostOptionsCheck(t) {
         transcript: rect('.transcript-shell'), reply: rect('.transcript-shell ol > li[data-id="reply"]'), lowLines: r.querySelectorAll('.email-low-line').length, deleteDisabled: r.querySelector('.m-delete-mail')?.disabled,
         deleteReason: r.querySelector('.m-mail-notice .m-notice-content')?.textContent.trim(), deleteTab: r.querySelector('.m-delete-mail')?.tabIndex,
         deleteCopy: r.querySelector('.m-delete-normal').textContent, deletes: window.ait411.deletes };
-    });
+    }); } finally { lap('measure'); }
   };
   const recordRound2 = (profile, width, locale, theme, state, value) => {
     const entry = { profile, width, locale, theme, state, body: value.body, ...value.footerGeometry, ...value.actionGeometry };
@@ -270,6 +284,7 @@ export async function creditHostOptionsCheck(t) {
       }
       assert.deepEqual([...inserted].sort(), [...painted].sort(), `${profile}/${locale}/${theme}/${width}: every inserted option peer paints in a reachable state`);
     }
+    phase(`profile ${profile}`);
   });
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
     await page.setViewport({ width, height: 1000 });
@@ -372,6 +387,7 @@ export async function creditHostOptionsCheck(t) {
       }
     }
   }
+  phase('mainMatrix');
   await scene('U2', 'de', 'light');
   const eventProof = await shadow(page, c => {
     let detail;
@@ -402,6 +418,7 @@ export async function creditHostOptionsCheck(t) {
   recordRound2('none', 390, 'de', 'light', 'B1', noOptions);
   assert.equal(noOptions.legalLinks, 3, 'no-options evidence host has three legal links');
   await round2Shot('none', 'B1');
+  phase('tailScenes');
   await t.test('AIT-439 item 1: phone flag clears the legal label by at least 12 px in DE and EN', () => {
     for (const value of round2.filter(v => v.width === 390)) {
       assert.ok(value.flagLegalGap >= 12, `${value.profile}/${value.locale}/${value.theme}/${value.state}: flag-to-legal gap ${value.flagLegalGap} px >= 12 px`);
@@ -589,5 +606,6 @@ export async function creditHostOptionsCheck(t) {
       legalChecks.push({ width, ...state });
     }
   });
+  phase('analysisAndLegal');
   t.diagnostic(`${checks.length} state checks; 20 viewport shots; one reused page`);
 }
