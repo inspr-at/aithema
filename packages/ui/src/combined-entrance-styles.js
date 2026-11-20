@@ -1,6 +1,7 @@
 // The opt-in entrance and live call share a top-anchored control frame.
 // Its intrinsic notice follows the controls; disclosures cannot resize the frame.
 // ComposerSize owns field growth; intrinsic slots and footer clearance stay here.
+import { reasonSeparator } from './consent-line.js';
 export const combinedEntranceStyles = `
 /* The fixed footer is outside grid flow. Reserve its full 44px row, padding
    and border inside the host height so the notice can grow above it. */
@@ -96,6 +97,27 @@ export const combinedEntranceStyles = `
 }
 @media(min-width:600px) {
   .workspace[data-entrance="combined"] .ready__route { display:none; }
+}
+/* AIT-553: short desktops (1366x768, 1280x720 under a host header) show
+   readiness as one compact line, whole at first paint above the pinned
+   composer: title, consent state and Change settings, joined by reasonSeparator. Model and visuals stay
+   under Change settings; the full card returns at 861 px and taller. */
+@media(min-width:600px) and (max-height:860px) {
+  .workspace[data-entrance="combined"] .ready { display:flex; flex-wrap:wrap; align-items:center; gap:0; padding:.125rem 1rem; }
+  .workspace[data-entrance="combined"] .ready h3 { font-size:.85rem; }
+  .workspace[data-entrance="combined"] .ready dl { display:contents; }
+  .workspace[data-entrance="combined"] .ready__row:not([data-ready="consent"]) { display:none; }
+  .workspace[data-entrance="combined"] .ready__row[data-ready="consent"] { display:flex; min-height:44px; gap:0; }
+  .workspace[data-entrance="combined"] .ready__row[data-ready="consent"] dt { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+  .workspace[data-entrance="combined"] .ready__row[data-ready="consent"] dd { justify-content:flex-start; text-align:left; gap:.25rem; }
+  .workspace[data-entrance="combined"] .ready__row[data-ready="consent"]::before,
+  .workspace[data-entrance="combined"] .ready__actions::before { content:'${reasonSeparator}' / ''; white-space:pre; margin-inline:.25rem; color:var(--aithema-muted); }
+  /* An unconfirmed state hides its check icon, so it keeps no empty slot. */
+  .workspace[data-entrance="combined"] .ready__row[data-ready="consent"]:not([data-state="confirmed"]) .ready__check { display:none; }
+  .workspace[data-entrance="combined"] .ready__actions { display:flex; flex-wrap:nowrap; align-items:center; justify-content:flex-start; gap:0; }
+  /* Before the conversation the render-only welcome cannot scroll, so its
+     hidden Latest control keeps no 54px end slot (as on short phones). */
+  .workspace[data-entrance="combined"]:not([data-stage="live"]) .transcript-shell:has([data-host-opener]) > .transcript-latest { position:absolute; right:0; bottom:0; margin:0; }
 }
 @media(width < 600px) {
   .composer-notice { position:static; max-height:none; }
