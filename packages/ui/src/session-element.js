@@ -1460,6 +1460,12 @@ export class AithemaSession extends HTMLElement {
       if (pane.width > 0 && pane.height > 0 && (measured || !listElement.children.length)
         && contentEnd + padding <= shell.clientHeight + .5) end = 0;
     }
+    // AIT-601: readiness gives way to the conversation with the visitor's first
+    // turn. The combined desktop welcome is the reading position at that hand-off
+    // and keeps its place; a turn it pushes below the fold is announced by Latest.
+    // The next reply, a visitor scroll or a second turn follows as usual.
+    const welcomeHeld = this.#welcomeHandoff(shell);
+    if (welcomeHeld) end = shell.scrollTop;
     shell.scrollTop = end;
     // An inline capture can be taller than the combined phone's reading pane.
     // Reveal its entry controls before native focus; bottom-follow alone can
@@ -1547,8 +1553,18 @@ export class AithemaSession extends HTMLElement {
     }
     this.#latestScrollTop = held ? null : shell.scrollTop;
     this.#recordTranscriptScroll(before);
-    if (!held) this.#readTranscript();
+    const unseen = welcomeHeld && latest && latest.getBoundingClientRect().bottom > shell.getBoundingClientRect().bottom + .5;
+    if (!held && !unseen) this.#readTranscript();
     this.#updateTranscriptJump();
+  }
+  // The combined desktop hand-off: the welcome, unscrolled, then only the
+  // visitor's first turn (no reply, offer or card yet). Phones keep their own
+  // reading-surface reveal (AIT-506).
+  #welcomeHandoff(shell) {
+    if (!this.#combined || shell.scrollTop > .5 || this.shadowRoot.querySelector('.workspace').dataset.stage !== 'live') return false;
+    if (this.ownerDocument.defaultView.matchMedia('(max-width:600px)').matches || !this.shadowRoot.querySelector('.qcard').hidden) return false;
+    const rows = [...shell.querySelectorAll('ol > li')].filter(row => !row.hidden);
+    return rows.length === 2 && rows[0].dataset.id === 'host:opener' && rows[1].classList.contains('turn') && rows[1].classList.contains('user');
   }
   #hovered() {
     const point = this.#pointer;
