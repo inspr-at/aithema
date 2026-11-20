@@ -86,10 +86,11 @@ export const bandStyles = `
    and hides once that track is narrower than 96px; the controls and their 44px
    cells never move. A clipped line ends in the AIT-239 8px fade plus 8px clear
    space; its rendered text leaves no waveform flank, so no wave runs under it.
+   A status emptied after the measurement (the session pause) never fades.
    A status with an inline consent action keeps its measured, complete row. */
 @media(min-width:600px) {
   .band .audio-rail:not([data-message]) .voice-state:not(:has(.consent-action:not([hidden]))) { min-width:0; overflow:hidden; text-overflow:clip; }
-  .band .audio-rail:not([data-message]) .voice-state[data-clipped]:not(:has(.consent-action:not([hidden]))) {
+  .band .audio-rail:not([data-message]) .voice-state[data-clipped]:not(:empty):not(:has(.consent-action:not([hidden]))) {
     mask-image:linear-gradient(to right,#000 calc(100% - 16px),transparent calc(100% - 8px)); }
   @container (width < 96px) { .band .audio-rail:not([data-message]) .voice-state:not(:has(.consent-action:not([hidden]))) { visibility:hidden; } }
 }

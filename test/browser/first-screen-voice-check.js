@@ -336,7 +336,7 @@ test('AIT-553 slice 2 item 1: the call band keeps one row in every voice state o
         assert.equal(s.status.clipped, true, `cut status is marked for its fade: ${where}`);
         assert.match(s.status.mask, /linear-gradient.*calc\(100% - 16px\).*calc\(100% - 8px\)/, `cut status ends in the 8 px fade plus 8 px clear space: ${where}`);
         assert.equal(s.status.wave, 'hidden', `no waveform under the cut status: ${where}`);
-      } else assert.equal(s.status.clipped, false, `a whole status keeps every glyph unfaded: ${where}`);
+      } else assert.equal(s.status.mask, 'none', `a whole or empty status keeps every glyph unfaded: ${where}`);
     }
   }
 });
