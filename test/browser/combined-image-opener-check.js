@@ -69,7 +69,10 @@ export async function combinedImageOpenerCheck(t) {
             containerType: thread ? getComputedStyle(thread).containerType : null, openerRows: root.querySelectorAll('[data-id="host:opener"]').length,
             thread: rect(thread), shell: rect(shell), opener: rect(row), firstLine: first ? { x: first.x, y: first.y, width: first.width, height: first.height } : null,
             ready: ready?.checkVisibility() ? rect(ready) : null, backdrop: rect(thread?.querySelector('.concept-backdrop')),
-            scroll: rect(root.querySelector('.conversation-scroll')) };
+            scroll: rect(root.querySelector('.conversation-scroll')),
+            // Both scrollers' state: the welcome's viewport y moves when either scrolls.
+            scrollers: Object.fromEntries([['conversation', root.querySelector('.conversation-scroll')], ['shell', shell]]
+              .map(([name, node]) => [name, node ? { scrollTop: node.scrollTop, scrollHeight: node.scrollHeight, clientHeight: node.clientHeight } : null])) };
         });
         tables.push({ locale, theme, width, height, state, boxes });
         if (evidence) {
@@ -119,6 +122,7 @@ export async function combinedImageOpenerCheck(t) {
       if (!contains(after.thread, after.shell)) failures.push(`the live thread contains its transcript-shell: ${JSON.stringify(after)}`);
       const backdrop = Math.min(after.thread.width * .66, after.thread.height * .66 * 1.7778);
       if (Math.abs(after.backdrop.width - backdrop) > 1) failures.push(`the live backdrop is min(66cqw, 66cqh × 16/9): ${after.backdrop.width} vs ${backdrop}`);
+      if (failures.length) failures.push(`scrollers prelive ${JSON.stringify(before.scrollers)} live ${JSON.stringify(after.scrollers)}`);
       assert.deepEqual(failures, [], label);
       assert.deepEqual(problems, []);
     } finally { await page.close(); }
