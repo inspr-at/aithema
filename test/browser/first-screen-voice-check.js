@@ -86,9 +86,25 @@ test('AIT-553 item 1: idle pause is neutral and unpressed in both entrances; cal
     await page.click('aithema-session >>> .composer-mic');
     await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.call === 'active');
     const live = await observe(page); await retain(page, `${label}-during-call`, live);
+    // AIT-587 (AIT-553 gate1 L4): sample the pause on every rail change while the call closes.
+    await page.evaluate(() => {
+      const root = c.shadowRoot, rail = root.querySelector('.audio-rail'), pause = root.querySelector('.pause');
+      globalThis.closingPause = [];
+      const sample = () => closingPause.push({ state: rail.dataset.state, call: rail.dataset.call, pressed: pause.getAttribute('aria-pressed'),
+        disabled: pause.disabled, visible: pause.checkVisibility({ checkVisibilityCSS: true }), background: getComputedStyle(pause).backgroundColor });
+      globalThis.closingWatch = new MutationObserver(sample);
+      closingWatch.observe(rail, { attributes: true, attributeFilter: ['data-state', 'data-call', 'data-call-reconciling'] });
+    });
     await page.click('aithema-session >>> .voice-close');
     await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.call === 'none');
+    const closing = await page.evaluate(() => { closingWatch.disconnect(); return closingPause; });
     const ended = await observe(page); await retain(page, `${label}-after-call`, ended);
+    // An unpressed, enabled pause is never filled: not during the call, not while it closes.
+    assert.equal(live.pause.pressed, 'false', `${label}: the live pause starts unpressed`);
+    assert.equal(live.pause.background, 'rgba(0, 0, 0, 0)', `${label}: the live, unpressed pause has no active fill`);
+    assert.ok(closing.length > 0, `${label}: the close was sampled`);
+    for (const sample of closing) if (sample.visible && !sample.disabled && sample.pressed === 'false')
+      assert.equal(sample.background, 'rgba(0, 0, 0, 0)', `${label}: an unpressed pause has no active fill while closing: ${JSON.stringify(closing)}`);
     await open(page, server, variant, 'choice');
     const choice = await observe(page);
     records.push({ label, idle, live, ended, choice });
