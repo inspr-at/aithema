@@ -409,3 +409,65 @@ test('AIT-597: mature rolling-main series replace the eleven superseded floors',
     assert.equal(browserTestWeights[`test/browser/${name}.test.js`], measurement.seconds, `${name}: no diagnostic floor`);
   }
 });
+
+// AIT-597 r3: a mature (>= five-sample) series for one top-level fixture test.
+const matureWeight = (seconds, workload = 'f') => {
+  const samples = Array.from({ length: 5 }, (_, index) => ({ runId: String(900 + index), attempt: 1, sha: 'c'.repeat(40),
+    observedAt: '2026-11-20T12:00:00Z', tests: [{ name: 'fixture', seconds }] }));
+  return { seconds: plannedSeconds(samples), evidence: 'CI artifact measurement',
+    timing: { schema: 1, window: 20, workload: workload.repeat(64), samples } };
+};
+
+function rerunWithWeights(pattern, stubs) {
+  const setup = `
+    import fs from 'node:fs';
+    import { syncBuiltinESMExports } from 'node:module';
+    const stubs = ${JSON.stringify(stubs)};
+    const read = fs.readFileSync;
+    fs.readFileSync = (path, ...args) => {
+      const name = Object.keys(stubs).find(name => String(path).endsWith('/' + name + '.weight.json'));
+      return name ? JSON.stringify(stubs[name]) : read(path, ...args);
+    };
+    syncBuiltinESMExports();
+  `;
+  return spawnSync(process.execPath, ['--test', `--test-name-pattern=${pattern}`,
+    '--import', `data:text/javascript,${encodeURIComponent(setup)}`, 'test/browser-shards.test.js'], {
+    cwd: new URL('../', import.meta.url), encoding: 'utf8', env: {},
+  });
+}
+
+test('AIT-597: split halves accept measured and re-reserved live weights', () => {
+  // First measured refresh (mature, flag removed) and the projected #488
+  // provisional re-reservation ceil(1.25 * (192.374 + 81)) = 342s.
+  for (const stub of [matureWeight(273), { ...JSON.parse(readFileSync(
+    new URL('../test/browser/pause-phone-uploads.weight.json', import.meta.url))), seconds: 342 }]) {
+    const result = rerunWithWeights('^AIT-597: split halves', { 'pause-phone-uploads': stub });
+    assert.match(result.stdout, /AIT-597: split halves/u, result.stdout + result.stderr);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+  }
+});
+
+test('AIT-597: a restarted workload series with the warmup margin keeps the floor retirement green', () => {
+  // A legitimate workload edit restarts the series: one sample, 25% warmup.
+  const samples = [{ runId: '901', attempt: 1, sha: 'c'.repeat(40), observedAt: '2026-11-20T12:00:00Z',
+    tests: [{ name: 'fixture', seconds: 222 }] }];
+  assert.equal(plannedSeconds(samples), 277.5);
+  assert.equal(plannedSeconds(Array.from({ length: 5 }, (_, index) => ({ ...samples[0], runId: String(910 + index) }))), 222);
+  const restarted = { seconds: plannedSeconds(samples), evidence: 'CI artifact measurement',
+    timing: { schema: 1, window: 20, workload: 'e'.repeat(64), samples } };
+  const result = rerunWithWeights('^AIT-597: mature rolling-main series replace', { 'email-ask': restarted });
+  assert.match(result.stdout, /AIT-597: mature rolling-main series replace/u, result.stdout + result.stderr);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+});
+
+test('AIT-597: the growth guard still rejects a real overflow', t => {
+  // Math.max(start-journey, 205 + 180) must pass measured growth through: a
+  // mature 421s start-journey series puts a shard above the 420s ceiling.
+  const result = rerunWithWeights('^AIT-597: fifteen bins retain', { 'start-journey': matureWeight(421) });
+  assert.match(result.stdout, /AIT-597: fifteen bins retain/u, result.stdout + result.stderr);
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  const failure = /Planned browser shard exceeds 420s: [^\n']*/u.exec(result.stdout);
+  assert.ok(failure, result.stdout + result.stderr);
+  assert.ok(failure[0].split(' / ').some(total => Number(total.replace(/^.*: /u, '')) > 420), failure[0]);
+  t.diagnostic(`stubbed growth run failed as intended: ${failure[0]}`);
+});
