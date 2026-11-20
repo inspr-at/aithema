@@ -3,2589 +3,3036 @@
   "method": "whole-file worker duration; nearest-rank p95; 25% margin below five samples",
   "runs": [
     {
-      "runId": "39699662257",
+      "runId": "44742965802",
       "attempt": 1,
-      "headSha": "1cd43c080d52b9e825a19088d1aa521e95ae1e85",
-      "testedSha": "e81475c965c3acde808a0d3fa2d1bf01bbb41720",
-      "event": "pull_request",
-      "observedAt": "2026-10-22T00:26:08Z",
-      "conclusion": "failure",
-      "bootstrap": true
-    },
-    {
-      "runId": "39699778016",
-      "attempt": 1,
-      "headSha": "08e53703cf08dce71cbb41423c1e76985e31277e",
-      "testedSha": "08e53703cf08dce71cbb41423c1e76985e31277e",
-      "event": "push",
-      "observedAt": "2026-10-22T00:27:18Z",
+      "headSha": "ddb1e06dbf1a3ebb8fea75cfffd86401ea9c1fab",
+      "testedSha": "ddb1e06dbf1a3ebb8fea75cfffd86401ea9c1fab",
+      "event": "merge_group",
+      "observedAt": "2026-11-20T13:17:08Z",
       "conclusion": "success",
-      "bootstrap": false,
-      "method": "Supplement from canonical main spec output for the one file added after profiling; all three top-level test durations, with a separate conservative startup/teardown floor."
+      "bootstrap": false
     }
   ],
-  "totalTests": 6939,
+  "totalTests": 8498,
   "files": {
     "demo/test/admin-cli.test.js": {
-      "seconds": 2.743,
+      "seconds": 2.477,
       "tests": 5,
       "samples": [
-        2.1937994229999997
+        1.980854697
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "demo/test/admin-erase-session.test.js": {
-      "seconds": 2.879,
+      "seconds": 2.073,
       "tests": 7,
       "samples": [
-        2.3025847450000003
+        1.658379563
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "demo/test/admin-http.test.js": {
-      "seconds": 2.127,
+      "seconds": 1.646,
       "tests": 40,
       "samples": [
-        1.701418531
+        1.316005762
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "demo/test/concepts.test.js": {
-      "seconds": 2.699,
+      "seconds": 3.449,
       "tests": 1,
       "samples": [
-        2.1588641080000004
+        2.758742407
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "demo/test/confirmation-mail.test.js": {
-      "seconds": 2.376,
+      "seconds": 2.483,
       "tests": 39,
       "samples": [
-        1.900784455
+        1.9856934080000002
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "demo/test/confirmation-page.test.js": {
-      "seconds": 1.503,
+      "seconds": 1.16,
       "tests": 23,
       "samples": [
-        1.202289082
+        0.927745289
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "demo/test/consent-copy.test.js": {
-      "seconds": 0.125,
+      "seconds": 0.071,
       "tests": 3,
       "samples": [
-        0.09996179
+        0.056229148
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "demo/test/credit-hold.test.js": {
-      "seconds": 1.034,
+      "seconds": 0.742,
       "tests": 16,
       "samples": [
-        0.827113502
+        0.59296524
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "demo/test/deliverable-addresses.test.js": {
+      "seconds": 1.558,
+      "tests": 17,
+      "samples": [
+        1.246167751
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "demo/test/demo.test.js": {
-      "seconds": 6.328,
+      "seconds": 5.119,
       "tests": 15,
       "samples": [
-        5.0617399910000005
+        4.094961889
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "demo/test/deployment.test.js": {
-      "seconds": 10.565,
+      "seconds": 8.381,
       "tests": 12,
       "samples": [
-        8.451407955999999
+        6.70413221
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "demo/test/drafts-spend.test.js": {
-      "seconds": 3.393,
+      "seconds": 3.16,
       "tests": 69,
       "samples": [
-        2.7140881479999996
+        2.5273202660000003
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "demo/test/host-consent.test.js": {
-      "seconds": 2.152,
+      "seconds": 1.573,
       "tests": 40,
       "samples": [
-        1.721294318
+        1.258330146
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "demo/test/host-ports.test.js": {
-      "seconds": 0.32,
+      "seconds": 0.357,
       "tests": 4,
       "samples": [
-        0.255455285
+        0.285343523
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "demo/test/host-slots.test.js": {
-      "seconds": 0.942,
+      "seconds": 1.321,
       "tests": 12,
       "samples": [
-        0.753025543
+        1.0567878339999999
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "demo/test/host.test.js": {
-      "seconds": 27.581,
+      "seconds": 31.602,
       "tests": 2,
       "samples": [
-        22.064518876999998
+        25.280919432999998
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "demo/test/html.test.js": {
-      "seconds": 1.965,
+      "seconds": 2.482,
       "tests": 9,
       "samples": [
-        1.571649017
+        1.984880534
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "demo/test/image-input-consent.test.js": {
+      "seconds": 0.165,
+      "tests": 1,
+      "samples": [
+        0.131520832
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "demo/test/mail-cap.test.js": {
-      "seconds": 3.721,
+      "seconds": 4.455,
       "tests": 18,
       "samples": [
-        2.976138061
+        3.563481879
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "demo/test/mail-ip-cap.test.js": {
-      "seconds": 3.012,
+      "seconds": 2.151,
       "tests": 28,
       "samples": [
-        2.4089728530000003
+        1.720299826
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "demo/test/operator-login.test.js": {
-      "seconds": 21.973,
+      "seconds": 15.377,
       "tests": 29,
       "samples": [
-        17.577979671
+        12.301107797999999
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "demo/test/privacy.test.js": {
-      "seconds": 6.051,
+      "seconds": 6.054,
       "tests": 35,
       "samples": [
-        4.840511137
+        4.84286229
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "demo/test/processing-consent.test.js": {
-      "seconds": 3.27,
+      "seconds": 3.589,
       "tests": 6,
       "samples": [
-        2.615276412
+        2.870889146
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "demo/test/provider-cap.test.js": {
-      "seconds": 1.841,
+      "seconds": 2.137,
       "tests": 14,
       "samples": [
-        1.472431887
+        1.709527409
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "demo/test/real-costs.test.js": {
-      "seconds": 4.795,
+      "seconds": 5.503,
       "tests": 45,
       "samples": [
-        3.835563897
+        4.402228593
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "demo/test/uploads.test.js": {
-      "seconds": 1.246,
+      "seconds": 1.332,
       "tests": 1,
       "samples": [
-        0.996228075
+        1.06487121
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "demo/test/visitor-credits.test.js": {
-      "seconds": 38.335,
-      "tests": 43,
+      "seconds": 2.67,
+      "tests": 45,
       "samples": [
-        30.667242223000002
+        2.135981032
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "demo/test/visual-plugins.test.js": {
-      "seconds": 0.928,
+      "seconds": 1.02,
       "tests": 4,
       "samples": [
-        0.741813747
+        0.815553889
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "demo/test/voice-reaction-policy.test.js": {
-      "seconds": 0.427,
+      "seconds": 0.329,
       "tests": 11,
       "samples": [
-        0.34088826699999997
+        0.262927474
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "demo/test/voice-self-heal.test.js": {
-      "seconds": 5.43,
+      "seconds": 4.872,
       "tests": 46,
       "samples": [
-        4.343593994
+        3.896872491
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "demo/test/voice.test.js": {
-      "seconds": 16.598,
+      "seconds": 25.747,
       "tests": 1,
       "samples": [
-        13.278085351
+        20.597177093
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/core/test/concept-intent.test.js": {
-      "seconds": 0.052,
+      "seconds": 0.039,
       "tests": 28,
       "samples": [
-        0.041054360000000005
+        0.03069899
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/core/test/credits.test.js": {
-      "seconds": 0.4,
+      "seconds": 0.476,
       "tests": 49,
       "samples": [
-        0.319601982
+        0.38062095599999995
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/core/test/document-context.test.js": {
-      "seconds": 0.09,
+      "seconds": 0.102,
       "tests": 11,
       "samples": [
-        0.07143157
+        0.081518778
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/core/test/extractor-ceiling.test.js": {
-      "seconds": 8.732,
+      "seconds": 9.175,
       "tests": 8,
       "samples": [
-        6.9855324119999995
+        7.339433374
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/core/test/extractor-process.test.js": {
-      "seconds": 2.867,
+      "seconds": 1.389,
       "tests": 15,
       "samples": [
-        2.2931496229999997
+        1.110635098
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/core/test/extractor.test.js": {
-      "seconds": 8.088,
+      "seconds": 7.764,
       "tests": 11,
       "samples": [
-        6.469964706
+        6.210469134
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/core/test/handover-port.test.js": {
-      "seconds": 0.202,
+      "seconds": 0.27,
       "tests": 19,
       "samples": [
-        0.161449652
+        0.21589494099999998
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "packages/core/test/host-opener.test.js": {
+      "seconds": 0.083,
+      "tests": 4,
+      "samples": [
+        0.06576573100000001
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "packages/core/test/identity.test.js": {
-      "seconds": 0.103,
+      "seconds": 0.071,
       "tests": 25,
       "samples": [
-        0.08205324400000001
+        0.056466845
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/core/test/image-credentials.test.js": {
-      "seconds": 0.086,
+      "seconds": 0.078,
       "tests": 17,
       "samples": [
-        0.068113096
+        0.062005015000000004
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/core/test/image-info.test.js": {
-      "seconds": 0.059,
+      "seconds": 0.092,
       "tests": 3,
       "samples": [
-        0.046446891000000004
+        0.07312849
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "packages/core/test/image-input.test.js": {
+      "seconds": 0.11,
+      "tests": 8,
+      "samples": [
+        0.087352773
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "packages/core/test/lanes.test.js": {
-      "seconds": 0.245,
-      "tests": 49,
+      "seconds": 0.321,
+      "tests": 51,
       "samples": [
-        0.195803751
+        0.256652537
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/core/test/library-port.test.js": {
-      "seconds": 0.191,
+      "seconds": 0.189,
       "tests": 29,
       "samples": [
-        0.152594569
+        0.15059919600000002
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/core/test/plugins.test.js": {
-      "seconds": 1.689,
+      "seconds": 1.702,
       "tests": 41,
       "samples": [
-        1.351173098
+        1.36120016
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/core/test/presets.test.js": {
-      "seconds": 0.101,
+      "seconds": 0.13,
       "tests": 5,
       "samples": [
-        0.080162711
+        0.103271738
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/core/test/prompts.test.js": {
-      "seconds": 0.083,
-      "tests": 16,
+      "seconds": 0.073,
+      "tests": 24,
       "samples": [
-        0.066354759
+        0.057656252000000005
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/core/test/question-focus.test.js": {
-      "seconds": 0.092,
-      "tests": 9,
+      "seconds": 0.082,
+      "tests": 10,
       "samples": [
-        0.07356995499999999
+        0.065353184
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/core/test/reply-opener.test.js": {
-      "seconds": 0.899,
+      "seconds": 0.675,
       "tests": 314,
       "samples": [
-        0.719061156
+        0.539882254
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/core/test/reply.test.js": {
-      "seconds": 0.816,
-      "tests": 19,
+      "seconds": 1.198,
+      "tests": 23,
       "samples": [
-        0.6527047
+        0.9581672529999999
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/core/test/safeguards.test.js": {
-      "seconds": 0.253,
+      "seconds": 0.34,
       "tests": 84,
       "samples": [
-        0.20162704299999998
+        0.271535526
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/core/test/settings.test.js": {
-      "seconds": 0.085,
+      "seconds": 0.068,
       "tests": 7,
       "samples": [
-        0.067781468
+        0.053619801
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "packages/core/test/signals-ledger.test.js": {
+      "seconds": 0.066,
+      "tests": 10,
+      "samples": [
+        0.052589981
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "packages/core/test/speech-conformance.test.js": {
-      "seconds": 17.806,
+      "seconds": 17.708,
       "tests": 46,
       "samples": [
-        14.244566876
+        14.166144518
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/core/test/ui-html.test.js": {
-      "seconds": 1.215,
+      "seconds": 1.28,
       "tests": 50,
       "samples": [
-        0.971735707
+        1.023845527
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/core/test/understanding.test.js": {
-      "seconds": 0.094,
+      "seconds": 0.084,
       "tests": 20,
       "samples": [
-        0.07494029
+        0.066548033
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/core/test/voice-components.test.js": {
-      "seconds": 3.212,
+      "seconds": 3.018,
       "tests": 13,
       "samples": [
-        2.569196699
+        2.4136013739999997
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/core/test/voice-composition-preflight.test.js": {
-      "seconds": 0.079,
+      "seconds": 0.07,
       "tests": 30,
       "samples": [
-        0.062739735
+        0.05540387
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/core/test/voice-lifecycle.test.js": {
-      "seconds": 0.071,
+      "seconds": 0.087,
       "tests": 30,
       "samples": [
-        0.056482505
+        0.068897724
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/core/test/voice-ports.test.js": {
-      "seconds": 1.025,
+      "seconds": 1.324,
       "tests": 4,
       "samples": [
-        0.819589261
+        1.058526326
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/actor-role.test.js": {
-      "seconds": 0.419,
+      "seconds": 2.094,
       "tests": 5,
       "samples": [
-        0.334717094
+        1.67464523
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/budget-attribution.test.js": {
-      "seconds": 0.686,
+      "seconds": 0.931,
       "tests": 27,
       "samples": [
-        0.5486981489999999
+        0.744466709
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/budget-corrections.test.js": {
-      "seconds": 0.302,
+      "seconds": 1.55,
       "tests": 7,
       "samples": [
-        0.24141596799999998
+        1.239634696
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/budget.test.js": {
-      "seconds": 0.681,
+      "seconds": 4.111,
       "tests": 25,
       "samples": [
-        0.544102255
+        3.2883581439999996
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "packages/server/test/clarify-refusals.test.js": {
+      "seconds": 0.337,
+      "tests": 11,
+      "samples": [
+        0.26922441300000005
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "packages/server/test/component-accounting.test.js": {
-      "seconds": 1.17,
+      "seconds": 1.154,
       "tests": 18,
       "samples": [
-        0.935964982
+        0.92273151
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "packages/server/test/composed-relay-deadline.test.js": {
+      "seconds": 0.042,
+      "tests": 2,
+      "samples": [
+        0.032843944
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "packages/server/test/concepts.test.js": {
-      "seconds": 2.994,
-      "tests": 38,
+      "seconds": 5.042,
+      "tests": 44,
       "samples": [
-        2.394787863
+        4.033534363
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/consent-document.test.js": {
-      "seconds": 3.843,
+      "seconds": 3.43,
       "tests": 57,
       "samples": [
-        3.07418701
+        2.743536389
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/conversation-limits.test.js": {
-      "seconds": 1.624,
+      "seconds": 2.529,
       "tests": 24,
       "samples": [
-        1.298959682
+        2.022467784
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "packages/server/test/credits-continuation.test.js": {
+      "seconds": 0.456,
+      "tests": 14,
+      "samples": [
+        0.364551115
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "packages/server/test/handlers.test.js": {
-      "seconds": 1.459,
+      "seconds": 1.874,
       "tests": 25,
       "samples": [
-        1.1666865849999999
+        1.498897016
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "packages/server/test/host-opener-voice.test.js": {
+      "seconds": 0.527,
+      "tests": 48,
+      "samples": [
+        0.420950534
+      ],
+      "runIds": [
+        "44742965802"
+      ]
+    },
+    "packages/server/test/host-opener.test.js": {
+      "seconds": 1.458,
+      "tests": 26,
+      "samples": [
+        1.165949348
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "packages/server/test/host-routes.test.js": {
-      "seconds": 5.96,
-      "tests": 119,
+      "seconds": 7.937,
+      "tests": 181,
       "samples": [
-        4.767426282000001
+        6.348875629
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/html-concepts.test.js": {
-      "seconds": 4.08,
+      "seconds": 4.893,
       "tests": 56,
       "samples": [
-        3.2632305759999998
+        3.9143920349999997
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/html-preview-capabilities.test.js": {
-      "seconds": 0.057,
+      "seconds": 0.036,
       "tests": 7,
       "samples": [
-        0.045340077
+        0.028247306
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/html-spend.test.js": {
-      "seconds": 0.421,
+      "seconds": 0.514,
       "tests": 6,
       "samples": [
-        0.336717845
+        0.410523606
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/http.test.js": {
-      "seconds": 1.702,
+      "seconds": 1.151,
       "tests": 8,
       "samples": [
-        1.3609257030000002
+        0.920175659
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "packages/server/test/image-input.test.js": {
+      "seconds": 0.629,
+      "tests": 12,
+      "samples": [
+        0.5028784079999999
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "packages/server/test/image-spend-cap.test.js": {
-      "seconds": 0.535,
+      "seconds": 0.514,
       "tests": 14,
       "samples": [
-        0.427888442
+        0.410548291
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/operator-session.test.js": {
-      "seconds": 3.211,
+      "seconds": 1.842,
       "tests": 17,
       "samples": [
-        2.568441768
+        1.473131781
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/plugin-runtime.test.js": {
-      "seconds": 3.202,
-      "tests": 76,
+      "seconds": 3.347,
+      "tests": 79,
       "samples": [
-        2.561496929
+        2.676818409
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/privacy-gate.test.js": {
-      "seconds": 0.982,
+      "seconds": 0.624,
       "tests": 38,
       "samples": [
-        0.7850760299999999
+        0.49855901399999997
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/provenance.test.js": {
-      "seconds": 0.843,
+      "seconds": 0.685,
       "tests": 9,
       "samples": [
-        0.673896521
+        0.547655851
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/provider-processing.test.js": {
-      "seconds": 0.091,
+      "seconds": 0.048,
       "tests": 5,
       "samples": [
-        0.072533774
+        0.037903281
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/question-card.test.js": {
-      "seconds": 0.217,
+      "seconds": 0.204,
       "tests": 1,
       "samples": [
-        0.173048909
+        0.16287889000000003
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/question-focus.test.js": {
-      "seconds": 1.44,
+      "seconds": 1.006,
       "tests": 28,
       "samples": [
-        1.1519663980000001
+        0.8046051830000001
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/reply-opener.test.js": {
-      "seconds": 0.547,
+      "seconds": 0.286,
       "tests": 6,
       "samples": [
-        0.437399697
+        0.228021944
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/retention.test.js": {
-      "seconds": 4.07,
+      "seconds": 2.583,
       "tests": 55,
       "samples": [
-        3.255707448
+        2.06561254
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/safeguards.test.js": {
-      "seconds": 7.391,
-      "tests": 77,
+      "seconds": 4.759,
+      "tests": 88,
       "samples": [
-        5.912407835
+        3.8069057859999997
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/safety.test.js": {
-      "seconds": 2.6,
+      "seconds": 2.646,
       "tests": 23,
       "samples": [
-        2.079429819
+        2.116126718
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/settings.test.js": {
-      "seconds": 2.135,
+      "seconds": 2.446,
       "tests": 22,
       "samples": [
-        1.707468494
+        1.9561657339999998
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "packages/server/test/signals-ledger.test.js": {
+      "seconds": 0.117,
+      "tests": 8,
+      "samples": [
+        0.093515355
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "packages/server/test/start2-voice.test.js": {
-      "seconds": 5.367,
+      "seconds": 3.916,
       "tests": 37,
       "samples": [
-        4.293594859
+        3.132132872
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/storage.test.js": {
-      "seconds": 0.488,
+      "seconds": 0.268,
       "tests": 10,
       "samples": [
-        0.39036620699999997
+        0.214050168
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/understanding-lifecycle.test.js": {
-      "seconds": 35.215,
+      "seconds": 35.054,
       "tests": 17,
       "samples": [
-        28.17157472
+        28.04248749
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "packages/server/test/understanding-sequence.test.js": {
+      "seconds": 1.439,
+      "tests": 4,
+      "samples": [
+        1.151121307
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "packages/server/test/uploads.test.js": {
-      "seconds": 11.498,
-      "tests": 51,
+      "seconds": 19.516,
+      "tests": 84,
       "samples": [
-        9.19793173
+        15.612453463
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/voice-adapter-boundary.test.js": {
-      "seconds": 0.147,
+      "seconds": 0.116,
       "tests": 2,
       "samples": [
-        0.11749540500000001
+        0.09243325
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/voice-binding-neutral.test.js": {
-      "seconds": 0.216,
+      "seconds": 0.126,
       "tests": 4,
       "samples": [
-        0.172172474
+        0.10060809999999999
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/voice-callback-regressions.test.js": {
-      "seconds": 0.294,
+      "seconds": 0.199,
       "tests": 22,
       "samples": [
-        0.23467178100000002
+        0.158745161
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/voice-cap.test.js": {
-      "seconds": 0.676,
+      "seconds": 0.976,
       "tests": 12,
       "samples": [
-        0.540186947
+        0.780396019
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/voice-fast-route.test.js": {
-      "seconds": 0.997,
-      "tests": 55,
+      "seconds": 1.547,
+      "tests": 65,
       "samples": [
-        0.7973379159999999
+        1.2372318900000001
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/voice-interruption.test.js": {
-      "seconds": 0.158,
+      "seconds": 0.138,
       "tests": 2,
       "samples": [
-        0.12626173
+        0.109841531
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/voice-journey-protocol.test.js": {
-      "seconds": 1.115,
+      "seconds": 0.847,
       "tests": 28,
       "samples": [
-        0.891247326
+        0.677278543
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/voice-observability-lifecycle.test.js": {
-      "seconds": 0.173,
+      "seconds": 0.12,
       "tests": 2,
       "samples": [
-        0.138384429
+        0.095556056
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/voice-observability.test.js": {
-      "seconds": 0.283,
+      "seconds": 0.236,
       "tests": 21,
       "samples": [
-        0.225934348
+        0.188652027
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "packages/server/test/voice-opener-manifests.test.js": {
+      "seconds": 0.029,
+      "tests": 7,
+      "samples": [
+        0.022788186
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "packages/server/test/voice-recovery-journey.test.js": {
-      "seconds": 0.774,
+      "seconds": 1.307,
       "tests": 1,
       "samples": [
-        0.61872621
+        1.04487551
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/voice-reply-deltas.test.js": {
-      "seconds": 0.16,
+      "seconds": 0.106,
       "tests": 7,
       "samples": [
-        0.127779889
+        0.08411379599999999
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/voice-route-parity.test.js": {
-      "seconds": 0.293,
+      "seconds": 0.39,
       "tests": 2,
       "samples": [
-        0.233950601
+        0.31193823200000004
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/server/test/voice.test.js": {
-      "seconds": 38.317,
-      "tests": 295,
+      "seconds": 43.809,
+      "tests": 307,
       "samples": [
-        30.653413979
+        35.047035609
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/actor-role.test.js": {
-      "seconds": 0.876,
+      "seconds": 0.722,
       "tests": 19,
       "samples": [
-        0.700058921
+        0.577536985
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/clarify-now.test.js": {
-      "seconds": 12.316,
-      "tests": 24,
+      "seconds": 67.744,
+      "tests": 101,
       "samples": [
-        9.852286686
+        54.194425764
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "packages/ui/test/combined-entrance.test.js": {
+      "seconds": 44.708,
+      "tests": 43,
+      "samples": [
+        35.765990462000005
+      ],
+      "runIds": [
+        "44742965802"
+      ]
+    },
+    "packages/ui/test/concept-start-grant.test.js": {
+      "seconds": 4.482,
+      "tests": 2,
+      "samples": [
+        3.5848924870000003
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "packages/ui/test/concepts.test.js": {
-      "seconds": 78.696,
-      "tests": 170,
+      "seconds": 122.012,
+      "tests": 201,
       "samples": [
-        62.956320902
+        97.609086264
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/consent-settings.test.js": {
-      "seconds": 0.559,
+      "seconds": 0.807,
       "tests": 19,
       "samples": [
-        0.446760301
+        0.6449463590000001
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "packages/ui/test/contact-slot.test.js": {
+      "seconds": 1.06,
+      "tests": 5,
+      "samples": [
+        0.847942443
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "packages/ui/test/copy-parity.test.js": {
-      "seconds": 0.061,
+      "seconds": 0.096,
       "tests": 4,
       "samples": [
-        0.048359176
+        0.07646692299999999
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "packages/ui/test/copy-resolve.test.js": {
+      "seconds": 0.032,
+      "tests": 13,
+      "samples": [
+        0.024944393000000002
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "packages/ui/test/credit-end.test.js": {
-      "seconds": 20.342,
+      "seconds": 25.687,
       "tests": 32,
       "samples": [
-        16.272867863
+        20.549402778
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/de-voice.test.js": {
-      "seconds": 0.051,
+      "seconds": 0.032,
       "tests": 3,
       "samples": [
-        0.040344071999999995
+        0.025531552000000002
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/display-regressions.test.js": {
-      "seconds": 54.554,
+      "seconds": 57.024,
       "tests": 93,
       "samples": [
-        43.642722029
+        45.618627345
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/display.test.js": {
-      "seconds": 2.149,
+      "seconds": 1.427,
       "tests": 9,
       "samples": [
-        1.718418657
+        1.141008115
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/email-ask.test.js": {
-      "seconds": 0.793,
-      "tests": 13,
+      "seconds": 0.951,
+      "tests": 18,
       "samples": [
-        0.634063813
+        0.7603134029999999
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "packages/ui/test/email-offer.test.js": {
+      "seconds": 2.463,
+      "tests": 33,
+      "samples": [
+        1.970032522
+      ],
+      "runIds": [
+        "44742965802"
+      ]
+    },
+    "packages/ui/test/focus-refusal.test.js": {
+      "seconds": 0.05,
+      "tests": 20,
+      "samples": [
+        0.039537957
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "packages/ui/test/focused-reply.test.js": {
-      "seconds": 0.021,
+      "seconds": 0.012,
       "tests": 1,
       "samples": [
-        0.01610266
+        0.009415348
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/host-chrome.test.js": {
-      "seconds": 24.732,
+      "seconds": 11.31,
       "tests": 25,
       "samples": [
-        19.785007944
+        9.047737695
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/host-credits.test.js": {
-      "seconds": 128.32,
-      "tests": 86,
+      "seconds": 115.087,
+      "tests": 87,
       "samples": [
-        102.65526208099999
+        92.068873808
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/host-limits.test.js": {
-      "seconds": 92.249,
-      "tests": 75,
+      "seconds": 122.667,
+      "tests": 79,
       "samples": [
-        73.799187355
+        98.13323473300001
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "packages/ui/test/host-opener.test.js": {
+      "seconds": 7.845,
+      "tests": 17,
+      "samples": [
+        6.275537952
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "packages/ui/test/host-settlement.test.js": {
-      "seconds": 54.979,
+      "seconds": 63.148,
       "tests": 38,
       "samples": [
-        43.982580904
+        50.518387323000006
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/host-surface.test.js": {
-      "seconds": 38.724,
-      "tests": 34,
+      "seconds": 45.75,
+      "tests": 47,
       "samples": [
-        30.979063399999998
+        36.599383501999995
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/html-preview.test.js": {
-      "seconds": 38.729,
+      "seconds": 38.182,
       "tests": 23,
       "samples": [
-        30.982760661
+        30.544897868
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/i18n.test.js": {
-      "seconds": 0.197,
-      "tests": 85,
+      "seconds": 0.204,
+      "tests": 88,
       "samples": [
-        0.157384974
+        0.16262837200000002
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/identity-stream.test.js": {
-      "seconds": 6.094,
-      "tests": 6,
+      "seconds": 91.94,
+      "tests": 71,
       "samples": [
-        4.874790745
+        73.551752098
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "packages/ui/test/image-input-holds.test.js": {
+      "seconds": 96.05,
+      "tests": 84,
+      "samples": [
+        76.83935528800001
+      ],
+      "runIds": [
+        "44742965802"
+      ]
+    },
+    "packages/ui/test/image-input.test.js": {
+      "seconds": 103.134,
+      "tests": 165,
+      "samples": [
+        82.506960029
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "packages/ui/test/layout.test.js": {
-      "seconds": 0.579,
-      "tests": 20,
+      "seconds": 1.189,
+      "tests": 23,
       "samples": [
-        0.462679422
+        0.950412648
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/locale.test.js": {
-      "seconds": 15.189,
+      "seconds": 20.093,
       "tests": 20,
       "samples": [
-        12.150556441
+        16.074075156
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/operator-settings.test.js": {
-      "seconds": 0.761,
+      "seconds": 1.076,
       "tests": 45,
       "samples": [
-        0.6083038810000001
+        0.860326457
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/orb.test.js": {
-      "seconds": 0.476,
+      "seconds": 0.418,
       "tests": 7,
       "samples": [
-        0.380464048
+        0.334071092
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "packages/ui/test/overview-status-size.test.js": {
+      "seconds": 0.599,
+      "tests": 6,
+      "samples": [
+        0.479070515
+      ],
+      "runIds": [
+        "44742965802"
+      ]
+    },
+    "packages/ui/test/overview-status.test.js": {
+      "seconds": 27.965,
+      "tests": 28,
+      "samples": [
+        22.371866637
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "packages/ui/test/page-replay.test.js": {
-      "seconds": 0.044,
+      "seconds": 0.04,
       "tests": 8,
       "samples": [
-        0.035027358
+        0.031418623
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/paimos-import.test.js": {
-      "seconds": 0.259,
+      "seconds": 0.279,
       "tests": 20,
       "samples": [
-        0.206759679
+        0.22274380700000002
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/provider-signals.test.js": {
-      "seconds": 1.319,
+      "seconds": 1.273,
       "tests": 38,
       "samples": [
-        1.054401427
+        1.018286607
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/question-card.test.js": {
-      "seconds": 8.179,
-      "tests": 14,
+      "seconds": 43.49,
+      "tests": 41,
       "samples": [
-        6.542408636
+        34.791504415000006
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "packages/ui/test/questions-counted.test.js": {
+      "seconds": 5.972,
+      "tests": 21,
+      "samples": [
+        4.776897184
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "packages/ui/test/recovery-notices.test.js": {
-      "seconds": 1.207,
+      "seconds": 1.263,
       "tests": 39,
       "samples": [
-        0.965537321
+        1.009736753
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "packages/ui/test/retry-before-email.test.js": {
+      "seconds": 53.76,
+      "tests": 49,
+      "samples": [
+        43.007879908
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "packages/ui/test/reveal.test.js": {
-      "seconds": 0.993,
+      "seconds": 0.872,
       "tests": 24,
       "samples": [
-        0.794299754
+        0.697052619
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/session-element.test.js": {
-      "seconds": 102.655,
-      "tests": 112,
+      "seconds": 137.724,
+      "tests": 113,
       "samples": [
-        82.123383112
+        110.179064679
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "packages/ui/test/session-events.test.js": {
+      "seconds": 0.218,
+      "tests": 2,
+      "samples": [
+        0.17397045700000002
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "packages/ui/test/settings-provider.test.js": {
-      "seconds": 4.128,
+      "seconds": 3.88,
       "tests": 7,
       "samples": [
-        3.301831895
+        3.103605611
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/settings.test.js": {
-      "seconds": 88.646,
-      "tests": 171,
+      "seconds": 81.409,
+      "tests": 174,
       "samples": [
-        70.916603768
+        65.126864759
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "packages/ui/test/signals.test.js": {
+      "seconds": 13.075,
+      "tests": 13,
+      "samples": [
+        10.459398800999999
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "packages/ui/test/snapshot-voice-recovery.test.js": {
-      "seconds": 19.448,
+      "seconds": 19.314,
       "tests": 18,
       "samples": [
-        15.557923808
+        15.450526294
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "packages/ui/test/start-consent.test.js": {
+      "seconds": 124.32,
+      "tests": 52,
+      "samples": [
+        99.4553717
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "packages/ui/test/start-look.test.js": {
-      "seconds": 13.772,
+      "seconds": 11.161,
       "tests": 14,
       "samples": [
-        11.017512685
+        8.928591278
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/uploads.test.js": {
-      "seconds": 63.064,
-      "tests": 76,
+      "seconds": 149.382,
+      "tests": 152,
       "samples": [
-        50.451125363
+        119.505546533
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "packages/ui/test/verification-refresh.test.js": {
+      "seconds": 2.522,
+      "tests": 23,
+      "samples": [
+        2.017014
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "packages/ui/test/verification.test.js": {
-      "seconds": 1.375,
+      "seconds": 0.712,
       "tests": 7,
       "samples": [
-        1.0996261090000001
+        0.5688292810000001
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/visitor-email.test.js": {
-      "seconds": 1.305,
-      "tests": 18,
+      "seconds": 1.036,
+      "tests": 20,
       "samples": [
-        1.043637512
+        0.828760163
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "packages/ui/test/voice-end-messages.test.js": {
+      "seconds": 2.072,
+      "tests": 68,
+      "samples": [
+        1.6572299430000001
+      ],
+      "runIds": [
+        "44742965802"
+      ]
+    },
+    "packages/ui/test/voice-end-state.test.js": {
+      "seconds": 4.09,
+      "tests": 4,
+      "samples": [
+        3.271336498
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "packages/ui/test/voice-failure.test.js": {
-      "seconds": 1.744,
+      "seconds": 2.312,
       "tests": 28,
       "samples": [
-        1.3946146060000002
+        1.849389835
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/voice-stop.test.js": {
-      "seconds": 40.779,
+      "seconds": 34.462,
       "tests": 30,
       "samples": [
-        32.622908774
+        27.569558277
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/voice-takeback.test.js": {
-      "seconds": 7.322,
+      "seconds": 9.019,
       "tests": 78,
       "samples": [
-        5.857353324
+        7.21480911
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/voice-transcript.test.js": {
       "seconds": 0.042,
       "tests": 13,
       "samples": [
-        0.033494795
+        0.033549424
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/voice-waits.test.js": {
-      "seconds": 2.637,
+      "seconds": 1.981,
       "tests": 60,
       "samples": [
-        2.109018248
+        1.584210877
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "packages/ui/test/voice.test.js": {
-      "seconds": 59.109,
-      "tests": 113,
+      "seconds": 45.185,
+      "tests": 115,
       "samples": [
-        47.28697657
+        36.147527605
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/claude-html/test/claude-html.test.js": {
-      "seconds": 1.837,
+      "seconds": 2.865,
       "tests": 33,
       "samples": [
-        1.4689343140000002
+        2.291319516
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/codex-imagegen/test/codex-imagegen.test.js": {
-      "seconds": 13.721,
+      "seconds": 13.792,
       "tests": 65,
       "samples": [
-        10.976748162
+        11.033528929000001
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/composed-voice/test/configuration.test.js": {
-      "seconds": 0.177,
+      "seconds": 0.245,
       "tests": 10,
       "samples": [
-        0.140972061
+        0.19523339
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/composed-voice/test/coordinator.test.js": {
-      "seconds": 1.531,
-      "tests": 23,
+      "seconds": 1.172,
+      "tests": 35,
       "samples": [
-        1.224587755
+        0.937135191
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/composed-voice/test/egress.test.js": {
-      "seconds": 2.81,
+      "seconds": 1.309,
       "tests": 9,
       "samples": [
-        2.2476239430000002
+        1.046928142
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/composed-voice/test/live-qualification.test.js": {
-      "seconds": 2.283,
+      "seconds": 2.466,
       "tests": 52,
       "samples": [
-        1.826263739
+        1.972780561
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/composed-voice/test/media.test.js": {
-      "seconds": 0.252,
+      "seconds": 0.129,
       "tests": 14,
       "samples": [
-        0.200970806
+        0.103011368
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/composed-voice/test/network-relay.test.js": {
-      "seconds": 0.275,
+      "seconds": 0.187,
       "tests": 13,
       "samples": [
-        0.21958804799999998
+        0.14898678799999998
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/composed-voice/test/observability.test.js": {
-      "seconds": 0.162,
+      "seconds": 0.191,
       "tests": 1,
       "samples": [
-        0.12924493
+        0.152234031
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/composed-voice/test/persisted-budget.test.js": {
-      "seconds": 0.282,
+      "seconds": 0.43,
       "tests": 9,
       "samples": [
-        0.225464146
+        0.34368877
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/composed-voice/test/preflight.test.js": {
-      "seconds": 0.167,
+      "seconds": 0.147,
       "tests": 38,
       "samples": [
-        0.13342477
+        0.117439607
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/composed-voice/test/provider-pacing.test.js": {
-      "seconds": 5.644,
+      "seconds": 5.067,
       "tests": 28,
       "samples": [
-        4.51469825
+        4.052946736
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/composed-voice/test/qualification-baseline.test.js": {
-      "seconds": 3.945,
+      "seconds": 4.039,
       "tests": 83,
       "samples": [
-        3.155503115
+        3.230890209
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/composed-voice/test/qualification-host.test.js": {
-      "seconds": 8.22,
+      "seconds": 10.433,
       "tests": 84,
       "samples": [
-        6.575913742
+        8.345872339
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/composed-voice/test/qualification-live-host.test.js": {
-      "seconds": 0.313,
+      "seconds": 0.174,
       "tests": 6,
       "samples": [
-        0.249745707
+        0.139081875
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/composed-voice/test/qualification-live-server.test.js": {
-      "seconds": 1.401,
+      "seconds": 2.237,
       "tests": 32,
       "samples": [
-        1.120253388
+        1.789088781
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/composed-voice/test/qualification-live-transport.test.js": {
-      "seconds": 0.159,
+      "seconds": 0.158,
       "tests": 5,
       "samples": [
-        0.126633294
+        0.126264987
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/composed-voice/test/qualification-output-timing.test.js": {
-      "seconds": 0.077,
+      "seconds": 0.073,
       "tests": 12,
       "samples": [
-        0.060813232999999994
+        0.057940756999999996
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/composed-voice/test/qualification-scripted-capture.test.js": {
-      "seconds": 0.491,
+      "seconds": 0.427,
       "tests": 41,
       "samples": [
-        0.39270761299999996
+        0.341083482
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/composed-voice/test/qualification.test.js": {
-      "seconds": 0.183,
+      "seconds": 0.159,
       "tests": 14,
       "samples": [
-        0.14586970999999999
+        0.126755599
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/device/test/device.test.js": {
-      "seconds": 0.242,
+      "seconds": 0.14,
       "tests": 3,
       "samples": [
-        0.192944907
+        0.111269664
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/elevenlabs/test/agent-health.test.js": {
-      "seconds": 0.157,
+      "seconds": 0.154,
       "tests": 16,
       "samples": [
-        0.124938028
+        0.12288022
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/elevenlabs/test/binding-json.test.js": {
-      "seconds": 0.08,
+      "seconds": 0.115,
       "tests": 1,
       "samples": [
-        0.063845995
+        0.091728644
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/elevenlabs/test/bridge.test.js": {
-      "seconds": 0.177,
+      "seconds": 0.254,
       "tests": 7,
       "samples": [
-        0.14135468499999998
+        0.202695549
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/elevenlabs/test/callback-routes.test.js": {
-      "seconds": 0.248,
+      "seconds": 0.246,
       "tests": 5,
       "samples": [
-        0.19785736399999998
+        0.196667666
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/elevenlabs/test/client.test.js": {
-      "seconds": 2.501,
+      "seconds": 2.373,
       "tests": 34,
       "samples": [
-        2.000559815
+        1.898329436
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/elevenlabs/test/components-wire.test.js": {
-      "seconds": 0.521,
+      "seconds": 0.854,
       "tests": 41,
       "samples": [
-        0.41652224
+        0.6826574950000001
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/elevenlabs/test/continuation.test.js": {
-      "seconds": 0.082,
+      "seconds": 0.102,
       "tests": 3,
       "samples": [
-        0.06498183299999999
+        0.08105403200000001
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/elevenlabs/test/continuity.test.js": {
-      "seconds": 0.138,
+      "seconds": 0.108,
       "tests": 9,
       "samples": [
-        0.110368764
+        0.086287378
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/elevenlabs/test/ensure-agent.test.js": {
-      "seconds": 5.043,
+      "seconds": 5.374,
       "tests": 229,
       "samples": [
-        4.034160458
+        4.298623302
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/elevenlabs/test/facade.test.js": {
-      "seconds": 2.278,
+      "seconds": 2.144,
       "tests": 74,
       "samples": [
-        1.821653382
+        1.7146387340000002
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "plugins/elevenlabs/test/host-opener.test.js": {
+      "seconds": 0.181,
+      "tests": 10,
+      "samples": [
+        0.144519363
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "plugins/elevenlabs/test/initial-error-wire.test.js": {
-      "seconds": 0.307,
+      "seconds": 0.139,
       "tests": 5,
       "samples": [
-        0.245527453
+        0.11073475999999999
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/elevenlabs/test/live-protocol.test.js": {
-      "seconds": 0.108,
+      "seconds": 0.103,
       "tests": 6,
       "samples": [
-        0.086038998
+        0.082147027
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/elevenlabs/test/observability-wire.test.js": {
-      "seconds": 0.216,
+      "seconds": 0.229,
       "tests": 3,
       "samples": [
-        0.172453236
+        0.183119891
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/elevenlabs/test/playback.test.js": {
-      "seconds": 0.79,
+      "seconds": 0.238,
       "tests": 1,
       "samples": [
-        0.6318038420000001
+        0.19037638899999998
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/elevenlabs/test/quick-fixes.test.js": {
-      "seconds": 0.458,
-      "tests": 44,
+      "seconds": 0.447,
+      "tests": 54,
       "samples": [
-        0.366068295
+        0.35701356900000003
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/elevenlabs/test/real-costs.test.js": {
-      "seconds": 2.485,
+      "seconds": 2.294,
       "tests": 23,
       "samples": [
-        1.987770569
+        1.834534842
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/elevenlabs/test/recovery-notices.test.js": {
-      "seconds": 0.657,
+      "seconds": 0.854,
       "tests": 35,
       "samples": [
-        0.525266757
+        0.6825709839999999
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/elevenlabs/test/reply-codec.test.js": {
-      "seconds": 0.16,
+      "seconds": 0.221,
       "tests": 6,
       "samples": [
-        0.127792689
+        0.17600042600000002
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/elevenlabs/test/secret-repair.test.js": {
-      "seconds": 0.547,
+      "seconds": 0.39,
       "tests": 9,
       "samples": [
-        0.436915346
+        0.31160746899999997
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/elevenlabs/test/server.test.js": {
-      "seconds": 1.531,
+      "seconds": 1.501,
       "tests": 37,
       "samples": [
-        1.224010618
+        1.200263794
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/elevenlabs/test/text-replay.test.js": {
-      "seconds": 0.936,
+      "seconds": 0.623,
       "tests": 20,
       "samples": [
-        0.748015946
+        0.497789037
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/elevenlabs/test/turn-taking.test.js": {
-      "seconds": 0.302,
+      "seconds": 0.324,
       "tests": 23,
       "samples": [
-        0.240932689
+        0.25842501199999995
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/elevenlabs/test/wire.test.js": {
-      "seconds": 0.286,
+      "seconds": 0.15,
       "tests": 1,
       "samples": [
-        0.22863939300000002
+        0.11942322699999999
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/extract-ooxml/test/extract-ooxml.test.js": {
-      "seconds": 7.779,
+      "seconds": 6.992,
       "tests": 9,
       "samples": [
-        6.22279806
+        5.592949042
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/extract-pdf/test/extract-pdf.test.js": {
-      "seconds": 5.872,
+      "seconds": 3.94,
       "tests": 6,
       "samples": [
-        4.697585198
+        3.151788314
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/extract-text/test/extract-text.test.js": {
-      "seconds": 2.992,
+      "seconds": 2.571,
       "tests": 4,
       "samples": [
-        2.3935109029999997
+        2.0565868409999997
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/fake-voice/test/independent.test.js": {
-      "seconds": 0.683,
+      "seconds": 0.409,
       "tests": 13,
       "samples": [
-        0.545718947
+        0.326433055
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/grok-voice/test/admission.test.js": {
-      "seconds": 0.127,
+      "seconds": 0.151,
       "tests": 11,
       "samples": [
-        0.100822552
+        0.120470863
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/grok-voice/test/chain.test.js": {
-      "seconds": 1.302,
+      "seconds": 1.187,
       "tests": 14,
       "samples": [
-        1.040923468
+        0.949106664
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/grok-voice/test/configuration.test.js": {
-      "seconds": 0.098,
+      "seconds": 0.094,
       "tests": 32,
       "samples": [
-        0.07826417100000001
+        0.07468055999999999
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/grok-voice/test/joined-conformance.test.js": {
-      "seconds": 0.534,
+      "seconds": 0.415,
       "tests": 2,
       "samples": [
-        0.426677577
+        0.331832831
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/grok-voice/test/package.test.js": {
-      "seconds": 3.308,
+      "seconds": 2.198,
       "tests": 3,
       "samples": [
-        2.645736925
+        1.7580262640000002
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/grok-voice/test/relay-guards.test.js": {
-      "seconds": 0.18,
+      "seconds": 0.078,
       "tests": 8,
       "samples": [
-        0.143810096
+        0.061814996000000004
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/grok-voice/test/stt.test.js": {
-      "seconds": 0.61,
+      "seconds": 0.453,
       "tests": 32,
       "samples": [
-        0.487350582
+        0.361881096
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/grok-voice/test/tts.test.js": {
-      "seconds": 0.722,
+      "seconds": 0.531,
       "tests": 20,
       "samples": [
-        0.5768775930000001
+        0.424136577
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/grok-voice/test/turns-lifecycle.test.js": {
-      "seconds": 0.701,
+      "seconds": 0.44,
       "tests": 39,
       "samples": [
-        0.560721394
+        0.35133615300000004
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "plugins/image-input/test/image-input.test.js": {
+      "seconds": 2.087,
+      "tests": 11,
+      "samples": [
+        1.669027014
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "plugins/mail-smtp/test/mail.test.js": {
-      "seconds": 0.809,
-      "tests": 33,
+      "seconds": 0.749,
+      "tests": 68,
       "samples": [
-        0.6467176570000001
+        0.59881009
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/mail-smtp/test/templates.test.js": {
-      "seconds": 0.186,
+      "seconds": 0.264,
       "tests": 32,
       "samples": [
-        0.148496458
+        0.210686681
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/mistral/test/mistral.test.js": {
-      "seconds": 0.552,
+      "seconds": 0.543,
       "tests": 3,
       "samples": [
-        0.441279847
+        0.434397795
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/openai-images/test/openai-images.test.js": {
-      "seconds": 3.984,
+      "seconds": 3.657,
       "tests": 77,
       "samples": [
-        3.187174069
+        2.924979596
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/openai-images/test/openrouter-images.test.js": {
-      "seconds": 1.496,
+      "seconds": 1.506,
       "tests": 31,
       "samples": [
-        1.196692195
+        1.204170292
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "plugins/openrouter/test/image-input.test.js": {
+      "seconds": 0.093,
+      "tests": 7,
+      "samples": [
+        0.07417673600000001
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "plugins/openrouter/test/openrouter.test.js": {
-      "seconds": 0.689,
+      "seconds": 0.614,
       "tests": 45,
       "samples": [
-        0.550470001
+        0.491005666
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/openrouter/test/spend-cap.test.js": {
-      "seconds": 0.654,
+      "seconds": 0.499,
       "tests": 20,
       "samples": [
-        0.522651295
+        0.39890925800000004
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/voxtral/test/account-gate.test.js": {
-      "seconds": 0.389,
+      "seconds": 0.231,
       "tests": 57,
       "samples": [
-        0.31074949199999996
+        0.184701587
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/voxtral/test/package.test.js": {
-      "seconds": 3.036,
+      "seconds": 2.838,
       "tests": 31,
       "samples": [
-        2.428748752
+        2.270007629
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "plugins/voxtral/test/wire.test.js": {
-      "seconds": 0.621,
+      "seconds": 0.665,
       "tests": 11,
       "samples": [
-        0.496215593
+        0.5317234240000001
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/admin-steps.test.js": {
-      "seconds": 0.048,
+      "seconds": 0.028,
       "tests": 6,
       "samples": [
-        0.038009258000000004
+        0.021625538
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "test/browser-evidence.test.js": {
+      "seconds": 0.788,
+      "tests": 3,
+      "samples": [
+        0.6301215979999999
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "test/browser-install-lock.test.js": {
-      "seconds": 0.362,
+      "seconds": 0.369,
       "tests": 2,
       "samples": [
-        0.289188549
+        0.295039314
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/browser-launch.test.js": {
-      "seconds": 27.128,
+      "seconds": 26.879,
       "tests": 13,
       "samples": [
-        21.701725888000002
+        21.502894494
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/browser-matrix-coverage.test.js": {
-      "seconds": 0.525,
+      "seconds": 0.355,
       "tests": 6,
       "samples": [
-        0.419202639
+        0.28399548700000005
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/browser-shards.test.js": {
-      "seconds": 0.187,
-      "tests": 20,
+      "seconds": 0.928,
+      "tests": 32,
       "samples": [
-        0.149263542
+        0.7416964229999999
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/browser-timings.test.js": {
-      "seconds": 4.565,
-      "tests": 10,
+      "seconds": 40.077,
+      "tests": 37,
       "samples": [
-        3.651611955
+        32.060905221
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/calendar-clock.test.js": {
-      "seconds": 4.264,
+      "seconds": 3.096,
       "tests": 9,
       "samples": [
-        3.410745746
+        2.476464061
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/calver-surgical.test.js": {
-      "seconds": 0.21,
+      "seconds": 0.231,
       "tests": 1,
       "samples": [
-        0.167935404
+        0.18440902299999998
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/calver.test.js": {
-      "seconds": 0.101,
+      "seconds": 0.076,
       "tests": 8,
       "samples": [
-        0.080137417
+        0.060277924
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "test/ci-browser-aggregate.test.js": {
+      "seconds": 6.041,
+      "tests": 4,
+      "samples": [
+        4.832278713
+      ],
+      "runIds": [
+        "44742965802"
+      ]
+    },
+    "test/ci-duplicate-push.test.js": {
+      "seconds": 1.661,
+      "tests": 9,
+      "samples": [
+        1.32814156
+      ],
+      "runIds": [
+        "44742965802"
+      ]
+    },
+    "test/ci-preview-engines.test.js": {
+      "seconds": 0.624,
+      "tests": 12,
+      "samples": [
+        0.499087835
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "test/ci-slot-sharing.test.js": {
-      "seconds": 2.359,
+      "seconds": 3.249,
       "tests": 20,
       "samples": [
-        1.886449992
+        2.59865806
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/clock-sweep.test.js": {
-      "seconds": 0.758,
+      "seconds": 0.628,
       "tests": 25,
       "samples": [
-        0.60579381
+        0.502158195
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/consent-base-comparison.test.js": {
-      "seconds": 0.029,
+      "seconds": 0.025,
       "tests": 6,
       "samples": [
-        0.022557175000000002
+        0.019318807
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/consent-clock.test.js": {
-      "seconds": 0.031,
+      "seconds": 0.023,
       "tests": 5,
       "samples": [
-        0.024068647
+        0.017610935
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/consent-teardown.test.js": {
-      "seconds": 2,
+      "seconds": 0.326,
       "tests": 3,
       "samples": [
-        0.31443491900000003
+        0.260793673
       ],
       "runIds": [
-        "39699778016"
-      ],
-      "floorSeconds": 2,
-      "evidence": "Successful canonical main CI 39699778016 / test job 119565953917: top-level durations 88.201232ms + 114.398426ms + 111.835261ms = 0.31443491900000003s; reserve 2s for this file including process/import/teardown overhead until whole-file artifacts arrive. No existing measured weight is reduced."
+        "44742965802"
+      ]
     },
     "test/consumer-isolation.test.js": {
-      "seconds": 0.382,
+      "seconds": 0.361,
       "tests": 4,
       "samples": [
-        0.30542115599999997
+        0.288452851
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/demo-package-imports.test.js": {
-      "seconds": 0.354,
+      "seconds": 0.374,
       "tests": 2,
       "samples": [
-        0.28295582
+        0.298859886
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/embedding.test.js": {
-      "seconds": 1.067,
+      "seconds": 1.241,
       "tests": 4,
       "samples": [
-        0.853512835
+        0.9925565159999999
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/evidence-diff.test.js": {
-      "seconds": 0.031,
+      "seconds": 0.023,
       "tests": 3,
       "samples": [
-        0.024718168
+        0.018314339
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/external-plugin.test.js": {
-      "seconds": 0.846,
+      "seconds": 1.016,
       "tests": 9,
       "samples": [
-        0.676313225
+        0.812627567
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/grok-release.test.js": {
-      "seconds": 0.081,
+      "seconds": 0.064,
       "tests": 4,
       "samples": [
-        0.064039959
+        0.051155816
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/host-clock.test.js": {
-      "seconds": 0.615,
+      "seconds": 0.782,
       "tests": 21,
       "samples": [
-        0.491207525
+        0.625546423
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/identity-reply.test.js": {
-      "seconds": 0.428,
+      "seconds": 0.336,
       "tests": 8,
       "samples": [
-        0.341857526
+        0.268553172
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "test/image-input-production.test.js": {
+      "seconds": 2.484,
+      "tests": 1,
+      "samples": [
+        1.986415741
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "test/lane-race-kit.test.js": {
-      "seconds": 3.229,
-      "tests": 101,
+      "seconds": 5.335,
+      "tests": 106,
       "samples": [
-        2.583021541
+        4.267929543
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/memory-guard.test.js": {
-      "seconds": 0.215,
+      "seconds": 0.223,
       "tests": 2,
       "samples": [
-        0.17156573
+        0.177944654
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/merge-queue.test.js": {
-      "seconds": 2.645,
+      "seconds": 2.229,
       "tests": 5,
       "samples": [
-        2.11530709
+        1.782716647
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/module-boundaries.test.js": {
-      "seconds": 5.082,
-      "tests": 16,
+      "seconds": 8.213,
+      "tests": 21,
       "samples": [
-        4.065020935
+        6.569802349
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/plugin-contract-behaviour.test.js": {
-      "seconds": 0.643,
+      "seconds": 0.423,
       "tests": 18,
       "samples": [
-        0.513892849
+        0.337817767
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/release-candidate-gate.test.js": {
-      "seconds": 11.752,
-      "tests": 38,
+      "seconds": 22.803,
+      "tests": 98,
       "samples": [
-        9.401593255
+        18.241938977999997
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/release-candidate.test.js": {
-      "seconds": 142.204,
+      "seconds": 203.525,
       "tests": 3,
       "samples": [
-        113.76256460699999
+        162.81937441600002
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/release-normalize-pack.test.js": {
-      "seconds": 12.991,
+      "seconds": 19.533,
       "tests": 1,
       "samples": [
-        10.392216158
+        15.625936325000001
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/release-normalize.test.js": {
-      "seconds": 3.337,
+      "seconds": 3.885,
       "tests": 32,
       "samples": [
-        2.669536532
+        3.107751952
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "test/release-pack-imports.test.js": {
+      "seconds": 19.722,
+      "tests": 8,
+      "samples": [
+        15.776854724000001
+      ],
+      "runIds": [
+        "44742965802"
+      ]
+    },
+    "test/release-package-imports-scan.test.js": {
+      "seconds": 1.599,
+      "tests": 27,
+      "samples": [
+        1.279142851
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "test/release-prep.test.js": {
-      "seconds": 42.204,
-      "tests": 11,
+      "seconds": 64.584,
+      "tests": 12,
       "samples": [
-        33.762811873
+        51.666923364
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/release-publication.test.js": {
-      "seconds": 0.366,
+      "seconds": 0.51,
       "tests": 5,
       "samples": [
-        0.29252398799999996
+        0.407283227
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/release-workflow.test.js": {
-      "seconds": 2.303,
+      "seconds": 1.489,
       "tests": 9,
       "samples": [
-        1.841905773
+        1.19054611
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/reply-schema-diagnostics.test.js": {
-      "seconds": 0.885,
+      "seconds": 0.721,
       "tests": 13,
       "samples": [
-        0.707481578
+        0.576341945
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "test/scripts-exec-bounds.test.js": {
+      "seconds": 0.416,
+      "tests": 2,
+      "samples": [
+        0.332701945
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "test/soak-harness.test.js": {
-      "seconds": 0.189,
+      "seconds": 0.151,
       "tests": 14,
       "samples": [
-        0.150715959
+        0.120244807
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/speech-provider-conformance.test.js": {
-      "seconds": 5.416,
+      "seconds": 5.165,
       "tests": 17,
       "samples": [
-        4.332476907
+        4.131589661
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/test-browser-setup.test.js": {
-      "seconds": 0.299,
+      "seconds": 0.218,
       "tests": 1,
       "samples": [
-        0.238933482
+        0.173836874
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "test/timing-merge-group.test.js": {
+      "seconds": 8.92,
+      "tests": 2,
+      "samples": [
+        7.135871498
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "test/understanding-diagnostic-transport.test.js": {
-      "seconds": 0.128,
+      "seconds": 0.112,
       "tests": 12,
       "samples": [
-        0.101921207
+        0.08943484700000001
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/understanding-diagnostic.test.js": {
-      "seconds": 33.947,
+      "seconds": 33.276,
       "tests": 8,
       "samples": [
-        27.157421040000003
+        26.620561191
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
+      ]
+    },
+    "test/unit-shards.test.js": {
+      "seconds": 0.212,
+      "tests": 9,
+      "samples": [
+        0.16944130300000002
+      ],
+      "runIds": [
+        "44742965802"
       ]
     },
     "test/unit-timeout.test.js": {
-      "seconds": 2.182,
+      "seconds": 2.3,
       "tests": 8,
       "samples": [
-        1.7448364349999999
+        1.839758849
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/version-presentation.test.js": {
-      "seconds": 0.584,
+      "seconds": 0.302,
       "tests": 2,
       "samples": [
-        0.46709380599999994
+        0.241435724
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/visitor-tier-host.test.js": {
-      "seconds": 1.589,
+      "seconds": 1.221,
       "tests": 21,
       "samples": [
-        1.270813547
+        0.976352612
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/voice-amounts.test.js": {
-      "seconds": 13.617,
+      "seconds": 9.363,
       "tests": 9,
       "samples": [
-        10.893191032999999
+        7.489989433
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/voice-host-export.test.js": {
-      "seconds": 0.455,
+      "seconds": 0.451,
       "tests": 18,
       "samples": [
-        0.36372170899999995
+        0.360168784
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     },
     "test/voice-opener.test.js": {
-      "seconds": 0.75,
+      "seconds": 0.738,
       "tests": 16,
       "samples": [
-        0.5995994419999999
+        0.5902605710000001
       ],
       "runIds": [
-        "39699662257"
+        "44742965802"
       ]
     }
   }
