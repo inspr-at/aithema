@@ -66,8 +66,19 @@ function measure(c) {
   }
   for (const action of [root.querySelector('.attach'), root.querySelector('.send'), ...reason.querySelectorAll('button')])
     if (action && action !== more && !action.closest('[hidden]')) neighbours.push({ action:action.className, box:box(action.getBoundingClientRect()) });
+  // The control's own glyphs (r3, TICK r2 M1): one box per line fragment of every text node inside the control, from its
+  // first to its last non-space character, so a leading no-break space of the join never stands in for a glyph.
+  const glyphs = [], own = document.createTreeWalker(more, NodeFilter.SHOW_TEXT);
+  while (own.nextNode()) {
+    const node = own.currentNode, text = node.textContent, start = text.search(/[^\s ]/u);
+    if (start < 0 || node.parentElement.closest('[hidden]') || getComputedStyle(node.parentElement).display === 'none') continue;
+    const end = text.length - text.split('').reverse().join('').search(/[^\s ]/u);
+    const range = document.createRange(); range.setStart(node, start); range.setEnd(node, end);
+    for (const r of range.getClientRects()) if (r.width > 0 && r.height > 0) glyphs.push({ text:text.slice(start, end), box:box(r) });
+  }
   return { image:root.querySelector('.composer').hasAttribute('data-image-input'), focused:root.activeElement === more, focusVisible:more.matches(':focus-visible'), token, control:box(m), text:more.textContent,
-    inline:more.parentElement.hasAttribute('data-more-inline'), summary:more.hasAttribute('data-summary'), composer:box(root.querySelector('.composer').getBoundingClientRect()), rings, neighbours };
+    padding:{ left:css.paddingLeft, right:css.paddingRight }, inline:more.parentElement.hasAttribute('data-more-inline'), summary:more.hasAttribute('data-summary'),
+    composer:box(root.querySelector('.composer').getBoundingClientRect()), rings, neighbours, glyphs };
 }
 
 function geometry(c) {
@@ -167,6 +178,17 @@ export function noticeFocusRingCheck() {
           assert.equal(ring.colour, result.token, `${ring.kind}: ring uses the existing 3:1 focus token`);
           assert.ok(ring.box.left >= result.composer.left - .5 && ring.box.right <= result.composer.right + .5 && ring.box.top >= result.composer.top - .5 && ring.box.bottom <= result.composer.bottom + .5,
             `${ring.kind}: ring stays fully inside the composer`);
+        }
+        // r3 (TICK r2 M1): the ring never crosses the control's own text. Every glyph box lies inside the ring's inner edge
+        // (ring box inset by its width) with at least 2px to spare on every side, in block, summary and shared-line states.
+        assert.ok(result.glyphs.length > 0, 'the control\'s own text is measured');
+        for (const glyph of result.glyphs) {
+          assert.ok(glyph.box.width > 0 && glyph.box.height > 0, `${glyph.text}: positive glyph box`);
+          for (const ring of result.rings) {
+            const inner = { left:ring.box.left + ring.width, top:ring.box.top + ring.width, right:ring.box.right - ring.width, bottom:ring.box.bottom - ring.width };
+            const clearance = Math.min(glyph.box.left - inner.left, inner.right - glyph.box.right, glyph.box.top - inner.top, inner.bottom - glyph.box.bottom);
+            assert.ok(clearance >= 2 - .01, `${ring.kind} ring ${JSON.stringify(ring.box)} is ${clearance.toFixed(2)}px from the control's own text "${glyph.text}" ${JSON.stringify(glyph.box)} (needs >= 2px)`);
+          }
         }
         // A summary control ("Can't upload · Details") replaces every row; otherwise a notice line shares the slot.
         if (!result.summary) assert.ok(result.neighbours.some(n => n.text), 'a neighbouring notice text is measured');
