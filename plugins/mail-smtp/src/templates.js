@@ -11,7 +11,7 @@ export const mailCopy = Object.freeze({
     privacy: 'Wir nutzen Ihre E-Mail-Adresse für Ihr Guthaben und die Bestätigungsmail. Nie für Werbung. Nach 90 Tagen ohne Nutzung löschen wir sie automatisch.',
     retention: 'Bitte löschen Sie diese automatisch erzeugte Produktnachricht spätestens 90 Tage nach Abschluss des Vorgangs, sofern keine eigenständige Aufbewahrungspflicht besteht.' },
   en: { brand: 'Aithema', subject: 'Confirm your email address', lead: 'Confirm your email address', action: 'Confirm email address',
-    explanation: 'Once confirmed, your credit rises to {tier} Credits.',
+    explanation: 'Once confirmed, your credit rises to {tier} credits.',
     explanationFallback: 'Confirming gives you the higher conversation credit allowance.',
     linkLabel: 'Or copy this link into your browser:',
     host: 'Sent by {host} because this address was entered there for a higher conversation credit.',
