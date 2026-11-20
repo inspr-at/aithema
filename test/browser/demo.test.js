@@ -2064,3 +2064,6 @@ test('AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1
 
 import { combinedOpenerCheck } from './combined-entrance-check.js';
 test('AIT-506: shared opener and short-phone states stay visible and stable', { timeout:180_000 }, combinedOpenerCheck);
+
+import { combinedImageOpenerCheck } from './combined-image-opener-check.js';
+test('AIT-601: combined entrance with a real image concept layout: the welcome owns its height above readiness and keeps its place into live, 1366/1440/1920', { timeout:180_000 }, combinedImageOpenerCheck);
