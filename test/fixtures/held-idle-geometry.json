@@ -1,0 +1,267 @@
+{
+  "source": "c6153be8",
+  "platform": "darwin",
+  "boxes": {
+    "document-1440-de": {
+      ".composer": {
+        "x": 56,
+        "y": 670,
+        "width": 826.65625,
+        "height": 150
+      },
+      ".attach": {
+        "x": 77,
+        "y": 755,
+        "width": 44,
+        "height": 44
+      },
+      ".send": {
+        "x": 817.65625,
+        "y": 755,
+        "width": 44,
+        "height": 44
+      },
+      "textarea": {
+        "x": 77,
+        "y": 691,
+        "width": 784.65625,
+        "height": 56
+      },
+      ".composer-feedback": {
+        "x": 129,
+        "y": 755,
+        "width": 137.3125,
+        "height": 44
+      }
+    },
+    "document-1440-en": {
+      ".composer": {
+        "x": 56,
+        "y": 670,
+        "width": 826.65625,
+        "height": 150
+      },
+      ".attach": {
+        "x": 77,
+        "y": 755,
+        "width": 44,
+        "height": 44
+      },
+      ".send": {
+        "x": 817.65625,
+        "y": 755,
+        "width": 44,
+        "height": 44
+      },
+      "textarea": {
+        "x": 77,
+        "y": 691,
+        "width": 784.65625,
+        "height": 56
+      },
+      ".composer-feedback": {
+        "x": 129,
+        "y": 755,
+        "width": 110.546875,
+        "height": 44
+      }
+    },
+    "document-390-de": {
+      ".composer": {
+        "x": 20,
+        "y": 610.921875,
+        "width": 350,
+        "height": 164.078125
+      },
+      ".attach": {
+        "x": 34.59375,
+        "y": 716.40625,
+        "width": 44,
+        "height": 44
+      },
+      ".send": {
+        "x": 311.40625,
+        "y": 716.40625,
+        "width": 44,
+        "height": 44
+      },
+      "textarea": {
+        "x": 34.59375,
+        "y": 625.515625,
+        "width": 320.8125,
+        "height": 56
+      },
+      ".composer-feedback": {
+        "x": 86.59375,
+        "y": 716.40625,
+        "width": 84.5625,
+        "height": 44
+      }
+    },
+    "document-390-en": {
+      ".composer": {
+        "x": 20,
+        "y": 610.921875,
+        "width": 350,
+        "height": 164.078125
+      },
+      ".attach": {
+        "x": 34.59375,
+        "y": 716.40625,
+        "width": 44,
+        "height": 44
+      },
+      ".send": {
+        "x": 311.40625,
+        "y": 716.40625,
+        "width": 44,
+        "height": 44
+      },
+      "textarea": {
+        "x": 34.59375,
+        "y": 625.515625,
+        "width": 320.8125,
+        "height": 56
+      },
+      ".composer-feedback": {
+        "x": 86.59375,
+        "y": 716.40625,
+        "width": 51.34375,
+        "height": 44
+      }
+    },
+    "image-1440-de": {
+      ".composer": {
+        "x": 56,
+        "y": 669.09375,
+        "width": 826.65625,
+        "height": 150.90625
+      },
+      ".attach": {
+        "x": 77,
+        "y": 755,
+        "width": 44,
+        "height": 44
+      },
+      ".send": {
+        "x": 817.65625,
+        "y": 755,
+        "width": 44,
+        "height": 44
+      },
+      "textarea": {
+        "x": 77,
+        "y": 690.09375,
+        "width": 784.65625,
+        "height": 56
+      },
+      ".composer-feedback": {
+        "x": 129,
+        "y": 754.09375,
+        "width": 680.65625,
+        "height": 44.90625
+      }
+    },
+    "image-1440-en": {
+      ".composer": {
+        "x": 56,
+        "y": 669.09375,
+        "width": 826.65625,
+        "height": 150.90625
+      },
+      ".attach": {
+        "x": 77,
+        "y": 755,
+        "width": 44,
+        "height": 44
+      },
+      ".send": {
+        "x": 817.65625,
+        "y": 755,
+        "width": 44,
+        "height": 44
+      },
+      "textarea": {
+        "x": 77,
+        "y": 690.09375,
+        "width": 784.65625,
+        "height": 56
+      },
+      ".composer-feedback": {
+        "x": 129,
+        "y": 754.09375,
+        "width": 680.65625,
+        "height": 44.90625
+      }
+    },
+    "image-390-de": {
+      ".composer": {
+        "x": 20,
+        "y": 606.96875,
+        "width": 350,
+        "height": 168.03125
+      },
+      ".attach": {
+        "x": 34.59375,
+        "y": 716.40625,
+        "width": 44,
+        "height": 44
+      },
+      ".send": {
+        "x": 311.40625,
+        "y": 716.40625,
+        "width": 44,
+        "height": 44
+      },
+      "textarea": {
+        "x": 34.59375,
+        "y": 621.5625,
+        "width": 320.8125,
+        "height": 56
+      },
+      ".composer-feedback": {
+        "x": 86.59375,
+        "y": 685.5625,
+        "width": 216.8125,
+        "height": 74.84375
+      }
+    },
+    "image-390-en": {
+      ".composer": {
+        "x": 20,
+        "y": 606.96875,
+        "width": 350,
+        "height": 168.03125
+      },
+      ".attach": {
+        "x": 34.59375,
+        "y": 716.40625,
+        "width": 44,
+        "height": 44
+      },
+      ".send": {
+        "x": 311.40625,
+        "y": 716.40625,
+        "width": 44,
+        "height": 44
+      },
+      "textarea": {
+        "x": 34.59375,
+        "y": 621.5625,
+        "width": 320.8125,
+        "height": 56
+      },
+      ".composer-feedback": {
+        "x": 86.59375,
+        "y": 685.5625,
+        "width": 216.8125,
+        "height": 74.84375
+      }
+    }
+  },
+  "ordinaryRefusal": {
+    "source": "72512711",
+    "platform": "darwin",
+    "inkCenterOffset": -0.984375
+  }
+}

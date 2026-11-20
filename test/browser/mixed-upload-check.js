@@ -1,3 +1,4 @@
+import { feedbackText, visibleFeedback } from './upload-followup-check.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -110,20 +111,25 @@ export function mixedUploadCheck() {
             for (const [name, type] of picks) transfer.items.add(new File([name === 'scan.pdf' ? new Uint8Array([255, 216, 255, 224, 0, 0]) : name.startsWith('eligible') ? '%PDF-fixture' : new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], name, { type }));
             const input = c.shadowRoot.querySelector('.attach-input'); input.files = transfer.files; input.dispatchEvent(new Event('change'));
           });
-          await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer').hasAttribute('aria-busy'));
+          // Attach is unavailable throughout the batch loop; the composer has
+          // no aria-busy attribute and cannot signal completion.
+          await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.attach').getAttribute('aria-disabled') === 'false');
           await settle(); const after = await boxes();
           const result = await inShadow(page, c => ({ posts: window.mixedPosts, asks: window.mixedAsks.map(ask => ask.features),
             documents: c.session.uploads.filter(upload => upload.kind !== 'image').map(upload => upload.filename),
             notice: c.shadowRoot.querySelector('.composer-reason').textContent,
             refusals: [...c.shadowRoot.querySelectorAll('.image-refusals .image-refusal')].map(row => row.textContent), consent: Boolean(c.shadowRoot.querySelector('.composer-reason[data-consent-feature="imageInput"] .consent-action')) }));
+          result.notice = await inShadow(page, feedbackText);
+          const visibility = await visibleFeedback(page);
+          assert.equal(visibility.unreachable, false, JSON.stringify(visibility));
           if (evidence) {
             await page.screenshot({ path: join(evidence, `${prefix}-after.png`) });
-            await writeFile(join(evidence, `${prefix}.json`), JSON.stringify({ before, after, result }, null, 2));
+            await writeFile(join(evidence, `${prefix}.json`), JSON.stringify({ before, after, result, visibility }, null, 2));
           }
           assert.deepEqual(result.posts, host === 'default-batches' ? [['scan.pdf', ...Array.from({ length: 7 }, (_, index) => `eligible-${index}.pdf`)], ['eligible-7.pdf']] : host === 'recognised-limit' ? [['eligible.pdf', 'eligible-later.pdf'], ['eligible-final.pdf']] : [['clipboard', 'eligible.pdf'], ['typed.pdf', 'eligible-typed.pdf'], ['scan.pdf', 'eligible-later.pdf']], 'later batches sent');
           assert.deepEqual(result.documents, host === 'default-batches' ? Array.from({ length: 8 }, (_, index) => `eligible-${index}.pdf`) : host === 'recognised-limit' ? ['eligible.pdf', 'eligible-later.pdf', 'eligible-final.pdf'] : ['eligible.pdf', 'eligible-typed.pdf', 'eligible-later.pdf']);
           if (host === 'consent') { assert.deepEqual(result.asks, [['imageInput']]); assert.equal(result.consent, true); }
-          else if (host.endsWith('limit')) assert.deepEqual(result.refusals, (host === 'recognised-limit' ? ['first.png', 'excess.png'] : ['clipboard', 'typed.pdf', 'scan.pdf']).map(name => `${name}: ${copy.imageRefusals.limit}`));
+          else if (host.endsWith('limit')) assert.deepEqual(result.refusals, (host === 'recognised-limit' ? ['first.png', 'excess.png'] : ['clipboard', 'typed.pdf', 'scan.pdf']).map(name => `${name}: ${copy.imageRefusals.limit}`).reverse());
           else assert.equal(result.notice, copy.uploads.refused.replace('{list}', (host === 'default-batches' ? ['scan.pdf'] : ['clipboard', 'typed.pdf', 'scan.pdf']).map(name => copy.uploads.type.replace('{name}', name)).join(', ')));
           for (const selector of Object.keys(before)) {
             assert.ok(before[selector].width > 0 && before[selector].height > 0 && after[selector].width > 0 && after[selector].height > 0, `${selector} is visible`);

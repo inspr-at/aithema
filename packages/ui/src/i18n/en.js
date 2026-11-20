@@ -538,6 +538,8 @@ export const en = {
     "live-call": "Images can be sent in text mode.",
   },
   uploads: {
+    moreNotices: { one: 'Show {count} more notice', other: 'Show {count} more notices' },
+    summaryConsent: 'Consent needed', summaryUnavailable: "Can't upload", detailsAction: 'Details', noticesTitle: 'Upload notices', closeNotices: 'Close',
     attach: 'Attach files',
     limits: 'Up to {files} files, {size} each: PDF, Word, Excel, PowerPoint, text, Markdown, CSV, JSON or XML. The original file is not stored.',
     limitsWithImages: 'Up to {files} files, {size} each: PDF, Word, Excel, PowerPoint, text, Markdown, CSV, JSON, XML, PNG, JPEG, WebP or GIF. Original documents are not stored; normalized images are kept until withdrawn or erased.',

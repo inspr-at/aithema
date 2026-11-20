@@ -966,6 +966,7 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .image-feedback-reserve { display:none; visibility:hidden; pointer-events:none; font-size:.72rem; line-height:1.3; }
 .composer[data-image-input] .image-feedback-reserve { display:grid; }
 .image-feedback-reserve > * { grid-area:1/1; }
+.composer[data-document-input]:not([data-image-input]) .composer-feedback { position:relative; }
 .image-feedback-document-reserve { overflow-wrap:anywhere; }
 /* Keep arbitrary refusal batches in their established two-line scroll area;
    accepted formats have their own fully wrapped row and never scroll away. */
@@ -978,16 +979,9 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .composer-reason[data-capacity-notice] { line-height:1.25; }
 .composer-reason[data-capacity-notice], .composer-reason[data-capacity-notice] .upload-notice-facts { max-height:3.75em; }
 .composer[data-image-input] .composer-reason[data-consent-feature="imageInput"] { overflow-y:auto; }
-/* Held consent shares the already measured feedback slot with current facts. */
-.composer-feedback:has(.composer-reason[data-held-consent]) { position:relative; }
-.composer-reason[data-held-consent], .composer[data-image-input] .composer-reason[data-held-consent] { position:absolute; inset:0; display:flex; flex-direction:column; justify-content:center; max-height:none; line-height:1.25; overflow:visible; }
-.held-upload-notice { display:block; flex:none; max-height:3.75em; overflow:auto; overscroll-behavior:contain; }
-.held-upload-consent { display:block; min-height:0; max-height:44px; overflow:auto; overscroll-behavior:contain; }
-/* With no competing facts, retain the established long-copy scrolling cap. */
-.composer-reason[data-held-consent][data-held-only], .composer[data-image-input] .composer-reason[data-held-consent][data-held-only] { position:static; display:block; max-height:44px; overflow-y:auto; }
-.composer-reason[data-held-only] .held-upload-consent { max-height:none; overflow:visible; }
-.composer-reason[data-held-only] .held-consent-wide { display:inline; }
-.composer-reason[data-held-only] .held-consent-narrow, .held-consent-narrow { display:none; }
+.held-upload-notice, .held-upload-consent { display:block; }
+.held-upload-consent .consent-action { line-height:1.3; }
+.held-consent-narrow { display:none; }
 @media(max-width:600px) {
   .held-consent-wide { display:none; }
   .held-consent-narrow { display:inline; }
@@ -1000,15 +994,13 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .image-refusal { display:block; overflow-wrap:anywhere; }
 .image-refusal__name { display:block; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; min-height:1.3em; }
 .image-refusals__dismiss { flex:none; display:inline-flex; align-items:center; min-height:44px; padding:0 4px; color:inherit; font:inherit; }
-.composer-reason:has(.image-refusals) { transition:none; position:absolute; inset:0; width:auto; height:auto; max-height:none; overflow:visible; }
+.composer-reason:has(.image-refusals):not([data-held-consent]) { transition:none; position:absolute; inset:0; width:auto; height:auto; max-height:none; overflow:visible; }
 @media(max-width:600px) {
   /* Reserve the short phone reason slot with the declared input capability. */
   .workspace[data-phone-short] .composer[data-image-input] { padding-top:calc(var(--image-feedback-height,60px) + 10px); }
   .workspace[data-phone-short] .composer[data-image-input] .composer-feedback { position:absolute; top:4px; left:6px; right:6px; height:var(--image-feedback-height,60px); margin:0; }
   .workspace[data-phone-short] .composer[data-image-input] .composer-reason { position:static; width:auto; height:auto; max-height:none; clip-path:none; overflow:auto; }
-  .workspace[data-phone-short] .composer[data-image-input] .composer-reason[data-held-consent] { position:absolute; inset:0; height:auto; line-height:1.25; overflow:visible; }
-  .workspace[data-phone-short] .composer[data-image-input] .composer-reason[data-held-consent][data-held-only] { position:static; max-height:44px; overflow-y:auto; }
-  .workspace[data-phone-short] .composer[data-image-input] .composer-reason:has(.image-refusals) { transition:none; position:absolute; inset:0; overflow:visible; }
+  .workspace[data-phone-short] .composer[data-image-input] .composer-reason:has(.image-refusals):not([data-held-consent]) { transition:none; position:absolute; inset:0; overflow:visible; }
   /* A selected thumbnail shares one row with its 44px control on short phones. */
   .workspace[data-phone-short] .turn-image:not([data-withheld]) { max-width:44px; max-height:44px; }
   .workspace[data-phone-short] .staged-images { height:46px; }
@@ -1016,5 +1008,53 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
   .workspace[data-phone-short] .staged-image__status { grid-column:2; grid-row:1; align-self:center; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; }
   .workspace[data-phone-short] .staged-image__remove { grid-column:3; }
   .workspace[data-phone-short] .composer[data-image-input] .composer-reason[data-shortcut] { visibility:hidden; }
+}
+/* Complete notice rows use the existing cell; overflow opens a native modal sheet. */
+.composer .composer-feedback > .composer-reason[data-notice-layout],
+.workspace[data-phone-short] .composer[data-image-input] .composer-feedback > .composer-reason[data-notice-layout] {
+  position:absolute; inset:0; width:auto; height:auto; max-height:none; clip-path:none; display:flex; flex-direction:column;
+  justify-content:center; gap:0; overflow:visible; padding:0; line-height:1.3; }
+.upload-notice-row { display:block; flex:none; width:100%; min-width:0; overflow:visible; overflow-wrap:anywhere; }
+.upload-notice-row :is(.held-upload-notice,.held-upload-consent,.image-refusal-item,.upload-notice-facts,.upload-notice-formats,.upload-retry-copy) {
+  position:static; display:block; min-height:0; height:auto; max-height:none; overflow:visible; }
+.upload-notice-row .image-refusal__name { display:inline; white-space:normal; overflow:visible; text-overflow:clip; }
+.upload-notice-row.image-refusals { position:static; inset:auto; display:block; min-height:0; font:inherit; overflow:visible; }
+.upload-notice-row .image-refusals__list, .upload-notice-row .image-refusal { display:block; }
+.upload-notice-row .image-refusal-item { color:var(--aithema-warning); }
+.upload-notice-row [data-notice-action] { display:flex; flex-wrap:nowrap; align-items:center; width:max-content; max-width:100%; min-height:44px; }
+.upload-notice-row [data-notice-action] > :first-child { flex:none; width:max-content; max-width:none; }
+.upload-notice-row [data-notice-action][data-action-wrap] { flex-direction:column; align-items:flex-start; }
+.upload-notice-row [data-action-wrap] > :first-child { max-width:100%; }
+.upload-notice-join { flex:none; white-space:pre; }
+.upload-notice-row [data-action-wrap] > .upload-notice-join { display:none; }
+.upload-notice-row .consent-action { flex:none; display:inline-flex; align-items:center; width:max-content; max-width:100%; min-width:44px; min-height:44px;
+  padding:0; font:inherit; line-height:1.3; color:inherit; text-decoration:underline; text-underline-offset:3px; }
+.upload-notice-row .consent-action::after { display:none; }
+.upload-notices-more { flex:none; display:block; align-self:flex-start; min-width:44px; min-height:44px; max-width:100%;
+  padding:0; font:inherit; line-height:1.3; color:inherit; text-align:left; text-decoration:underline; text-underline-offset:3px; }
+.upload-notice-row > .upload-notices-more { margin:0; }
+.upload-notice-row[data-more-inline] { display:flex; flex-wrap:nowrap; align-items:center; }
+.upload-notice-row[data-more-inline] > :not(.upload-notices-more) { flex:none; width:max-content; max-width:none; }
+.upload-notice-row[data-more-inline] > .upload-notices-more { flex:none; display:inline-flex; align-items:center; }
+.upload-notices-more-join { display:none; white-space:pre; text-decoration:none; }
+[data-more-inline] > .upload-notices-more .upload-notices-more-join { display:inline; }
+.upload-notices-more[data-summary] { white-space:normal; text-decoration:none; }
+.upload-notices-details { text-decoration:underline; text-underline-offset:3px; }
+.upload-notices-sheet { position:fixed; inset:16px 0 auto; margin:0 auto; width:min(36rem,calc(100vw - 32px)); max-width:100vw;
+  max-height:calc(100dvh - 32px); padding:0; color:var(--aithema-ink); background:var(--aithema-surface);
+  border:1px solid var(--aithema-line); border-radius:16px; overflow:hidden; }
+.upload-notices-sheet[open] { display:flex; flex-direction:column; }
+.upload-notices-sheet::backdrop { background:rgb(0 0 0 / .35); }
+.upload-notices-header { display:flex; flex:none; align-items:center; justify-content:space-between; gap:16px; padding:12px 16px;
+  padding-top:max(12px,env(safe-area-inset-top)); border-bottom:1px solid var(--aithema-line); }
+.upload-notices-header h2 { font-size:1rem; line-height:1.3; }
+.upload-notices-close { min-width:44px; min-height:44px; padding:0 8px; font-size:.875rem; text-decoration:underline; text-underline-offset:3px; }
+.upload-notices-body { overflow:auto; min-height:0; padding:8px 20px max(20px,env(safe-area-inset-bottom)); font-size:.875rem; line-height:1.4; }
+.upload-notices-body .upload-notice-row { padding:12px 0; border-bottom:1px solid var(--aithema-line); }
+.upload-notices-body .upload-notice-row:last-child { border-bottom:0; }
+.upload-notice-row .held-consent-wide { display:inline; }
+.upload-notice-row .held-consent-narrow { display:none; }
+@media(max-width:600px) {
+  .upload-notices-sheet { inset:0; margin:0; width:100vw; height:100dvh; max-height:100dvh; border:0; border-radius:0; }
 }
 `;

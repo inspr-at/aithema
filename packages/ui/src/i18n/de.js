@@ -538,6 +538,8 @@ export const de = {
     "live-call": "Bilder lassen sich im Textmodus senden.",
   },
   uploads: {
+    moreNotices: { one: '{count} weitere Meldung anzeigen', other: '{count} weitere Meldungen anzeigen' },
+    summaryConsent: 'Einwilligung nötig', summaryUnavailable: 'Hochladen nicht möglich', detailsAction: 'Details', noticesTitle: 'Meldungen zum Hochladen', closeNotices: 'Schließen',
     attach: 'Dateien anhängen',
     limits: 'Bis zu {files} Dateien, je höchstens {size}: PDF, Word, Excel, PowerPoint, Text, Markdown, CSV, JSON oder XML. Die Originaldatei wird nicht aufbewahrt.',
     limitsWithImages: 'Bis zu {files} Dateien, je höchstens {size}: PDF, Word, Excel, PowerPoint, Text, Markdown, CSV, JSON, XML, PNG, JPEG, WebP oder GIF. Originaldokumente werden nicht aufbewahrt; normalisierte Bilder bleiben bis zum Zurückziehen oder Löschen gespeichert.',

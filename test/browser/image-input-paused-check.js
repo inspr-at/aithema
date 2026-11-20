@@ -1,3 +1,4 @@
+import { openFeedback, closeFeedback } from './upload-followup-check.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
@@ -73,14 +74,23 @@ export function pausedImageInputCheck() {
       }, { id: session.id, token: testToken });
       const expected = `${entrance}.png: ${en.imageRefusals.paused}`;
       await page.waitForFunction(expected => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason .image-refusal')?.textContent === expected, {}, expected);
-      await page.waitForSelector('aithema-session >>> .composer-reason .image-refusal', { visible: true });
-      const refusal = await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.composer-reason .image-refusal').textContent);
+      await openFeedback(page);
+      if (process.env.AITHEMA_EVIDENCE_DIR) {
+        await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive:true });
+        const paint = await page.$eval('aithema-session', c => ({ sheet:c.shadowRoot.querySelector('.upload-notices-sheet')?.open,
+          more:c.shadowRoot.querySelector('.upload-notices-more')?.textContent,
+          refusals:[...c.shadowRoot.querySelectorAll(':is(.composer-reason,.upload-notices-sheet) .image-refusal')].map(row => { const r = row.getBoundingClientRect(); return { text:row.textContent, width:r.width, height:r.height, hidden:Boolean(row.closest('[hidden]')) }; }) }));
+        await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `ait556-r3-${entrance}-paint.json`), JSON.stringify(paint,null,2));
+      }
+      await page.waitForSelector('aithema-session >>> :is(.composer-reason,.upload-notices-sheet) .image-refusal', { visible: true });
+      const refusal = await page.$eval('aithema-session', c => c.shadowRoot.querySelector(':is(.composer-reason,.upload-notices-sheet) .image-refusal').textContent);
       assert.equal(refusal, expected);
       facts.push({ entrance, ...result, refusal });
       if (process.env.AITHEMA_EVIDENCE_DIR) {
         await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
         await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, `ait556-r3-paused-${entrance}.png`) });
       }
+      await closeFeedback(page);
     }
     assert.deepEqual(providerCalls, []);
     assert.equal(requests.some(r => r.method === 'POST' && r.path.endsWith('/uploads')), false);

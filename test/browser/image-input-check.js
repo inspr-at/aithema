@@ -1,3 +1,4 @@
+import { openFeedback, closeFeedback } from './upload-followup-check.js';
 import { mockConsent } from './consent-helpers.js';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -193,6 +194,7 @@ export function imageInputCheck(widths) {
           assert.ok(r.w > 0 && r.h > 0, `${selector} positive at ${height}`);
           for (const edge of selector === '.composer' ? ['bottom'] : ['x', 'y', 'w', 'h']) assert.ok(Math.abs(r[edge] - shortBefore[selector][edge]) <= .5, `${height} ${selector}.${edge}`);
         }
+        await openFeedback(page);
         const controls = await inShadow(page, c => Object.fromEntries(['textarea', '.composer-mic', '.send', '.image-refusals'].map(selector => {
           const r = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [selector, { x: r.x, y: r.y, w: r.width, h: r.height, right: r.right, bottom: r.bottom }];
         })));
@@ -217,6 +219,7 @@ export function imageInputCheck(widths) {
             filename: reason === 'unsupported' ? 'fixture.heic' : 'fixture.png', state: 'staged-refused',
             reason: reason === 'malformed' ? 'unsupported' : reason } });
         }, reason);
+        await openFeedback(page);
         await waitForShadow(page, '.image-refusals');
         const after = await boxes();
         for (const [selector, r] of Object.entries(after)) {
@@ -267,6 +270,7 @@ export function imageInputCheck(widths) {
           assert.ok(r.w > 0 && r.h > 0);
           for (const edge of selector === '.composer' ? ['bottom'] : ['x', 'y', 'w', 'h']) assert.ok(Math.abs(r[edge] - compact[selector][edge]) <= .5, `keyboard ${selector}.${edge}`);
         }
+        await openFeedback(page);
         const visible = await inShadow(page, c => { const el = c.shadowRoot.querySelector('.image-refusals'), r = el.getBoundingClientRect(); return { w: r.width, h: r.height, top: r.top, bottom: r.bottom, clip: getComputedStyle(el.parentElement).clipPath }; });
         assert.ok(visible.w > 0 && visible.h > 0 && visible.top >= 0 && visible.bottom <= 530); assert.equal(visible.clip, 'none');
         changes.push({ reason: 'keyboard-malformed', before: compact, rects: after }); await shot('keyboard');
@@ -525,7 +529,7 @@ export function imageInputCheck(widths) {
           for (const edge of ['x', 'y', 'w', 'h', 'bottom']) assert.equal(r[edge], before[selector][edge], `${selector}.${edge}: latched refusal has zero frame shift`);
         }
       });
-      await t.test('AIT-510 r15: long host-overridden image consent keeps its scrolling cap', async () => {
+      await t.test('AIT-510 r15: long host-overridden image consent stays complete in the notice sheet', async () => {
         await inShadow(page, async c => {
           window.imageGranted = false; window.imageFixtureConsent = true; window.imageUnavailableReason = null;
           const session = c.session;
@@ -537,16 +541,22 @@ export function imageInputCheck(widths) {
         });
         await startTyping(page); await choose();
         await waitForShadow(page, '.composer-reason[data-consent-feature="imageInput"]');
+        const before = await boxes();
+        await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-more').click());
         const cap = await inShadow(page, c => {
-          const el = c.shadowRoot.querySelector('.composer-reason'), r = el.getBoundingClientRect(), css = getComputedStyle(el);
-          el.scrollTop = el.scrollHeight;
-          return { width: r.width, height: r.height, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight, scrollTop: el.scrollTop, maxHeight: css.maxHeight, overflowY: css.overflowY };
+          const dialog = c.shadowRoot.querySelector('.upload-notices-sheet'), row = dialog.querySelector('.upload-notice-row');
+          const r = row.getBoundingClientRect();
+          return { open:dialog.open, width:r.width, height:r.height, scrollHeight:row.scrollHeight, clientHeight:row.clientHeight,
+            text:row.textContent, full:dialog.querySelector('.held-consent-wide').textContent };
         });
         if (evidence) await writeFile(join(evidence, `${prefix}-long-image-consent.json`), JSON.stringify(cap, null, 2));
+        assert.equal(cap.open, true);
         assert.ok(cap.width > 0 && cap.height > 0, 'long consent has a positive box');
-        assert.equal(cap.maxHeight, '44px', 'upload notices alone lift the cap');
-        assert.ok(cap.height <= 44.5 && cap.scrollHeight > cap.clientHeight && cap.scrollTop > 0, `long consent stays inside its scrolling cap: ${JSON.stringify(cap)}`);
-        assert.match(cap.overflowY, /^(auto|scroll)$/u);
+        assert.ok(cap.scrollHeight <= cap.clientHeight, 'the complete host sentence has no internal clipping');
+        assert.ok(cap.full.length > 1000, 'the full override is painted, without truncation');
+        assert.deepEqual(await boxes(), before, 'opening the sheet preserves composer geometry');
+        await page.keyboard.press('Escape');
+        assert.deepEqual(await boxes(), before, 'closing the sheet preserves composer geometry');
       });
 
     });
