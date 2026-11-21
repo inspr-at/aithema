@@ -694,7 +694,8 @@ for (const [label, name, content, type] of [
 ]) test(`AIT-610 r3: ${label} is image input and never reaches SQLite, the WAL or a backup`, async t => {
   const f = await fixture(t), image = sentinelImage();
   f.holdReader();
-  const response = await f.upload(`format-${name}`, [[name, content(image), type]]), body = await response.text();
+  // clientEventId allows [a-zA-Z0-9_-] only; the filename's dot is not part of it.
+  const response = await f.upload(`format-${name.replace(/[^a-zA-Z0-9_-]/gu, '-')}`, [[name, content(image), type]]), body = await response.text();
   assert.equal(response.status, 202, body);
   await f.handlers.idle();
   const upload = f.storage.get(f.session.id).uploads[0];
