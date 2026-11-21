@@ -1575,15 +1575,27 @@ export class AithemaSession extends HTMLElement {
   // reading place only where that leaves no content under the label: when the
   // reader is still at the latest position (not scrolled away, no held long
   // reply, not folded) and the last item ends inside the label's reserve, the
-  // transcript follows exactly as after a reply. The move stays within that
-  // reserve: an item that runs past the pane keeps D2's reading place.
-  #underRenderLabel() {
+  // transcript moves by exactly the delta that lets that item end above the
+  // label's reserve: never more than the reserve, never to the native end (its
+  // Latest slot), and with no card or reply-top alignment. An item that runs
+  // past the pane keeps D2's reading place.
+  #clearRenderLabel() {
     const shell = this.shadowRoot?.querySelector('.transcript-shell'), label = shell?.parentElement?.querySelector(':scope > .concept-bottom');
-    if (label?.dataset.state !== 'gen' || !this.#follow || this.#longReply || this.#fold?.folded || this.#followsTranscript()) return false;
+    if (label?.dataset.state !== 'gen' || !this.#follow || this.#longReply || this.#fold?.folded || this.#followsTranscript()) return;
     const reserve = parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).getPropertyValue('--aithema-render-reserve')) || 0;
     const pane = shell.getBoundingClientRect();
     const last = [...shell.querySelectorAll('ol > *')].map(item => item.getBoundingClientRect()).filter(box => box.width > 0 && box.height > 0).at(-1);
-    return reserve > 0 && pane.height > 0 && Boolean(last) && last.bottom > pane.bottom - reserve + .5 && last.bottom <= pane.bottom + .5;
+    if (!(reserve > 0 && pane.width > 0 && pane.height > 0 && last && last.bottom > pane.bottom - reserve + .5 && last.bottom <= pane.bottom + .5)) return;
+    // Whole pixels up (a scroll offset snaps to device pixels), never past the reserve.
+    const delta = Math.min(reserve, Math.max(0, Math.ceil(last.bottom - (pane.bottom - reserve) - .01)));
+    const before = shell.scrollTop;
+    shell.scrollTop = before + delta;
+    // The reader stays at the latest position: record it as such, so the
+    // resulting scroll event keeps following (as #scrollToLatest does).
+    this.#latestScrollTop = shell.scrollTop;
+    this.#recordTranscriptScroll(before);
+    this.#readTranscript();
+    this.#updateTranscriptJump();
   }
   #hovered() {
     const point = this.#pointer;
@@ -1599,8 +1611,8 @@ export class AithemaSession extends HTMLElement {
     try { this.#anchoredUpdate(update); }
     finally {
       // After the pointer anchor: a render label that now shows over the
-      // transcript's end overrides it (#underRenderLabel).
-      if (--this.#anchorDepth === 0) { if (this.#erased) this.#paintErased(); else if (this.#underRenderLabel()) this.#scrollToLatest(); }
+      // transcript's end overrides it, by the needed delta only (#clearRenderLabel).
+      if (--this.#anchorDepth === 0) { if (this.#erased) this.#paintErased(); else this.#clearRenderLabel(); }
     }
   }
   #anchoredUpdate(update) {
