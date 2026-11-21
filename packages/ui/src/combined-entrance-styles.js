@@ -210,6 +210,26 @@ export const combinedEntranceStyles = `
   /* r5 (Codex gate4c Low): image-enabled docks too, for the consent line and the
      granted line that replaces it; image refusals keep their centred row. */
   .workspace[data-entrance="combined"] .composer[data-image-input] .composer-feedback > .composer-reason:is([data-consent-feature="text"],[data-shortcut]) { align-self:start; }
+  /* r3, TICK k1: with the phone keyboard up typing is the task and the field's
+     room comes first. Pending: ONE row, the stock short reason (textNarrow) at
+     the start and its action (actionNarrow) at the inline end, never the action
+     alone; the host text is hidden (the action's description, a separate hidden
+     node, is unchanged). Granted or not needed: the row takes 0 px. Nothing is
+     reserved while the keyboard is up, so the row changes only when the keyboard
+     opens or closes. Keyboard down keeps r2's two rows (TICK (a)). */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > :is(.composer-feedback-reserve, .composer-saved-sizer) { display:none; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy { -webkit-line-clamp:1; height:1lh; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > :is(.consent-line-copy, .consent-action) > .consent-wide { display:none; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > :is(.consent-line-copy, .consent-action) > .consent-narrow { display:inline; }
+  /* One row sits 8 px (the composer's row gap) under Send: its 44 px target
+     starts at that gap and grows down over the status row, clear of Send and Mic. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action::after { top:-8px; transform:none; }
+  /* Granted (no consent or failure line): the feedback row leaves the grid; its
+     status regions stay in the accessibility tree at no size. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:not([data-image-input]):not(:has(.staged-images:not([hidden]))):not(:has(.composer-feedback > .composer-reason:is([data-consent-feature],[data-send-failed]))) {
+    grid-template-areas:"message mic send" "status status status" "notice notice notice"; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:not([data-image-input]):not(:has(.staged-images:not([hidden]))):not(:has(.composer-feedback > .composer-reason:is([data-consent-feature],[data-send-failed]))) .composer-feedback {
+    grid-area:auto; position:absolute; width:1px; height:0; min-height:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
   .workspace[data-entrance="combined"] { height:auto; padding-bottom:calc(var(--phone-dock,250px) + var(--phone-footer,57px) + 24px); }
   .workspace[data-entrance="combined"] .conversation { height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,250px) - 32px); min-height:0; }
   .workspace[data-entrance="combined"] [data-host-opener] { --turn-max-width:100%; padding-block:6px; }

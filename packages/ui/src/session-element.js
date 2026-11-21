@@ -1491,7 +1491,12 @@ export class AithemaSession extends HTMLElement {
       // the usual top padding. Taller offers retain the complete entry row.
       const room = Math.max(0, pane.height - target.height);
       const inset = Math.min(room, fits ? padding : Math.max(padding, room / 2));
-      shell.scrollTop += target.top - pane.top - inset;
+      // AIT-603 r3 (TICK M1, AIT-506): a re-reveal of the same offer (saving an
+      // address) whose goal is within a pixel of where it already is keeps that
+      // position. A fractional inset (room / 2) can land near half a pixel; the
+      // snapped scroll offset must not move the offer by a rounding.
+      const goal = shell.scrollTop + target.top - pane.top - inset;
+      shell.scrollTop = Math.abs(goal - before) < 1 ? before : goal;
     }
     if (this.#combined && this.#imageLayout) {
       const pane = shell.getBoundingClientRect(), scroll = this.shadowRoot.querySelector('.conversation-scroll').getBoundingClientRect();
