@@ -275,6 +275,16 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"][data-phone-short] .composer:has(.staged-images:not([hidden])) {
     grid-template-areas:"images images images" "message mic send" "feedback feedback feedback" "status status status" "notice notice notice"; }
   .workspace[data-entrance="combined"][data-phone-short] .composer[data-image-input] .composer-feedback { grid-area:auto; }
+  /* r4 (Codex KEYBOARD): with the keyboard up an image-enabled dock keeps no
+     image slot above the field: its feedback is the ordinary feedback row
+     under the field (one row while consent is pending, 0 px when idle; the
+     idle collapse above wins), and the composer keeps the plain short-phone
+     padding (question-card.js) instead of the slot's reserve. A staged image
+     keeps its own row. */
+  .workspace[data-entrance="combined"][data-phone-short][data-phone-keyboard] .composer[data-image-input] { padding-top:6px; }
+  .workspace[data-entrance="combined"][data-phone-short][data-phone-keyboard] .composer[data-image-input] .composer-feedback {
+    grid-area:feedback; position:relative; top:auto; left:auto; right:auto; height:auto; }
+  .workspace[data-entrance="combined"][data-phone-short][data-phone-keyboard] .composer[data-image-input] .composer-feedback > .composer-reason[data-consent-feature="text"] { overflow:visible; }
   .workspace[data-entrance="combined"][data-phone-short] .concept-bar[data-no-drafts] { display:none; }
   .workspace[data-entrance="combined"][data-phone-short] .conversation { height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,250px) - 26px); }
   .workspace[data-entrance="combined"][data-phone-short] .transcript-shell { padding-bottom:8px; }
