@@ -1559,13 +1559,6 @@ export class AithemaSession extends HTMLElement {
         }
       }
     }
-    // r7 (Codex gatepra6 Low): the reveal snapshot is taken after the
-    // image-layout pass, which can scroll again, so the next re-reveal compares
-    // against where this one really left the pane.
-    if (offer) {
-      this.#revealedScroll = shell.scrollTop;
-      this.#revealedY = offer.getBoundingClientRect().top - shell.getBoundingClientRect().top + shell.scrollTop;
-    }
     const latest = [...shell.querySelectorAll('.turn')].at(-1);
     for (const row of shell.querySelectorAll('[data-start-only]')) row.removeAttribute('data-start-only');
     const readFull = latest?.querySelector('.turn-read-full'), signal = this.shadowRoot.querySelector('.voice-signal');
@@ -1613,6 +1606,15 @@ export class AithemaSession extends HTMLElement {
           this.#follow = false; held = true;
         }
       }
+    }
+    // r7 (Codex gatepra6 Low): the reveal snapshot is taken after the
+    // image-layout pass, which can scroll again, so the next re-reveal compares
+    // against where this one really left the pane. r8 (Codex gatepra7 Low): and
+    // after the long-reply branch, which scrolls too when a question card and a
+    // trailing offer coexist.
+    if (offer) {
+      this.#revealedScroll = shell.scrollTop;
+      this.#revealedY = offer.getBoundingClientRect().top - shell.getBoundingClientRect().top + shell.scrollTop;
     }
     this.#latestScrollTop = held ? null : shell.scrollTop;
     this.#recordTranscriptScroll(before);
