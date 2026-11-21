@@ -1456,9 +1456,12 @@ export class AithemaSession extends HTMLElement {
         .map(child => child.getBoundingClientRect())
         .filter(box => box.width > 0 && box.height > 0).map(box => box.bottom);
       const contentEnd = Math.max(list.bottom, ...visibleEnds) + shell.scrollTop - pane.top;
-      const padding = parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).paddingBottom) || 0;
+      const css = this.ownerDocument.defaultView.getComputedStyle(shell);
+      const padding = parseFloat(css.paddingBottom) || 0;
+      // AIT-601: an idle render-label reserve is no content end (#renderReserveIdle).
+      const idle = this.#renderReserveIdle(shell) ? Math.min(padding, parseFloat(css.getPropertyValue('--aithema-render-reserve')) || 0) : 0;
       if (pane.width > 0 && pane.height > 0 && (measured || !listElement.children.length)
-        && contentEnd + padding <= shell.clientHeight + .5) end = 0;
+        && contentEnd + padding - idle <= shell.clientHeight + .5) end = 0;
     }
     shell.scrollTop = end;
     // An inline capture can be taller than the combined phone's reading pane.
@@ -1550,6 +1553,50 @@ export class AithemaSession extends HTMLElement {
     if (!held) this.#readTranscript();
     this.#updateTranscriptJump();
   }
+  // AIT-601: the desktop image layout keeps a render-label reserve at the end of
+  // its transcript (--aithema-render-reserve) so the label of a running render
+  // (.concept-bottom, state "gen") never covers a turn. Before the first reply
+  // and before a visual wish no render can run: the host admits a render only
+  // for a recorded wish (conceptIntent.visualIntent, then .pending), and no
+  // concept exists yet. Until then the reserve is idle and D511a's fit test
+  // leaves it out, so fitting content never follows because of it. A wish (the
+  // concept status may still read idle then), a running or finished render, a
+  // concept, or a reply, persisted or still streaming, counts it again; phones
+  // keep the label outside the thread and are unchanged.
+  #renderReserveIdle(shell) {
+    const session = this.#session, label = shell.parentElement?.querySelector(':scope > .concept-bottom');
+    return Boolean(label) && label.dataset.state !== 'gen' && !this.ownerDocument.defaultView.matchMedia('(max-width:600px)').matches
+      && [undefined, 'idle'].includes(session.conceptStatus?.phase) && !session.conceptIntent?.visualIntent && !session.conceptIntent?.pending
+      && !session.concepts?.length && !this.#partials.size
+      && !session.transcript.some(turn => turn.role === 'assistant' && turn.origin !== 'host' && !turn.erased && !turn.withdrawn);
+  }
+  // AIT-601: once the render label shows, the end of the transcript must not
+  // sit under it. Follow suspension (a resting pointer, D2 anchoring) keeps the
+  // reading place only where that leaves no content under the label: when the
+  // reader is still at the latest position (not scrolled away, no held long
+  // reply, not folded) and the last item ends inside the label's reserve, the
+  // transcript moves by exactly the delta that lets that item end above the
+  // label's reserve: never more than the reserve, never to the native end (its
+  // Latest slot), and with no card or reply-top alignment. An item that runs
+  // past the pane keeps D2's reading place.
+  #clearRenderLabel() {
+    const shell = this.shadowRoot?.querySelector('.transcript-shell'), label = shell?.parentElement?.querySelector(':scope > .concept-bottom');
+    if (label?.dataset.state !== 'gen' || !this.#follow || this.#longReply || this.#fold?.folded || this.#followsTranscript()) return;
+    const reserve = parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).getPropertyValue('--aithema-render-reserve')) || 0;
+    const pane = shell.getBoundingClientRect();
+    const last = [...shell.querySelectorAll('ol > *')].map(item => item.getBoundingClientRect()).filter(box => box.width > 0 && box.height > 0).at(-1);
+    if (!(reserve > 0 && pane.width > 0 && pane.height > 0 && last && last.bottom > pane.bottom - reserve + .5 && last.bottom <= pane.bottom + .5)) return;
+    // Whole pixels up (a scroll offset snaps to device pixels), never past the reserve.
+    const delta = Math.min(reserve, Math.max(0, Math.ceil(last.bottom - (pane.bottom - reserve) - .01)));
+    const before = shell.scrollTop;
+    shell.scrollTop = before + delta;
+    // The reader stays at the latest position: record it as such, so the
+    // resulting scroll event keeps following (as #scrollToLatest does).
+    this.#latestScrollTop = shell.scrollTop;
+    this.#recordTranscriptScroll(before);
+    this.#readTranscript();
+    this.#updateTranscriptJump();
+  }
   #hovered() {
     const point = this.#pointer;
     return point ? this.shadowRoot.elementFromPoint?.(point.x, point.y) ?? null : null;
@@ -1562,7 +1609,11 @@ export class AithemaSession extends HTMLElement {
   #anchored(update) {
     this.#anchorDepth++;
     try { this.#anchoredUpdate(update); }
-    finally { if (--this.#anchorDepth === 0 && this.#erased) this.#paintErased(); }
+    finally {
+      // After the pointer anchor: a render label that now shows over the
+      // transcript's end overrides it, by the needed delta only (#clearRenderLabel).
+      if (--this.#anchorDepth === 0) { if (this.#erased) this.#paintErased(); else this.#clearRenderLabel(); }
+    }
   }
   #anchoredUpdate(update) {
     const focused = this.shadowRoot.activeElement, pointer = this.#hovered();
