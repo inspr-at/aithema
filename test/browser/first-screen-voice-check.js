@@ -39,14 +39,45 @@ async function harness(t) {
   return { page, server };
 }
 async function open(page, server, variant, entrance = 'combined') {
-  await page.setViewport({ width: variant.width, height: variant.height ?? 1000 });
+  await page.setViewport({ width: variant.width, height: variant.height ?? 1000, deviceScaleFactor: variant.scale ?? 1 });
   await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: variant.theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.goto(`${server.url}/first-screen-fixture?locale=${variant.locale}&entrance=${entrance}${variant.opener ? '&opener' : ''}${variant.brand ? `&hostrow=${variant.brand}` : ''}${variant.query ? `&${variant.query}` : ''}`);
   await page.waitForFunction(() => globalThis.ready);
   await page.evaluate(({ theme, entrance }) => {
     c.setAttribute('theme', theme); c.style.setProperty('--aithema-height', '100dvh');
     const configure = c.configure.bind(c); c.configure = options => configure({ entrance, ...options, voiceClient: options.voiceClient ?? fixtureClient });
+    // AIT-587 (Codex gate1c C12): record every provider Pause/Resume receipt. A pause check waits for the
+    // receipt, because the rail presses Pause optimistically before the provider answers.
+    // globalThis.refusedReceipt[command] replaces the provider's answer (a missing acknowledgement).
+    globalThis.voiceReceipts = [];
+    const start = fixtureClient.start.bind(fixtureClient);
+    fixtureClient.start = async (...args) => {
+      const session = await start(...args);
+      for (const command of ['pause', 'resume']) {
+        const send = session[command].bind(session);
+        session[command] = async (...rest) => {
+          const receipt = globalThis.refusedReceipt?.[command] ?? await send(...rest);
+          voiceReceipts.push({ command, ...receipt }); return receipt;
+        };
+      }
+      return session;
+    };
   }, { theme: variant.theme, entrance });
+}
+// Press the rail's Pause (paused = true) or Resume (false) and wait until that command is acknowledged:
+// the provider's receipt for this press says acknowledged with the requested state, and the rail shows it.
+// A missing or refusing receipt, or a timeout, throws with the label.
+async function togglePause(page, paused, label, timeout = 10_000) {
+  const before = await page.evaluate(() => { const count = voiceReceipts.length; c.shadowRoot.querySelector('.pause').click(); return count; });
+  await page.waitForFunction((v, before) => {
+    const receipt = voiceReceipts.slice(before).find(r => r.command === (v ? 'pause' : 'resume'));
+    if (receipt && (receipt.acknowledged !== true || receipt.paused !== v)) return true;
+    return receipt && c.shadowRoot.querySelector('.pause').getAttribute('aria-pressed') === String(v);
+  }, { timeout }, paused, before)
+    .catch(error => { throw new Error(`${label}: the ${paused ? 'pause' : 'resume'} was not acknowledged within ${timeout / 1000} s`, { cause: error }); });
+  const receipt = await page.evaluate((v, before) => voiceReceipts.slice(before).find(r => r.command === (v ? 'pause' : 'resume')), paused, before);
+  if (receipt.acknowledged !== true || receipt.paused !== paused)
+    throw new Error(`${label}: the ${paused ? 'pause' : 'resume'} was not acknowledged within ${timeout / 1000} s: ${JSON.stringify(receipt)}`);
 }
 async function observe(page) {
   await page.evaluate(async () => { await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
@@ -86,9 +117,25 @@ test('AIT-553 item 1: idle pause is neutral and unpressed in both entrances; cal
     await page.click('aithema-session >>> .composer-mic');
     await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.call === 'active');
     const live = await observe(page); await retain(page, `${label}-during-call`, live);
+    // AIT-587 (AIT-553 gate1 L4): sample the pause on every rail change while the call closes.
+    await page.evaluate(() => {
+      const root = c.shadowRoot, rail = root.querySelector('.audio-rail'), pause = root.querySelector('.pause');
+      globalThis.closingPause = [];
+      const sample = () => closingPause.push({ state: rail.dataset.state, call: rail.dataset.call, pressed: pause.getAttribute('aria-pressed'),
+        disabled: pause.disabled, visible: pause.checkVisibility({ checkVisibilityCSS: true }), background: getComputedStyle(pause).backgroundColor });
+      globalThis.closingWatch = new MutationObserver(sample);
+      closingWatch.observe(rail, { attributes: true, attributeFilter: ['data-state', 'data-call', 'data-call-reconciling'] });
+    });
     await page.click('aithema-session >>> .voice-close');
     await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.call === 'none');
+    const closing = await page.evaluate(() => { closingWatch.disconnect(); return closingPause; });
     const ended = await observe(page); await retain(page, `${label}-after-call`, ended);
+    // An unpressed, enabled pause is never filled: not during the call, not while it closes.
+    assert.equal(live.pause.pressed, 'false', `${label}: the live pause starts unpressed`);
+    assert.equal(live.pause.background, 'rgba(0, 0, 0, 0)', `${label}: the live, unpressed pause has no active fill`);
+    assert.ok(closing.length > 0, `${label}: the close was sampled`);
+    for (const sample of closing) if (sample.visible && !sample.disabled && sample.pressed === 'false')
+      assert.equal(sample.background, 'rgba(0, 0, 0, 0)', `${label}: an unpressed pause has no active fill while closing: ${JSON.stringify(closing)}`);
     await open(page, server, variant, 'choice');
     const choice = await observe(page);
     records.push({ label, idle, live, ended, choice });
@@ -153,7 +200,8 @@ test('AIT-553 item 3: used-up upgrade copy has an exposed export link; the host 
     assert.equal(await page.evaluate(() => c.shadowRoot.querySelector('.composer-out__export').getAttribute('aria-hidden')), 'true');
   }
   for (const record of records) {
-    assert.equal(record.next, 'give'); assert.match(record.text, /export it|exportieren/);
+    // AIT-587 (TICK r1 look item 6): the body says the conversation stays saved; the export link labels itself.
+    assert.equal(record.next, 'give'); assert.match(record.text, /stays saved|bleibt gespeichert/);
     positive({ export: record.box });
     assert.equal(record.visible, true, 'used-up upgrade exposes the existing export control');
     assert.equal(record.hidden, 'false'); assert.equal(record.inert, false); assert.equal(record.focused, true);
@@ -307,13 +355,11 @@ test('AIT-553 slice 2 item 1: the call band keeps one row in every voice state o
     await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.call === 'active');
     await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.state !== 'connecting', { timeout: 10_000 }).catch(() => {});
     states.push(await bandRecord(page, 'live'));
-    const pressed = value => page.waitForFunction(v => c.shadowRoot.querySelector('.pause').getAttribute('aria-pressed') === v
-      || c.shadowRoot.querySelector('.voice-pause').getAttribute('aria-pressed') === v, { timeout: 10_000 }, value).then(() => true, () => false);
-    await page.evaluate(() => c.shadowRoot.querySelector('.pause').click());
-    const paused = await pressed('true');
-    states.push({ ...await bandRecord(page, 'paused'), pauseAcknowledged: paused });
+    // AIT-587: an unacknowledged pause fails here; it is never recorded as a paused state.
+    await togglePause(page, true, label);
+    states.push(await bandRecord(page, 'paused'));
     if (variant.width === 1366 || variant.locale === 'de') await retain(page, `s2-${label}-band-paused`, states.at(-1));
-    if (paused) { await page.evaluate(() => c.shadowRoot.querySelector('.pause').click()); await pressed('false'); }
+    await togglePause(page, false, label);
     states.push(await bandRecord(page, 'resumed'));
     await retain(page, `s2-${label}-band-live`, states.at(-1));
     await page.evaluate(() => c.shadowRoot.querySelector('.voice-close').click());
@@ -457,8 +503,8 @@ test('AIT-553 slice 3 M1: beside a host header the opener playback row keeps one
     await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.state !== 'connecting', { timeout: 10_000 }).catch(() => {});
     states.push(await bandRecord(page, 'opener playback'));
     await retain(page, `s3-${label}-band-opener-playback`, { track, ...states.at(-1) });
-    await page.evaluate(() => c.shadowRoot.querySelector('.pause').click());
-    await page.waitForFunction(() => c.shadowRoot.querySelector('.pause').getAttribute('aria-pressed') === 'true', { timeout: 10_000 }).catch(() => {});
+    // AIT-587: the paused record exists only once the pause is acknowledged; a timeout fails the test.
+    await togglePause(page, true, label);
     states.push(await bandRecord(page, 'paused'));
     await page.evaluate(() => c.shadowRoot.querySelector('.voice-close').click());
     await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.call === 'none');
@@ -479,6 +525,22 @@ test('AIT-553 slice 3 M1: beside a host header the opener playback row keeps one
       if (s.status.visible) assert.ok(s.status.box[0] + s.status.box[2] <= s.signal[0] + s.signal[2] + .5, `status stays in its track: ${where}`);
     }
   }
+});
+
+// AIT-587 (Codex gate1c C12): the rail presses Pause before the provider answers and keeps it pressed when the
+// answer is missing (the local media hold stays). A pause check must therefore fail on a missing acknowledgement.
+test('AIT-587: a pause check fails when the provider does not acknowledge the pause', { timeout: 60_000 }, async t => {
+  const { page, server } = await harness(t);
+  await open(page, server, hostRowDesktops[0]);
+  await page.evaluate(() => { globalThis.refusedReceipt = { pause: { acknowledged: false, paused: false } }; grant(); });
+  await page.waitForFunction(() => c.session.featureMatrix.best.voice.available);
+  await page.click('aithema-session >>> .composer-mic');
+  await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.call === 'active');
+  await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.state !== 'connecting', { timeout: 10_000 }).catch(() => {});
+  await assert.rejects(togglePause(page, true, 'refused', 3_000), /refused: the pause was not acknowledged within 3 s/u);
+  const after = await page.evaluate(() => ({ pressed: c.shadowRoot.querySelector('.pause').getAttribute('aria-pressed'), receipts: voiceReceipts }));
+  assert.deepEqual(after.receipts, [{ command: 'pause', acknowledged: false, paused: false }], 'the provider answered without an acknowledgement');
+  assert.equal(after.pressed, 'true', 'the optimistic, unacknowledged pause stays pressed, so aria-pressed alone cannot prove an acknowledgement');
 });
 
 test('AIT-553 slice 3 M2: beside a host header the compact readiness clears the pinned composer with its whole outline', { timeout: 240_000 }, async t => {
@@ -795,5 +857,202 @@ test('AIT-553 gate2c: an asynchronous mic-unavailable failure leaves focus on th
     assert.equal(record.documentActive, 'aithema-session', `focus stays inside the element: ${label}`);
     assert.equal(record.active, 'textarea', `the failure does not take focus from the message field: ${label}`);
     assert.ok(record.box[2] > 0 && record.box[3] > 0, `focused control has a positive box: ${label}`);
+  }
+});
+
+// AIT-587 (RC25 look 15): the ready card's check stays beside its value, also when the value wraps.
+test('AIT-587: a ready-card check stays beside the first line of a wrapped value', { timeout: 120_000 }, async t => {
+  const { page, server } = await harness(t), records = [];
+  // AIT-587 r2 (Codex gate1c A3): short desktops (600 px wide or more, at most 860 px high) show the combined
+  // readiness as one compact row with its own flex layout; those variants run inside that breakpoint.
+  const compact = [{ width: 1366, height: 768, locale: 'en', theme: 'light', compact: true }, { width: 1280, height: 720, locale: 'de', theme: 'dark', compact: true }];
+  const cases = [...variants.flatMap(variant => ['choice', 'combined'].map(entrance => [variant, entrance])), ...compact.map(variant => [variant, 'combined'])];
+  for (const [variant, entrance] of cases) {
+    const label = `${variant.width}x${variant.height ?? 1000}-${variant.locale}-${variant.theme}-${entrance}`;
+    await open(page, server, variant, entrance);
+    await page.evaluate(() => grant());
+    await page.waitForFunction(() => [...c.shadowRoot.querySelectorAll('.ready__row')]
+      .some(row => row.querySelector('.ready__check').checkVisibility({ checkVisibilityCSS: true })), { timeout: 10_000 })
+      .catch(async error => { throw new Error(`${label}: no ready-card check shows: ${await page.evaluate(() => c.shadowRoot.querySelector('.ready')?.outerHTML.slice(0, 600))}`, { cause: error }); });
+    const layout = await page.evaluate(() => getComputedStyle(c.shadowRoot.querySelector('.ready')).display);
+    const rows = await page.evaluate(repeat => [...c.shadowRoot.querySelectorAll('.ready__row')]
+      .filter(row => row.querySelector('.ready__check').checkVisibility({ checkVisibilityCSS: true })).map(row => {
+        const value = row.querySelector('dd > span:last-child'), check = row.querySelector('.ready__check'), original = value.textContent;
+        const measure = () => {
+          const range = document.createRange(); range.selectNodeContents(value);
+          const lines = [...range.getClientRects()].filter(r => r.width > 0 && r.height > 0), b = check.getBoundingClientRect();
+          return { check: [b.x, b.y, b.width, b.height], first: lines[0] ? [lines[0].x, lines[0].y, lines[0].width, lines[0].height] : null,
+            lines: new Set(lines.map(r => Math.round(r.y))).size, row: row.getBoundingClientRect().height };
+        };
+        const single = measure();
+        value.textContent = Array(repeat).fill(original).join(' ');
+        const wrapped = measure();
+        value.textContent = original;
+        return { row: row.dataset.ready, single, wrapped, restored: measure() };
+      }), variant.compact ? 40 : 10);
+    records.push({ label, rows, layout, compact: Boolean(variant.compact) });
+    await retain(page, `ait587-${label}-ready-check`, { layout, rows });
+  }
+  for (const { label, rows, layout, compact } of records) {
+    if (compact) assert.equal(layout, 'flex', `${label}: the compact readiness row is active`);
+    assert.ok(rows.length > 0, `${label}: at least one ready-card check is measured`);
+    for (const { row, single, wrapped, restored } of rows) {
+      const where = `${label}/${row}: ${JSON.stringify({ single, wrapped })}`;
+      for (const [name, box] of Object.entries({ singleCheck: single.check, singleText: single.first, wrappedCheck: wrapped.check, wrappedText: wrapped.first }))
+        assert.ok(box && box[2] > 0 && box[3] > 0, `${name}: positive width and height: ${where}`);
+      assert.ok(wrapped.lines > 1, `the forced value wraps: ${where}`);
+      const gap = state => state.first[0] - (state.check[0] + state.check[2]);
+      assert.ok(gap(single) >= -.5, `the check precedes its value: ${where}`);
+      assert.ok(Math.abs(gap(wrapped) - gap(single)) <= .5, `a wrapped value keeps the check beside its first line: ${where}`);
+      const middle = box => box[1] + box[3] / 2;
+      assert.ok(Math.abs(middle(wrapped.check) - middle(wrapped.first)) <= wrapped.first[3] / 2, `the check stays on the first line: ${where}`);
+      assert.deepEqual(restored.check, single.check, `restoring the value moves the check 0 px: ${where}`);
+      assert.equal(restored.row, single.row, `restoring the value restores the row height: ${where}`);
+    }
+  }
+});
+
+// AIT-587 r2 evidence for TICK: files under look/r2 (screenshots, crops and their JSON).
+async function retainR2(page, name, record, clip) {
+  if (!process.env.AITHEMA_EVIDENCE_DIR) return;
+  const dir = join(process.env.AITHEMA_EVIDENCE_DIR, 'look', 'r2'); await mkdir(dir, { recursive: true });
+  if (clip) await page.screenshot({ path: join(dir, `${name}.png`), clip });
+  await writeFile(join(dir, `${name}.json`), JSON.stringify(record, null, 2));
+}
+
+// AIT-587 r2 (TICK decision, item 2): a connection timer that restarts on reconnect reads as call time. The footer
+// shows "Connected" / "Verbunden" with the dot only; "Connected since HH:MM" is the status's title and accessible
+// description. The timer slot stays as an invisible, constant reservation: nothing in the footer moves.
+const footerVariants = ['en', 'de'].flatMap(locale => ['light', 'dark'].flatMap(theme => [1440, 390].map(width => ({ width, locale, theme }))));
+test('AIT-587: the footer shows Connected without a running number; since lives in title and description; 0 px', { timeout: 180_000 }, async t => {
+  const { page, server } = await harness(t), records = [];
+  const sample = () => page.evaluate(() => {
+    const r = c.shadowRoot, status = r.querySelector('.status'), timer = r.querySelector('.connection-timer'), row = r.querySelector('.display-foot__row');
+    const box = n => { const b = n.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
+    const described = status.getAttribute('aria-describedby'), style = getComputedStyle(timer);
+    return { title: status.title, describedBy: described, description: described ? r.getElementById(described)?.textContent ?? null : null,
+      label: r.querySelector('.status__label').textContent, dotLabel: r.querySelector('.status__dot').getAttribute('aria-label'), footerText: row.innerText,
+      timer: { text: timer.textContent, visibility: style.visibility, display: style.display, box: box(timer), inPopup: Boolean(timer.closest('.footer-popup')) },
+      zones: [...row.children].filter(zone => zone.checkVisibility()).map(zone => ({ zone: zone.className, box: box(zone) })),
+      group: box(r.querySelector('.status__group')), foot: box(r.querySelector('.display-foot')),
+      // AIT-587 r3: below 600 px the visible status is the phone popup's (the desktop status is clipped there).
+      phone: (() => { const p = r.querySelector('.phone-status'), d = p.getAttribute('aria-describedby');
+        return { title: p.title, describedBy: d, description: d ? r.getElementById(d)?.textContent ?? null : null, display: getComputedStyle(p).display,
+          label: r.querySelector('.phone-status__label').textContent }; })(),
+      statusClipped: getComputedStyle(status).clipPath !== 'none' };
+  });
+  for (const variant of footerVariants) {
+    const label = `${variant.width}-${variant.locale}-${variant.theme}`;
+    await open(page, server, variant);
+    await page.waitForFunction(() => c.shadowRoot.querySelector('.status').hasAttribute('data-connected'), { timeout: 10_000 });
+    await page.evaluate(async () => { await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
+    const after = await sample();
+    await new Promise(resolve => setTimeout(resolve, 1100));
+    const later = await sample();
+    const clip = { x: 0, y: after.foot[1], width: variant.width, height: after.foot[3] };
+    await retainR2(page, `footer-${label}-after`, after, clip);
+    // The old look in the same slot (the visible timer), for TICK's before/after and the 0 px proof.
+    await page.evaluate(() => { const style = document.createElement('style'); style.id = 'old-timer'; style.textContent = '.connection-timer{visibility:visible!important}'; c.shadowRoot.append(style); });
+    const before = await sample();
+    await retainR2(page, `footer-${label}-before`, before, clip);
+    await page.evaluate(() => c.shadowRoot.getElementById('old-timer').remove());
+    records.push({ label, variant, after, later, before });
+  }
+  await retainR2(page, 'footer-title-description', records.map(({ label, after }) => ({ label, title: after.title, description: after.description, describedBy: after.describedBy, label_: after.label, dotLabel: after.dotLabel, footerText: after.footerText })));
+  for (const { label, variant, after, later, before } of records) {
+    const where = `${label}: ${JSON.stringify(after)}`;
+    const [connected, since] = variant.locale === 'de' ? ['Verbunden', 'Verbunden seit'] : ['Connected', 'Connected since'];
+    assert.equal(after.label, connected, `the footer says ${connected}: ${where}`);
+    assert.match(after.title, new RegExp(`^${since} \\d{2}:\\d{2}(?: [AP]M)?$`, 'u'), `title: ${where}`);
+    assert.equal(after.description, after.title, `accessible description: ${where}`);
+    if (variant.width === 390) {
+      // AIT-587 r3 (Codex gate2c Low): the phone element itself, not the clipped desktop status.
+      assert.ok(after.statusClipped, `at 390 px the desktop status is clipped: ${where}`);
+      assert.equal(after.phone.display, 'block', `at 390 px the phone status is the visible one: ${where}`);
+      assert.equal(after.phone.label, connected, `the phone status says ${connected}: ${where}`);
+      assert.equal(after.phone.title, after.title, `the phone status has the same title: ${where}`);
+      assert.equal(after.phone.description, after.title, `the phone status has the same accessible description: ${where}`);
+      assert.equal(later.phone.title, after.phone.title, `the phone start stays: ${where}`);
+    }
+    assert.doesNotMatch(after.footerText, /\d+:\d{2}/u, `no clock or timer is visible in the footer: ${where}`);
+    assert.equal(later.footerText, after.footerText, `nothing ticks: ${where}`);
+    assert.equal(later.title, after.title, `the start stays: ${where}`);
+    if (after.timer.display !== 'none') {
+      assert.equal(after.timer.visibility, 'hidden', `the timer slot is an invisible reservation: ${where}`);
+      if (!after.timer.inPopup) assert.ok(after.timer.box[2] > 0 && after.timer.box[3] > 0, `the reservation keeps its width: ${where}`);
+    }
+    assert.ok(after.zones.length > 0, `footer zones measured: ${where}`);
+    for (const { zone, box } of after.zones) assert.ok(box[2] > 0 && box[3] > 0, `${zone}: positive width and height: ${where}`);
+    assert.ok(after.group[2] > 0 && after.group[3] > 0, `status group: positive width and height: ${where}`);
+    assert.deepEqual(later.zones, after.zones, `footer zones 0 px over time: ${where}`);
+    assert.deepEqual(before.zones, after.zones, `the visible timer and its reservation occupy the same box (0 px): ${where}`);
+    assert.deepEqual(before.group, after.group, `status group 0 px against the old look: ${where}`);
+  }
+});
+
+// AIT-587 r2 (TICK M1, item 4): the fold icon's contrast, measured in the page from computed styles, in both themes.
+// The ready screen has nothing to fold: its fold is aria-disabled (WCAG 1.4.11 exempts inactive controls) and keeps
+// faint ink. Enabled (visuals available), the icon must keep 3:1 at rest, on hover and on keyboard focus.
+test('AIT-587: the fold icon keeps 3:1 when enabled at rest, hover and focus; the ready fold is disabled', { timeout: 120_000 }, async t => {
+  const { page, server } = await harness(t), records = [];
+  const measure = state => page.evaluate(state => {
+    const fold = c.shadowRoot.querySelector('.fold'), svg = fold.querySelector('svg'), b = fold.getBoundingClientRect();
+    const rgba = value => { const [r, g, bl, a = 1] = value.match(/[\d.]+/gu).map(Number); return [r, g, bl, a]; };
+    const lum = ([r, g, bl]) => { const f = v => { v /= 255; return v <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; }; return .2126 * f(r) + .7152 * f(g) + .0722 * f(bl); };
+    const over = (top, bottom, alpha) => top.slice(0, 3).map((v, i) => v * alpha + bottom[i] * (1 - alpha));
+    // The opaque background behind the fold: composite translucent layers up the composed tree over the page.
+    const layers = [];
+    for (let node = fold; node; node = node.parentElement ?? node.getRootNode().host) {
+      const value = rgba(getComputedStyle(node).backgroundColor); if (value[3] > 0) layers.push({ node: `${node.localName}.${[...node.classList].join('.')}`, value });
+      if (value[3] === 1) break;
+    }
+    let background = layers.at(-1)?.value[3] === 1 ? layers.at(-1).value : [255, 255, 255, 1];
+    for (const layer of layers.slice(0, -1).reverse()) background = [...over(layer.value, background, layer.value[3]), 1];
+    let opacity = 1; for (let node = svg; node && node !== c; node = node.parentElement ?? node.getRootNode().host) opacity *= Number(getComputedStyle(node).opacity);
+    const color = rgba(getComputedStyle(svg).color), effective = over(color, background, opacity * color[3]);
+    const [hi, lo] = [lum(effective), lum(background)].sort((x, y) => y - x);
+    return { state, ariaDisabled: fold.getAttribute('aria-disabled'), hover: fold.matches(':hover'), focusVisible: fold.matches(':focus-visible'),
+      color: getComputedStyle(svg).color, stroke: getComputedStyle(svg).stroke, opacity, background: `rgb(${background.slice(0, 3).map(Math.round).join(', ')})`,
+      backgroundLayers: layers.map(layer => layer.node), effective: `rgb(${effective.map(Math.round).join(', ')})`, ratio: Number(((hi + .05) / (lo + .05)).toFixed(2)),
+      box: [b.x, b.y, b.width, b.height] };
+  }, state);
+  const crop = record => ({ x: Math.max(0, record.box[0] - 12), y: Math.max(0, record.box[1] - 12), width: record.box[2] + 24, height: record.box[3] + 24 });
+  for (const theme of ['light', 'dark']) {
+    const variant = { width: 1440, locale: 'en', theme, scale: 2 }, label = `1440-en-${theme}`;
+    await open(page, server, variant);
+    await page.evaluate(async () => { await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
+    const states = [await measure('ready-disabled-rest')];
+    await retainR2(page, `fold-${label}-ready-disabled-rest`, states.at(-1), crop(states.at(-1)));
+    // Visuals available: the fold can fold the conversation and is enabled.
+    await page.evaluate(async () => {
+      const { en } = await import('/packages/ui/src/i18n/en.js');
+      const prior = globalThis.fetch;
+      globalThis.fetch = async (url, options) => { const response = await prior(url, options);
+        if (!/\/api\/sessions\/[^/?]+$/u.test(String(url))) return response;
+        const snapshot = await response.json(); snapshot.featureMatrix.best.images = { available: true }; return Response.json(snapshot); };
+      const session = c.session; session.featureMatrix.best.images = { available: true }; c.configure({ copy: globalThis.fixtureCopy || en, session });
+    });
+    await page.waitForFunction(() => c.shadowRoot.querySelector('.fold').getAttribute('aria-disabled') === 'false', { timeout: 10_000 })
+      .catch(error => { throw new Error(`${label}: the fold did not become enabled`, { cause: error }); });
+    await page.mouse.move(1, 999);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    states.push(await measure('enabled-rest')); await retainR2(page, `fold-${label}-enabled-rest`, states.at(-1), crop(states.at(-1)));
+    const [x, y, w, h] = states.at(-1).box; await page.mouse.move(x + w / 2, y + h / 2);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    states.push(await measure('enabled-hover')); await retainR2(page, `fold-${label}-enabled-hover`, states.at(-1), crop(states.at(-1)));
+    await page.mouse.move(1, 999); await page.keyboard.press('Shift');
+    await page.evaluate(() => c.shadowRoot.querySelector('.fold').focus());
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    states.push(await measure('enabled-focus')); await retainR2(page, `fold-${label}-enabled-focus`, states.at(-1), crop(states.at(-1)));
+    records.push({ label, states });
+  }
+  await retainR2(page, 'fold-contrast', records);
+  for (const { label, states } of records) {
+    const [ready, rest, hover, focus] = states, where = `${label}: ${JSON.stringify(states)}`;
+    for (const state of states) assert.ok(state.box[2] > 0 && state.box[3] > 0, `${state.state}: positive width and height: ${where}`);
+    assert.equal(ready.ariaDisabled, 'true', `the ready screen's fold is disabled (nothing to fold): ${where}`);
+    assert.equal(rest.ariaDisabled, 'false', `enabled: ${where}`);
+    assert.equal(hover.hover, true, `hovered: ${where}`); assert.equal(focus.focusVisible, true, `keyboard focus: ${where}`);
+    for (const state of [rest, hover, focus]) assert.ok(state.ratio >= 3, `${state.state}: fold icon ${state.ratio}:1 >= 3:1: ${where}`);
   }
 });

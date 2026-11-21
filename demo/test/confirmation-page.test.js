@@ -35,6 +35,11 @@ for (const locale of ['de', 'en']) for (const [state, key, extra] of states) tes
       assert.ok(hidden.hasAttribute('inert')); assert.equal(hidden.querySelector('.confirm-title').tagName, 'P');
       assert.equal(hidden.querySelector('.confirm-button').tagName, 'SPAN');
       assert.equal(d.querySelectorAll('.confirm-num').length, 2);
+      // AIT-587 r2 (TICK decision, Codex gate1c A1): EN 'credits' is lower case mid-sentence; DE 'Credits' is a noun.
+      const unit = locale === 'de' ? '2.000 Credits' : '2,000 credits';
+      assert.deepEqual([...d.querySelectorAll('.confirm-num')].map(n => n.textContent), [unit, unit]);
+      if (locale === 'en') assert.deepEqual([...d.querySelectorAll('.confirm-lead')].map(n => n.textContent),
+        ['One more click and your credit rises to 2,000 credits.', 'Your credit is now 2,000 credits.']);
       // Tick's approved done badge is a single check stroke, never the ready envelope.
       const done = d.querySelector('.confirm-icon--done svg');
       assert.equal(done.children.length, 1);
@@ -67,7 +72,7 @@ test('C2 address and tier are escaped before the tier/unit emphasis is added', a
   const host = { demo: true, identity: { deliversVerification: true }, confirmation: {
     inspect: () => ({ state: 'valid', address: '<script>alert(1)</script>', tier: '<img src=x>' }), csrf: () => '' } };
   const html = await (await createConfirmationPage({ host, publicOrigin: origin }).handle(new Request(origin + '/confirm-email'))).text();
-  assert.ok(html.includes('&lt;script&gt;alert(1)&lt;/script&gt;')); assert.ok(html.includes('&lt;img src=x&gt; Credits</b>'));
+  assert.ok(html.includes('&lt;script&gt;alert(1)&lt;/script&gt;')); assert.ok(html.includes('&lt;img src=x&gt; credits</b>'));
   assert.doesNotMatch(html, /<img|<script>alert/u);
 });
 

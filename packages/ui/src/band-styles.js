@@ -31,9 +31,10 @@ export const bandStyles = `
 .audio-rail button { background:color-mix(in srgb,var(--aithema-surface) 50%,transparent); }
 .audio-rail button:hover:not(:disabled) { background:color-mix(in srgb,var(--aithema-surface) 50%,transparent); }
 .audio-rail .pause, .audio-rail .pause:hover:not(:disabled) { background:var(--aithema-ink); }
-/* Idle still offers the conversation pause, without the live call's filled treatment. */
-.audio-rail[data-state="idle"][data-call="none"] .pause[aria-pressed="false"]:not(:disabled),
-.audio-rail[data-state="idle"][data-call="none"] .pause[aria-pressed="false"]:not(:disabled):hover:not(:disabled) {
+/* Only a pressed pause (Resume) is filled. An unpressed pause stays outlined in every state,
+   idle, live and closing alike, so it never reads as active (AIT-587, AIT-553 gate1 L4). */
+.audio-rail[data-state][data-call] :is(.pause,.voice-pause)[aria-pressed="false"]:not(:disabled),
+.audio-rail[data-state][data-call] :is(.pause,.voice-pause)[aria-pressed="false"]:not(:disabled):hover {
   background:transparent; color:var(--aithema-ink); border-color:var(--aithema-line); }
 /* Ownership stays a rail status, with Resume's ink fill during takeover. */
 .band .audio-rail:focus-visible { outline:none; }
@@ -149,8 +150,9 @@ export const bandStyles = `
   filter:drop-shadow(0 0 1px rgba(16,43,66,.45)) drop-shadow(0 1px 2px rgba(16,43,66,.18)); }
 .motion-toggle[aria-pressed="false"] svg { fill:none; }
 .edge-column button:hover svg, .edge-column button:focus-visible svg { opacity:1; }
-.fold { top:calc(var(--band-height,90px) * .5 + 31px); color:var(--aithema-ink); }
-.fold svg { opacity:.32; }
+.fold { top:calc(var(--band-height,90px) * .5 + 31px); color:var(--aithema-muted); }
+.fold:is(:hover,:focus-visible) { color:var(--aithema-ink); }
+.fold[aria-disabled="true"] { color:var(--aithema-ink); }
 .fold[aria-disabled="true"] svg { opacity:.16; }
 .fold[aria-expanded="false"] svg { transform:scaleY(-1); }
 .edge-column button:focus-visible { outline:2px solid var(--aithema-accent); outline-offset:0; }
@@ -201,6 +203,8 @@ export const bandStyles = `
 .status__sizer { display:grid; grid-area:1/2; visibility:hidden; pointer-events:none; }
 .status__sizer > span { grid-area:1/1; }
 .connection-timer { grid-column:3; display:inline-block; min-width:8ch; flex:none; text-align:start; font-variant-numeric:tabular-nums; white-space:nowrap; }
+/* AIT-587 r2: an invisible, constant reservation (separator included); the start is in the status's title. */
+.connection-timer { visibility:hidden; }
 .status[data-message] .status__label, .composer-dock > .status__label { display:block; position:absolute; right:12px; bottom:calc(100% + 6px); z-index:15;
   max-width:min(320px,calc(100vw - 24px)); padding:9px 12px; background:var(--aithema-ink); color:var(--aithema-paper);
   border-radius:10px; white-space:normal; overflow:visible; overflow-wrap:anywhere; }

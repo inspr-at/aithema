@@ -11,6 +11,7 @@ import { reasonSeparator } from './consent-line.js';
 import { inputRevision } from '../../core/src/session.js';
 import { postJson, sameOrigin } from './post-json.js';
 import { node, setText, fill } from './dom.js';
+import { clockTime } from './display.js';
 import { Verification } from './verification.js';
 import { LibraryDialog } from './library-dialog.js';
 import { ConversationsMenu } from './conversations-menu.js';
@@ -459,7 +460,7 @@ export class HostSurface {
     if (resetEnabled && capped && Number.isSafeInteger(resetAt)) {
       this.dailyResetAt = resetAt;
     } else if (!capped) this.dailyResetAt = null;
-    setText(deadline, resetEnabled && capped && Number.isSafeInteger(this.dailyResetAt) ? fill(c.dailyCapReset, { time: new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', ...(locale.startsWith('de') ? { hour12: false } : {}) }).format(this.dailyResetAt) }) : '');
+    setText(deadline, resetEnabled && capped && Number.isSafeInteger(this.dailyResetAt) ? fill(c.dailyCapReset, { time: clockTime(this.dailyResetAt, locale) }) : '');
   }
   // Host footer content stays in the info popup; legal links have their own standing bar slot.
   #mountFoot() {

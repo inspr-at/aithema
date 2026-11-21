@@ -148,6 +148,22 @@ export async function overviewStatusLayoutBudgetCheck(t, classicScrollbars = fal
         `frame ${i}/${selector}.${axis} stays constant during full remeasurement`);
     }
     t.diagnostic(`AIT-547 isolated remeasurement classic=${classicScrollbars}: ${frames.samples.length} stable samples, ${frames.measurements} measurements`);
+    // AIT-587 (AIT-547 gate3 L2): the comment above claims real width changes, which the isolated
+    // remeasurement never makes. Narrow the size-contained stack without a window resize (the
+    // ResizeObserver path) and read the slot in the next frame, after the change was painted.
+    const wide = await compactStatusMaximum(page);
+    const resized = await shadow(page, async c => {
+      const r = c.shadowRoot, stack = r.querySelector('.analysis-stack'), slot = r.querySelector('.overview-status');
+      const width = stack.getBoundingClientRect().width;
+      await new Promise(resolve => requestAnimationFrame(() => { stack.style.width = `${Math.round(width * .55)}px`; resolve(); }));
+      return new Promise(resolve => requestAnimationFrame(() => resolve({ width, slot: slot.getBoundingClientRect().toJSON(), stack: stack.getBoundingClientRect().toJSON() })));
+    });
+    positive(resized.slot, 'narrowed slot'); positive(resized.stack, 'narrowed stack');
+    assert.ok(resized.stack.width < resized.width - 1, `the stack really narrowed: ${JSON.stringify(resized)}`);
+    const narrow = await compactStatusMaximum(page);
+    assert.ok(narrow > wide + .5, `the narrower stack needs a taller reserve (${wide} -> ${narrow}), so this sample can fail`);
+    assert.ok(Math.abs(resized.slot.height - narrow) <= .5,
+      `the first frame painted after a width change already reserves the new maximum ${narrow}: ${JSON.stringify(resized)}`);
   } finally { await client.detach(); }
 }
 
@@ -186,7 +202,13 @@ export async function overviewFadeCheck(t) {
       signal: box('.signals li'), contact: contact.getBoundingClientRect().toJSON(), retry: retry.hidden ? null : retry.getBoundingClientRect().toJSON(),
       foot: box('.understanding > .foot'), topFade: pane.hasAttribute('data-top'), bottomFade: pane.hasAttribute('data-bottom'), mask: getComputedStyle(pane).maskImage,
       scrollTop: pane.scrollTop, lines: r.querySelector('.summary-text').style.getPropertyValue('--summary-lines'),
-      summaryExpanded: r.querySelector('.summary-toggle').getAttribute('aria-expanded'), signalsExpanded: r.querySelector('.signals-toggle').getAttribute('aria-expanded') };
+      summaryExpanded: r.querySelector('.summary-toggle').getAttribute('aria-expanded'), signalsExpanded: r.querySelector('.signals-toggle').getAttribute('aria-expanded'),
+      // AIT-587: the visible label ink of both overview toggles, for their shared right edge.
+      toggleLabels: Object.fromEntries([['summary', '.summary-toggle'], ['signals', '.signals-toggle > span']].map(([key, selector]) => {
+        const label = r.querySelector(selector), shown = label.checkVisibility({ checkVisibilityCSS: true });
+        const ink = document.createRange(); ink.selectNodeContents(label);
+        return [key, shown ? ink.getBoundingClientRect().toJSON() : null];
+      })) };
     });
     for (const [key, value] of Object.entries(result)) if (value && typeof value === 'object' && 'width' in value) positive(value, key);
     return result;
@@ -235,6 +257,10 @@ export async function overviewFadeCheck(t) {
         }
         for (const key of ['pane', 'status', 'statusText', 'summary', 'summaryText', 'heading', 'toggle', 'signal', 'foot']) positive(initial[key], `${name}: ${key}`);
         assert.equal(initial.summaryExpanded, 'false'); assert.equal(initial.signalsExpanded, 'false');
+        // AIT-587 (AIT-515/547 Tick): "Mehr anzeigen" and "Alle anzeigen (n)" end on one right edge, 0 px apart.
+        for (const [key, label] of Object.entries(initial.toggleLabels)) { assert.ok(label, `${name}: ${key} toggle label shows`); positive(label, `${name}: ${key} toggle label`); }
+        assert.ok(Math.abs(initial.toggleLabels.summary.right - initial.toggleLabels.signals.right) <= .5,
+          `${name}: both overview toggles share a right edge: ${JSON.stringify(initial.toggleLabels)}`);
         if (width >= 1366) {
           positive(initial.contact, `${name}: contact`);
           assert.equal(initial.scrollTop, 0, `${name}: initial overview is unscrolled`);

@@ -5,6 +5,7 @@ import { motionPreference, rememberMotion, MOTION_KEY, connectionTime, Connectio
 import { de } from '../src/i18n/de.js';
 import { en } from '../src/i18n/en.js';
 import { palette } from '../src/styles.js';
+import { bandStyles } from '../src/band-styles.js';
 import { contrast, mix } from '../../../test/contrast.js';
 
 test('motion defaults to the system and persists an explicit browser choice, including denied storage', () => {
@@ -20,12 +21,15 @@ test('motion defaults to the system and persists an explicit browser choice, inc
 test('connection time crosses minute and hour boundaries, pads fields and uses elapsed wall time', () => {
   for (const [ms, expected] of [[0, '0:00'], [999, '0:00'], [1000, '0:01'], [59_999, '0:59'], [60_000, '1:00'],
     [3_599_999, '59:59'], [3_600_000, '1:00:00'], [36_661_000, '10:11:01'], [-1, '0:00'], [NaN, '0:00']]) assert.equal(connectionTime(ms), expected);
+  // AIT-587 r2 (TICK decision, item 2): the footer shows no running number. The timer slot keeps a constant,
+  // invisible reservation ('0:00'); the timer only records when the connection started ("Connected since").
   const element = { textContent: '' }; let now = 1000;
   const timer = new ConnectionTimer(element, () => now);
-  timer.setConnected(true); assert.equal(element.textContent, '0:00');
-  now += 3_601_000; timer.setConnected(true); timer.paint(); assert.equal(element.textContent, '1:00:01', 'renders do not reset a live connection');
-  timer.setConnected(false); assert.equal(element.textContent, '0:00');
-  now += 1000; timer.setConnected(true); timer.paint(); assert.equal(element.textContent, '0:00', 'a reconnect starts a new interval'); timer.destroy();
+  timer.setConnected(true); assert.equal(element.textContent, '0:00'); assert.equal(timer.since, 1000);
+  now += 3_601_000; timer.setConnected(true); timer.paint();
+  assert.equal(element.textContent, '0:00', 'the reservation never ticks'); assert.equal(timer.since, 1000, 'renders do not reset a live connection');
+  timer.setConnected(false); assert.equal(element.textContent, '0:00'); assert.equal(timer.since, null);
+  now += 1000; timer.setConnected(true); timer.paint(); assert.equal(element.textContent, '0:00'); assert.equal(timer.since, now, 'a reconnect starts a new connection'); timer.destroy();
 });
 
 test('footer narrowing reserves the 1024 credit gap and keeps product identity down to 600px', () => {
@@ -105,6 +109,18 @@ test('round-2 band, strip and footer text tokens retain 4.5:1 contrast in both t
   }
 });
 
+
+test('AIT-587: the fold icon keeps 3:1 non-text contrast at rest in both themes', () => {
+  // WCAG 1.4.11: the resting icon, drawn in its colour at its opacity, against the paper and surface it sits on.
+  const rule = selector => new RegExp(`(?:^|\\n)${selector.replaceAll('.', '\\.')} \\{([^}]*)\\}`, 'u').exec(bandStyles)?.[1] ?? '';
+  const token = /color:var\(--aithema-([a-z-]+)\)/u.exec(rule('.fold'))?.[1];
+  assert.ok(token, 'the fold names its colour token');
+  const opacity = Number(/opacity:([\d.]+)/u.exec(rule('.fold svg'))?.[1] ?? 1);
+  for (const [theme, tokens] of Object.entries(palette)) for (const background of [tokens.paper, tokens.surface]) {
+    const ratio = contrast(mix(tokens[token], background, opacity), background);
+    assert.ok(ratio >= 3, `${theme}: fold icon ${ratio.toFixed(2)}:1 on ${background}`);
+  }
+});
 
 test('AIT-188 L2c: composer ellipsis stays attached to the preceding word in DE/EN', () => {
   for (const copy of [de, en]) assert.match(copy.placeholder, /\u00a0…$/u);
@@ -269,15 +285,14 @@ for (const hold of ['pointer', 'focus']) test(`AIT-299 r3: timer-to-identity at 
 });
 
 test('AIT-299 r2: five compact timer ticks perform zero layout reads; a new digit column remeasures', async t => {
-  t.mock.timers.enable({ apis: ['setInterval'] });
+  // AIT-587 r2: the product timer no longer ticks (TICK decision); hosts and tests still write timer digits,
+  // so the same five width-equivalent mutations are written directly.
   const f = heldFooter(t, 'connection-timer', '123:00');
-  let now = 0;
-  const timer = new ConnectionTimer(f.label, () => now); t.after(() => timer.destroy());
-  timer.setConnected(true); now = 123 * 60_000; timer.paint();
+  f.label.textContent = '123:00';
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(f.footer.dataset.fit, 'identity');
   f.resetCounts();
-  for (let i = 1; i <= 5; i++) { now += 1000; t.mock.timers.tick(1000); await new Promise(resolve => setImmediate(resolve)); }
+  for (let i = 1; i <= 5; i++) { f.label.textContent = `123:0${i}`; await new Promise(resolve => setImmediate(resolve)); }
   const counts = f.counts(); t.diagnostic(`compact 5s timer: ${counts.reads} layout reads, ${counts.probeReads} probe reads`);
   assert.equal(counts.probeReads, 0, 'tabular digit changes never clone and measure the hidden label');
   assert.equal(counts.reads, 0, 'width-equivalent timer mutations do not trigger a viewport paint');

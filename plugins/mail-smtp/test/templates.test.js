@@ -17,7 +17,9 @@ for (const locale of ['de', 'en']) {
     assert.equal(message.text, ['Aithema', c.lead, c.explanation.replace('{tier}', tierAfter), c.action + ':\n' + link, c.validity, c.unsolicited,
       '-- \n' + c.host.replace('{host}', 'host.example.test'), c.privacy + (privacyUrl ? '\n' + c.privacyLabel + ': ' + privacyUrl : ''), c.retention].join('\n\n'));
     assert.ok(message.html.includes(c.linkLabel));
-    assert.ok(message.html.includes(tierAfter + ' Credits'));
+    // AIT-587 r2 (TICK decision): EN 'credits' is lower case mid-sentence like the UI; DE 'Credits' is a noun.
+    assert.ok(message.html.includes(tierAfter + (locale === 'de' ? ' Credits' : ' credits')));
+    if (locale === 'en') assert.equal(c.explanation, 'Once confirmed, your credit rises to {tier} credits.');
     assert.doesNotMatch(message.html + message.text, /2[.,]400|lena\.gruber|12 (?:Minuten|minutes)|start2\.augmentoring/u);
   });
   test(`C2 ${locale} mail has the approved no-tier fallback`, () => {
@@ -35,7 +37,8 @@ for (const locale of ['de', 'en']) {
         expiresAt: Date.now() + 1_800_000, confirmedAllowanceMicro: 23_456_789, privacyDocumentConfigured });
       for (const [i, message] of sent.entries()) {
         const tier = locale === 'de' ? '2.345' : '2,345';
-        assert.ok(message.html.includes(tier + ' Credits')); assert.ok(message.text.includes(tier + ' Credits'));
+        const unit = locale === 'de' ? ' Credits' : ' credits';
+        assert.ok(message.html.includes(tier + unit)); assert.ok(message.text.includes(tier + unit));
         assertConfirmationMail(message, { locale, link: `https://host.example.test/confirm-email?token=opaque&lang=${locale}`,
           privacyUrl: i === 0 ? `https://host.example.test/privacy?locale=${locale}` : undefined });
       }
@@ -54,9 +57,11 @@ test('C2 every HTML placeholder is escaped, including values that look like temp
 
 // SHA-256 of subject + NUL + text + NUL + HTML from the pre-AIT-220 template
 // (main 5a880683), covering both privacy links/tier values and their fallbacks.
+// AIT-587 r2 re-pinned en[1] deliberately (TICK decision: "… to {tier} credits." matches the UI; was
+// 6bbd6253dd295604b73f7e69ccbb9cd514146de0b7cd68e94be5432d7477bc88). The other three are unchanged.
 const demoMailDigests = {
   de: ['be7d9074689f5f1a8791784d7a06271fef0356d4fe5849a5b163eccfdb064c24', '995188382773d77a966b74f6471b8ca940e2a5fa5ba36ae849feab5fee3a011b'],
-  en: ['6f8d4d87c0cc8511d0c4f7261fe8439d329848f8de903e86b2256f55863961e1', '6bbd6253dd295604b73f7e69ccbb9cd514146de0b7cd68e94be5432d7477bc88'],
+  en: ['6f8d4d87c0cc8511d0c4f7261fe8439d329848f8de903e86b2256f55863961e1', 'f46dec9b987bd01fee9bb83b4d463254a523b730eb862bcd4227a418dac4fcc4'],
 };
 for (const locale of ['de', 'en']) for (const privacy of [false, true]) {
   test(`AIT-220 ${locale} demo mail stays byte-identical (privacy/tier=${privacy})`, () => {

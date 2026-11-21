@@ -241,7 +241,7 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     tally.push('handover failed then Retry sent');
 
     // Credits: the owner balance from the server, in the host bar.
-    assert.match(await text(page, '.host-credits__text'), /^[\d.,]+ of [\d.,]+ Credits$/u);
+    assert.match(await text(page, '.host-credits__text'), /^[\d.,]+ of [\d.,]+ credits$/u);
 
     // The library: the current conversation, New, rename, sort, open, delete.
     const first = await inShadow(page, c => c.session.id);

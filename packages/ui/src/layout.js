@@ -18,16 +18,20 @@ export function connectionTime(elapsedMs) {
   const tail = String(seconds % 60).padStart(2, '0'), minutes = Math.floor(seconds / 60);
   return minutes < 60 ? `${minutes}:${tail}` : `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}:${tail}`;
 }
+/**
+ * When the current connection started (AIT-587 r2, TICK): the status's title and description say
+ * "Connected since 21:04". The footer shows no running number: a timer that restarts on reconnect
+ * reads as call time. Its slot keeps a constant, invisible reservation, so nothing in the footer moves.
+ */
 export class ConnectionTimer {
   constructor(element, now = () => Date.now()) { this.element = element; this.now = now; this.since = null; }
   setConnected(on) {
     if (on === (this.since !== null)) return;
-    this.destroy(); this.since = on ? this.now() : null;
+    this.since = on ? this.now() : null;
     this.paint();
-    if (on) { this.tick = setInterval(() => this.paint(), 1000); this.tick.unref?.(); }
   }
-  paint() { setText(this.element, connectionTime(this.since === null ? 0 : this.now() - this.since)); }
-  destroy() { clearInterval(this.tick); this.tick = null; }
+  paint() { setText(this.element, connectionTime(0)); }
+  destroy() {}
 }
 
 // The boundaries are shared by the footer's container rules and its tests.

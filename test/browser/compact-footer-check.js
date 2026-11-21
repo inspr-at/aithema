@@ -377,7 +377,8 @@ export async function legalFooterFitCheck(t) {
       assert.equal(state.creditsHidden, true, `${name}: host has no credits`);
       assert.equal(state.label, fit === 'full', `${name}: AI label yields in every compact fit`);
       assert.equal(state.voice, fit === 'full' && width >= 1100, `${name}: voice keeps its full-fit breakpoint and yields in every compact fit`);
-      assert.equal(state.timer, ['full', 'identity'].includes(fit), `${name}: timer yields in timer/role`);
+      // AIT-587 r2 (TICK decision): no running timer is shown in any fit; full/identity keep its invisible reservation (status columns below).
+      assert.equal(state.timer, false, `${name}: the connection timer is never shown`);
       assert.equal(state.statusColumns, ['full', 'identity'].includes(fit) ? 3 : 2, `${name}: status grid follows the fit`);
       assert.equal(state.statusFont, '12.5px', `${name}: approved legal-host type size`);
       assert.equal(state.aiFont, '12.5px', `${name}: AI notice keeps approved legal-host type size in every fit`);

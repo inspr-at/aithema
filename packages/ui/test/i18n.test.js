@@ -260,3 +260,19 @@ test('AIT-540 LEAD b4: consent intros, status label and call authorization stay 
   assert.equal(de.reasons['call-authorization-lost'], 'Die Freigabe für dieses Sprachgespräch ist nicht mehr gültig');
   assert.equal(de.reasons['session-revoked'], 'Die Freigabe für dieses Gespräch wurde widerrufen');
 });
+
+// AIT-587 (RC25 look 15): English writes "credits" in lower case inside a sentence; only a sentence start keeps "Credits".
+test('AIT-587: English copy never capitalises Credits mid-sentence', async () => {
+  const { adminCopy } = await import('../../../demo/admin-copy.js');
+  const found = [];
+  const walk = (value, path) => {
+    if (typeof value === 'string') {
+      for (const match of value.matchAll(/\bCredits\b/gu)) {
+        const before = value.slice(0, match.index);
+        if (before !== '' && !/[.!?]\s+$/u.test(before)) found.push(`${path}: ${value}`);
+      }
+    } else if (value && typeof value === 'object') for (const [key, child] of Object.entries(value)) walk(child, `${path}.${key}`);
+  };
+  walk(en, 'en'); walk(adminCopy.en, 'adminCopy.en');
+  assert.deepEqual(found, []);
+});

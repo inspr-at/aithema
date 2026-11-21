@@ -690,10 +690,11 @@ slot[name="contact-launcher"]::slotted(*) { box-sizing:border-box; width:44px; h
 .summary-heading { display:grid; grid-template-columns:minmax(0,1fr) fit-content(50%); align-items:stretch; gap:.75rem; min-height:44px; }
 .summary-heading > h3 { display:flex; align-items:center; }
 .summary-toggle-slot { display:grid; min-width:0; font-size:.8125rem; font-weight:600; }
-.summary-toggle-slot > * { grid-area:1 / 1; min-width:0; min-height:44px; padding:.35rem 0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.summary-toggle-slot > * { grid-area:1 / 1; min-width:0; min-height:44px; padding:.35rem .3rem .35rem 0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 /* Reserve both localized labels, including while the native button is hidden. */
 .summary-toggle-slot > span { visibility:hidden; pointer-events:none; }
-.summary-toggle { justify-self:stretch; font:inherit; color:var(--aithema-accent); }
+/* Both overview toggles end their label on one right edge: the signals toggle's .3rem inset, right-aligned (AIT-587). */
+.summary-toggle { justify-self:stretch; font:inherit; color:var(--aithema-accent); text-align:end; }
 .analysis-content h3 { font-size:.86rem; font-weight:700; color:var(--aithema-ink); }
 .analysis-content ul { display:grid; gap:.45rem; margin:0; padding:0; list-style:none; }
 .analysis-content li { position:relative; padding-inline-start:1rem; font-size:.8125rem; line-height:1.45; color:var(--aithema-muted); }

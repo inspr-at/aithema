@@ -533,7 +533,7 @@ test('credits: only the monetary balance is shown, and host-limit uses the calm 
   await tick();
   const line = root.querySelector('.host-credits');
   assert.equal(line.hidden, false);
-  assert.equal(line.querySelector('.host-credits__text').textContent, '425 of 500 Credits');
+  assert.equal(line.querySelector('.host-credits__text').textContent, '425 of 500 credits');
   assert.equal(line.querySelector('.host-credits__deadline').textContent, '');
   const statusBefore = root.querySelector('.status__label').textContent;
   c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
@@ -587,7 +587,7 @@ test('credits: pause and elapsed time never add a countdown to lifetime credit',
     'GET /credits': () => Response.json({ balance, limitSlot: { status: 'active', remainingMs: 30 * 60_000, canStartPaidWork: false } }),
   } });
   await tick();
-  assert.equal(root.querySelector('.host-credits__text').textContent, '425 of 500 Credits');
+  assert.equal(root.querySelector('.host-credits__text').textContent, '425 of 500 credits');
   assert.equal(root.querySelector('.host-credits__deadline').textContent, '');
   c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
   assert.equal(root.querySelector('.host-credits__deadline').textContent, '');

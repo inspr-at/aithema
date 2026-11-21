@@ -118,3 +118,25 @@ test('AIT-547: catalog writes precede reads in an isolated holder and triggers c
   h.size.fontsChanged(); h.size.disconnect(); h.flush();
   assert.equal(reads, candidates.length, 'disconnect cancels pending measurement');
 });
+
+// AIT-587 (AIT-547 gate3 L1): ResizeObserver delivers after layout and before paint. A width change of the
+// size-contained stack is measured in that delivery, not one animation frame later with the old reserve painted.
+test('AIT-587: a stack width change applies its reserve in the same ResizeObserver delivery', () => {
+  const h = harness(en), stack = h.pane.parentElement;
+  let width = 297, observed;
+  h.slot.getBoundingClientRect = () => ({ width, height: 20, x: 0, y: 0, top: 0, left: 0, right: width, bottom: 20 });
+  h.size.connected = false;
+  h.size.view = { ...h.size.view, addEventListener() {}, ResizeObserver: class { constructor(callback) { observed = callback; } observe() {} disconnect() {} } };
+  h.size.connect(); h.size.render(en, 'en'); h.flush();
+  const first = h.measured.length;
+  assert.ok(first > 0, 'the first frame measures the catalog');
+  width = 420;
+  observed([{ target: stack, contentRect: { width: 440, height: 600 }, borderBoxSize: [{ inlineSize: 440, blockSize: 600 }] }]);
+  assert.ok(h.measured.length > first, 'the width change is measured inside the delivery');
+  const after = h.measured.length;
+  h.flush();
+  assert.equal(h.measured.length, after, 'no second measurement waits in a later frame');
+  observed([{ target: h.slot, contentRect: { width: 420, height: 30 }, borderBoxSize: [{ inlineSize: 420, blockSize: 30 }] }]);
+  assert.equal(h.measured.length, after, 'a slot-only change (the reserve itself) still waits for its frame');
+  h.size.disconnect();
+});

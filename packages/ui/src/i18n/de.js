@@ -365,7 +365,7 @@ export const de = {
   shortcut: '{key} + Enter zum Senden', shortcutKeys: { mac: '⌘', other: 'Strg' }, summary: 'Bisher verstanden',
   summaryMore: 'Mehr anzeigen', showLess: 'Weniger anzeigen', signals: 'Signale', questions: 'Was noch offen ist',
   missing: 'Was noch fehlt', clarified: 'Schon geklärt', expand: 'Alle aufklappen', collapse: 'Alle zuklappen',
-  export: 'Gesprächsdaten herunterladen', createProject: 'Projekt erstellen', retry: 'Erneut versuchen', connecting: 'Verbindung wird aufgebaut …', connected: 'Verbunden',
+  export: 'Gesprächsdaten herunterladen', createProject: 'Projekt erstellen', retry: 'Erneut versuchen', connecting: 'Verbindung wird aufgebaut …', connected: 'Verbunden', connectedSince: 'Verbunden seit {time}',
   connectionLabels: { connecting: 'Verbindet …', connected: 'Verbunden', reconnecting: 'Verbindet …', paused: 'Pausiert', voiceInAnotherTab: 'Anderer Tab' },
   reconnecting: 'Verbindung wird wiederhergestellt …', sending: 'Wird gespeichert …', saved: 'Gespeichert', failed: 'Nicht gespeichert. Senden Sie die Nachricht erneut.', failedShort: 'Nicht gespeichert.',
   understandingFailed: 'Der Überblick konnte gerade nicht erstellt werden', understandingRetry: 'Erneut versuchen',
@@ -451,7 +451,7 @@ export const de = {
     },
     question: { title: 'Offene Frage', suggested: 'Vorschlag', hint: 'Ein Klick sendet die Antwort. Oder sprechen oder tippen Sie einfach.' },
     usedUp: {
-      title: 'Ihre Credits sind aufgebraucht.', body: 'Ihr Gespräch bleibt gespeichert. Sie können es lesen und exportieren.',
+      title: 'Ihre Credits sind aufgebraucht.', body: 'Ihr Gespräch bleibt gespeichert.',
       give: 'Mit Ihrer E‑Mail-Adresse erhalten Sie {delta}\u00a0Credits mehr.', confirm: 'Mit bestätigter E‑Mail-Adresse erhalten Sie {delta}\u00a0Credits mehr.',
       none: 'Weitere Credits gibt es hier derzeit nicht.', export: 'Gespräch exportieren',
       hostGive: 'Mit E‑Mail-Adresse: {delta} weitere\u00a0Credits. Ihr\u00a0Gespräch bleibt gespeichert.',

@@ -469,7 +469,7 @@ export async function displayMatrix(t, section) {
         tags: c.shadowRoot.querySelectorAll('.engine-tag').length, text: c.shadowRoot.querySelector('.workspace').textContent }));
       assert.equal(bad.sessionRow, false); assert.equal(bad.tags, 0);
       assert.doesNotMatch(bad.text, /~anthropic\/|anthropic\/claude|openrouter\/|Kosten unbekannt|Cost unavailable/u);
-      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-credits__text').textContent), locale === 'de' ? '655 von 1.000 Credits' : '655 of 1,000 Credits');
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-credits__text').textContent), locale === 'de' ? '655 von 1.000 Credits' : '655 of 1,000 credits');
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-credits__track i').style.width), '65.5%');
       const pane = await shadow(page, c => { const p = c.shadowRoot.querySelector('.analysis-content'); p.scrollTop = 0;
         return { overflow: p.scrollHeight > p.clientHeight, titleMask: getComputedStyle(c.shadowRoot.querySelector('.understanding > .head')).maskImage }; });

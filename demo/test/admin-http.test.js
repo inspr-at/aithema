@@ -144,3 +144,10 @@ for (const locale of ['de', 'en']) test(`AIT-247 admin page renders erasure audi
   assert.match(html, /invalid-admin-command/u);
   assert.ok(html.includes(locale === 'en' ? 'Erasure:' : 'Löschung:'));
 });
+
+// AIT-587 r2 (Codex gate1c A1): the EN credit unit is lower case like the UI footer ("of N credits"). It follows
+// amounts in the audit ("1,000 → 2,000 credits") and labels the allowance fields; DE keeps the noun "Credits".
+test('AIT-587 the EN admin credit unit is lower case; DE keeps Credits', () => {
+  assert.equal(adminCopy.en.credits.unit, 'credits');
+  assert.equal(adminCopy.de.credits.unit, 'Credits');
+});

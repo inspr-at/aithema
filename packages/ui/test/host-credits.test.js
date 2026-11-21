@@ -117,7 +117,7 @@ test('AIT-135 A2 B: used-up composer preserves the form, offers the actual delta
   const { root } = a2Setup(t, { spent: 12_000_000, voiceClient: {} }); await tick(8);
   assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'false');
   assert.equal(root.querySelector('form.composer').inert, true);
-  assert.equal(root.querySelector('.composer-out__give').textContent, 'Add your email address to get 600 more Credits.');
+  assert.equal(root.querySelector('.composer-out__give').textContent, 'Add your email address to get 600 more credits.');
   assert.equal(root.querySelector('.voice-state').textContent, 'Voice unavailable right now');
   assert.equal(root.querySelector('.voice-state').getAttribute('aria-live'), 'off', 'one region announces exhaustion');
   assert.equal(root.querySelector('.voice-start').disabled, true);
@@ -156,7 +156,7 @@ for (const copy of [de, en]) test(`AIT-135 A2 C: inline save, edit and normal de
   assert.ok(savedReads > 0, 'saving a higher tier refreshes features below the ceiling');
   assert.deepEqual(calls.find(call => call.method === 'PUT').body, { address: 'reader@example.test', noticeVersion: 'ait-135-v1' });
   assert.equal(section.dataset.emailState, 'saved');
-  assert.match(section.querySelector('.m-tier').textContent, copy === de ? /Guthaben: 1\.800\u00a0Credits/u : /Credit: 1,800\u00a0Credits/u);
+  assert.match(section.querySelector('.m-tier').textContent, copy === de ? /Guthaben: 1\.800\u00a0Credits/u : /Credit: 1,800\u00a0credits/u);
   assert.doesNotMatch(section.querySelector('.m-tier').textContent, /1[.,]455/u, 'Settings shows the tier only');
   assert.equal(root.activeElement, section.querySelector('.m-change'));
   const select = t.mock.method(input, 'select'); section.querySelector('.m-change').click();
@@ -186,7 +186,7 @@ test('AIT-135 A2 C: validation is calm, clears while typing, and saving keeps th
 test('AIT-135 A2 C: deleting an over-spent address works and restores the used-up state', async t => {
   const { root, calls } = a2Setup(t, { address: 'reader@example.test', spent: 15_000_000 }); await tick(8);
   root.querySelector('.host-verify .m-delete').click();
-  assert.match(root.querySelector('.host-verify .m-delete-over').textContent, /1,500\u00a0Credits.*used up/u);
+  assert.match(root.querySelector('.host-verify .m-delete-over').textContent, /1,500\u00a0credits.*used up/u);
   root.querySelector('.host-verify .m-del').click(); await tick(10);
   assert.equal(calls.filter(c => c.method === 'DELETE').length, 1);
   assert.match(root.querySelector('.host-verify .m-msg').textContent, /deleted.*used up/u);
@@ -255,10 +255,10 @@ test('AIT-135 A2 C: equal allowances and disabled confirmation never promise an 
     'GET /credits': () => Response.json({ balance, limitSlot: null, tiers: { current: 'anonymous', next: null, delta: 0, canConfirm: false,
       allowancesMicro: { anonymous: 5_000_000, emailGiven: 5_000_000, emailConfirmed: 8_000_000 } } }),
   } }); await tick(8);
-  assert.equal(root.querySelector('.host-verify .m-lead-mail').textContent, 'Credit: 500\u00a0Credits');
+  assert.equal(root.querySelector('.host-verify .m-lead-mail').textContent, 'Credit: 500\u00a0credits');
   assert.equal(root.querySelector('.credits-email').hidden, true);
   root.querySelector('.verify-entry').click(); await tick();
-  assert.equal(root.querySelector('.verify__lead-mail').textContent, 'Credit: 500\u00a0Credits');
+  assert.equal(root.querySelector('.verify__lead-mail').textContent, 'Credit: 500\u00a0credits');
 });
 
 
@@ -514,7 +514,7 @@ for (const copy of [de, en]) for (const state of ['anonymous', 'emailGiven', 'em
     } }); await tick(10);
     const next = root.querySelector('.host-credits__next'), action = root.querySelector('.credits-email');
     assert.doesNotMatch(root.querySelector('.host-credits__scope').textContent, /all your conversations|alle Ihre Gespräche/u);
-    assert.equal(root.querySelector('.host-credits__unit').textContent, '\u00a0Credits');
+    assert.equal(root.querySelector('.host-credits__unit').textContent, copy === de ? '\u00a0Credits' : '\u00a0credits');
     assert.equal(action.hidden, ['emailConfirmed', 'dailyCap'].includes(state));
     if (!action.hidden) assert.equal(action.textContent, copy.hostSurface.credits.confirm);
     if (current === 'anonymous' && state !== 'dailyCap') assert.equal(next.textContent, copy.hostSurface.credits.withConfirmed.replace(/\{(?:tier|n)\}/gu, copy === de ? '1.000' : '1,000').replace(' Credits', '\u00a0Credits'), 'Tick fix1: equal allowances name the confirmed tier without an email-given promise');
@@ -531,7 +531,7 @@ for (const copy of [de, en]) test(`AIT-395: owner-wide exhausted copy snapshot (
   const { root } = setup(t, { copy, host: { credits: true }, routes: {
     'GET /credits': () => Response.json({ balance, exhausted: true }),
   } }); await tick(8);
-  assert.equal(root.querySelector('.host-credits__scope').textContent, copy === de ? 'Ihre 500\u00a0Credits sind aufgebraucht, für alle Ihre Gespräche.' : 'Your 500\u00a0Credits are used up, for all your conversations.');
+  assert.equal(root.querySelector('.host-credits__scope').textContent, copy === de ? 'Ihre 500\u00a0Credits sind aufgebraucht, für alle Ihre Gespräche.' : 'Your 500\u00a0credits are used up, for all your conversations.');
 });
 
 for (const copy of [de, en]) test(`AIT-395: exhaustion offers exactly the conversation's +750 confirmation delta (${copy.display.locale})`, async t => {
@@ -588,7 +588,12 @@ for (const copy of [de, en]) test(`AIT-411: defaults equal independently capture
   const approvedCopy = html => (copy === de ? html.replaceAll('E-Mail', 'E‑Mail') : html).replaceAll('>Noch 0 Credits<', '>Noch 0&nbsp;Credits<').replaceAll('>0 Credits left<', '>0&nbsp;Credits left<').replaceAll('erhalten Sie  Credits', 'erhalten Sie &nbsp;Credits')
     // Tick AIT-443 v1 supersedes only the daily-cap sentence in these captures.
     .replaceAll('Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht. Morgen geht es weiter.', 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht.')
-    .replaceAll("This email address has reached today's limit. You can continue tomorrow.", "This email address has reached today's limit.");
+    .replaceAll("This email address has reached today's limit. You can continue tomorrow.", "This email address has reached today's limit.")
+    // AIT-587 (RC25 look 15): English writes "credits" in lower case mid-sentence.
+    .replace(/(?<= |&nbsp;)Credits(?=[ .<])/gu, match => copy === en ? 'credits' : match)
+    // AIT-587 (AIT-553 gate1 L3): the used-up body no longer promises an export it does not always offer.
+    .replaceAll(copy === en ? 'Your conversation stays saved. You can read and export it.' : 'Ihr Gespräch bleibt gespeichert. Sie können es lesen und exportieren.',
+      copy === en ? 'Your conversation stays saved.' : 'Ihr Gespräch bleibt gespeichert.');
   assert.deepEqual(actual, expected.map(approvedCopy), 'only approved AIT-435 spaces, AIT-443 daily-cap and AIT-445 v1.1 E‑Mail copy differ from RC13 plus the main hunk');
   assert.deepEqual(actual, baseline.snapshots[copy.display.locale].map(approvedCopy), 'only approved AIT-435 spaces, AIT-443 daily-cap and AIT-445 v1.1 E‑Mail copy differ from the main capture');
   assert.equal(fixture.root.querySelectorAll('[data-credit-option-variant]').length, 0, 'defaults add no option peers');
@@ -749,4 +754,15 @@ test('AIT-508 B5: a settled ledger receipt refreshes a voice-only reconciling ve
   assert.ok(f.calls.filter(call => call.path === '').length > before, 'confirmed settlement re-reads availability without a tier change');
   assert.equal(f.c.session.featureMatrix.best.voice.available, true);
   assert.equal(f.root.querySelector('.voice-start').disabled, false);
+});
+
+// AIT-587 (AIT-553 gate1 L3, RC25 look 15): the used-up panel promises export only beside an export control.
+for (const copy of [en, de]) test(`AIT-587: the give/confirm used-up panel never promises export without the export link (${copy.display.locale})`, async t => {
+  const { root } = a2Setup(t, { copy, spent: 12_000_000, voiceClient: {} }); await tick(8);
+  const out = root.querySelector('.composer-out'), body = out.querySelector('.composer-out__body [data-active="true"]');
+  assert.equal(out.getAttribute('aria-hidden'), 'false', 'the used-up panel shows');
+  assert.equal(out.dataset.next, 'give', 'the choice entrance offers the next tier');
+  assert.ok(body?.textContent, 'one body sentence is active');
+  assert.equal(out.querySelector('.composer-out__export').hasAttribute('data-export'), false, 'no export link in this state');
+  assert.doesNotMatch(body.textContent, /export/iu, `no export promise without its control: ${body.textContent}`);
 });
