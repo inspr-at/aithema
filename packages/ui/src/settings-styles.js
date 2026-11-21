@@ -210,7 +210,7 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .consent-item input { flex:none; width:20px; height:20px; accent-color:var(--aithema-accent); }
 .consent-item p, .consent-intro, .consent-withdrawal, .consent-status { margin:0; font-size:.8125rem; line-height:1.5; color:var(--aithema-muted); }
 /* AIT-603: the host's full text-consent sentence. */
-.consent-reason { margin:0; font-size:.8125rem; line-height:1.5; color:var(--aithema-ink); overflow-wrap:anywhere; }
+.consent-reason { margin:0; max-width:70ch; font-size:.8125rem; line-height:1.5; color:var(--aithema-ink); overflow-wrap:anywhere; }
 .consent-status { min-height:1.5em; }
 .general h3 { font:400 1.25rem/1.2 var(--aithema-display); }
 .general button { justify-self:start; margin-left:-.85rem; }

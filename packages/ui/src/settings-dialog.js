@@ -54,8 +54,14 @@ const shortCountryNames = (countries, locale) => {
   const regions = new Intl.DisplayNames(locale, { type: 'region', style: 'short' });
   return countries.slice(0, 2).map(code => regions.of(code)).join(', ') + (countries.length > 2 ? ` +${countries.length - 2}` : '');
 };
+// AIT-603 PR-B r3: the consent sheet shows the host's sentence in full; the
+// footer help line names it in at most HELP_REASON_CAP characters, so a long
+// host sentence no longer inflates the help cell's reserve (and shrinks the
+// settings body above it). The cap is above every stock sentence (EN/DE <= 39).
+const HELP_REASON_CAP = 40;
+const helpReason = text => String(text ?? '').length > HELP_REASON_CAP ? `${String(text).slice(0, HELP_REASON_CAP - 1).trimEnd()}…` : String(text ?? '');
 const helpMeasurements = copy => {
-  const reason = ['text', 'uploads', 'images', 'html', 'voice', 'analysis'].map(feature => featureConsentText(copy, feature))
+  const reason = ['text', 'uploads', 'images', 'html', 'voice', 'analysis'].map(feature => helpReason(featureConsentText(copy, feature)))
     .reduce((longest, text) => text.length > longest.length ? text : longest, '');
   return Object.entries(copy.help).map(([key, text]) => fill(text, { reason: key === 'consentNeeded' ? reason : '' }));
 };
@@ -719,7 +725,7 @@ export class SettingsDialog {
     const key = term?.dataset.reason ? `${term.dataset.kind || 'unavailable'}:${term.dataset.reason}` : term?.dataset.help ?? this.#help;
     const help = this.#copy.help, [kind, ...rest] = key.split(':'), reason = rest.join(':');
     const helpKey = key === 'general' && !this.#q('.host-verify').hidden ? this.#q('.host-verify').dataset.emailHelp ?? key : key;
-    const text = isConsentReason(reason) ? fill(help.consentNeeded, { reason: featureConsentText(this.#copy, term?.dataset.feature ?? 'text') })
+    const text = isConsentReason(reason) ? fill(help.consentNeeded, { reason: helpReason(featureConsentText(this.#copy, term?.dataset.feature ?? 'text')) })
       : term?.dataset.help === 'gauge' ? term.dataset.helpText : reason && ['unavailable', 'consent', 'limited'].includes(kind)
       ? fill(help[kind === 'unavailable' ? 'unavailable' : kind === 'consent' ? 'consentNeeded' : 'limited'], { reason: reasonText(this.#copy, reason, term?.dataset.feature ?? 'text') })
       : help[helpKey] ?? help[key] ?? help[this.#help] ?? help.processing;

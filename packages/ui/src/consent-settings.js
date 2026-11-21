@@ -141,7 +141,9 @@ export class ConsentSettings {
   #focus(target, scroller) {
     const reason = this.#root.querySelector('.consent-reason'), view = scroller?.getBoundingClientRect(), box = target.getBoundingClientRect();
     const shown = !view || box.width > 0 && box.height > 0 && box.top >= view.top - .5 && box.bottom <= view.bottom + .5;
-    if (shown || reason.hidden) { target.focus({ preventScroll: true }); return; }
+    // r3: focusVisible, so the checkbox shows its ring as in the voice cases even
+    // when the sheet was opened by pointer and held focus on the sentence first.
+    if (shown || reason.hidden) { target.focus({ preventScroll: true, focusVisible: true }); return; }
     reason.tabIndex = -1; reason.focus({ preventScroll: true });
   }
   #status(text) {
