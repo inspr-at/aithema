@@ -543,8 +543,9 @@ const actionName_ = async page => {
   return node?.name ?? null;
 };
 // r4, TICK M1: a host action too long for the row beside the short reason.
-const LONG_ACTION = { en: { action: 'Review and agree to message processing…', actionNarrow: 'Review and agree to processing' },
-  de: { action: 'Verarbeitung prüfen und zustimmen…', actionNarrow: 'Verarbeitung prüfen und zustimmen' } };
+// Long enough that the short reason must yield at 320 (narrow) and 390 (wide), short enough to fit the row.
+const LONG_ACTION = { en: { action: 'Review and agree to sending your messages now…', actionNarrow: 'Review and agree to message sending' },
+  de: { action: 'Verarbeitung prüfen und jetzt zustimmen…', actionNarrow: 'Verarbeitung prüfen, zustimmen' } };
 export async function consentKeyboardUpCheck(t) {
   const { open, grant, capture } = await harness(t);
   for (const [width, height, viewport] of KEYBOARD) for (const locale of ['en', 'de']) {
@@ -703,6 +704,8 @@ export async function consentKeyboardIntakeCheck(t) {
           if (intake === 'document' && !up.documentInput) failures.push(`${label}: the dock is document-enabled`);
           if (intake === 'image' && !up.imageInput) failures.push(`${label}: the dock is image-enabled`);
           for (const part of ['composer', 'field', 'send']) if (!(up[part]?.width > 0 && up[part]?.height > 0)) failures.push(`${label}: ${part} positive box: ${JSON.stringify(up[part])}`);
+          // Nothing staged: no image reserve above the field (the short-phone image slot's padding).
+          if (state !== 'staged' && up.composer && up.field && up.field.y - up.composer.y > 12) failures.push(`${label}: no reserve above the field: ${up.field.y - up.composer.y} px`);
           if (state === 'pending') {
             if (!(up.line?.box?.width > 0 && up.line?.box?.height > 0)) failures.push(`${label}: the consent line positive box: ${JSON.stringify(up.line)}`);
             else if (!(up.feedback?.height > 0) || up.feedback.height > up.line.lineHeight + .5) failures.push(`${label}: the consent row is one row: ${JSON.stringify(up.feedback)} vs ${up.line.lineHeight}`);
