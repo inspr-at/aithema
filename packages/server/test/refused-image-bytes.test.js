@@ -368,7 +368,9 @@ test('AIT-610 P1 over HTTP: admission and size refusals leave no trace through t
   t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
   const send = (clientEventId, name, content) => {
     const form = new FormData(); form.append('clientEventId', clientEventId); form.append('files', new File([content], name, { type: 'image/png' }));
-    return fetch(`${url}/api/sessions/${f.session.id}/uploads`, { method: 'POST', body: form, headers: { 'x-aithema-session-token': testToken } });
+    // A transport failure names its request (diagnostics only).
+    return fetch(`${url}/api/sessions/${f.session.id}/uploads`, { method: 'POST', body: form, headers: { 'x-aithema-session-token': testToken } })
+      .catch(error => { throw new Error(`${clientEventId}: ${error.message} (${error.cause?.code ?? error.cause?.message})`, { cause: error }); });
   };
   const refused = await send('http-refusal', 'wire.png', image.bytes), body = await refused.text();
   assert.equal(refused.status, 202, body);
