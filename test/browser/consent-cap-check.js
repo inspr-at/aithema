@@ -159,8 +159,10 @@ async function harness(t) {
   // r4: `intake` adds document ('document') or image ('image') intake; `granted`
   // mounts with text and voice already allowed (the fixture's analysis value).
   // r8: `copy` overrides top-level copy keys (e.g. a two-line imagePreparing).
-  const mountWith = async (page, locale, consent = {}, start = false, { intake = null, granted = false, copy = {} } = {}) => {
-    await page.evaluate(async (locale, overrides, start, intake, granted, copy) => {
+  // r10: `entrance` mounts another entrance ('choice', the default one) instead of the combined one.
+  const mountWith = async (page, locale, consent = {}, start = false, { intake = null, granted = false, copy = {}, entrance = 'combined' } = {}) => {
+    await page.evaluate(async (locale, overrides, start, intake, granted, copy, entrance) => {
+      globalThis.fixtureEntrance = entrance;
       const base = (await import(`/packages/ui/src/i18n/${locale}.js`))[locale];
       globalThis.fixtureCopy = { ...base, ...copy, featureConsent: { ...base.featureConsent, ...overrides } };
       globalThis.snapshot603a ??= JSON.parse(JSON.stringify(document.querySelector('aithema-session').session));
@@ -169,14 +171,14 @@ async function harness(t) {
       if (intake === 'document') best.uploads = { available: true };
       if (granted) { best.text = structuredClone(best.analysis); best.voice = structuredClone(best.analysis); }
       mount(snapshot);
-    }, locale, consent, start, intake, granted, copy);
+    }, locale, consent, start, intake, granted, copy, entrance);
     await page.waitForFunction(granted => {
       const root = document.querySelector('aithema-session').shadowRoot;
       return granted ? root.querySelector('.composer-reason[data-shortcut]') : root.querySelector('.composer-reason[data-consent-feature="text"] .consent-action');
     }, {}, granted);
     await settle(page);
   };
-  const open = async ({ width, height, locale, start = false, consent = {}, intake = null, granted = false, copy = {} }, problems) => {
+  const open = async ({ width, height, locale, start = false, consent = {}, intake = null, granted = false, copy = {}, entrance = 'combined' }, problems) => {
     const page = await browser.newPage();
     page.on('pageerror', error => problems.push(error.message));
     // AIT-603 r8b: the keyboard-up latch observes the feedback row with a ResizeObserver. Chrome dispatches a
@@ -192,7 +194,7 @@ async function harness(t) {
       ? request.respond({ status: 200, contentType: 'text/html', body: fixture }) : request.continue()); });
     await page.goto(`${server.url}/combined-fixture?locale=${locale}&passiveDenied`);
     await page.waitForFunction(() => globalThis.ready && document.querySelector('aithema-session').shadowRoot.querySelector('.composer-status').textContent.length > 0);
-    await mountWith(page, locale, consent, start, { intake, granted, copy });
+    await mountWith(page, locale, consent, start, { intake, granted, copy, entrance });
     return page;
   };
   const grant = async page => {
@@ -663,7 +665,7 @@ const intakeState = c => {
     composer: rect(root.querySelector('.composer')), field: rect(root.querySelector('textarea')), send: rect(root.querySelector('.send')),
     feedback: rect(root.querySelector('.composer-feedback')), images: rect(root.querySelector('.staged-images')),
     documentInput: root.querySelector('.composer').hasAttribute('data-document-input'), imageInput: root.querySelector('.composer').hasAttribute('data-image-input'),
-    line: line ? { box: rect(line), lineHeight: parseFloat(getComputedStyle(line).lineHeight) } : null, controls,
+    line: line ? { box: rect(line), lineHeight: parseFloat(getComputedStyle(line).lineHeight), fontSize: parseFloat(getComputedStyle(line).fontSize) } : null, controls,
     // r5: idle = the row holds nothing but the shortcut hint (no Saved, no control).
     idle: Boolean(root.querySelector('.composer-reason[data-shortcut]')) && !root.querySelector('.composer-feedback[data-saved]') && !root.querySelector('.composer-feedback :is(button, a, input)'),
     reasonState: { shortcut: root.querySelector('.composer-reason').hasAttribute('data-shortcut'), text: root.querySelector('.composer-reason').textContent } };
@@ -726,7 +728,9 @@ export async function consentKeyboardIntakeCheck(t) {
           if (!state.startsWith('staged') && up.composer && up.field && up.field.y - up.composer.y > 12) failures.push(`${label}: no reserve above the field: ${up.field.y - up.composer.y} px`);
           if (state === 'pending') {
             if (!(up.line?.box?.width > 0 && up.line?.box?.height > 0)) failures.push(`${label}: the consent line positive box: ${JSON.stringify(up.line)}`);
-            else if (!(up.feedback?.height > 0) || up.feedback.height > up.line.lineHeight + .5) failures.push(`${label}: the consent row is one row: ${JSON.stringify(up.feedback)} vs ${up.line.lineHeight}`);
+            // r10 (TICK r9 M1, LEAD 23:4x): the consent LINE is one row; the row keeps its dock's floor (image 44 px, document 3.75em).
+            else if (up.line.box.height > up.line.lineHeight + .5) failures.push(`${label}: the consent line is one row: ${JSON.stringify(up.line.box)} vs ${up.line.lineHeight}`);
+            else if (!(up.feedback?.height >= (intake === 'image' ? 43.5 : 3.75 * up.line.fontSize - .5))) failures.push(`${label}: the pending row keeps its dock's floor: ${JSON.stringify(up.feedback)}`);
           } else if (state === 'granted') {
             if (up.feedback && up.feedback.height > .5) failures.push(`${label}: nothing staged, the feedback row takes 0 px: ${JSON.stringify(up.feedback)}`);
           } else if (state.startsWith('staged')) {
@@ -1142,7 +1146,8 @@ export async function consentKeyboardHeldMinimumCheck(t) {
         await keyboardUp(page, viewport); await settleLong(page);
         const pending = await page.$eval('aithema-session', savedState), pendingRow = await page.$eval('aithema-session', rowState);
         if (!pending.keyboard) failures.push(`${name}: the keyboard flag is set`);
-        if (!pendingRow.kept || !(pending.feedback.height > 0 && pending.feedback.height < 44)) failures.push(`${name}: fixture: the one-row consent line is kept below the 44 px image row: ${JSON.stringify({ feedback: pending.feedback, row: pendingRow })}`);
+        // r10 (TICK r9 M1, LEAD 23:4x): the pending consent row already sits at the image dock's 44 px floor.
+        if (!pendingRow.kept || !(pending.feedback.height >= 43.5)) failures.push(`${name}: fixture: the pending consent line is kept at the 44 px image row: ${JSON.stringify({ feedback: pending.feedback, row: pendingRow })}`);
         await capture(page, `r9-image-dock-${name}-pending`, { ...pending, row: pendingRow });
         await page.evaluate(() => grant());
         await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason[data-consent-feature="text"]'), { timeout: 15_000 });
@@ -1288,6 +1293,90 @@ const reasonState = c => {
   return { keyboard: root.querySelector('.workspace').hasAttribute('data-phone-keyboard'), copy: reasonBox, runs, three, ellipsis, text: copy.textContent,
     line: box(copy.parentNode), dock: box(root.querySelector('.composer-dock')), send: box(root.querySelector('.send')), mic: box(root.querySelector('.composer-mic')) };
 };
+// r10 (TICK r9 M1, LEAD 23:4x; Codex gatepra9 Medium). (a) Every keyboard-up
+// feedback row respects its dock's floor in every state, the pending consent
+// line included: on the image (44 px) and document (3.75em) docks the pending
+// row already sits at the floor, so text consent clearing moves nothing: Send
+// and Mic identical at pending, cleared and cleared + 2 s (TICK's measurement,
+// 320x568 EN/DE). (b) The default `choice` entrance holds the kept row's height
+// too: a tall notice clearing with the keyboard up leaves Send and the row in
+// place (320/390 EN/DE).
+const choiceState = c => {
+  const root = c.shadowRoot, box = n => { if (!n) return null; const r = n.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
+  const feedback = root.querySelector('.composer-feedback'), workspace = root.querySelector('.workspace');
+  return { keyboard: workspace.hasAttribute('data-phone-keyboard'), entrance: workspace.dataset.entrance ?? 'choice', kept: feedback.hasAttribute('data-keyboard-kept'),
+    held: feedback.style.getPropertyValue('--feedback-held'), text: root.querySelector('.composer-reason').textContent.trim(),
+    feedback: box(feedback), field: box(root.querySelector('textarea')), send: box(root.querySelector('.send')), dock: box(root.querySelector('.composer-dock')) };
+};
+export async function consentKeyboardFloorCheck(t) {
+  const { open, capture } = await harness(t);
+  const [width, height, viewport] = KEYBOARD[0];
+  for (const intake of ['image', 'document']) for (const locale of ['en', 'de']) {
+    const name = `${width}x${height}-${locale}-keyboard-up-${intake}-dock-consent-clears`;
+    await t.test(name, async () => {
+      const problems = [], failures = [];
+      const page = await open({ width, height, locale, intake, consent: { text: stock[locale].text } }, problems);
+      try {
+        await keyboardUp(page, viewport); await settleLong(page);
+        const pending = await page.$eval('aithema-session', savedState), pendingRow = await page.$eval('aithema-session', rowState);
+        if (!pending.keyboard) failures.push(`${name}: the keyboard flag is set`);
+        if (!pendingRow.text) failures.push(`${name}: fixture: the consent line shows: ${JSON.stringify(pendingRow)}`);
+        await capture(page, `r10-floor-${name}-pending`, { ...pending, row: pendingRow });
+        await page.evaluate(() => grant());
+        await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason[data-consent-feature="text"]'), { timeout: 15_000 });
+        await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+        const cleared = await page.$eval('aithema-session', savedState), clearedRow = await page.$eval('aithema-session', rowState);
+        await capture(page, `r10-floor-${name}-cleared`, { ...cleared, row: clearedRow });
+        await wait(page, 2000); await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+        const later = await page.$eval('aithema-session', savedState);
+        await capture(page, `r10-floor-${name}-cleared-plus-2s`, later);
+        for (const [when, state] of [['cleared', cleared], ['cleared + 2 s', later]]) {
+          if (!state.keyboard) failures.push(`${name} ${when}: the keyboard stays up`);
+          failures.push(...stableBoxes(`${name} pending -> ${when}`, pending, state, ['mic', 'send', 'feedback', 'dock']));
+        }
+        t.diagnostic(`${name}: Send y pending/cleared/+2 s ${pending.send.y.toFixed(2)} / ${cleared.send.y.toFixed(2)} / ${later.send.y.toFixed(2)}; row ${pending.feedback.height} / ${cleared.feedback.height} / ${later.feedback.height}`);
+      } finally { await page.close(); }
+      none(failures, name);
+      assert.deepEqual(problems, []);
+    });
+  }
+  for (const [width, height, viewport] of KEYBOARD) for (const locale of ['en', 'de']) {
+    const name = `${width}x${height}-${locale}-choice-keyboard-up-tall-notice-clears`;
+    await t.test(name, async () => {
+      const problems = [], failures = [];
+      const page = await open({ width, height, locale, intake: 'image', granted: true, entrance: 'choice', copy: { imagePreparing: twoLine[locale] } }, problems);
+      try {
+        await mockIntake(page);
+        await keyboardUp(page, viewport); await settleLong(page);
+        await pasteImage(page);
+        await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.staged-images:not([hidden]) .staged-image'), { timeout: 15_000 });
+        await settleLong(page);
+        const shown = await page.$eval('aithema-session', choiceState);
+        if (shown.entrance !== 'choice') failures.push(`${name}: fixture: the choice entrance: ${shown.entrance}`);
+        if (!shown.keyboard) failures.push(`${name}: the keyboard flag is set`);
+        if (!shown.kept || !shown.text || !(shown.feedback?.height > 0)) failures.push(`${name}: fixture: the tall notice shows in a kept row: ${JSON.stringify(shown)}`);
+        await capture(page, `r10-choice-${name}-shown`, shown);
+        await page.$eval('aithema-session', c => { const image = c.session.uploads.find(u => u.kind === 'image');
+          c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'upload.state', data: { ...image, state: 'staged-ready', reason: undefined, digest: 'fixture', w: 1, h: 1 } }); });
+        await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason[data-shortcut]'), { timeout: 15_000 });
+        await settleLong(page);
+        const cleared = await page.$eval('aithema-session', choiceState);
+        await capture(page, `r10-choice-${name}-cleared`, cleared);
+        await wait(page, 2000); await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+        const later = await page.$eval('aithema-session', choiceState);
+        await capture(page, `r10-choice-${name}-cleared-plus-2s`, later);
+        for (const [when, state] of [['cleared', cleared], ['cleared + 2 s', later]]) {
+          if (!state.keyboard) failures.push(`${name} ${when}: the keyboard stays up`);
+          failures.push(...stableBoxes(`${name} tall notice -> ${when}`, shown, state, ['send', 'feedback', 'dock']));
+        }
+        t.diagnostic(`${name}: Send y shown/cleared/+2 s ${shown.send?.y} / ${cleared.send?.y} / ${later.send?.y}; row ${shown.feedback?.height} / ${cleared.feedback?.height} / ${later.feedback?.height}`);
+      } finally { await page.close(); }
+      none(failures, name);
+      assert.deepEqual(problems, []);
+    });
+  }
+}
+
 export async function consentKeyboardReasonDropCheck(t) {
   const { open, capture } = await harness(t);
   for (const [width, height, viewport] of KEYBOARD) for (const locale of ['en', 'de']) {
