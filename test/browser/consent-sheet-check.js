@@ -82,7 +82,7 @@ async function harness(t) {
       if (hostCopy.includes('host')) {
         const long = 'This host words its own consent reason at far greater length than the stock copy, so it wraps over many lines in the help cell.';
         const copy = globalThis.fixtureCopy;
-        globalThis.fixtureCopy = { ...copy, featureConsent: Object.fromEntries(Object.entries(copy.featureConsent).map(([key, value]) => [key, typeof value === 'string' ? long : value])),
+        globalThis.fixtureCopy = { ...copy, featureConsent: { ...copy.featureConsent, ...Object.fromEntries(['text', 'uploads', 'images', 'html', 'voice', 'analysis'].map(feature => [feature, long])) },
           help: Object.fromEntries(Object.entries(copy.help).map(([key, value]) => [key, `${value} ${long} ${long}`])) };
       }
       if (hostCopy.includes('fr')) globalThis.fixtureCopy = { ...globalThis.fixtureCopy, display: { ...globalThis.fixtureCopy.display, locale: 'fr' } };
@@ -685,7 +685,11 @@ export async function consentSheetPrivacyLinkCheck(t) {
         await page.$eval('aithema-session', c => c.shadowRoot.querySelector('dialog.settings[open] [data-gauge="privacy"]').scrollIntoView({ block: 'center' }));
         await settle(page);
         const point = await page.$eval('aithema-session', c => { const r = c.shadowRoot.querySelector('dialog.settings[open] [data-gauge="privacy"]').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
-        await page.mouse.move(point.x, point.y); await settle(page);
+        // The keyboard path (the gauge is focusable in this state); the pointer
+        // rests outside the dialog so no hovered term takes precedence.
+        void point; await page.mouse.move(1, 1);
+        await page.$eval('aithema-session', c => c.shadowRoot.querySelector('dialog.settings[open] [data-gauge="privacy"]').focus({ focusVisible: true }));
+        await settle(page);
         await page.$eval('aithema-session', c => c.shadowRoot.querySelector('dialog.settings[open] .context-message a[data-aithema-privacy]')?.focus({ focusVisible: true }));
         await settle(page);
         const after = await page.$eval('aithema-session', c => {
