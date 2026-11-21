@@ -559,6 +559,8 @@ export async function consentKeyboardUpCheck(t) {
           const consent = await page.evaluate(() => globalThis.fixtureCopy.featureConsent);
           const down = await page.$eval('aithema-session', keyboardState);
           const downName = actionName === 'granted' ? null : await actionName_(page);
+          // r4: the keyboard-down twin of every keyboard-up capture (TICK's label parity pairs).
+          await capture(page, `r4-k1-${label}-down`, down);
           if (actionName === 'granted') await grant(page);
           await keyboardUp(page, viewport); await settleLong(page);
           const up = await page.$eval('aithema-session', keyboardState);
