@@ -111,6 +111,11 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"] .ready__row[data-ready="consent"] dt { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
   .workspace[data-entrance="combined"] .ready__row[data-ready="consent"] dd { display:flex; justify-content:flex-start; text-align:left; gap:.25rem; }
   .workspace[data-entrance="combined"] .ready__row[data-ready="consent"] dd > .ready__check { margin-inline-end:0; }
+  /* A wrapped value keeps the check on its first line (AIT-587): both start at the top, and the shorter of
+     check and first line is offset by half the difference, which is exactly where centring put it on one line. */
+  .workspace[data-entrance="combined"] .ready__row[data-ready="consent"] dd { align-items:flex-start; }
+  .workspace[data-entrance="combined"] .ready__row[data-ready="consent"] dd > .ready__check { margin-block-start:max(0px, (1lh - 1.1rem) / 2); }
+  .workspace[data-entrance="combined"] .ready__row[data-ready="consent"][data-state="confirmed"] dd > span:last-child { margin-block-start:max(0px, (1.1rem - 1lh) / 2); }
   .workspace[data-entrance="combined"] .ready__row[data-ready="consent"]::before,
   .workspace[data-entrance="combined"] .ready__actions::before { content:'${reasonSeparator}' / ''; white-space:pre; margin-inline:.25rem; color:var(--aithema-muted); }
   /* An unconfirmed state hides its check icon, so it keeps no empty slot. */
