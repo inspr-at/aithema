@@ -267,11 +267,12 @@ export const combinedEntranceStyles = `
     grid-template-areas:"images images images" "message mic send" "status status status" "notice notice notice"; }
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.composer-feedback > .composer-reason:is([data-shortcut],:empty)):not(:has(.composer-feedback[data-saved])):not(:has(.composer-feedback[data-keyboard-kept])):not(:has(.composer-feedback :is(button, a, input, [tabindex]))) .composer-feedback {
     grid-area:auto; position:absolute; width:1px; height:0; min-height:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
-  /* r6 (TICK r5 M1): with the keyboard up the feedback row only grows. Once
-     something has shown in it (the Saved confirmation after a send) it keeps its
-     one row until the keyboard closes (session-element sets
-     [data-keyboard-kept]; layout.js clears it when the keyboard closes): when
-     Saved clears itself 1.6 s later the row stays, empty (the idle hint is not
+  /* r6/r7 (TICK r5/r6 M1): with the keyboard up the feedback row only grows.
+     Once anything has shown in it (Saved, "Preparing…", a notice, a control) it
+     keeps its row until the keyboard closes or the visitor sends or discards
+     (layout.js latchFeedback sets [data-keyboard-kept] on the keyboard-open
+     transition and after every composer render; it clears on keyboard close):
+     when that feedback clears itself the row stays, empty (the idle hint is not
      painted; it stays in the accessibility tree), so Send and Mic never move
      unprompted. It still opens at 0 px when nothing has shown yet. */
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback[data-keyboard-kept]:not([data-saved]) > .composer-reason:is([data-shortcut],:empty) { opacity:0; pointer-events:none; }

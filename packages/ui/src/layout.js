@@ -379,6 +379,20 @@ class ComposerSize {
 
 /** Keep the phone dock in the visual viewport, including keyboards that resize
  * only that viewport. Geometry comes from the existing band, footer and dock. */
+// r7 (AIT-603, TICK r6 M1): the phone feedback row SHOWS something when the
+// keyboard-up collapse rule (combined-entrance-styles.js) would not take it:
+// a visible Saved, a reason other than the idle shortcut hint, or a control.
+export const feedbackShows = feedback => Boolean(feedback) && (feedback.hasAttribute('data-saved')
+  || !feedback.querySelector(':scope > .composer-reason')?.matches('[data-shortcut],:empty')
+  || Boolean(feedback.querySelector('button, a, input, [tabindex]')));
+// While the keyboard is up, a row that has shown anything stays (data-keyboard-kept)
+// until the keyboard closes or the visitor sends or discards (session-element).
+export const latchFeedback = (root, keyboardUp = root.querySelector('.workspace')?.hasAttribute('data-phone-keyboard')) => {
+  const feedback = root.querySelector('.composer-feedback');
+  if (!feedback) return;
+  if (!keyboardUp) feedback.removeAttribute('data-keyboard-kept');
+  else if (feedbackShows(feedback)) feedback.setAttribute('data-keyboard-kept', '');
+};
 export class PhoneComposerViewport {
   constructor(root, { onNoticesChange = () => {}, onCompactChange = () => {}, followsTranscript = () => true,
     resizeComposer = update => update(), onComposerResize = () => {}, questionPending = () => false } = {}) {
@@ -430,9 +444,12 @@ export class PhoneComposerViewport {
       } else this.fullHeight = Math.max(this.fullHeight ?? 0, view?.innerHeight ?? height, height);
       const keyboardUp = Boolean(phone && touch && editing && this.fullHeight - height >= 150);
       workspace.toggleAttribute('data-phone-keyboard', keyboardUp);
-      // r6 (AIT-603, TICK r5 M1): a feedback row kept while the keyboard was up
-      // is released when it closes, so the next keyboard opens at 0 px again.
-      if (!keyboardUp) root.querySelector('.composer-feedback')?.removeAttribute('data-keyboard-kept');
+      // r6/r7 (AIT-603, TICK r5/r6 M1): with the keyboard up the feedback row
+      // only grows. The keyboard-open transition (and every keyboard-up paint)
+      // latches whatever the row shows now, so feedback that clears by itself
+      // later leaves its row in place, empty. Closing the keyboard releases it,
+      // so the next keyboard opens at 0 px again.
+      latchFeedback(root, keyboardUp);
       this.composerSize.fit();
       const outBody = root.querySelector('.composer-out__body');
       // Only clipped copy needs its own keyboard scroll target. Fitting copy

@@ -46,7 +46,7 @@ import { icon } from './icons.js';
 import { modelDisplayName, languageFlag, formatCredits, clockTime } from './display.js';
 import { bandStyles } from './band-styles.js';
 import { voiceSingleRowMinWidth, voiceRailMinWidth, voiceRailFlexMinWidth } from './first-paint.js';
-import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, FooterPopups, PhoneComposerViewport } from './layout.js';
+import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, FooterPopups, PhoneComposerViewport, latchFeedback } from './layout.js';
 import { createReveal } from './reveal.js';
 import { mountVersionDetails, renderHostVersion } from './version-display.js';
 import { QuestionCard, questionCardMarkup, questionCardStyles } from './question-card.js';
@@ -967,6 +967,11 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.composer-out__upgrade').addEventListener('click', event => this.openSettings(event.currentTarget, { tab: 'general', anchor: '#email' }));
     root.querySelector('.composer-out__export').addEventListener('click', event => { event.preventDefault(); if (this.#session.processingPreset !== 'device') void this.#export(); });
     root.querySelector('.purpose-new').addEventListener('click', () => this.#newConversation({ processingPreset: this.#session.processingPreset, settings: this.#session.settings }));
+    // r7: discarding is the visitor's own action: release the kept keyboard-up
+    // feedback row before the discard repaints (capture phase, ahead of the handlers).
+    root.querySelector('.composer').addEventListener('click', e => {
+      if (e.target.closest?.('.upload-discard, .staged-image__remove, .image-refusals__dismiss')) root.querySelector('.composer-feedback')?.removeAttribute('data-keyboard-kept');
+    }, true);
     root.querySelector('form').addEventListener('submit', e => { e.preventDefault(); if (this.#composerPaused) void this.#resumeComposer(); else void this.#send(); });
     root.querySelector('.composer-resume').addEventListener('click', () => { void this.#resumeComposer(); });
     root.querySelector('textarea').addEventListener('keydown', e => {
@@ -2238,6 +2243,11 @@ export class AithemaSession extends HTMLElement {
     const composer = part === 'composer' && this.#imageLayout ? this.shadowRoot.querySelector('.composer') : null;
     const following = composer && this.#followsTranscript(), height = composer?.getBoundingClientRect().height;
     this.#paint(part);
+    // r6/r7 (TICK r5/r6 M1): with the phone keyboard up the feedback row only
+    // grows: once it has shown anything (Saved, "Preparing…", a notice, a
+    // control) it stays, empty after the feedback clears by itself, until the
+    // keyboard closes (layout.js) or the visitor sends or discards.
+    if (part === 'composer') latchFeedback(this.shadowRoot);
     if (composer && composer.getBoundingClientRect().height !== height) {
       // Retain follow before a growing composer can clamp the scroll offset.
       this.#phoneViewport?.paint();
@@ -2327,11 +2337,6 @@ export class AithemaSession extends HTMLElement {
       const feedback = root.querySelector('.composer-feedback');
       const showSaved = this.#saved && reason.hasAttribute('data-shortcut') && !this.#composerPaused;
       feedback.toggleAttribute('data-saved', showSaved);
-      // r6 (TICK r5 M1): with the phone keyboard up the feedback row only grows:
-      // once Saved has shown, its row stays (empty after Saved clears) until the
-      // keyboard closes (layout.js drops the flag there).
-      if (!root.querySelector('.workspace')?.hasAttribute('data-phone-keyboard')) feedback.removeAttribute('data-keyboard-kept');
-      else if (showSaved) feedback.setAttribute('data-keyboard-kept', '');
       setText(root.querySelector('.composer-saved-sizer span'), copy.saved);
       setText(root.querySelector('.composer-saved span'), showSaved ? copy.saved : '');
       // Always mounted and exposed to AT, including while another notice wins visually.
@@ -4113,6 +4118,8 @@ export class AithemaSession extends HTMLElement {
       ...(voiceSession ? { voiceCallId: voiceSession.callId, providerSessionId: voiceSession.providerSessionId } : {}) };
     if (this.#navigation) this.#navigation.userId = this.#pending.clientEventId;
     clearTimeout(this.#savedTimer); this.#saved = false; this.#savedAnnouncement = false;
+    // r7: sending is the visitor's own action: the kept keyboard-up row may shrink.
+    this.shadowRoot.querySelector('.composer-feedback')?.removeAttribute('data-keyboard-kept');
     this.#sending = true; button.disabled = true; this.#render('composer'); this.#status(this.#copy.sending);
     try {
       const response = await this.#api(`${this.#base}/api/sessions/${sessionId}/turns`, this.#pending, { sessionToken: this.#sessionToken });
