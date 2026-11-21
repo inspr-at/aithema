@@ -28,8 +28,9 @@ import assert from 'node:assert/strict';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createHandlers, createPluginRuntime, SQLiteStorage } from '../src/index.js';
-import { reasoningRequest } from '@inspr/aithema-core';
+import { createHandlers, createPluginRuntime, SQLiteStorage, mockPresets } from '../src/index.js';
+import { createMockReasoning, PluginRegistry, reasoningRequest } from '@inspr/aithema-core';
+import { registerDemoExtractors } from '../../../demo/uploads.js';
 import { mockConsent, testToken, ownedRequest, temporaryDb } from '../../../test/helpers.js';
 import { bytes as textBytes, pdf } from '../../../test/extractor-fixtures.js';
 
@@ -52,11 +53,14 @@ async function tmpEntries() {
   return out;
 }
 
-async function fixture(t, { presets } = {}) {
+async function fixture(t) {
   const path = await temporaryDb(), storage = new SQLiteStorage(path);
   const logs = [], admitted = [], normalized = [];
-  const runtime = createPluginRuntime({ storage, presets, consent: mockConsent });
-  const handlers = createHandlers({ storage, pluginRuntime: runtime, consent: mockConsent, log: entry => { logs.push(entry); } });
+  // Documents use the demo extractors so a mixed request runs the model lanes.
+  const reasoning = createMockReasoning(), registry = new PluginRegistry().register(reasoning), presets = mockPresets();
+  registerDemoExtractors(registry, presets);
+  const runtime = createPluginRuntime({ storage, reasoning, registry, presets, consent: mockConsent });
+  const handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent: mockConsent, log: entry => { logs.push(entry); } });
   const session = storage.create({ ownerToken: testToken, demo: true });
   for (const method of ['log', 'info', 'warn', 'error', 'debug', 'trace']) t.mock.method(console, method, (...args) => { logs.push(args); });
   // Every model lane passes through runtime.admit with its full request.
