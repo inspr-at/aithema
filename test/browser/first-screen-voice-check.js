@@ -64,13 +64,20 @@ async function open(page, server, variant, entrance = 'combined') {
     };
   }, { theme: variant.theme, entrance });
 }
-// Press the rail's Pause (paused = true) or Resume (false) and wait until that command is acknowledged.
-// A timeout throws with the label.
+// Press the rail's Pause (paused = true) or Resume (false) and wait until that command is acknowledged:
+// the provider's receipt for this press says acknowledged with the requested state, and the rail shows it.
+// A missing or refusing receipt, or a timeout, throws with the label.
 async function togglePause(page, paused, label, timeout = 10_000) {
-  await page.evaluate(() => c.shadowRoot.querySelector('.pause').click());
-  await page.waitForFunction(v => c.shadowRoot.querySelector('.pause').getAttribute('aria-pressed') === String(v)
-    || c.shadowRoot.querySelector('.voice-pause').getAttribute('aria-pressed') === String(v), { timeout }, paused)
+  const before = await page.evaluate(() => { const count = voiceReceipts.length; c.shadowRoot.querySelector('.pause').click(); return count; });
+  await page.waitForFunction((v, before) => {
+    const receipt = voiceReceipts.slice(before).find(r => r.command === (v ? 'pause' : 'resume'));
+    if (receipt && (receipt.acknowledged !== true || receipt.paused !== v)) return true;
+    return receipt && c.shadowRoot.querySelector('.pause').getAttribute('aria-pressed') === String(v);
+  }, { timeout }, paused, before)
     .catch(error => { throw new Error(`${label}: the ${paused ? 'pause' : 'resume'} was not acknowledged within ${timeout / 1000} s`, { cause: error }); });
+  const receipt = await page.evaluate((v, before) => voiceReceipts.slice(before).find(r => r.command === (v ? 'pause' : 'resume')), paused, before);
+  if (receipt.acknowledged !== true || receipt.paused !== paused)
+    throw new Error(`${label}: the ${paused ? 'pause' : 'resume'} was not acknowledged within ${timeout / 1000} s: ${JSON.stringify(receipt)}`);
 }
 async function observe(page) {
   await page.evaluate(async () => { await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
