@@ -17,13 +17,17 @@ const releasePendingRequest = () => { pendingUploadRequests--; };
 // AIT-610, LEAD option A (Desk 203dfe1c): original image bytes are never written
 // to SQLite, a file or any other persistent store. They wait in memory for the
 // server's local normalizer; only an accepted image's normalized output is stored.
-// Hard bound: MAX_PENDING_IMAGE_NORMALIZATIONS image slots process-wide. A
-// request reserves maxFilesPerRequest slots SYNCHRONOUSLY at its admission
-// check, before any await, so concurrent requests cannot all pass the check.
-// Without room it is refused (429, reason 'image-normalizations') before its
-// body is read. After parsing it keeps one slot per held original and returns
-// the rest; every exit path returns the unused reservation, and each original
-// returns its slot when its job ends (or at shutdown).
+// Hard bound: at most MAX_PENDING_IMAGE_NORMALIZATIONS originals are held
+// process-wide (image slots). While all slots are taken, a new request is
+// refused (429, reason 'image-normalizations') before its body is read.
+// Concurrent requests that passed that check while slots were free are bounded
+// at admission: the slot assignment and the holds run in ONE synchronous turn
+// (no await between counting free slots, storage.postUploads and holding), so
+// images beyond the free slots are refused per file in the receipt with reason
+// 'image-normalizations' and never held. A worst-case reservation before the
+// body read is not possible: the server cannot know a request's image count
+// before reading it, and AIT-219 requires three concurrent document requests to
+// be admitted. Each original returns its slot when its job ends (or at shutdown).
 // True memory bound (default ceilings: maxRequestBytes 21 MiB, maxBytes 20 MiB,
 // MAX_PENDING_UPLOAD_REQUESTS 3 retained requests):
 //   - request bodies being read or parsed: at most 3 x 21 MiB (readBody's one
@@ -37,7 +41,7 @@ const releasePendingRequest = () => { pendingUploadRequests--; };
 // staged-refused 'unavailable', which the client shows with an instruction to
 // attach the image again.
 const MAX_PENDING_IMAGE_NORMALIZATIONS = 8;
-let imageSlots = 0; // reserved by requests being admitted + held originals
+let imageSlots = 0; // held originals
 const STAGING_MS = 30 * 60 * 1000;
 /** Admission counters, for tests and diagnostics (counts only, never bytes). */
 export const uploadAdmissionState = () => ({ pendingUploadRequests, imageSlots });
@@ -107,8 +111,8 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
   const limits = normalizeUploadLimits(configured), jobs = new Map(), expiryTimers = new Map();
   // uploadId -> the owned copy of an image original awaiting normalization.
   const originals = new Map();
-  // The caller moves one slot of its request's reservation to the held original.
-  function holdOriginal(uploadId, bytes) { originals.set(uploadId, Uint8Array.prototype.slice.call(bytes)); }
+  // The caller assigned a free slot to this original in the same synchronous turn.
+  function holdOriginal(uploadId, bytes) { originals.set(uploadId, Uint8Array.prototype.slice.call(bytes)); imageSlots++; }
   function releaseOriginal(uploadId) {
     const bytes = originals.get(uploadId);
     if (!bytes) return;
@@ -225,10 +229,7 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
       const active = requestsPerSession.get(id) ?? 0;
       if (active >= limits.maxConcurrentRequestsPerSession || requestsInDeployment >= limits.maxConcurrentRequestsPerDeployment) return json({ error: 'upload-rate-limit' }, 429);
       if (pendingUploadRequests >= MAX_PENDING_UPLOAD_REQUESTS) return json({ error: 'upload-rate-limit' }, 429);
-      // Reserve synchronously, in the same turn as the check (no await between).
-      let reserved = Math.min(limits.maxFilesPerRequest, MAX_PENDING_IMAGE_NORMALIZATIONS);
-      if (imageSlots + reserved > MAX_PENDING_IMAGE_NORMALIZATIONS) return json({ error: 'upload-rate-limit', reason: 'image-normalizations' }, 429);
-      imageSlots += reserved;
+      if (imageSlots >= MAX_PENDING_IMAGE_NORMALIZATIONS) return json({ error: 'upload-rate-limit', reason: 'image-normalizations' }, 429);
       pendingUploadRequests++;
       requestsPerSession.set(id, active + 1); requestsInDeployment++;
       let retained = false, files = [], bytes, kept = [];
@@ -284,6 +285,10 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
             if (reason) for (const file of files) if (file.kind === 'image') file.refusal = reason;
           } else if (availability.reason) return json({ error: 'uploads-unavailable', reason: availability.reason }, 403);
         }
+        // From here to the holds below there is no await: count the free slots,
+        // refuse the images beyond them, commit and hold in one synchronous turn.
+        let free = MAX_PENDING_IMAGE_NORMALIZATIONS - imageSlots;
+        for (const file of files) if (file.kind === 'image' && !file.refusal) { if (free > 0) free--; else file.refusal = 'image-normalizations'; }
         const result = storage.postUploads(id, clientEventId, digest, files, limits, { ...guard, revision, partialImages: true });
         if (!result.replayed) {
           // Events follow the admitted files in order; hold each admitted image's original before its job starts.
@@ -293,7 +298,7 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
           // (publish, expiry and its erasure checkpoint): each job's finally
           // releases its original and slot, and the retained request.
           const pending = result.events.map((event, i) => {
-            if (stagedImage(event.data)) { holdOriginal(event.data.id, admittedFiles[i].bytes); reserved--; }
+            if (stagedImage(event.data)) holdOriginal(event.data.id, admittedFiles[i].bytes);
             return start(id, event.data.id);
           });
           // This callback captures no request body or multipart byte views.
@@ -311,7 +316,6 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
         if (remaining) requestsPerSession.set(id, remaining); else requestsPerSession.delete(id);
         requestsInDeployment--;
         if (!retained) releasePendingRequest();
-        imageSlots -= reserved; // the unused reservation, on every exit
         // Every exit (refusal, error or admission): zero the whole request body
         // (framing, fields, every image part and every refused part). Only the
         // views of admitted documents stay: the document rules store them anyway

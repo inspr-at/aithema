@@ -330,11 +330,12 @@ drop). Two other byte paths follow their own rules, listed below.
   health, the image quota and a consent revision during admission refuse the
   image in the receipt's `refused[]` with its kind and reason. A purpose pause
   (409), size or part limits (413), malformed multipart (400) and unavailable
-  documents (403) refuse the whole request. The server has eight image slots.
-  A request reserves `maxFilesPerRequest` slots at its admission check, before
-  any await; without room it is refused (429,
-  `reason: 'image-normalizations'`) before its body is read. After parsing it
-  keeps one slot per admitted image and returns the rest. On every exit,
+  documents (403) refuse the whole request. The server holds at most eight
+  image originals. While all eight slots are taken, a request is refused (429,
+  `reason: 'image-normalizations'`) before its body is read. Requests admitted
+  concurrently while slots were free take slots in one synchronous step at
+  admission; images beyond the free slots are refused in the receipt with
+  reason `image-normalizations` and never held. On every exit,
   refusal or admission, the request body is zero-filled (only the parts of
   admitted documents stay, which the document rules store), and a failed read
   zero-fills its partial buffers. Request and image bytes in memory stay
