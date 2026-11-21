@@ -822,7 +822,15 @@ export async function consentKeyboardWideActionCheck(t) {
           // Nothing offscreen; the action box stays inside the row.
           if (action.box.x < -.5 || action.box.x + action.box.width > width + .5) failures.push(`${label}: the action is on screen: ${JSON.stringify(action.box)}`);
           if (action.box.x < line.box.x - .5 || action.box.x + action.box.width > line.box.x + line.box.width + .5) failures.push(`${label}: the action box is at most the row: ${JSON.stringify({ action: action.box, line: line.box })}`);
-          for (const r of action.rects) if (r.x < -.5 || r.x + r.width > width + .5) failures.push(`${label}: no action text offscreen: ${JSON.stringify(r)}`);
+          // A text run's range rect is its unclipped layout; the painted part is
+          // that run inside the visible span's overflow box (text-overflow clips there).
+          const clip = state.actionText?.clip;
+          if (!(clip?.width > 0 && clip?.height > 0) || state.actionText.overflowX !== 'hidden') failures.push(`${label}: the visible label clips at a positive box: ${JSON.stringify(state.actionText)}`);
+          else for (const r of action.rects) {
+            const left = Math.max(r.x, clip.x), right = Math.min(r.x + r.width, clip.x + clip.width);
+            if (!(right > left)) failures.push(`${label}: the action text is painted: ${JSON.stringify({ r, clip })}`);
+            else if (left < -.5 || right > width + .5) failures.push(`${label}: no action text offscreen: ${JSON.stringify({ left, right, clip })}`);
+          }
           // One line: the action never wraps the dock taller.
           if (action.box.height > line.lineHeight + .5) failures.push(`${label}: the action is one line: ${action.box.height} vs ${line.lineHeight}`);
           if (new Set(action.rects.map(r => Math.round(r.y))).size > 1) failures.push(`${label}: the action's text is one line: ${JSON.stringify(action.rects)}`);
@@ -837,7 +845,8 @@ export async function consentKeyboardWideActionCheck(t) {
           const action = c.shadowRoot.querySelector('.composer-reason[data-consent-feature="text"] .consent-action');
           const shown = action ? [...action.children].find(n => n.checkVisibility()) : null;
           return { actionEllipsis: Boolean(shown && getComputedStyle(shown).textOverflow === 'ellipsis' && shown.scrollWidth > shown.clientWidth),
-            actionText: shown ? { text: shown.textContent, scrollWidth: shown.scrollWidth, clientWidth: shown.clientWidth, overflow: getComputedStyle(shown).textOverflow } : null };
+            actionText: shown ? { text: shown.textContent, scrollWidth: shown.scrollWidth, clientWidth: shown.clientWidth, overflow: getComputedStyle(shown).textOverflow,
+              overflowX: getComputedStyle(shown).overflowX, clip: (({ x, y, width, height }) => ({ x, y, width, height }))(shown.getBoundingClientRect()) } : null };
         };
         const down = { ...await page.$eval('aithema-session', keyboardState), ...await page.$eval('aithema-session', widthState) };
         const downName = await check(down, 'keyboard-down');
