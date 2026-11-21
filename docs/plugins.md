@@ -330,9 +330,19 @@ drop). Two other byte paths follow their own rules, listed below.
   health, the image quota and a consent revision during admission refuse the
   image in the receipt's `refused[]` with its kind and reason. A purpose pause
   (409), size or part limits (413), malformed multipart (400) and unavailable
-  documents (403) refuse the whole request. While eight image originals already
-  wait for normalization, a new request is refused (429,
-  `reason: 'image-normalizations'`) before its body is read. Refused bytes are
+  documents (403) refuse the whole request. The server has eight image slots.
+  A request reserves `maxFilesPerRequest` slots at its admission check, before
+  any await; without room it is refused (429,
+  `reason: 'image-normalizations'`) before its body is read. After parsing it
+  keeps one slot per admitted image and returns the rest. On every exit,
+  refusal or admission, the whole request body is zero-filled, and a failed
+  read zero-fills its partial buffers. Request and image bytes in memory stay
+  below about 166 MiB at the default ceilings: three retained request bodies
+  (3 × 21 MiB), their held originals (3 × 21 MiB, at most eight) and the
+  normalizer's IPC copies of one image (2 × 20 MiB). A file is image input when
+  its signature says image (PNG, JPEG, WebP, GIF, BMP, TIFF, HEIC/AVIF, JPEG XL),
+  its name has an image suffix, or its client MIME says image while its bytes
+  carry no PDF/Office signature. Refused bytes are
   never written: no `uploads` row, no blob, no temp file, no cache. For
   idempotent replay the receipt keeps the refused positions, kinds and reasons
   plus a SHA-256 digest over the request's names and file digests, never the
@@ -344,10 +354,13 @@ drop). Two other byte paths follow their own rules, listed below.
   free, credential-free); the runtime checks admission again before calling it.
   Only an accepted image's normalized output is stored (`staged-ready`). A
   refusal (admission, type, size, dimensions, malformed) records
-  `staged-refused` with its reason. The original is then dropped and zeroed. A
-  restart loses originals still waiting; their rows become `staged-refused`
-  with reason `unavailable`, which the client shows as a refusal, so the
-  visitor attaches the image again.
+  `staged-refused` with its reason. The original is then dropped and zeroed.
+  Ownership and the job are registered before anything that can throw, so an
+  exception cannot strand an original; shutdown zeroes every original it still
+  holds. A restart loses originals still waiting. Recovery runs before boot
+  expiry: such a row becomes `staged-refused` with reason `unavailable` (never
+  `deadline`, never silently discarded) and a fresh staging window. The client
+  tells the visitor to attach the image again (EN and DE copy).
 - **Turns** carry upload IDs, never bytes. A refused or still pending ID cannot
   be attached.
 
@@ -361,9 +374,14 @@ Out of scope, with their own rules:
   becomes image input to a model lane (tested with an image embedded in a DOCX).
 
 `packages/server/test/refused-image-bytes.test.js` covers each listed path and
-reason: no stored row, database file, WAL or backup copy, temp file, log line,
-error message or stack, stdout/stderr write, event or model-lane request holds
-the refused bytes. Each channel has a positive control.
+reason with a sentinel image: no stored row or table, database file, WAL or
+rollback journal, backup snapshot taken during the job, temp file (sampled
+before and during the job, nested included), write through Node's `fs` write
+APIs (so a file deleted between samples is still seen), console or host log
+entry (message, stack and `Error.cause` included), stdout/stderr write, stored
+or live event, model-lane request or response body holds the refused bytes.
+Each channel has a positive control. Writes made natively outside Node's `fs`
+APIs (other than SQLite's own files, which are scanned) are not observed.
 
 ## Routing and health
 

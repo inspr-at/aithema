@@ -1333,7 +1333,7 @@ All new leaf keys in the EN/DE bundles are listed below (paths are relative to
 | `imageRefusals.dimensions` | The image dimensions are too large. | Die Bildabmessungen sind zu groß. | None |
 | `imageRefusals.deadline` | Preparing the image took too long. | Die Bildvorbereitung hat zu lange gedauert. | None |
 | `imageRefusals.cancelled` | Preparing the image was cancelled. | Die Bildvorbereitung wurde abgebrochen. | None |
-| `imageRefusals.unavailable` | Images cannot be prepared right now. | Bilder können gerade nicht vorbereitet werden. | None |
+| `imageRefusals.unavailable` | Images cannot be prepared right now. Please attach the image again. | Bilder können gerade nicht vorbereitet werden. Bitte hängen Sie das Bild erneut an. | None |
 | `imageRefusals.session` | The images exceed this conversation's total file size. | Die Bilder überschreiten die gesamte Dateigröße dieses Gesprächs. | None |
 | `imageRefusals.model` | This assistant can't read images. | Bilder werden von diesem Assistenten nicht gelesen. | `imageUnsupportedModel` |
 | `imageRefusals.live-call` | Images can be sent in text mode. | Bilder lassen sich im Textmodus senden. | `imageLiveCall` |

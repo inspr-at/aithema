@@ -34,23 +34,26 @@ export async function readBody(request, limit = REQUEST_LIMIT) {
   const body = declared === null ? null : Buffer.allocUnsafe(declared);
   const reader = request.body.getReader();
   let first, growing, size = 0;
+  // AIT-610 r3: a body may carry refused image bytes. Each chunk is zero-filled
+  // once copied, and every partial buffer is zero-filled when the read fails;
+  // the caller zero-fills the returned body when it is done with it.
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       size += value.length;
-      if (size > limit) { await reader.cancel(); throw new RangeError('Request limit'); }
+      if (size > limit) { value.fill(0); await reader.cancel(); throw new RangeError('Request limit'); }
       if (!value.length) continue;
       if (body) {
-        if (size > body.length) { await reader.cancel(); throw new TypeError('Request length mismatch'); }
-        body.set(value, size - value.length);
+        if (size > body.length) { value.fill(0); await reader.cancel(); throw new TypeError('Request length mismatch'); }
+        body.set(value, size - value.length); value.fill(0);
       } else if (!first && !growing) first = value;
       else {
         if (!growing) {
           growing = new ArrayBuffer(size, { maxByteLength: limit });
-          new Uint8Array(growing).set(first); first = null;
+          new Uint8Array(growing).set(first); first.fill(0); first = null;
         } else growing.resize(size);
-        new Uint8Array(growing, size - value.length, value.length).set(value);
+        new Uint8Array(growing, size - value.length, value.length).set(value); value.fill(0);
       }
     }
     if (body) {
@@ -59,6 +62,9 @@ export async function readBody(request, limit = REQUEST_LIMIT) {
     }
     if (growing) return Buffer.from(growing, 0, size);
     return first ? Buffer.from(first.buffer, first.byteOffset, first.byteLength) : Buffer.alloc(0);
+  } catch (error) {
+    body?.fill(0); first?.fill(0); if (growing) new Uint8Array(growing).fill(0);
+    throw error;
   } finally { reader.releaseLock(); }
 }
 
