@@ -13,7 +13,7 @@ function scrollBetween(scroller, top, bottom, gap = 12) {
 
 /** The host's current, versioned consent document, edited inside Settings. */
 export class ConsentSettings {
-  #button; #root; #copy; #ports; #document; #epoch = 0; #busy = false; #feature; #item; #statusText = ''; #stale = false; #savingLabel = null;
+  #button; #root; #copy; #ports; #document; #epoch = 0; #busy = false; #feature; #item; #statusText = ''; #stale = false; #savingLabel = null; #placed = null;
   constructor({ root, copy, ports }) {
     this.#root = root; this.#copy = copy; this.#ports = ports;
     root.setAttribute('role', 'form');
@@ -46,7 +46,7 @@ export class ConsentSettings {
     if (!reload) { this.#document = null; this.#stale = false; this.#savingLabel = null; this.#root.querySelector('.consent-items').replaceChildren(); }
     this.#root.hidden = false; this.#button.classList.add('consent-save'); this.#paintReason();
     this.#status(this.#copy.host.consentPage.loading); this.#paintBusy();
-    if (!reload) this.#holdFocus();
+    if (!reload) { this.#holdFocus(); this.#placed = this.#root.getRootNode().activeElement; }
     try {
       const described = await this.#ports.load();
       if (epoch !== this.#epoch) return;
@@ -84,7 +84,7 @@ export class ConsentSettings {
       const targetId = ids.find(id => !doc.selected.includes(id)) ?? ids[0];
       const target = [...fieldset.querySelectorAll('input')].find(box => box.value === targetId);
       target.closest('.consent-item').classList.add('consent-item--target');
-      if (!reload) this.#focus(target, this.#reveal(target.closest('.consent-item')));
+      if (!reload) { const scroller = this.#reveal(target); if (this.#focusIsOurs()) this.#focus(target, scroller); }
     } catch {
       if (epoch !== this.#epoch) return;
       this.#document = null; this.#savingLabel = null; this.#root.querySelector('.consent-items').replaceChildren();
@@ -105,18 +105,26 @@ export class ConsentSettings {
     if (top < box.top + gap || bottom > box.bottom - gap) scroller.scrollTop += top - box.top - gap;
   }
   // AIT-603: with the host sentence shown, a loaded document keeps it on screen:
-  // the scroll moves the least that shows the sentence and the target item
-  // together, and anchors at the sentence when both do not fit. Without it (or
-  // without a scrolling ancestor) the target centres, as before. Returns the scroller.
-  #reveal(row) {
+  // the scroll moves the least that shows the sentence and the target checkbox
+  // with its label line together (not the purpose below it), and anchors at the
+  // sentence when both do not fit. Without it (or without a scrolling ancestor)
+  // the target checkbox centres, as on main. Returns the scroller.
+  #reveal(target) {
     const reason = this.#root.querySelector('.consent-reason'), view = this.#root.ownerDocument.defaultView;
     let scroller = null;
-    for (let n = row.parentElement; n && view?.getComputedStyle; n = n.parentElement) {
+    for (let n = target.closest('.consent-item')?.parentElement; n && view?.getComputedStyle; n = n.parentElement) {
       if (/(auto|scroll)/u.test(view.getComputedStyle(n).overflowY) && n.scrollHeight > n.clientHeight) { scroller = n; break; }
     }
-    if (reason.hidden || !scroller) { row.scrollIntoView({ block: 'center' }); return scroller; }
-    scrollBetween(scroller, reason.getBoundingClientRect().top, row.getBoundingClientRect().bottom);
+    if (reason.hidden || !scroller) { target.scrollIntoView({ block: 'center' }); return scroller; }
+    scrollBetween(scroller, reason.getBoundingClientRect().top, (target.closest('label') ?? target).getBoundingClientRect().bottom);
     return scroller;
+  }
+  // AIT-603: a load moves focus only if it is still where the sheet put it on
+  // open (the sentence, the element focused then) or nowhere in particular (the
+  // page, the sheet itself). Focus the visitor moved while it loaded stays.
+  #focusIsOurs() {
+    const active = this.#root.getRootNode().activeElement;
+    return !active || active === this.#placed || active === this.#root || active === this.#root.querySelector('.consent-reason') || active === this.#root.ownerDocument.body;
   }
   // AIT-603: keyboard focus lands on screen. The target checkbox takes it when
   // the reveal shows it; otherwise (the sentence anchors, the target is below)
