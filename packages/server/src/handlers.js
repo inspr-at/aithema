@@ -63,7 +63,8 @@ export async function readBody(request, limit = REQUEST_LIMIT) {
     if (growing) return Buffer.from(growing, 0, size);
     return first ? Buffer.from(first.buffer, first.byteOffset, first.byteLength) : Buffer.alloc(0);
   } catch (error) {
-    body?.fill(0); first?.fill(0); if (growing) new Uint8Array(growing).fill(0);
+    const partial = [body, first, growing && new Uint8Array(growing)];
+    setImmediate(() => { for (const buffer of partial) buffer?.fill(0); });
     throw error;
   } finally { reader.releaseLock(); }
 }
