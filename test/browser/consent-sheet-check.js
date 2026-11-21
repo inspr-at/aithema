@@ -98,7 +98,8 @@ async function harness(t) {
         globalThis.fetch = async (url, options = {}) => {
           if ((options.method ?? 'GET') !== 'GET' || !new URL(url, location.href).pathname.endsWith('/settings')) return consentFetch(url, options);
           const catalog = await (await consentFetch(url, options)).json();
-          for (const preset of Object.values(catalog.presets ?? {})) for (const model of preset.models ?? []) model.facts = { ...model.facts, hostCountries: countries, hostTraining: true };
+          catalog.settings = globalThis.countriesSession?.settings ?? catalog.settings;
+          catalog.presets.best.models = [{ ...catalog.presets.best.models[0], id: 'default', facts: { ...catalog.presets.best.models[0].facts, hostCountries: countries, hostTraining: true } }];
           return Response.json(catalog);
         };
         document.querySelector('aithema-session').insertAdjacentHTML('beforeend', '<nav slot="legal"><a data-aithema-privacy href="/host-privacy">Host document</a></nav>');
@@ -659,8 +660,20 @@ export async function consentSheetPrivacyLinkCheck(t) {
       const problems = [];
       const page = await open({ width, height, locale, sentence: undefined, doc: null, countries: COUNTRIES }, problems);
       try {
-        await page.$eval('aithema-session', c => c.openSettings());
-        await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings[open] [data-gauge="privacy"]')?.dataset.state === 'hostCountries', { timeout: 20_000 });
+        // As start2-display's provider-seat check: the best preset's 'default'
+        // model carries the countries, voice and visuals off.
+        await page.$eval('aithema-session', c => {
+          const session = structuredClone(c.session);
+          session.settings = { ...session.settings, preset: 'best', model: 'default', voice: 'off', visuals: 'off' };
+          globalThis.countriesSession = session;
+          c.configure({ copy: globalThis.fixtureCopy, session }); c.openSettings();
+        });
+        try {
+          await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings[open] [data-gauge="privacy"]')?.dataset.state === 'hostCountries', { timeout: 20_000 });
+        } catch {
+          const state = await page.$eval('aithema-session', c => ({ open: Boolean(c.shadowRoot.querySelector('dialog.settings[open]')), privacy: c.shadowRoot.querySelector('[data-gauge="privacy"]')?.dataset.state ?? null, settings: c.session?.settings ?? null }));
+          throw new Error(`precondition: the privacy gauge shows provider countries: ${JSON.stringify(state)}`);
+        }
         await settle(page);
         const before = await page.$eval('aithema-session', helpState);
         const point = await page.$eval('aithema-session', c => { const r = c.shadowRoot.querySelector('dialog.settings[open] [data-gauge="privacy"]').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
