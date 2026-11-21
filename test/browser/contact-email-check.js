@@ -38,6 +38,14 @@ export async function noUploadsFeedbackCheck(t) {
   assert.deepEqual(rects.filter(row => row.shift !== 0), [], 'AIT-510 r16: combined composers without uploads retain main feedback boxes exactly');
 }
 
+// AIT-603 r3: evidence only, written with the rects (no assertion reads it).
+const scrollState = c => {
+  const root = c.shadowRoot, shell = root.querySelector('.transcript-shell'), outer = root.querySelector('.conversation-scroll'), workspace = root.querySelector('.workspace');
+  const read = n => n && { scrollTop: n.scrollTop, scrollHeight: n.scrollHeight, clientHeight: n.clientHeight, rect: n.getBoundingClientRect().toJSON(), paddingTop: getComputedStyle(n).paddingTop };
+  return { shell: read(shell), outer: read(outer), dock: workspace.style.getPropertyValue('--phone-dock'), band: workspace.style.getPropertyValue('--phone-band'),
+    pageY: scrollY, slack: shell.style.getPropertyValue('--aithema-slack-bottom'), offer: root.querySelector('.email-offer')?.getBoundingClientRect().toJSON() };
+};
+
 export async function combinedOfferCheck(t) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-combined-offer-address-'));
   const demo = await startChild(new URL('../fixtures/email-offer-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
@@ -58,6 +66,8 @@ export async function combinedOfferCheck(t) {
     await settle(page);
     const before = await boxes(page, targets);
     for (const box of before) assert.ok(box[2] > 0 && box[3] > 0, `${label}: positive capture geometry`);
+    // AIT-603 r3 evidence only (TICK M1 diagnosis): the scroll state around the save.
+    const scrollBefore = await shadow(page, scrollState);
     if (evidence) await page.screenshot({ path: join(evidence, `ait-506-${label}-email-address-capture.png`) });
     await page.evaluate(() => { window.ait164.linkFails = true; });
     await shadow(page, (c, address) => { const row = c.shadowRoot.querySelector('.email-offer'); row.querySelector('input').value = address; row.querySelector('form').requestSubmit(); }, address);
@@ -65,12 +75,13 @@ export async function combinedOfferCheck(t) {
     await settle(page);
     const after = await boxes(page, targets);
     for (const box of after) assert.ok(box[2] > 0 && box[3] > 0, `${label}: positive saved-address geometry`);
+    const scrollAfter = await shadow(page, scrollState);
     const saved = await shadow(page, c => { const row = c.shadowRoot.querySelector('.email-offer'), address = row.querySelector('.email-offer__address'), message = row.querySelector('.email-offer__message');
       return { address: address.textContent, title: address.title, addressBox: address.getBoundingClientRect().toJSON(), messageBox: message.getBoundingClientRect().toJSON() }; });
     assert.equal(saved.address, address, `${label}: full saved address stays available`);
     assert.ok(saved.addressBox.width > 0 && saved.addressBox.height > 0, `${label}: positive address box`);
     const shift = Math.max(...before.flatMap((box, i) => box.map((n, j) => Math.abs(n - after[i][j]))));
-    rects.push({ label, targets, before, after, shift, saved });
+    rects.push({ label, targets, before, after, shift, saved, scroll: { before: scrollBefore, after: scrollAfter } });
     if (evidence) { await writeFile(join(evidence, 'ait-506-email-address-rects.json'), JSON.stringify(rects, null, 2)); await page.screenshot({ path: join(evidence, `ait-506-${label}-email-address-saved.png`) }); }
     assert.ok(shift <= .5, `${label}: saved address shifts combined offer ${shift}px; ${JSON.stringify({ before, after, saved })}`);
   }

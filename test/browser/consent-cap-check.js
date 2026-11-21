@@ -457,3 +457,140 @@ export async function consentSentenceOnceCheck(t) {
     });
   }
 }
+
+// r3, TICK k1: the phone keyboard (workspace[data-phone-keyboard]) is up.
+// - Consent pending: the consent line is ONE row; the stock short reason
+//   (featureConsent.textNarrow) starts it and the action ends it at the inline
+//   end; never the action alone; the host text is hidden; the action's
+//   accessible description is unchanged (the host sentence, once).
+// - Consent granted: the consent row takes 0 px (no reserve under the field).
+// - Within the keyboard-up state nothing moves while the field grows.
+// The keyboard is emulated as in AIT-511/513 (touch, a shorter visual viewport, focus in the field).
+const KEYBOARD = [[320, 568, 308], [390, 844, 420]];
+const keyboardUp = (page, height) => page.evaluate(height => {
+  globalThis.k1Viewport ??= visualViewport; globalThis.k1Touch ??= Object.getOwnPropertyDescriptor(navigator, 'maxTouchPoints') ?? null;
+  Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: 1 });
+  const viewport = new EventTarget(); Object.assign(viewport, { height, offsetTop: 0, scale: 1 });
+  Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
+  document.querySelector('aithema-session').shadowRoot.querySelector('textarea').focus({ preventScroll: true });
+  window.dispatchEvent(new Event('resize'));
+}, height);
+const typeLines = (page, lines) => page.$eval('aithema-session', (c, lines) => {
+  const input = c.shadowRoot.querySelector('textarea'); input.value = Array.from({ length: lines }, (_, i) => `Line ${i + 1}`).join('\n');
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}, lines);
+const settleLong = page => page.evaluate(async () => { await document.fonts.ready; for (let i = 0; i < 6; i++) await new Promise(resolve => requestAnimationFrame(resolve)); });
+const keyboardState = c => {
+  const root = c.shadowRoot, box = n => { const r = n.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
+  const rect = n => (n && n.checkVisibility() ? box(n) : null);
+  const line = root.querySelector('.composer-reason[data-consent-feature="text"]');
+  const feedback = root.querySelector('.composer-feedback'), action = line?.querySelector('.consent-action');
+  const shown = n => [...n.querySelectorAll('*')].filter(e => e.checkVisibility() && !e.children.length);
+  const textRects = node => { const rects = []; const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    for (let n; (n = walker.nextNode());) { if (!n.textContent.trim() || !n.parentElement.checkVisibility()) continue;
+      const range = document.createRange(); range.selectNodeContents(n);
+      for (const b of range.getClientRects()) if (b.width > .5 && b.height > .5) rects.push({ x: b.x, y: b.y, width: b.width, height: b.height }); }
+    return rects; };
+  let hit = null;
+  if (action?.checkVisibility()) {
+    const after = getComputedStyle(action, '::after'), a = action.getBoundingClientRect();
+    if (after.content !== 'none' && after.display !== 'none') {
+      const w = parseFloat(after.width), h = parseFloat(after.height), m = new DOMMatrixReadOnly(after.transform === 'none' ? undefined : after.transform);
+      const x = after.left !== 'auto' ? a.x + action.clientLeft + parseFloat(after.left) : a.x + action.clientLeft + action.clientWidth - parseFloat(after.right) - w;
+      const y = after.top !== 'auto' ? a.y + action.clientTop + parseFloat(after.top) : a.y + action.clientTop + action.clientHeight - parseFloat(after.bottom) - h;
+      hit = { x: x + m.m41, y: y + m.m42, width: w, height: h };
+    }
+  }
+  const label = line?.querySelector('.consent-line-copy');
+  const description = action ? root.getElementById(action.getAttribute('aria-describedby') ?? '') : null;
+  return {
+    keyboard: root.querySelector('.workspace').hasAttribute('data-phone-keyboard'),
+    dock: rect(root.querySelector('.composer-dock')), composer: rect(root.querySelector('.composer')), field: rect(root.querySelector('textarea')),
+    mic: rect(root.querySelector('.composer-mic')), send: rect(root.querySelector('.send')),
+    feedback: rect(feedback), reserve: rect(root.querySelector('.composer-feedback-reserve')),
+    line: line ? { box: rect(line), lineHeight: parseFloat(getComputedStyle(line).lineHeight) } : null,
+    reason: label ? { text: shown(label).map(n => n.textContent).join('').trim(), rects: textRects(label) } : null,
+    action: action ? { box: rect(action), text: shown(action).map(n => n.textContent).join('').trim() || action.textContent.trim(), rects: textRects(action) } : null,
+    hit, description: description ? { id: description.id, text: description.textContent } : null,
+  };
+};
+const stableBoxes = (name, before, after, parts) => {
+  const failures = [];
+  for (const part of parts) {
+    const a = part.split('.').reduce((o, k) => o?.[k], before), b = part.split('.').reduce((o, k) => o?.[k], after);
+    if (!(a?.width > 0 && a?.height > 0 && b?.width > 0 && b?.height > 0)) { failures.push(`${name}: ${part} positive boxes: ${JSON.stringify([a, b])}`); continue; }
+    for (const key of keys) if (Math.abs(a[key] - b[key]) > .5) failures.push(`${name}: ${part} keeps its ${key}: ${a[key]} -> ${b[key]}`);
+  }
+  return failures;
+};
+export async function consentKeyboardUpCheck(t) {
+  const { open, grant, capture } = await harness(t);
+  for (const [width, height, viewport] of KEYBOARD) for (const locale of ['en', 'de']) {
+    const name = `${width}x${height}-${locale}-keyboard-up`;
+    await t.test(name, async () => {
+      const problems = [], failures = [];
+      for (const [actionName, action] of [...Object.entries(ACTIONS), ['granted', ACTIONS.stock]]) {
+        const label = `${name}-${actionName === 'granted' ? 'granted' : `pending-${actionName}-action`}`;
+        const page = await open({ width, height, locale, consent: { ...action(), text: stock[locale].text } }, problems);
+        try {
+          const consent = await page.evaluate(() => globalThis.fixtureCopy.featureConsent);
+          const down = await page.$eval('aithema-session', keyboardState);
+          if (actionName === 'granted') await grant(page);
+          await keyboardUp(page, viewport); await settleLong(page);
+          const up = await page.$eval('aithema-session', keyboardState);
+          if (!up.keyboard) { failures.push(`${label}: the keyboard flag is set`); continue; }
+          for (const part of ['dock', 'composer', 'field', 'mic', 'send']) if (!(up[part]?.width > 0 && up[part]?.height > 0)) failures.push(`${label}: ${part} positive box: ${JSON.stringify(up[part])}`);
+          if (actionName === 'granted') {
+            // 0 px: no consent row and no empty reserve under the field.
+            if (up.line) failures.push(`${label}: no consent line after the grant`);
+            if (up.feedback && up.feedback.height > .5) failures.push(`${label}: the consent row takes 0 px: ${JSON.stringify(up.feedback)}`);
+          } else {
+            const { line } = up;
+            if (!(line?.box?.width > 0 && line?.box?.height > 0)) { failures.push(`${label}: the consent line positive box: ${JSON.stringify(line)}`); continue; }
+            if (Math.abs(line.box.height - line.lineHeight) > .5) failures.push(`${label}: the consent line is one row: ${line.box.height} vs ${line.lineHeight}`);
+            if (!(up.feedback?.height > 0) || up.feedback.height > line.lineHeight + .5) failures.push(`${label}: the consent row is one row: ${JSON.stringify(up.feedback)} vs ${line.lineHeight}`);
+            // The stock short reason starts the row (never the action alone); the host text is hidden.
+            if (up.reason?.text !== consent.textNarrow) failures.push(`${label}: the row starts with the stock short reason "${consent.textNarrow}": "${up.reason?.text}"`);
+            if (!up.reason?.rects?.length) failures.push(`${label}: the short reason is painted`);
+            if (up.reason?.text?.includes(consent.text)) failures.push(`${label}: the host text is hidden while the keyboard is up`);
+            const expected = consent.actionNarrow;
+            if (up.action?.text !== expected) failures.push(`${label}: the action "${expected}" ends the row: "${up.action?.text}"`);
+            const a = up.action?.rects;
+            if (a?.length !== 1 || !(a[0].width > 0 && a[0].height > 0)) failures.push(`${label}: the action is one painted box: ${JSON.stringify(a)}`);
+            else {
+              const middle = a[0].y + a[0].height / 2;
+              if (middle < line.box.y || middle > line.box.y + line.box.height) failures.push(`${label}: the action is on the row: ${JSON.stringify({ a: a[0], line: line.box })}`);
+              if (Math.abs(a[0].x + a[0].width - (line.box.x + line.box.width)) > 1) failures.push(`${label}: the action sits at the inline end: ${a[0].x + a[0].width} vs ${line.box.x + line.box.width}`);
+              for (const r of up.reason?.rects ?? []) {
+                if (!(r.width > 0 && r.height > 0)) failures.push(`${label}: reason text positive box`);
+                if (r.x + r.width > a[0].x + .5) failures.push(`${label}: the reason ends before the action: ${JSON.stringify({ r, a: a[0] })}`);
+                if (Math.abs((r.y + r.height / 2) - middle) > line.lineHeight / 2) failures.push(`${label}: the reason shares the action's row: ${JSON.stringify({ r, a: a[0] })}`);
+              }
+            }
+            // The 44 px hit area, clear of Send and Mic.
+            if (!(up.hit?.width >= 44 - .5 && up.hit?.height >= 44 - .5)) failures.push(`${label}: the action's hit area is 44 px: ${JSON.stringify(up.hit)}`);
+            for (const control of ['send', 'mic']) if (up.hit && up[control] && overlap(up.hit, up[control]) > .5) failures.push(`${label}: the hit area stays off ${control}: ${JSON.stringify({ hit: up.hit, [control]: up[control] })}`);
+            // The accessible description is unchanged: the host sentence.
+            if (!up.description || up.description.text !== consent.text || up.description.id !== down.description?.id || up.description.text !== down.description?.text)
+              failures.push(`${label}: the action's description is unchanged: ${JSON.stringify({ down: down.description, up: up.description })}`);
+            const opener = await page.$('aithema-session >>> .composer-reason[data-consent-feature="text"] .consent-action');
+            const node = opener ? await page.accessibility.snapshot({ root: opener }) : null; await opener?.dispose();
+            if (node?.description !== consent.text) failures.push(`${label}: the accessible description is the host sentence: "${node?.description}"`);
+          }
+          await capture(page, `r3-k1-${label}`, up);
+          // Typing: the field grows (to its cap); nothing else in the dock moves.
+          await typeLines(page, 8); await settleLong(page);
+          const typed = await page.$eval('aithema-session', keyboardState);
+          if (!typed.keyboard) failures.push(`${label}: the keyboard stays up while typing`);
+          if (!(typed.field?.height > up.field.height + 20)) failures.push(`${label}: the field grows: ${up.field?.height} -> ${typed.field?.height}`);
+          if (typed.composer && typed.composer.height > .4 * viewport + .5) failures.push(`${label}: the composer respects the visual viewport cap: ${typed.composer.height} > ${.4 * viewport}`);
+          failures.push(...stableBoxes(`${label} typing`, up, typed, ['mic', 'send', ...(up.line ? ['line.box', 'action.box'] : [])]));
+          if (Math.abs((up.feedback?.height ?? 0) - (typed.feedback?.height ?? 0)) > .5) failures.push(`${label}: the consent row keeps its height while typing`);
+          await capture(page, `r3-k1-${label}-typed`, typed);
+        } finally { await page.close(); }
+      }
+      none(failures, name);
+      assert.deepEqual(problems, []);
+    });
+  }
+}
