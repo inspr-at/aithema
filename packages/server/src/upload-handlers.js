@@ -239,14 +239,14 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
         if (entries.length > limits.maxFilesPerRequest || entries.some(f => f.bytes.length > limits.maxBytes)) throw new RangeError('Upload file limit');
         files = entries.map(({ value: f, bytes }) => {
           const detected = sniffUploadDocument(bytes, f.name, limits.maxBytes);
-          // Image signatures always win (BMP, TIFF and JPEG XL included, AIT-610 r3).
-          // An image name or an image client MIME also makes the file image input
-          // (held in memory, never stored if refused), unless its bytes carry a
-          // recognized document signature (PDF/Office): a false client MIME cannot
-          // reclassify a real document, and an image never reaches storage as one.
-          const documentSignature = !detected.reason && Object.values(EXTRACTOR_MEDIA_TYPES).includes(detected.mediaType);
+          // Image signatures always win (BMP, TIFF and JPEG XL included since
+          // AIT-610 r3), whatever the name or client MIME. An image suffix also
+          // makes the file image input. An image client MIME does so only without
+          // a document suffix: AIT-510 keeps document admission for a named
+          // document with a false image MIME hint (the MIME is untrusted).
+          const extension = /\.([a-z0-9]+)$/iu.exec(f.name)?.[1].toLowerCase();
           const image = /^image\//u.test(detected.mediaType) || /\.(?:png|jpe?g|webp|gif|heic|heif|avif|bmp|tiff?|jxl|svg)$/iu.test(f.name) ||
-            /^image\//u.test(f.type) && !documentSignature;
+            !Object.hasOwn(extensions, extension) && /^image\//u.test(f.type);
           return { bytes, ...(image ? { kind: 'image' } : {}), filename: f.name.slice(0, 200), originalName: f.name, mediaType: detected.mediaType, deadlineAt };
         });
         // Multipart boundary and the untrusted client MIME are transport details.

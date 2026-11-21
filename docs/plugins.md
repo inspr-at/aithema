@@ -341,8 +341,9 @@ drop). Two other byte paths follow their own rules, listed below.
   (3 × 21 MiB), their held originals (3 × 21 MiB, at most eight) and the
   normalizer's IPC copies of one image (2 × 20 MiB). A file is image input when
   its signature says image (PNG, JPEG, WebP, GIF, BMP, TIFF, HEIC/AVIF, JPEG XL),
-  its name has an image suffix, or its client MIME says image while its bytes
-  carry no PDF/Office signature. Refused bytes are
+  its name has an image suffix, or its client MIME says image and its name has
+  no document suffix (AIT-510: a false image MIME on a named document keeps
+  document admission; such a file follows the document rules). Refused bytes are
   never written: no `uploads` row, no blob, no temp file, no cache. For
   idempotent replay the receipt keeps the refused positions, kinds and reasons
   plus a SHA-256 digest over the request's names and file digests, never the
