@@ -353,12 +353,12 @@ drop). Two other byte paths follow their own rules, listed below.
 
 Out of scope, with their own rules:
 
-- **Composed-voice audio relay.** It accepts binary audio bodies for the audio
-  transport. It is not an image input path.
+- **Composed-voice audio relay.** It accepts binary audio bodies (at most
+  16 kB per frame) for the audio transport. It is not an image input path.
 - **Images embedded in PDF or Office documents.** A document is document
   input. Its bytes are staged and read by the local text extractor under the
   document rules. The extractor returns text only, so an embedded image never
-  becomes image input to a model lane (by construction; no dedicated test).
+  becomes image input to a model lane (tested with an image embedded in a DOCX).
 
 `packages/server/test/refused-image-bytes.test.js` covers each listed path and
 reason: no stored row, database file, WAL or backup copy, temp file, log line,

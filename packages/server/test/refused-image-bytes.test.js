@@ -17,12 +17,21 @@
 //      normalizer is not called), or the local normalizer refuses the bytes
 //      (type, size, dimensions, malformed). The normalizer is the server's own
 //      verifier (local, free, credential-free child); nothing else sees them.
+//      LEAD option A: the original waits in memory only (bounded; above the
+//      bound a request is refused before its body is read). No row, WAL frame,
+//      backup snapshot or file ever holds it; only an accepted image's
+//      normalized output is stored. A restart leaves staged-refused 'unavailable'.
 //   P3 POST /api/sessions/:id/turns with `attachments`: carries upload ids
-//      only, never bytes; a refused id is refused before any model work.
-//   Not byte paths: concept routes (JSON requests; they only serve generated
-//   images), voice/realtime (JSON control bodies; images require text mode),
+//      only, never bytes; a refused or still pending id is refused before any
+//      model work.
+//   Not byte paths for images: concept routes (JSON requests; they only serve
+//   generated images), voice start (POST /api/sessions/:id/voice, JSON),
 //   host/plugin routes (JSON). A JSON route that receives bytes treats them as
 //   text and refuses invalid JSON with 400 before any storage.
+//   Out of scope, own rules: the composed-voice relay's binary audio ingress
+//   (audio transport, not image input); images embedded in PDF/Office
+//   documents (document input for the local text extractor; never image input
+//   to a model lane, asserted for an embedded DOCX image below).
 import { test as nodeTest } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';

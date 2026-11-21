@@ -100,6 +100,8 @@ export function createComposedRelayRoute({ authenticate, connect, authorize, pat
           } finally { entry.polling = false; request.signal.removeEventListener('abort', aborted); }
         }
         if (action === 'audio') {
+          // Scope (AIT-610): binary audio for the voice transport, at most 16 kB
+          // per frame. This is not an image input path; image rules do not apply.
           const bytes = await boundedBody(request, 16_000);
           await assertActive(entry, owner); charge(entry, bytes.length);
           if (entry.ingress) throw new PluginError('limit');
