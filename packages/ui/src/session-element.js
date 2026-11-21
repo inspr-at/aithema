@@ -1528,11 +1528,13 @@ export class AithemaSession extends HTMLElement {
       // offer 27 px below where main puts it. So the row is kept only where the
       // last reveal left it: the same scrollTop and the same offer position in
       // the content. Anything else realigns to the goal, as on main.
-      const unmoved = before === this.#revealedScroll && offerY === this.#revealedY;
+      // r7 (Codex gatepra6 Low): compared in content coordinates (the offer's
+      // top plus the scroll offset, so independent of the sampled scrollTop)
+      // with a 0.5 px epsilon against fractional sampling.
+      const unmoved = Math.abs(before - this.#revealedScroll) <= .5 && Math.abs(offerY - this.#revealedY) <= .5;
       const kept = !this.#latestJump && unmoved && this.#revealedPane === size && this.#revealedOffer === offer && atBefore >= 0 && atBefore + target.height <= pane.height;
       shell.scrollTop = kept ? before : goal;
       this.#revealedOffer = offer; this.#revealedPane = size;
-      this.#revealedScroll = shell.scrollTop; this.#revealedY = offerY;
     }
     if (this.#combined && this.#imageLayout) {
       const pane = shell.getBoundingClientRect(), scroll = this.shadowRoot.querySelector('.conversation-scroll').getBoundingClientRect();
@@ -1555,6 +1557,13 @@ export class AithemaSession extends HTMLElement {
           shell.scrollTop += delta;
         }
       }
+    }
+    // r7 (Codex gatepra6 Low): the reveal snapshot is taken after the
+    // image-layout pass, which can scroll again, so the next re-reveal compares
+    // against where this one really left the pane.
+    if (offer) {
+      this.#revealedScroll = shell.scrollTop;
+      this.#revealedY = offer.getBoundingClientRect().top - shell.getBoundingClientRect().top + shell.scrollTop;
     }
     const latest = [...shell.querySelectorAll('.turn')].at(-1);
     for (const row of shell.querySelectorAll('[data-start-only]')) row.removeAttribute('data-start-only');
