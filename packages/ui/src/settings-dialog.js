@@ -440,6 +440,10 @@ export class SettingsDialog {
   openConsent(feature, opener) {
     this.openAt('general', '.consent-editor', opener);
     void this.#consentEditor?.open(feature);
+    // AIT-603: openAt scrolled while the editor was still hidden. With the host's
+    // text-consent sentence shown, the body now moves the least that shows it, so
+    // it is on screen whether or not the document loads; a load then reveals its target.
+    this.#consentEditor?.revealReason(this.#q('.settings__body'));
   }
   openAt(tab, anchor, opener) {
     this.open(opener, { tab });

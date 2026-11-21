@@ -1,6 +1,15 @@
 import { consentSaveEndsConversation } from '../../core/src/settings.js';
 import { validateConsentDocument } from '../../core/src/consent-document.js';
 import { setText } from './dom.js';
+import { featureConsentText } from './consent-line.js';
+
+// The least scroll that shows the span top..bottom inside the scroller (12 px
+// clear); when it does not fit, the top anchors. Scrolling by delta, the top
+// needs delta <= top - box.top - gap, the bottom delta >= bottom - box.bottom + gap.
+function scrollBetween(scroller, top, bottom, gap = 12) {
+  const box = scroller.getBoundingClientRect(), most = top - box.top - gap, least = bottom - box.bottom + gap;
+  scroller.scrollTop += least <= most ? Math.min(Math.max(0, least), most) : most;
+}
 
 /** The host's current, versioned consent document, edited inside Settings. */
 export class ConsentSettings {
@@ -8,7 +17,7 @@ export class ConsentSettings {
   constructor({ root, copy, ports }) {
     this.#root = root; this.#copy = copy; this.#ports = ports;
     root.setAttribute('role', 'form');
-    root.innerHTML = '<p class="consent-intro"></p><fieldset class="consent-items" aria-label=""></fieldset><p class="consent-withdrawal"></p><p class="consent-status" role="status"></p><button class="consent-save" type="button"></button>';
+    root.innerHTML = '<p class="consent-intro"></p><p class="consent-reason" hidden></p><fieldset class="consent-items" aria-label=""></fieldset><p class="consent-withdrawal"></p><p class="consent-status" role="status"></p><button class="consent-save" type="button"></button>';
     if (ports.saveButton) { root.querySelector('.consent-save').remove(); root.querySelector('.consent-status').removeAttribute('role'); root.querySelector('.consent-status').setAttribute('aria-hidden', 'true'); }
     else root.querySelector('.consent-status').setAttribute('aria-live', 'polite');
     this.#button = ports.saveButton ?? root.querySelector('.consent-save');
@@ -20,7 +29,7 @@ export class ConsentSettings {
     root.addEventListener('change', () => { this.#stale = false; this.#status(''); this.#paintBusy(); });
     this.setCopy(copy);
   }
-  setCopy(copy) { this.#copy = copy; if (this.#stale) this.#status(copy.host.consentStale); if (!this.#ports.saveButton) setText(this.#button, copy.featureConsent.save); this.#root.setAttribute('aria-label', copy.host.consentPage.legend); this.#root.querySelector('fieldset').setAttribute('aria-label', copy.host.consentPage.legend); }
+  setCopy(copy) { this.#copy = copy; this.#paintReason(); if (this.#stale) this.#status(copy.host.consentStale); if (!this.#ports.saveButton) setText(this.#button, copy.featureConsent.save); this.#root.setAttribute('aria-label', copy.host.consentPage.legend); this.#root.querySelector('fieldset').setAttribute('aria-label', copy.host.consentPage.legend); }
   get busy() { return this.#busy; }
   get status() { return this.#statusText; }
   get stale() { return this.#stale; }
@@ -35,8 +44,9 @@ export class ConsentSettings {
   async open(feature, { reload = false, item } = {}) {
     const epoch = ++this.#epoch; this.#feature = feature; if (!reload) this.#item = item; this.#busy = true;
     if (!reload) { this.#document = null; this.#stale = false; this.#savingLabel = null; this.#root.querySelector('.consent-items').replaceChildren(); }
-    this.#root.hidden = false; this.#button.classList.add('consent-save');
+    this.#root.hidden = false; this.#button.classList.add('consent-save'); this.#paintReason();
     this.#status(this.#copy.host.consentPage.loading); this.#paintBusy();
+    if (!reload) this.#holdFocus();
     try {
       const described = await this.#ports.load();
       if (epoch !== this.#epoch) return;
@@ -74,12 +84,57 @@ export class ConsentSettings {
       const targetId = ids.find(id => !doc.selected.includes(id)) ?? ids[0];
       const target = [...fieldset.querySelectorAll('input')].find(box => box.value === targetId);
       target.closest('.consent-item').classList.add('consent-item--target');
-      if (!reload) { target.focus({ preventScroll: true }); target.scrollIntoView({ block: 'center' }); }
+      if (!reload) this.#focus(target, this.#reveal(target.closest('.consent-item')));
     } catch {
       if (epoch !== this.#epoch) return;
       this.#document = null; this.#savingLabel = null; this.#root.querySelector('.consent-items').replaceChildren();
       this.#busy = false; this.#status(this.#copy.host.consentFailed); this.#paintBusy();
     }
+  }
+  // AIT-603: the sheet opened for the text feature shows the host's text-consent
+  // sentence in full (the dock may shorten it on phones); other features show none.
+  #paintReason() {
+    const reason = this.#root.querySelector('.consent-reason'), sentence = this.#feature === 'text' ? featureConsentText(this.#copy, 'text') ?? '' : '';
+    setText(reason, sentence); reason.hidden = !sentence;
+  }
+  /** On open: a host sentence not wholly in `scroller`'s view anchors at its top, so the status and items follow it. */
+  revealReason(scroller) {
+    const reason = this.#root.querySelector('.consent-reason');
+    if (reason.hidden || !scroller) return;
+    const gap = 12, { top, bottom } = reason.getBoundingClientRect(), box = scroller.getBoundingClientRect();
+    if (top < box.top + gap || bottom > box.bottom - gap) scroller.scrollTop += top - box.top - gap;
+  }
+  // AIT-603: with the host sentence shown, a loaded document keeps it on screen:
+  // the scroll moves the least that shows the sentence and the target item
+  // together, and anchors at the sentence when both do not fit. Without it (or
+  // without a scrolling ancestor) the target centres, as before. Returns the scroller.
+  #reveal(row) {
+    const reason = this.#root.querySelector('.consent-reason'), view = this.#root.ownerDocument.defaultView;
+    let scroller = null;
+    for (let n = row.parentElement; n && view?.getComputedStyle; n = n.parentElement) {
+      if (/(auto|scroll)/u.test(view.getComputedStyle(n).overflowY) && n.scrollHeight > n.clientHeight) { scroller = n; break; }
+    }
+    if (reason.hidden || !scroller) { row.scrollIntoView({ block: 'center' }); return scroller; }
+    scrollBetween(scroller, reason.getBoundingClientRect().top, row.getBoundingClientRect().bottom);
+    return scroller;
+  }
+  // AIT-603: keyboard focus lands on screen. The target checkbox takes it when
+  // the reveal shows it; otherwise (the sentence anchors, the target is below)
+  // the host sentence does, as a programmatic stop (tabindex -1: the Tab order
+  // is unchanged), and Tab moves on into the items.
+  // While the document loads, and after it fails, Save is disabled and focus
+  // would fall to the page; with the host sentence shown, it takes focus instead
+  // (the same programmatic stop). Focus the visitor moved elsewhere stays.
+  #holdFocus() {
+    const reason = this.#root.querySelector('.consent-reason'), active = this.#root.getRootNode().activeElement;
+    if (reason.hidden || active && active !== this.#button && active !== this.#root.ownerDocument.body) return;
+    reason.tabIndex = -1; reason.focus({ preventScroll: true });
+  }
+  #focus(target, scroller) {
+    const reason = this.#root.querySelector('.consent-reason'), view = scroller?.getBoundingClientRect(), box = target.getBoundingClientRect();
+    const shown = !view || box.width > 0 && box.height > 0 && box.top >= view.top - .5 && box.bottom <= view.bottom + .5;
+    if (shown || reason.hidden) { target.focus({ preventScroll: true }); return; }
+    reason.tabIndex = -1; reason.focus({ preventScroll: true });
   }
   #status(text) {
     this.#statusText = text;
