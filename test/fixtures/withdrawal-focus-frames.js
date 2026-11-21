@@ -110,7 +110,10 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
         .replaceAll('erhalten Sie  Credits', 'erhalten Sie &nbsp;Credits')
         // Tick AIT-443 v1 supersedes only this copy in the immutable capture.
         .replaceAll('Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht. Morgen geht es weiter.', 'Für heute ist das Tageslimit dieser E‑Mail-Adresse erreicht.')
-        .replaceAll("This email address has reached today's limit. You can continue tomorrow.", "This email address has reached today's limit.");
+        .replaceAll("This email address has reached today's limit. You can continue tomorrow.", "This email address has reached today's limit.")
+        // AIT-587 (TICK r1 look, items 1 and 6): EN "credits" lower case mid-sentence; the used-up body no longer promises export.
+        .replaceAll('more Credits.', 'more credits.')
+        .replaceAll(' You can read and export it.', '').replaceAll(' Sie können es lesen und exportieren.', '');
       // Tick AIT-445 v1.1 supersedes the plain hyphen in DE catalog copy only.
       const localizedHTML = locale === 'de' ? capturedHTML.replaceAll('E-Mail', 'E‑Mail') : capturedHTML;
       // AIT-510 adds the hidden image staging slot. AIT-556 keeps the
@@ -118,7 +121,7 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
       // The immutable capture and every independent geometry assertion stay.
       const expectedHTML = localizedHTML
         .replace('<form class="composer" aria-hidden="false">', '<form class="composer" aria-hidden="false"><div class="staged-images" hidden=""></div>');
-      assert.equal(mounted.html, expectedHTML, 'default composer DOM keeps main document picker under AIT-556 and differs only by approved AIT-435 NBSP, AIT-443 daily-cap, AIT-445 v1.1 E‑Mail copy and AIT-510 hidden image staging');
+      assert.equal(mounted.html, expectedHTML, 'default composer DOM keeps main document picker under AIT-556 and differs only by approved AIT-435 NBSP, AIT-443 daily-cap, AIT-445 v1.1 E‑Mail copy, AIT-510 hidden image staging and AIT-587 copy');
       assert.deepEqual(mounted.composer, mainLayout.frames[process.platform][`${width}/${locale}`], 'default composer geometry equals independently captured main before fixture setup');
       assert.equal(mounted.scrollTop, 0, 'default mount ignores queued no-op viewport resize before fixture setup');
       // Keep main's explicit first-row setup and every existing assertion; the

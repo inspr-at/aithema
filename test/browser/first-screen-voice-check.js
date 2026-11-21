@@ -200,7 +200,8 @@ test('AIT-553 item 3: used-up upgrade copy has an exposed export link; the host 
     assert.equal(await page.evaluate(() => c.shadowRoot.querySelector('.composer-out__export').getAttribute('aria-hidden')), 'true');
   }
   for (const record of records) {
-    assert.equal(record.next, 'give'); assert.match(record.text, /export it|exportieren/);
+    // AIT-587 (TICK r1 look item 6): the body says the conversation stays saved; the export link labels itself.
+    assert.equal(record.next, 'give'); assert.match(record.text, /stays saved|bleibt gespeichert/);
     positive({ export: record.box });
     assert.equal(record.visible, true, 'used-up upgrade exposes the existing export control');
     assert.equal(record.hidden, 'false'); assert.equal(record.inert, false); assert.equal(record.focused, true);
