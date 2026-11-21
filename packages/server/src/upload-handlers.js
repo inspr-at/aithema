@@ -303,8 +303,7 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
         // Every exit (refusal, error or admission): zero the WHOLE request body.
         // Multipart parts are views of it; admitted originals were copied into
         // the in-memory hold and documents into storage before this point.
-        bytes?.fill(0);
-        for (const file of files) file.bytes.fill(0);
+        for (const file of files) if (file.kind === 'image') file.bytes.fill(0);
       }
     },
     resume() {
