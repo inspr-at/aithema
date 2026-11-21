@@ -524,6 +524,8 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .composer-reason:has(> .consent-action) { max-height:44px; overflow:visible; }
 .composer-reason[data-consent-feature="text"] { font-size:max(12px,.72rem); max-height:none; overflow:visible; }
 .composer-reason[data-consent-feature="text"] .consent-narrow { display:none; }
+/* AIT-603 (TICK r5): the action's description node sits next to the status line, outside the live region; never painted. */
+.composer-feedback > .consent-description { display:none; }
 @media(max-width:340px) {
   /* Reclaim only gaps: Attach and Send keep their normal positions. */
   .composer-actions:has(.composer-reason[data-consent-feature="text"]) { --composer-actions-gap:0px; }

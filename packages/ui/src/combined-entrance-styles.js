@@ -81,6 +81,10 @@ export const combinedEntranceStyles = `
 .composer-reserve-line .question-status svg { width:14px; height:14px; }
 .composer-reserve-action { white-space:nowrap; }
 .composer-reserve-phone { display:none; }
+/* Codex gate2c M4: the visible text-consent line is uncapped (styles.js
+   [data-consent-feature="text"] max-height:none), so its reserve drops the
+   two-line .composer-reason cap too: a three-line wrap keeps the row. */
+.composer-reserve-line.composer-reserve-consent { max-height:none; overflow:visible; }
 .composer-notice__phone { display:none; }
 .composer-notice__more { display:inline; min-height:44px; padding:0 4px; text-decoration:underline; color:var(--aithema-accent); }
 .composer-notice-dialog { width:min(36rem,calc(100vw - 32px)); max-height:calc(100dvh - 32px); overflow:auto; padding:24px; color:var(--aithema-ink); background:var(--aithema-surface); border:1px solid var(--aithema-line); border-radius:16px; }
@@ -108,8 +112,10 @@ export const combinedEntranceStyles = `
 /* AIT-553: short desktops (1366x768, 1280x720 under a host header) show
    readiness as one compact line, whole at first paint above the pinned
    composer: title, consent state and Change settings, joined by reasonSeparator. Model and visuals stay
-   under Change settings; the full card returns at 861 px and taller. */
-@media(min-width:600px) and (max-height:860px) {
+   under Change settings; the full card returns at 861 px and taller.
+   AIT-603: phones (≤ 600 px) always use this one-row form, never the card;
+   there the processing route stays readable (RC26) as its own line below. */
+@media(min-width:600px) and (max-height:860px), (max-width:600px) {
   .workspace[data-entrance="combined"] .ready { display:flex; flex-wrap:wrap; align-items:center; gap:0; padding:.125rem 1rem; }
   .workspace[data-entrance="combined"] .ready h3 { font-size:.85rem; }
   .workspace[data-entrance="combined"] .ready dl { display:contents; }
@@ -128,6 +134,13 @@ export const combinedEntranceStyles = `
   /* An unconfirmed state hides its check icon, so it keeps no empty slot. */
   .workspace[data-entrance="combined"] .ready__row[data-ready="consent"]:not([data-state="confirmed"]) .ready__check { display:none; }
   .workspace[data-entrance="combined"] .ready__actions { display:flex; flex-wrap:nowrap; align-items:center; justify-content:flex-start; gap:0; }
+  /* TICK M1: an item that starts a wrapped line (session-element marks it) keeps
+     its separator's space, so the wrap cannot change, but paints no separator
+     and moves back by its width to start flush with the line. Intended for
+     both scopes of this one-row form: phones and short desktops (where it
+     rarely wraps; a wrap there gets the same flush start). */
+  .workspace[data-entrance="combined"] .ready :is(.ready__row[data-ready="consent"], .ready__actions)[data-line-start] { position:relative; inset-inline-start:calc(-1 * var(--ready-separator,0px)); }
+  .workspace[data-entrance="combined"] .ready :is(.ready__row[data-ready="consent"], .ready__actions)[data-line-start]::before { visibility:hidden; }
   /* Before the conversation the render-only welcome cannot scroll, so its
      hidden Latest control keeps no 54px end slot (as on short phones). */
   .workspace[data-entrance="combined"]:not([data-stage="live"]) .transcript-shell:has([data-host-opener]) > .transcript-latest { position:absolute; right:0; bottom:0; margin:0; }
@@ -139,11 +152,72 @@ export const combinedEntranceStyles = `
   .composer-reserve-phone { display:block; }
   .composer-notice__phone { display:inline; }
 }
+@media(340px < width <= 600px) {
+  /* AIT-603: above 340 px phones show the wide text-consent line (styles.js);
+     reserve it too, so a two-line wrap (DE) cannot make the dock shrink at the
+     hand-off and move the controls. Both lines take the combined feedback row's
+     size (.composer-feedback .composer-reason inherits it), so the reserve is
+     the visible line's exact box. PR-A: flex, as the visible line (the CSS cap below). */
+  .composer-reserve-line.composer-reserve-wide.composer-reserve-consent { display:flex; }
+  .composer-reserve-line.composer-reserve-phone.composer-reserve-consent { display:none; }
+}
+@media(width <= 340px) {
+  /* Codex M4: at 340 px and below the visible narrow line is set tighter
+     (styles.js, letter-spacing -.03em; its action button keeps normal
+     spacing); the narrow reserve matches it. */
+  .composer-reserve-line.composer-reserve-phone.composer-reserve-consent { display:flex; letter-spacing:-.03em; }
+  .composer-reserve-line.composer-reserve-phone.composer-reserve-consent .composer-reserve-action { letter-spacing:normal; }
+}
 @media(max-width:600px) {
+  /* AIT-603 PR-A (TICK's cap, pure CSS: no measuring, no search, no cache).
+     On phones the text-consent line and its reserve share one cap of two whole
+     lines, so the dock never changes height at consent. Desktop keeps the r3
+     uncapped line and reserve.
+     - The host sentence has its own clamp box (.consent-line-copy): line-clamp 2
+       paints the "…". The line is a flex row only so that box's height is
+       definite for the spacer below.
+     - The action is outside that box: it sits at the end of the box's last
+       line (inset-inline-end, bottom), so the text clamps and the action never does.
+     - The room it covers is the box's own: a zero-width float spacer of the
+       box's height less one line, then a hidden float of the action's words
+       (data-action, plus a small gap) that clears it, so it lands on the last
+       line and the sentence (and its "…") wraps around it. A shorter sentence
+       ends on line 1 with the action at its end. The layout follows any copy,
+       locale or font change by itself. */
+  .workspace[data-entrance="combined"] .composer-feedback > .composer-reason[data-consent-feature="text"] { display:flex; position:relative; }
+  .composer-reserve-line.composer-reserve-consent { position:relative; }
+  .workspace[data-entrance="combined"] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy,
+  .composer-reserve-line.composer-reserve-consent > .consent-line-copy {
+    flex:1 1 auto; min-width:0; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
+  .workspace[data-entrance="combined"] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy::before,
+  .composer-reserve-line.composer-reserve-consent > .consent-line-copy::before { content:''; float:inline-end; width:0; height:calc(100% - 1lh); }
+  .workspace[data-entrance="combined"] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy > [data-action]::before,
+  .composer-reserve-line.composer-reserve-consent > .consent-line-copy > [data-action]::before {
+    content:attr(data-action); float:inline-end; clear:both; visibility:hidden; white-space:nowrap; letter-spacing:normal; padding-inline-start:.35em; }
+  .workspace[data-entrance="combined"] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action,
+  .composer-reserve-line.composer-reserve-consent > .composer-reserve-action { position:absolute; inset-inline-end:0; bottom:0; }
+  /* A shorter line (granted, the send shortcut) sits top-aligned in that reserve. */
+  .workspace[data-entrance="combined"] .composer:not([data-image-input]) .composer-feedback > .composer-reason:not([data-send-failed]) { align-self:start; }
+  /* r5 (Codex gate4c Low): image-enabled docks too, for the consent line and the
+     granted line that replaces it; image refusals keep their centred row. */
+  .workspace[data-entrance="combined"] .composer[data-image-input] .composer-feedback > .composer-reason:is([data-consent-feature="text"],[data-shortcut]) { align-self:start; }
   .workspace[data-entrance="combined"] { height:auto; padding-bottom:calc(var(--phone-dock,250px) + var(--phone-footer,57px) + 24px); }
   .workspace[data-entrance="combined"] .conversation { height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,250px) - 32px); min-height:0; }
   .workspace[data-entrance="combined"] [data-host-opener] { --turn-max-width:100%; padding-block:6px; }
   .workspace[data-entrance="combined"] [data-host-opener] > strong { margin-bottom:0; }
+  /* AIT-603: session-element fits whole welcome lines (2..6) to the ready stage. */
+  .workspace[data-entrance="combined"] .turn[data-host-opener] .turn-text { -webkit-line-clamp:var(--opener-lines,6); }
+  /* The phone notice is abbreviated, so the processing route keeps its own line under the one-row readiness (RC26). */
+  .workspace[data-entrance="combined"] .ready__route { flex:1 0 100%; }
+  /* No render can run before the first reply (AIT-601 r5: the idle reserve is no
+     content end), so the ready stage keeps no 40 px render-label reserve under
+     the welcome. The welcome's top is unchanged; live restores the reserve. */
+  .workspace[data-entrance="combined"][data-concept-layout="image"]:not([data-stage="live"]) .concept-thread .transcript-shell { --aithema-render-reserve:0px; }
+  /* Readiness is the last ready-stage content; no trailing padding below it. */
+  .workspace[data-entrance="combined"]:not([data-stage="live"]) .intro { padding-bottom:0; }
+  /* Only when even two lines and readiness do not fit: a soft bottom fade while
+     content is below; session-element shortens it (12..24 px) to keep Read full reply clear. */
+  .workspace[data-entrance="combined"][data-stage="ready"] .conversation-scroll[data-bottom] { mask-image:linear-gradient(to bottom,#000 calc(100% - var(--opener-fade,24px)),transparent); }
   /* A new offer can use the full conversation reading area. The rail above
      it stays in the same scroller and can scroll away; the input stays pinned. */
   .workspace[data-entrance="combined"] .conversation-scroll:has(.email-offer) .concept-thread { flex:0 0 100%; }

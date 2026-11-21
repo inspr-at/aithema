@@ -34,6 +34,7 @@ export function paintConsentLine(line, { copy, feature, verdict, text, open, sep
   const blocked = !verdict.available && isConsentReason(verdict.rawReason ?? verdict.reason);
   if (!blocked) {
     consentOpeners.delete(line);
+    line.parentElement?.querySelector(':scope > .consent-description')?.remove();
     setText(line, text ?? ''); delete line.dataset.consentFeature; return false;
   }
   consentOpeners.set(line, open);
@@ -43,24 +44,44 @@ export function paintConsentLine(line, { copy, feature, verdict, text, open, sep
     line.dataset.focusKey = action.dataset.focusKey = `consent-${feature}`;
   }
   const action = line.querySelector('.consent-action'), label = line.querySelector('.consent-line-copy');
-  label.id = `consent-${feature}-sentence`; action.setAttribute('aria-describedby', label.id);
+  label.id = `consent-${feature}-sentence`;
+  if (feature !== 'text' || !line.classList.contains('composer-reason')) {
+    // Another feature on a reused line: its sentence is the painted, exposed label again.
+    action.setAttribute('aria-describedby', label.id); label.removeAttribute('aria-hidden');
+    for (const variant of label.querySelectorAll('[data-action]')) delete variant.dataset.action;
+  }
   if (feature === 'text' && line.classList.contains('composer-reason')) {
-    // CSS selects a label-first name together with its visible action at each width.
+    // CSS paints the wide or the narrow label and action at each width.
+    // AIT-603 r5 (Codex gate4c M3): one accessible text at every width. The
+    // visible action alone names the button; the host's full sentence (host
+    // overrides included) is its description, read from one hidden node that
+    // no width or clamp changes.
     if (!label.querySelector('.consent-wide')) {
       label.replaceChildren(node('span', 'consent-wide'), node('span', 'consent-narrow'));
       action.replaceChildren(node('span', 'consent-wide'), node('span', 'consent-narrow'));
-      // These responsive labels carry the button's full name. Generic spans
-      // prohibit aria-label; nameable groups preserve the same label at each width.
-      for (const variant of action.children) variant.setAttribute('role', 'group');
       label.querySelector('.consent-narrow').setAttribute('aria-hidden', 'true');
     }
+    // r6 (Codex gate5c M3): the line is the composer's polite status region
+    // (and the text box's description), so the sentence stays out of it: the
+    // hidden description node sits next to the line, not inside it, and the
+    // painted copy (wide and narrow) is aria-hidden. The host
+    // sentence is exposed once, as the action's description.
+    const holder = line.parentElement ?? line;
+    let description = holder.querySelector(':scope > .consent-description');
+    if (!description) { description = node('span', 'consent-description'); description.hidden = true; if (holder === line) line.append(description); else line.after(description); }
+    description.id = `consent-${feature}-description`; action.setAttribute('aria-describedby', description.id);
+    setText(description, featureConsentText(copy, feature));
+    label.setAttribute('aria-hidden', 'true');
     setText(label.querySelector('.consent-wide'), `${featureConsentText(copy, feature)}${separator}`);
     setText(label.querySelector('.consent-narrow'), `${copy.featureConsent.textNarrow}${separator}`);
     setText(action.querySelector('.consent-wide'), copy.featureConsent.action);
     setText(action.querySelector('.consent-narrow'), copy.featureConsent.actionNarrow);
-    const requirement = copy.featureConsent.textActionReason ?? featureConsentText(copy, feature);
-    action.querySelector('.consent-wide').setAttribute('aria-label', `${copy.featureConsent.action}: ${requirement}`);
-    action.querySelector('.consent-narrow').setAttribute('aria-label', `${copy.featureConsent.actionNarrow}: ${requirement}`);
+    // AIT-603 PR-A: on phones the sentence clamps in its own box by CSS alone;
+    // a hidden float of the action's words keeps the action's room on the last
+    // line, so each painted variant carries its action's words (copy, never a
+    // measurement).
+    label.querySelector('.consent-wide').dataset.action = copy.featureConsent.action;
+    label.querySelector('.consent-narrow').dataset.action = copy.featureConsent.actionNarrow;
   } else if (feature === 'voice' && line.classList.contains('voice-state')) {
     paintNarrowText(label, `${featureConsentText(copy, feature)}${separator}`, copy.featureConsent.textNarrow);
     setText(action, copy.featureConsent.action);
