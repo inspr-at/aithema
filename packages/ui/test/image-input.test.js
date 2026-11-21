@@ -539,48 +539,61 @@ test('AIT-587: a binding switch during upload classification re-reads image capa
 // AIT-587 r2 (Codex gate1c B5): later batches and rate-limit retries wait (on an earlier batch, on the retry delay).
 // The binding can change during those waits; each send uses the image capability bound at that moment and refuses
 // a no-longer-allowed image like a pick planned under that binding (document type refusal), instead of sending it.
-const toDocumentBinding = f => f.c.receive({ sessionId: f.c.session.id, seq: f.c.session.seq + 1, type: 'settings.changed', data: { processingPreset: 'eu', settings: f.c.session.settings } });
+// The switch is a model without image input (as in the M1-double-prime binding-switch test): text and documents stay.
 const typeRefusal = (copy, name) => copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', name));
 const pick = () => [new window.File(['%PDF-1.4 fixture'], 'notes.pdf', { type: 'application/pdf' }), new window.File(['pixels'], 'photo.png', { type: 'image/png' })];
-for (const copy of [en, de]) test(`AIT-587: ${copy.display.locale} a binding switch while an earlier batch uploads refuses the later batch's image`, async t => {
-  const f = fixture(t, copy, true), originalFetch = globalThis.fetch, posts = [];
-  let release; const held = new Promise(resolve => { release = resolve; });
+function bindingSwitch(t, f, posted) {
+  const originalFetch = globalThis.fetch, state = { switched: false, posts: [] };
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
-    if (url.endsWith('/uploads') && options.method !== 'POST') return Response.json({ limits: { maxFilesPerRequest: 1 } });
-    if (url.endsWith('/uploads') && options.method === 'POST') {
-      posts.push(options.body.getAll('files').map(file => file.name));
-      if (posts.length === 1) await held;
-    }
-    return originalFetch(url, options);
+    if (url.endsWith('/uploads') && options.method === 'POST') { state.posts.push(options.body.getAll('files').map(file => file.name)); return posted(url, options, originalFetch); }
+    if (url.endsWith('/uploads') && state.limits) return Response.json({ limits: state.limits });
+    const response = await originalFetch(url, options);
+    if (!state.switched || !String(url).endsWith(`/api/sessions/${f.c.session.id}`)) return response;
+    const snapshot = await response.json();
+    snapshot.featureMatrix.best.imageInput = { available: false, reason: 'image input not supported' };
+    return Response.json(snapshot);
   });
-  await choose(f.root, pick());
-  for (let i = 0; i < 100 && !posts.length; i++) await tick();
-  assert.deepEqual(posts, [['notes.pdf']], 'the first batch is in flight');
-  toDocumentBinding(f); await tick(); await tick();
-  release(); for (let i = 0; i < 20; i++) await tick();
-  assert.deepEqual(posts, [['notes.pdf']], 'the image of the later batch is not sent after the switch');
+  state.toImageless = async () => {
+    state.switched = true;
+    f.c.receive({ sessionId: f.c.session.id, seq: f.c.session.seq + 1, type: 'settings.changed',
+      data: { processingPreset: 'best', settings: { ...f.c.session.settings, model: 'text-only', revision: 1 } } });
+    for (let i = 0; i < 100 && f.c.session.featureMatrix.best.imageInput.available; i++) await tick();
+    assert.equal(f.c.session.featureMatrix.best.imageInput.reason, 'image input not supported', 'the binding switched to a model without image input');
+  };
+  return state;
+}
+function assertRefusedImage(f, copy) {
   assert.equal(f.root.querySelector('.staged-image'), null, 'nothing is staged for the image');
   assert.deepEqual(f.c.session.uploads.map(upload => upload.filename), ['notes.pdf']);
-  assert.ok(f.root.querySelector('.composer-reason').textContent.includes(typeRefusal(copy, 'photo.png')),
-    `the image is refused like a pick under the document binding: ${f.root.querySelector('.composer-reason').textContent}`);
+  const reason = f.root.querySelector('.composer-reason').textContent;
+  assert.ok(reason.includes(typeRefusal(copy, 'photo.png')), `the image is refused like a pick under the document binding: ${reason}`);
+}
+for (const copy of [en, de]) test(`AIT-587: ${copy.display.locale} a binding switch while an earlier batch uploads refuses the later batch's image`, async t => {
+  const f = fixture(t, copy, true);
+  let release; const held = new Promise(resolve => { release = resolve; });
+  const state = bindingSwitch(t, f, async (url, options, originalFetch) => { if (state.posts.length === 1) await held; return originalFetch(url, options); });
+  state.limits = { maxFilesPerRequest: 1 };
+  await choose(f.root, pick());
+  for (let i = 0; i < 100 && !state.posts.length; i++) await tick();
+  assert.deepEqual(state.posts, [['notes.pdf']], 'the first batch is in flight');
+  await state.toImageless();
+  release(); for (let i = 0; i < 20; i++) await tick();
+  assert.deepEqual(state.posts, [['notes.pdf']], 'the image of the later batch is not sent after the switch');
+  assertRefusedImage(f, copy);
 });
 for (const copy of [en, de]) test(`AIT-587: ${copy.display.locale} a binding switch during a rate-limit wait drops the image from the retry`, async t => {
-  const f = fixture(t, copy, true), originalFetch = globalThis.fetch, originalTimeout = globalThis.setTimeout, posts = [];
-  t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => originalTimeout(callback, [5000, 10000].includes(delay) ? 0 : delay, ...args));
-  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
-    if (url.endsWith('/uploads') && options.method === 'POST') {
-      posts.push(options.body.getAll('files').map(file => file.name));
-      // The binding changes while the client waits to retry.
-      if (posts.length === 1) { toDocumentBinding(f); return Response.json({ error: 'upload-rate-limit' }, { status: 429 }); }
-    }
-    return originalFetch(url, options);
-  });
+  const f = fixture(t, copy, true), originalTimeout = globalThis.setTimeout;
+  let retry = null;
+  // Hold the retry delay until the switch has landed.
+  t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => delay === 5000 && !retry ? (retry = callback, originalTimeout(() => {}, 0)) : originalTimeout(callback, delay, ...args));
+  const state = bindingSwitch(t, f, async (url, options, originalFetch) => state.posts.length === 1
+    ? Response.json({ error: 'upload-rate-limit' }, { status: 429 }) : originalFetch(url, options));
   await choose(f.root, pick());
-  for (let i = 0; i < 100 && posts.length < 2; i++) await tick();
-  for (let i = 0; i < 20; i++) await tick();
-  assert.deepEqual(posts, [['notes.pdf', 'photo.png'], ['notes.pdf']], 'the retry sends only what the current binding allows');
-  assert.equal(f.root.querySelector('.staged-image'), null, 'nothing is staged for the image');
-  assert.deepEqual(f.c.session.uploads.map(upload => upload.filename), ['notes.pdf']);
-  assert.ok(f.root.querySelector('.composer-reason').textContent.includes(typeRefusal(copy, 'photo.png')),
-    `the image is refused like a pick under the document binding: ${f.root.querySelector('.composer-reason').textContent}`);
+  for (let i = 0; i < 100 && !retry; i++) await tick();
+  assert.deepEqual(state.posts, [['notes.pdf', 'photo.png']], 'the first attempt carried both files');
+  assert.ok(retry, 'the client waits to retry');
+  await state.toImageless();
+  retry(); for (let i = 0; i < 20; i++) await tick();
+  assert.deepEqual(state.posts, [['notes.pdf', 'photo.png'], ['notes.pdf']], 'the retry sends only what the current binding allows');
+  assertRefusedImage(f, copy);
 });
