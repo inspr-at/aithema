@@ -37,6 +37,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import fsp, { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
+import { request as httpRequest } from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -377,7 +378,26 @@ test('AIT-610 P1 over HTTP: admission and size refusals leave no trace through t
   const refused = await send('http-refusal', 'wire.png', image.bytes), body = await refused.text();
   assert.equal(refused.status, 202, body);
   assert.deepEqual(JSON.parse(body).refused, [{ index: 0, name: 'wire.png', kind: 'image', reason: 'consent expired' }]);
-  const oversized = await send('http-oversized', 'huge.png', Buffer.concat([huge.bytes, Buffer.alloc(21 * 1024 * 1024, 7)])), oversizedBody = await oversized.text();
+  // The oversized request declares its full length (over the request ceiling)
+  // and sends its first 64 KiB, sentinel included, then waits for the answer.
+  // Streaming all 21 MiB raced the adapter's connection close (client EPIPE on
+  // the lane since 2026-11-21 22:47Z, also with the server sources of r2).
+  const encoded = multipart('http-oversized', [['huge.png', Buffer.concat([huge.bytes, Buffer.alloc(21 * 1024 * 1024, 7)])]]);
+  const raw = Buffer.from(await encoded.arrayBuffer());
+  const oversized = await new Promise((resolve, reject) => {
+    const target = new URL(`${url}/api/sessions/${f.session.id}/uploads`);
+    const request = httpRequest({ hostname: target.hostname, port: target.port, path: target.pathname, method: 'POST',
+      headers: { 'x-aithema-session-token': testToken, 'content-type': encoded.headers.get('content-type'), 'content-length': String(raw.length) } }, response => {
+      const chunks = [];
+      response.on('data', chunk => chunks.push(chunk));
+      response.on('end', () => { resolve({ status: response.statusCode, text: async () => Buffer.concat(chunks).toString('utf8') }); request.destroy(); });
+    });
+    // After the answer, closing the half-sent request is expected; before it, an error fails the test.
+    let answered = false;
+    request.on('response', () => { answered = true; });
+    request.on('error', error => { if (!answered) reject(error); });
+    request.write(raw.subarray(0, 64 * 1024));
+  }), oversizedBody = await oversized.text();
   assert.equal(oversized.status, 413, oversizedBody);
   assert.equal(f.normalized.length, 0);
   await f.assertNoTrace(image, { responses: [body, oversizedBody] });
