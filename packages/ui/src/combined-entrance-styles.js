@@ -304,7 +304,7 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"] .ready__route { flex:1 0 100%; }
   /* r2 (Codex READY-STAGE Medium): the one-row readiness fits the width left
      by a classic 15 px scrollbar gutter too (stable gutter): a tighter inline
-     padding keeps title · consent state on one row at 320 DE and 390 DE 125 %. */
+     padding keeps the title and consent state on one row at 320 DE and 390 DE 125 %. */
   .workspace[data-entrance="combined"] .ready { padding-inline:.5rem; }
   /* No render can run before the first reply (AIT-601 r5: the idle reserve is no
      content end), so the ready stage keeps no 40 px render-label reserve under
