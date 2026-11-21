@@ -163,11 +163,14 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .settings-context { flex:none; display:flex; align-items:center; gap:.85rem; margin:0 1.6rem .5rem; padding:.6rem 0 0; border-top:1px solid var(--aithema-line);
   color:var(--aithema-muted); font-size:.75rem; line-height:1.5; }
 .context-icon { flex:none; display:grid; place-items:center; width:1.2rem; height:1.2rem; border-radius:50%; border:1.5px solid var(--aithema-accent); color:var(--aithema-accent); font:700 .7rem/1 var(--aithema-display); }
-.context-text { flex:1; min-width:0; display:grid; align-items:center; }
+.context-text { flex:1; min-width:0; display:grid; align-items:center; position:relative; }
 .context-text>p { grid-area:1/1; overflow-wrap:anywhere; }
-.context-measure { visibility:hidden; user-select:none; pointer-events:none; }
-/* r5 (TICK decision (i)): a help text taller than the stock N lines ends in an ellipsis on line N. */
-.context-message[data-clamp] { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:var(--help-lines); overflow:hidden; }
+.context-measure, .context-link-measure { visibility:hidden; user-select:none; pointer-events:none; }
+/* r5 (TICK decision (i)): a help text taller than the stock N lines ends in an ellipsis on line N.
+   r6 (gate M1): out of flow and capped at the reserve, so the help cell is the measures' height in
+   every frame, whatever N the clamp still holds; centred as the in-flow line was. */
+.context-message[data-clamp] { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:var(--help-lines); overflow:hidden;
+  position:absolute; inset-inline:0; top:50%; transform:translateY(-50%); max-height:100%; }
 .context-measure--stack { display:grid; }
 .context-measure--stack>span { grid-area:1/1; }
 .settings__footer { flex:none; position:relative; display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; gap:1rem; padding:.4rem 1.6rem 1rem; }

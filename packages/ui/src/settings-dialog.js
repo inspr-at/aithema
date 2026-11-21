@@ -87,11 +87,14 @@ export const helpReason = text => {
 // host override never sets the reserve), so the reserve is the N lines the
 // stock copy needs at this width; the live help line is clamped to those N
 // lines with an ellipsis (#fitHelp). No sample string.
-const stockCopy = copy => ({ en, de })[String(copy.display?.locale ?? '').slice(0, 2).toLowerCase()] ?? copy;
+// r6 (gate M2): the reasons AND the help templates are the bundled stock copy;
+// a locale without stock copy (e.g. fr) reserves with the EN stock. Host copy
+// never changes N.
+const stockCopy = copy => ({ en, de })[String(copy.display?.locale ?? '').slice(0, 2).toLowerCase()] ?? en;
 const helpMeasurements = copy => {
   const stock = stockCopy(copy);
   const reasons = ['text', 'uploads', 'images', 'html', 'voice', 'analysis'].map(feature => helpReason(featureConsentText(stock, feature)));
-  return Object.entries(copy.help).map(([key, text]) => key === 'consentNeeded' ? reasons.map(reason => fill(text, { reason })) : fill(text, { reason: '' }));
+  return Object.entries(stock.help).map(([key, text]) => key === 'consentNeeded' ? reasons.map(reason => fill(text, { reason })) : fill(text, { reason: '' }));
 };
 // One measure node per help text; a list of variants stacks in that node.
 const paintMeasure = (node, text) => {
@@ -243,6 +246,10 @@ export class SettingsDialog {
     measure(this.#q('.general-consent-state'), Object.values(c.consentStates), 'status-line general-consent-measure');
     const helps = helpMeasurements(this.#copy);
     measure(this.#q('.context-text'), helps.map(() => ''), 'context-measure');
+    // r6 (gate M3): the privacy help that ends in the host's link is never
+    // clamped; its own measure (empty unless the privacy gauge shows provider
+    // countries) makes the reserve cover it.
+    measure(this.#q('.context-text'), [''], 'context-link-measure');
     this.#all('.context-measure').forEach((n, i) => paintMeasure(n, helps[i]));
     measure(this.#q('.save-state'), [this.#copy.host.consentStale, this.#copy.host.consentPage.loading, this.#copy.host.consentPage.saving, this.#copy.host.consentFailed], 'consent-state-measure');
     measure(this.#q('.save-state'), SAVE_MESSAGES.map(key => c[key]), 'save-state-measure');
@@ -290,29 +297,31 @@ export class SettingsDialog {
   #observeFade() {
     this.#fadeObserver ??= new this.#dialog.ownerDocument.defaultView.ResizeObserver(() => {
       this.#updateFade();
-      // The next frame, not inside the callback: a clamp that changes the help
-      // cell here would re-enter the observer (a "loop completed" error).
-      this.#dialog.ownerDocument.defaultView.requestAnimationFrame(() => this.#fitHelp());
+      // r6 (gate M1): in the callback, before the frame paints. The clamped
+      // help line is out of flow (settings-styles.js), so a new N changes no
+      // observed box and cannot re-enter the observer.
+      this.#fitHelp();
     });
     // Panels track content changes even when the body's own size stays fixed.
     // r5: the help cell and its measures (width or locale changes move N).
-    for (const node of this.#all('.settings__body, .settings-panel, .select__menu, .context-text, .context-measure')) this.#fadeObserver.observe(node);
+    for (const node of this.#all('.settings__body, .settings-panel, .select__menu, .context-text, .context-measure, .context-link-measure')) this.#fadeObserver.observe(node);
     this.#updateFade(); this.#fitHelp();
   }
   // r5 (TICK decision (i)): N = the lines the tallest stock help needs here
-  // (the measures); a help text taller than N lines is clamped to whole N lines
-  // with an ellipsis (data-clamp), so the help cell never grows past its reserve.
-  // Text that fits is not clamped, so a focused inline link keeps its ring.
+  // (the measures); the help text is clamped to whole N lines with an ellipsis.
+  // r6 (gate M1, M3): the clamp is always on (data-clamp; the CSS keeps the
+  // line out of flow, capped at the reserve, so no frame shows more), except
+  // for a help line that carries a link: that one is never clamped (its link
+  // and focus ring stay whole) and the link measure reserves it.
   #fitHelp() {
     const message = this.#q('.context-message');
     if (!message || !this.#dialog.open) return;
+    if (message.querySelector('a')) delete message.dataset.clamp; else message.dataset.clamp = '';
     const line = parseFloat(this.#dialog.ownerDocument.defaultView.getComputedStyle(message).lineHeight);
-    const reserve = Math.max(0, ...[...this.#all('.context-measure')].map(node => node.getBoundingClientRect().height));
+    const reserve = Math.max(0, ...[...this.#all('.context-measure, .context-link-measure')].map(node => node.getBoundingClientRect().height));
     if (!(line > 0) || !(reserve > 0)) return;
-    const lines = Math.max(1, Math.round(reserve / line));
-    message.style.setProperty('--help-lines', String(lines));
-    delete message.dataset.clamp;
-    if (message.getBoundingClientRect().height > lines * line + .5) message.dataset.clamp = '';
+    const lines = String(Math.max(1, Math.round(reserve / line)));
+    if (message.style.getPropertyValue('--help-lines') !== lines) message.style.setProperty('--help-lines', lines);
   }
   #wire() {
     const dialog = this.#dialog;
@@ -806,6 +815,7 @@ export class SettingsDialog {
       const link = document.createElement('a'); link.dataset.aithemaPrivacy = ''; link.href = url.href; link.textContent = label;
       if (source.target === '_blank') { link.target = '_blank'; link.rel = 'noopener noreferrer'; }
       message.replaceChildren(document.createTextNode(text.slice(0, index)), link, document.createTextNode(text.slice(index + label.length)));
+      this.#fitHelp();
       break;
     }
   }
@@ -872,6 +882,7 @@ export class SettingsDialog {
     node.querySelector('.gauge__value').textContent = value;
     node.querySelector('.gauge__detail').textContent = fill(g.short?.[kind]?.[gauge.state] ?? detail, details);
     node.dataset.help = 'gauge'; node.dataset.helpText = `${g.labels[kind]}${reasonSeparator}${value}${detail ? `: ${detail}` : ''}`;
+    if (kind === 'privacy') { const link = this.#q('.context-link-measure'); if (link) link.textContent = gauge.state === 'hostCountries' ? node.dataset.helpText : ''; }
     node.setAttribute('aria-label', `${g.labels[kind]}: ${value}${detail ? `, ${detail}` : ''}`);
     node.dataset.state = gauge.state;
     node.classList.remove('gauge--unrated', 'gauge--measured');
