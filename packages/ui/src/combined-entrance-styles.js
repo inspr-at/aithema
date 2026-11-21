@@ -233,7 +233,17 @@ export const combinedEntranceStyles = `
      host action: the reason yields first (one line, min-width 0, "…"; r5: down
      to 0), the action shrinks only past the row (its "…", rule above); the row is a plain flex row, no float spacer. */
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy {
-    display:block; -webkit-line-clamp:none; height:1lh; flex:1 1 0; min-width:0; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; }
+    display:block; -webkit-line-clamp:none; height:1lh; flex:1 1 0; min-width:0; white-space:nowrap; text-overflow:ellipsis; overflow:hidden;
+    container:aithema-k1-reason / inline-size; }
+  /* r7 (TICK r6 L1): no stub like "E…". When the room the action leaves the
+     reason is under 3em (about three characters plus the ellipsis) its text
+     drops out entirely, as when it yields to 0; the action carries the meaning
+     and the full sentence is in the sheet. The box keeps its flex size (size
+     containment: its content never sizes it), so nothing moves. The narrow
+     copy is aria-hidden; the action's description is unchanged. */
+  @container aithema-k1-reason (max-width:3em) {
+    .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy > * { display:none; }
+  }
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy::before,
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy > [data-action]::before { content:none; }
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy > .consent-wide { display:none; }
