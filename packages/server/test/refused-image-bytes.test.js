@@ -604,9 +604,11 @@ async function streamedUpload(f, sessionId, encoded, { chunks: split = 2, conten
   return state;
 }
 
-// M1: the image-slot reservation is taken synchronously at the admission
-// check, before any await; concurrent requests cannot all pass the check.
-test('AIT-610 r3: three concurrent image requests at the cap: at most the cap is admitted, the rest get 429 image-normalizations before their body is read', async t => {
+// M1: concurrent requests that all passed the pre-read check while slots were
+// free cannot exceed the cap: slots are assigned in one synchronous turn at
+// admission, and images beyond them are refused per file with a reason.
+// (A full cap refuses before the body read: the option A cap test above.)
+test('AIT-610 r3: three concurrent image requests at the cap: at most the cap is admitted, images beyond it are refused with image-normalizations', async t => {
   const f = await fixture(t);
   let release;
   const gate = new Promise(resolve => { release = resolve; });
@@ -621,7 +623,9 @@ test('AIT-610 r3: three concurrent image requests at the cap: at most the cap is
   const admittedImages = admitted.reduce((n, r) => n + JSON.parse(r.body).uploads.filter(upload => upload.kind === 'image').length, 0);
   assert.ok(admittedImages <= 8, `at most the cap is admitted (${admittedImages} images in ${admitted.length} requests)`);
   assert.equal(admitted.length + refused.length, 3, JSON.stringify(responses.map(r => r.status)));
-  assert.ok(refused.length >= 1, 'a concurrent request is refused');
+  const overCap = admitted.flatMap(r => JSON.parse(r.body).refused).filter(record => record.reason === 'image-normalizations');
+  assert.equal(overCap.length + refused.length * 3, 9 - admittedImages, 'every image over the cap is refused with its reason');
+  assert.ok(overCap.length + refused.length >= 1, 'the concurrent requests reached the cap');
   for (const r of refused) {
     assert.deepEqual(JSON.parse(r.body), { error: 'upload-rate-limit', reason: 'image-normalizations' });
     assert.equal(r.pulled, false, 'refused before its body is read');
