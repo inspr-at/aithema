@@ -54,7 +54,10 @@ async function harness(t) {
   // it waits for releaseConsent(), so the scroll before the load is known.
   // `noFocusVisible` (r4): emulate an engine that ignores focus({ focusVisible }).
   // `focusFails` (r5, gate Low): focus() on a consent checkbox does nothing.
-  return async ({ width, height, locale, sentence, doc, noFocusVisible = false, focusFails = false }, problems) => {
+  // `hostCopy` (r6): 'host' = the host overrides every feature reason and help
+  // template with long copy; 'fr' = a custom locale (fr) on the EN copy;
+  // 'fr-host' = both.
+  return async ({ width, height, locale, sentence, doc, noFocusVisible = false, focusFails = false, hostCopy = '' }, problems) => {
     const page = await browser.newPage();
     page.on('pageerror', error => problems.push(error.message));
     await page.setViewport({ width, height });
@@ -64,7 +67,8 @@ async function harness(t) {
       ? request.respond({ status: 200, contentType: 'text/html', body: fixture }) : request.continue()); });
     await page.goto(`${server.url}/combined-fixture?locale=${locale}&passiveDenied`);
     await page.waitForFunction(() => globalThis.ready && document.querySelector('aithema-session').shadowRoot.querySelector('.composer-status').textContent.length > 0);
-    await page.evaluate(async (locale, sentence, doc, noFocusVisible, focusFails) => {
+    await page.evaluate(() => addEventListener('error', event => { (globalThis.pageErrors ??= []).push(String(event.message)); }));
+    await page.evaluate(async (locale, sentence, doc, noFocusVisible, focusFails, hostCopy) => {
       if (focusFails) {
         const focus = HTMLElement.prototype.focus;
         HTMLElement.prototype.focus = function (options) { if (this.matches('.consent-item input')) return undefined; return focus.call(this, options); };
@@ -75,12 +79,19 @@ async function harness(t) {
       }
       const base = (await import(`/packages/ui/src/i18n/${locale}.js`))[locale];
       globalThis.fixtureCopy = sentence === undefined ? base : { ...base, featureConsent: { ...base.featureConsent, text: sentence } };
+      if (hostCopy.includes('host')) {
+        const long = 'This host words its own consent reason at far greater length than the stock copy, so it wraps over many lines in the help cell.';
+        const copy = globalThis.fixtureCopy;
+        globalThis.fixtureCopy = { ...copy, featureConsent: Object.fromEntries(Object.entries(copy.featureConsent).map(([key, value]) => [key, typeof value === 'string' ? long : value])),
+          help: Object.fromEntries(Object.entries(copy.help).map(([key, value]) => [key, `${value} ${long} ${long}`])) };
+      }
+      if (hostCopy.includes('fr')) globalThis.fixtureCopy = { ...globalThis.fixtureCopy, display: { ...globalThis.fixtureCopy.display, locale: 'fr' } };
       let release; globalThis.releaseConsent = new Promise(resolve => { release = resolve; }); globalThis.release = () => release();
       const prior = globalThis.fetch;
       globalThis.fetch = async (url, options = {}) => String(url).endsWith('/consent') && (options.method ?? 'GET') === 'GET'
         ? (await globalThis.releaseConsent, doc ? Response.json(doc) : new Response('unavailable', { status: 500 })) : prior(url, options);
       mount(JSON.parse(JSON.stringify(document.querySelector('aithema-session').session)));
-    }, locale, sentence, doc, noFocusVisible, focusFails);
+    }, locale, sentence, doc, noFocusVisible, focusFails, hostCopy);
     await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason[data-consent-feature="text"] .consent-action'));
     await settle(page);
     return page;
@@ -515,6 +526,174 @@ export async function consentSheetBodyHeightCheck(t) {
       }
       none(failures, `${name}: ${JSON.stringify(Object.fromEntries(Object.entries(seen).map(([k, v]) => [k, { body: v.body?.height, below: v.below?.y, help: v.help && { cell: v.help.cell.height, after: v.help.cellAfter.height, stock: v.help.stockMax, line: v.help.line, shown: v.help.message.height, clamp: v.help.lineClamp } }])))}`);
       assert.deepEqual(problems, []);
+    });
+  }
+}
+
+// AIT-603 PR-B r6 (Codex gateprb5, three Mediums on the footer help clamp).
+const helpState = c => {
+  const dialog = c.shadowRoot.querySelector('dialog.settings[open]');
+  const cell = dialog.querySelector('.context-text'), message = cell.querySelector('.context-message'), body = dialog.querySelector('.settings__body');
+  const box = n => { const r = n.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height, bottom: r.bottom, right: r.right }; };
+  const reserve = Math.max(0, ...[...cell.children].filter(n => n !== message).map(n => n.getBoundingClientRect().height));
+  return { innerWidth, cell: box(cell), message: box(message), body: box(body), reserve, line: parseFloat(getComputedStyle(message).lineHeight),
+    lines: getComputedStyle(message).webkitLineClamp, text: message.textContent, errors: [...globalThis.pageErrors ?? []] };
+};
+const positiveHelp = (s, label) => (s.cell.width > 0 && s.cell.height > 0 && s.message.width > 0 && s.message.height > 0 && s.body.width > 0 && s.body.height > 0 && s.reserve > 0 && s.line > 0)
+  ? [] : [`${label}: help cell, help line, body, reserve and line height positive: ${JSON.stringify(s)}`];
+const hoverConsent = async (page, locale, full) => {
+  const help = await page.$eval('aithema-session', readHelp, locale, full);
+  await page.mouse.move(help.point.x, help.point.y); await settle(page);
+  return help;
+};
+async function r6Capture(page, label, values) {
+  if (!process.env.AITHEMA_EVIDENCE_DIR) return;
+  const dir = join(process.env.AITHEMA_EVIDENCE_DIR, 'ait-603b', 'tick-r6'); await mkdir(dir, { recursive: true });
+  await page.screenshot({ path: join(dir, `${label}.png`), fullPage: false, captureBeyondViewport: false });
+  await writeFile(join(dir, `${label}.json`), JSON.stringify({ label, viewportOnly: true, ...values }, null, 2));
+  await appendFile(join(dir, 'index.txt'), `${label}.png  ${label}.json  ${values.summary}\n`);
+}
+
+// M1: a resize 1440 -> 360 with the long emoji help on screen. Every animation
+// frame across the resize is sampled (read in requestAnimationFrame, before the
+// frame's own layout and observers, so the state the frame starts from): the
+// help line never exceeds the reserve (N whole lines), the help cell keeps the
+// reserve, and the body height is the same in every frame at 360.
+export async function consentSheetHelpResizeCheck(t) {
+  const open = await harness(t);
+  for (const locale of ['en', 'de']) {
+    await t.test(`1440 -> 360 ${locale} resize with the emoji help`, async () => {
+      const problems = [], full = glyphs.emoji;
+      const page = await open({ width: 1440, height: 900, locale, sentence: full, doc: null }, problems);
+      try {
+        await openSheet(page);
+        await page.evaluate(() => globalThis.release());
+        await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings[open] .consent-status')?.textContent.length > 0);
+        await settle(page);
+        const help = await hoverConsent(page, locale, full);
+        await page.$eval('aithema-session', (c, read) => {
+          const sample = (0, eval)(`(${read})`); globalThis.helpFrames = [];
+          const tick = () => { globalThis.helpFrames.push(sample(c)); if (globalThis.helpFrames.length < 40) requestAnimationFrame(tick); };
+          requestAnimationFrame(tick);
+        }, helpState.toString());
+        await page.setViewport({ width: 360, height: 740 });
+        await page.waitForFunction(() => globalThis.helpFrames.length >= 40, { timeout: 30_000 });
+        const frames = await page.evaluate(() => globalThis.helpFrames);
+        const after = frames.filter(f => f.innerWidth === 360), failures = [];
+        if (after.length < 10) failures.push(`precondition: at least 10 sampled frames at 360: ${after.length}`);
+        if (!after.every(f => f.text === help.help)) failures.push(`precondition: the help line shows the emoji consent help in every frame: ${JSON.stringify(after.map(f => f.text).find(text => text !== help.help))}`);
+        const last = after.at(-1);
+        if (last && !(last.message.height > 2 * last.line - 1)) failures.push(`precondition: the emoji help wraps at 360: ${last.message.height} / ${last.line}`);
+        after.forEach((f, i) => {
+          failures.push(...positiveHelp(f, `frame ${i}`));
+          if (f.message.height > f.reserve + 1) failures.push(`frame ${i}: the help line never exceeds the reserve (N=${Math.round(f.reserve / f.line)} lines): ${f.message.height} vs ${f.reserve}`);
+          if (Math.abs(f.cell.height - f.reserve) > 1) failures.push(`frame ${i}: the help cell keeps the reserve: ${f.cell.height} vs ${f.reserve}`);
+          if (Math.abs(f.body.height - last.body.height) > 1) failures.push(`frame ${i}: the body keeps its height in every frame at 360: ${f.body.height} vs ${last.body.height}`);
+        });
+        const errors = [...new Set(frames.flatMap(f => f.errors))];
+        if (errors.length) failures.push(`no ResizeObserver loop or other page error: ${errors.join(' / ')}`);
+        await r6Capture(page, `resize-1440-360-${locale}-emoji`, { summary: `${after.length} frames at 360; help ${after.map(f => f.message.height).join(',')}; reserve ${last?.reserve}; body ${[...new Set(after.map(f => f.body.height))].join(',')}`, frames });
+        none(failures, `resize ${locale}: ${JSON.stringify(after.map(f => ({ help: f.message.height, reserve: f.reserve, cell: f.cell.height, body: f.body.height, lines: f.lines })))}`);
+        assert.deepEqual(problems, []);
+      } finally { await page.close(); }
+    });
+  }
+}
+
+// M2: the reserve uses the STOCK copy only (stock reasons and stock help
+// templates; a locale without stock copy uses the EN stock). A host that
+// overrides every feature reason and help template gives the same N, help
+// cell and body height as the stock copy, in en, de and a custom locale fr.
+export async function consentSheetHostCopyReserveCheck(t) {
+  const open = await harness(t);
+  for (const [locale, plain, host] of [['en', '', 'host'], ['de', '', 'host'], ['en', 'fr', 'fr-host']]) {
+    const label = host.startsWith('fr') ? 'fr' : locale;
+    await t.test(`360 ${label}: host copy does not set the reserve`, async () => {
+      const problems = [], seen = {};
+      for (const hostCopy of [plain, host]) {
+        const page = await open({ width: 360, height: 740, locale, sentence: undefined, doc: null, hostCopy }, problems);
+        try {
+          await openSheet(page);
+          await page.evaluate(() => globalThis.release());
+          await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings[open] .consent-status')?.textContent.length > 0);
+          await settle(page);
+          seen[hostCopy || 'stock'] = await page.$eval('aithema-session', helpState);
+          await r6Capture(page, `host-copy-360-${label}-${hostCopy || 'stock'}`, { summary: `reserve ${seen[hostCopy || 'stock'].reserve}; N ${Math.round(seen[hostCopy || 'stock'].reserve / seen[hostCopy || 'stock'].line)}; body ${seen[hostCopy || 'stock'].body.height}`, ...seen[hostCopy || 'stock'] });
+        } finally { await page.close(); }
+      }
+      const a = seen[plain || 'stock'], b = seen[host], failures = [...positiveHelp(a, 'stock'), ...positiveHelp(b, host)];
+      if (!failures.length) {
+        if (Math.round(b.reserve / b.line) !== Math.round(a.reserve / a.line)) failures.push(`the host copy gives the stock N: ${Math.round(b.reserve / b.line)} vs ${Math.round(a.reserve / a.line)}`);
+        if (Math.abs(b.cell.height - a.cell.height) > 1) failures.push(`the help cell keeps the stock height: ${b.cell.height} vs ${a.cell.height}`);
+        if (Math.abs(b.body.height - a.body.height) > 1) failures.push(`the body keeps the stock height: ${b.body.height} vs ${a.body.height}`);
+      }
+      none(failures, `${label}: ${JSON.stringify({ stock: { reserve: a.reserve, body: a.body.height }, host: { reserve: b.reserve, body: b.body.height } })}`);
+      assert.deepEqual(problems, []);
+    });
+  }
+}
+
+// M3: the privacy gauge's help with a long provider-country list and the
+// host's privacy link. The message is NOT clamped (it ends in a link); the
+// reserve covers it (the dialog measures the privacy help it would show), so
+// the link is fully visible inside every clipping box, draws its focus ring
+// unclipped, and the body and help cell keep their height when it shows.
+const COUNTRIES = ['US', 'IE', 'DE', 'FR', 'JP', 'BR', 'IN', 'CA', 'AU', 'SG', 'KR', 'MX', 'ZA', 'CH', 'SE', 'NO', 'PL', 'IT', 'ES', 'NL'];
+export async function consentSheetPrivacyLinkCheck(t) {
+  const open = await harness(t);
+  for (const [width, height, locale] of [[360, 740, 'en'], [360, 740, 'de'], [1440, 900, 'en']]) {
+    await t.test(`${width} ${locale}: the privacy link with a long country list`, async () => {
+      const problems = [];
+      const page = await open({ width, height, locale, sentence: undefined, doc: null }, problems);
+      try {
+        await page.$eval('aithema-session', (c, countries) => {
+          const prior = globalThis.fetch;
+          globalThis.fetch = async (url, init = {}) => {
+            if ((init.method ?? 'GET') !== 'GET' || !new URL(url, location.href).pathname.endsWith('/settings')) return prior(url, init);
+            const catalog = await (await prior(url, init)).json();
+            catalog.settings = c.session.settings; catalog.engine = c.session.engine;
+            catalog.presets.best.models = [{ ...catalog.presets.best.models[0], id: 'default', facts: { ...catalog.presets.best.models[0].facts, hostCountries: countries, hostTraining: true } }];
+            return Response.json(catalog);
+          };
+          c.insertAdjacentHTML('beforeend', '<nav slot="legal"><a data-aithema-privacy href="/host-privacy">Host document</a></nav>');
+          const session = structuredClone(c.session); session.settings = { ...session.settings, model: 'default', voice: 'off', visuals: 'off' };
+          c.configure({ copy: globalThis.fixtureCopy, session }); c.openSettings();
+        }, COUNTRIES);
+        await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings[open] [data-gauge="privacy"]')?.dataset.state === 'hostCountries', { timeout: 20_000 });
+        await settle(page);
+        const before = await page.$eval('aithema-session', helpState);
+        const point = await page.$eval('aithema-session', c => { const r = c.shadowRoot.querySelector('dialog.settings[open] [data-gauge="privacy"]').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+        await page.mouse.move(point.x, point.y); await settle(page);
+        await page.$eval('aithema-session', c => c.shadowRoot.querySelector('dialog.settings[open] .context-message a[data-aithema-privacy]')?.focus({ focusVisible: true }));
+        await settle(page);
+        const after = await page.$eval('aithema-session', c => {
+          const dialog = c.shadowRoot.querySelector('dialog.settings[open]'), message = dialog.querySelector('.context-message'), link = message.querySelector('a[data-aithema-privacy]');
+          if (!link) return { link: null, text: message.textContent };
+          const css = getComputedStyle(link), ring = (parseFloat(css.outlineWidth) || 0) + (parseFloat(css.outlineOffset) || 0);
+          const r = link.getBoundingClientRect(), clipped = [];
+          for (let n = link.parentElement; n && n !== dialog.parentNode; n = n.parentElement) {
+            const style = getComputedStyle(n);
+            if (!/(auto|scroll|hidden|clip)/u.test(`${style.overflowX} ${style.overflowY}`) && style.webkitLineClamp === 'none') continue;
+            const v = n.getBoundingClientRect();
+            if (r.top - ring < v.top - .5 || r.bottom + ring > v.bottom + .5 || r.left - ring < v.left - .5 || r.right + ring > v.right + .5) clipped.push(`${n.className || n.tagName}: link ${JSON.stringify([r.top, r.bottom])} ring ${ring} box ${JSON.stringify([v.top, v.bottom])} overflow ${style.overflowY} clamp ${style.webkitLineClamp}`);
+          }
+          return { link: { width: r.width, height: r.height, top: r.top, bottom: r.bottom }, focused: c.shadowRoot.activeElement === link, outline: css.outlineStyle, ring, clipped, visible: link.checkVisibility(), text: message.textContent };
+        });
+        const shown = await page.$eval('aithema-session', helpState), failures = [...positiveHelp(before, 'before'), ...positiveHelp(shown, 'shown')];
+        if (!after.link) failures.push(`precondition: the help line carries the host's privacy link: ${JSON.stringify(after.text)}`);
+        else {
+          if (!(after.link.width > 0 && after.link.height > 0) || !after.visible) failures.push(`the link has a positive, visible box: ${JSON.stringify(after.link)}`);
+          if (!(shown.message.height > 2 * shown.line - 1)) failures.push(`precondition: the privacy help wraps over several lines: ${shown.message.height} / ${shown.line}`);
+          if (!after.focused || after.outline === 'none' || !(after.ring > 0)) failures.push(`the link takes focus and draws a ring: ${JSON.stringify({ focused: after.focused, outline: after.outline, ring: after.ring })}`);
+          if (after.clipped.length) failures.push(`the link and its ring are inside every clipping box: ${after.clipped.join(' | ')}`);
+          if (shown.message.height > shown.reserve + 1) failures.push(`the reserve covers the privacy help: ${shown.message.height} vs ${shown.reserve}`);
+          if (Math.abs(shown.cell.height - before.cell.height) > 1) failures.push(`the help cell keeps its height: ${shown.cell.height} vs ${before.cell.height}`);
+          if (Math.abs(shown.body.height - before.body.height) > 1) failures.push(`the body keeps its height: ${shown.body.height} vs ${before.body.height}`);
+        }
+        await r6Capture(page, `privacy-link-${width}-${locale}`, { summary: `link ${JSON.stringify(after.link)}; clipped ${after.clipped?.length ?? '-'}; cell ${before.cell.height} -> ${shown.cell.height}; body ${before.body.height} -> ${shown.body.height}`, before, shown, after });
+        none(failures, `privacy ${width} ${locale}`);
+        assert.deepEqual(problems, []);
+      } finally { await page.close(); }
     });
   }
 }
