@@ -100,6 +100,8 @@ export class AithemaSession extends HTMLElement {
   #consentRefresh; #consentRequestId = null;
   #startIntent = null; #startIntentTimer; #startRetryTimer; #startFromNavigation = false; #checkingStartRestore = null;
   #featureRead = null;
+  // AIT-603 r4 (AIT-506): the offer row the phone reveal last brought into view.
+  #revealedOffer = null;
   #signals; #signalState; #signalLiveSeq = null; #signalReplay = new WeakSet();
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #clarifyWaitTimer; #clarifyRefresh = 0;
@@ -1418,6 +1420,7 @@ export class AithemaSession extends HTMLElement {
     // Scroll only this conversation pane, even when a previous gesture disabled
     // ordinary bottom-follow. Never focus the capture field or scroll the page.
     shell.scrollTop += box.top - pane.top - padding;
+    this.#revealedOffer = row;
     this.#recordTranscriptScroll(before);
   }
   #scrollToLatest() {
@@ -1491,12 +1494,17 @@ export class AithemaSession extends HTMLElement {
       // the usual top padding. Taller offers retain the complete entry row.
       const room = Math.max(0, pane.height - target.height);
       const inset = Math.min(room, fits ? padding : Math.max(padding, room / 2));
-      // AIT-603 r3 (TICK M1, AIT-506): a re-reveal of the same offer (saving an
-      // address) whose goal is within a pixel of where it already is keeps that
-      // position. A fractional inset (room / 2) can land near half a pixel; the
-      // snapped scroll offset must not move the offer by a rounding.
+      // AIT-603 r4 (Codex Low, AIT-506 root fix): a re-reveal of the offer row
+      // already revealed (saving an address re-renders the same row) keeps the
+      // reading position while its target is still whole in the pane there; a
+      // fresh inset (room / 2 is fractional) must not move a visible row by a
+      // rounding. Any other reveal, or a row no longer whole, takes the goal
+      // exactly (no pixel tolerance).
       const goal = shell.scrollTop + target.top - pane.top - inset;
-      shell.scrollTop = Math.abs(goal - before) < 1 ? before : goal;
+      const atBefore = target.top - pane.top + shell.scrollTop - before;
+      const kept = this.#revealedOffer === offer && atBefore >= 0 && atBefore + target.height <= pane.height;
+      shell.scrollTop = kept ? before : goal;
+      this.#revealedOffer = offer;
     }
     if (this.#combined && this.#imageLayout) {
       const pane = shell.getBoundingClientRect(), scroll = this.shadowRoot.querySelector('.conversation-scroll').getBoundingClientRect();
