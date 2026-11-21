@@ -2311,6 +2311,11 @@ export class AithemaSession extends HTMLElement {
       const feedback = root.querySelector('.composer-feedback');
       const showSaved = this.#saved && reason.hasAttribute('data-shortcut') && !this.#composerPaused;
       feedback.toggleAttribute('data-saved', showSaved);
+      // r6 (TICK r5 M1): with the phone keyboard up the feedback row only grows:
+      // once Saved has shown, its row stays (empty after Saved clears) until the
+      // keyboard closes (layout.js drops the flag there).
+      if (!root.querySelector('.workspace')?.hasAttribute('data-phone-keyboard')) feedback.removeAttribute('data-keyboard-kept');
+      else if (showSaved) feedback.setAttribute('data-keyboard-kept', '');
       setText(root.querySelector('.composer-saved-sizer span'), copy.saved);
       setText(root.querySelector('.composer-saved span'), showSaved ? copy.saved : '');
       // Always mounted and exposed to AT, including while another notice wins visually.

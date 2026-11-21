@@ -239,7 +239,14 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy > .consent-wide { display:none; }
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy > .consent-narrow { display:inline; }
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action {
-    position:relative; inset:auto; flex:0 1 auto; height:1lh; white-space:nowrap; margin-inline-start:.35em; }
+    position:relative; inset:auto; flex:0 1 auto; height:1lh; white-space:nowrap; order:2; }
+  /* r6 (Codex gatepra5 Medium, TICK M1 rule): the .35em gap belongs between the
+     reason and the action, never to the action: it is its own flex item between
+     them that shrinks first (a far higher shrink factor), so once the reason has
+     yielded to 0 a fitting action gets the whole row and paints its label whole,
+     exactly as with the keyboard down. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"]::after {
+    content:""; order:1; flex:0 1000000 .35em; min-width:0; }
   /* One row sits 8 px (the composer's row gap) under Send: its 44 px target
      starts at that gap and grows down over the status row, clear of Send and Mic. */
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action::after { top:-8px; transform:none; }
@@ -254,12 +261,20 @@ export const combinedEntranceStyles = `
      accessibility tree at no size. Plain, document- and image-enabled docks
      alike (r4, Codex KEYBOARD). r5 (Codex gatepra4 Low): a READY staged image
      keeps its own row above the field and leaves no blank row below it. */
-  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.composer-feedback > .composer-reason:is([data-shortcut],:empty)):not(:has(.composer-feedback[data-saved])):not(:has(.composer-feedback :is(button, a, input, [tabindex]))) {
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.composer-feedback > .composer-reason:is([data-shortcut],:empty)):not(:has(.composer-feedback[data-saved])):not(:has(.composer-feedback[data-keyboard-kept])):not(:has(.composer-feedback :is(button, a, input, [tabindex]))) {
     grid-template-areas:"message mic send" "status status status" "notice notice notice"; }
-  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.staged-images:not([hidden])):has(.composer-feedback > .composer-reason:is([data-shortcut],:empty)):not(:has(.composer-feedback[data-saved])):not(:has(.composer-feedback :is(button, a, input, [tabindex]))) {
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.staged-images:not([hidden])):has(.composer-feedback > .composer-reason:is([data-shortcut],:empty)):not(:has(.composer-feedback[data-saved])):not(:has(.composer-feedback[data-keyboard-kept])):not(:has(.composer-feedback :is(button, a, input, [tabindex]))) {
     grid-template-areas:"images images images" "message mic send" "status status status" "notice notice notice"; }
-  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.composer-feedback > .composer-reason:is([data-shortcut],:empty)):not(:has(.composer-feedback[data-saved])):not(:has(.composer-feedback :is(button, a, input, [tabindex]))) .composer-feedback {
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.composer-feedback > .composer-reason:is([data-shortcut],:empty)):not(:has(.composer-feedback[data-saved])):not(:has(.composer-feedback[data-keyboard-kept])):not(:has(.composer-feedback :is(button, a, input, [tabindex]))) .composer-feedback {
     grid-area:auto; position:absolute; width:1px; height:0; min-height:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+  /* r6 (TICK r5 M1): with the keyboard up the feedback row only grows. Once
+     something has shown in it (the Saved confirmation after a send) it keeps its
+     one row until the keyboard closes (session-element sets
+     [data-keyboard-kept]; layout.js clears it when the keyboard closes): when
+     Saved clears itself 1.6 s later the row stays, empty (the idle hint is not
+     painted; it stays in the accessibility tree), so Send and Mic never move
+     unprompted. It still opens at 0 px when nothing has shown yet. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback[data-keyboard-kept]:not([data-saved]) > .composer-reason:is([data-shortcut],:empty) { opacity:0; pointer-events:none; }
   .workspace[data-entrance="combined"] { height:auto; padding-bottom:calc(var(--phone-dock,250px) + var(--phone-footer,57px) + 24px); }
   .workspace[data-entrance="combined"] .conversation { height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,250px) - 32px); min-height:0; }
   .workspace[data-entrance="combined"] [data-host-opener] { --turn-max-width:100%; padding-block:6px; }

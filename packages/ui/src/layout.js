@@ -428,7 +428,11 @@ export class PhoneComposerViewport {
         this.fullHeight = Math.max(view?.innerHeight ?? height, height);
         this.viewportWidth = width; this.viewportOrientation = orientation;
       } else this.fullHeight = Math.max(this.fullHeight ?? 0, view?.innerHeight ?? height, height);
-      workspace.toggleAttribute('data-phone-keyboard', Boolean(phone && touch && editing && this.fullHeight - height >= 150));
+      const keyboardUp = Boolean(phone && touch && editing && this.fullHeight - height >= 150);
+      workspace.toggleAttribute('data-phone-keyboard', keyboardUp);
+      // r6 (AIT-603, TICK r5 M1): a feedback row kept while the keyboard was up
+      // is released when it closes, so the next keyboard opens at 0 px again.
+      if (!keyboardUp) root.querySelector('.composer-feedback')?.removeAttribute('data-keyboard-kept');
       this.composerSize.fit();
       const outBody = root.querySelector('.composer-out__body');
       // Only clipped copy needs its own keyboard scroll target. Fitting copy
