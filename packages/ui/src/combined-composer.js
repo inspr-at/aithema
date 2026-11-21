@@ -16,7 +16,8 @@ export function reserveCombinedComposer(root, copy, locale) {
   const consent = (narrow) => {
     // AIT-603 PR-A: the visible line's structure, so the phone CSS cap lays both out alike.
     const row=line('', `${narrow ? 'composer-reserve-phone' : 'composer-reserve-wide'} composer-reserve-consent`);
-    const label=node('span', 'consent-line-copy'), words=node('span', '', `${copy.featureConsent[narrow ? 'textNarrow' : 'text']}${reasonSeparator}`);
+    const label=node('span', 'consent-line-copy'), words=node('span', '', copy.featureConsent[narrow ? 'textNarrow' : 'text']);
+    words.append(node('span', 'consent-separator', reasonSeparator));
     words.dataset.action = copy.featureConsent[narrow ? 'actionNarrow' : 'action']; label.append(words);
     row.append(label, node('span', 'composer-reserve-action', copy.featureConsent[narrow ? 'actionNarrow' : 'action']));
     return row;

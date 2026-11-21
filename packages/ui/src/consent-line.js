@@ -29,6 +29,12 @@ export function paintNarrowText(label, text, textNarrow) {
   label.querySelector('.consent-narrow').dataset.copy = textNarrow;
 }
 
+/** The sentence, then its separator in its own span (AIT-603 r2, TICK (a): phones never paint a "·" that ends row 1). */
+function paintSeparated(target, text, separator) {
+  if (target.textContent === `${text}${separator}` && target.querySelector(':scope > .consent-separator')) return;
+  target.replaceChildren(text, node('span', 'consent-separator', separator));
+}
+
 /** Stable status node and quiet action; its surrounding slot owns the geometry. */
 export function paintConsentLine(line, { copy, feature, verdict, text, open, separator = reasonSeparator }) {
   const blocked = !verdict.available && isConsentReason(verdict.rawReason ?? verdict.reason);
@@ -72,8 +78,8 @@ export function paintConsentLine(line, { copy, feature, verdict, text, open, sep
     description.id = `consent-${feature}-description`; action.setAttribute('aria-describedby', description.id);
     setText(description, featureConsentText(copy, feature));
     label.setAttribute('aria-hidden', 'true');
-    setText(label.querySelector('.consent-wide'), `${featureConsentText(copy, feature)}${separator}`);
-    setText(label.querySelector('.consent-narrow'), `${copy.featureConsent.textNarrow}${separator}`);
+    paintSeparated(label.querySelector('.consent-wide'), featureConsentText(copy, feature), separator);
+    paintSeparated(label.querySelector('.consent-narrow'), copy.featureConsent.textNarrow, separator);
     setText(action.querySelector('.consent-wide'), copy.featureConsent.action);
     setText(action.querySelector('.consent-narrow'), copy.featureConsent.actionNarrow);
     // AIT-603 PR-A: on phones the sentence clamps in its own box by CSS alone;

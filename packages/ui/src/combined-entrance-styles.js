@@ -81,10 +81,6 @@ export const combinedEntranceStyles = `
 .composer-reserve-line .question-status svg { width:14px; height:14px; }
 .composer-reserve-action { white-space:nowrap; }
 .composer-reserve-phone { display:none; }
-/* Codex gate2c M4: the visible text-consent line is uncapped (styles.js
-   [data-consent-feature="text"] max-height:none), so its reserve drops the
-   two-line .composer-reason cap too: a three-line wrap keeps the row. */
-.composer-reserve-line.composer-reserve-consent { max-height:none; overflow:visible; }
 .composer-notice__phone { display:none; }
 .composer-notice__more { display:inline; min-height:44px; padding:0 4px; text-decoration:underline; color:var(--aithema-accent); }
 .composer-notice-dialog { width:min(36rem,calc(100vw - 32px)); max-height:calc(100dvh - 32px); overflow:auto; padding:24px; color:var(--aithema-ink); background:var(--aithema-surface); border:1px solid var(--aithema-line); border-radius:16px; }
@@ -106,7 +102,8 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"] .composer { row-gap:0; }
   .workspace[data-entrance="combined"] textarea { min-height:44px; height:var(--composer-field-height,44px); }
 }
-@media(min-width:600px) {
+/* r2 (Codex Low): one boundary; phones are ≤ 600 px and keep the route line. */
+@media(width > 600px) {
   .workspace[data-entrance="combined"] .ready__route { display:none; }
 }
 /* AIT-553: short desktops (1366x768, 1280x720 under a host header) show
@@ -185,10 +182,19 @@ export const combinedEntranceStyles = `
        ends on line 1 with the action at its end. The layout follows any copy,
        locale or font change by itself. */
   .workspace[data-entrance="combined"] .composer-feedback > .composer-reason[data-consent-feature="text"] { display:flex; position:relative; }
-  .composer-reserve-line.composer-reserve-consent { position:relative; }
+  /* Codex gate2c M4 / r2 Codex CLAMP: the phone reserve drops the base
+     .composer-reason cap for the shared two-row box; desktop keeps main's. */
+  .composer-reserve-line.composer-reserve-consent { position:relative; max-height:none; overflow:visible; }
   .workspace[data-entrance="combined"] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy,
   .composer-reserve-line.composer-reserve-consent > .consent-line-copy {
-    flex:1 1 auto; min-width:0; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
+    flex:1 1 auto; min-width:0; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; height:2lh; }
+  /* r2, TICK decision (a): the box is ALWAYS two rows (height 2lh), so the
+     spacer below is always one line and the action's room, and the action,
+     always end row 2 at one spot, for short text too; the reserve is the
+     same box, so the dock never depends on the text's length. No "·" ends
+     row 1: on phones the separator (its own span) is not painted. */
+  .workspace[data-entrance="combined"] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy .consent-separator,
+  .composer-reserve-line.composer-reserve-consent > .consent-line-copy .consent-separator { display:none; }
   .workspace[data-entrance="combined"] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy::before,
   .composer-reserve-line.composer-reserve-consent > .consent-line-copy::before { content:''; float:inline-end; width:0; height:calc(100% - 1lh); }
   .workspace[data-entrance="combined"] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy > [data-action]::before,
@@ -212,6 +218,10 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"] .turn[data-host-opener] .turn-text { -webkit-line-clamp:var(--opener-lines,6); }
   /* The phone notice is abbreviated, so the processing route keeps its own line under the one-row readiness (RC26). */
   .workspace[data-entrance="combined"] .ready__route { flex:1 0 100%; }
+  /* r2 (Codex READY-STAGE Medium): the one-row readiness fits the width left
+     by a classic 15 px scrollbar gutter too (stable gutter): a tighter inline
+     padding keeps title · consent state on one row at 320 DE and 390 DE 125 %. */
+  .workspace[data-entrance="combined"] .ready { padding-inline:.5rem; }
   /* No render can run before the first reply (AIT-601 r5: the idle reserve is no
      content end), so the ready stage keeps no 40 px render-label reserve under
      the welcome. The welcome's top is unchanged; live restores the reserve. */
