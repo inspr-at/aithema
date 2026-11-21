@@ -46,7 +46,31 @@ async function open(page, server, variant, entrance = 'combined') {
   await page.evaluate(({ theme, entrance }) => {
     c.setAttribute('theme', theme); c.style.setProperty('--aithema-height', '100dvh');
     const configure = c.configure.bind(c); c.configure = options => configure({ entrance, ...options, voiceClient: options.voiceClient ?? fixtureClient });
+    // AIT-587 (Codex gate1c C12): record every provider Pause/Resume receipt. A pause check waits for the
+    // receipt, because the rail presses Pause optimistically before the provider answers.
+    // globalThis.refusedReceipt[command] replaces the provider's answer (a missing acknowledgement).
+    globalThis.voiceReceipts = [];
+    const start = fixtureClient.start.bind(fixtureClient);
+    fixtureClient.start = async (...args) => {
+      const session = await start(...args);
+      for (const command of ['pause', 'resume']) {
+        const send = session[command].bind(session);
+        session[command] = async (...rest) => {
+          const receipt = globalThis.refusedReceipt?.[command] ?? await send(...rest);
+          voiceReceipts.push({ command, ...receipt }); return receipt;
+        };
+      }
+      return session;
+    };
   }, { theme: variant.theme, entrance });
+}
+// Press the rail's Pause (paused = true) or Resume (false) and wait until that command is acknowledged.
+// A timeout throws with the label.
+async function togglePause(page, paused, label, timeout = 10_000) {
+  await page.evaluate(() => c.shadowRoot.querySelector('.pause').click());
+  await page.waitForFunction(v => c.shadowRoot.querySelector('.pause').getAttribute('aria-pressed') === String(v)
+    || c.shadowRoot.querySelector('.voice-pause').getAttribute('aria-pressed') === String(v), { timeout }, paused)
+    .catch(error => { throw new Error(`${label}: the ${paused ? 'pause' : 'resume'} was not acknowledged within ${timeout / 1000} s`, { cause: error }); });
 }
 async function observe(page) {
   await page.evaluate(async () => { await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
@@ -323,15 +347,11 @@ test('AIT-553 slice 2 item 1: the call band keeps one row in every voice state o
     await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.call === 'active');
     await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.state !== 'connecting', { timeout: 10_000 }).catch(() => {});
     states.push(await bandRecord(page, 'live'));
-    const pressed = value => page.waitForFunction(v => c.shadowRoot.querySelector('.pause').getAttribute('aria-pressed') === v
-      || c.shadowRoot.querySelector('.voice-pause').getAttribute('aria-pressed') === v, { timeout: 10_000 }, value).then(() => true, () => false);
-    await page.evaluate(() => c.shadowRoot.querySelector('.pause').click());
     // AIT-587: an unacknowledged pause fails here; it is never recorded as a paused state.
-    assert.equal(await pressed('true'), true, `${label}: the pause is acknowledged within 10 s`);
+    await togglePause(page, true, label);
     states.push(await bandRecord(page, 'paused'));
     if (variant.width === 1366 || variant.locale === 'de') await retain(page, `s2-${label}-band-paused`, states.at(-1));
-    await page.evaluate(() => c.shadowRoot.querySelector('.pause').click());
-    assert.equal(await pressed('false'), true, `${label}: the resume is acknowledged within 10 s`);
+    await togglePause(page, false, label);
     states.push(await bandRecord(page, 'resumed'));
     await retain(page, `s2-${label}-band-live`, states.at(-1));
     await page.evaluate(() => c.shadowRoot.querySelector('.voice-close').click());
@@ -475,10 +495,8 @@ test('AIT-553 slice 3 M1: beside a host header the opener playback row keeps one
     await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.state !== 'connecting', { timeout: 10_000 }).catch(() => {});
     states.push(await bandRecord(page, 'opener playback'));
     await retain(page, `s3-${label}-band-opener-playback`, { track, ...states.at(-1) });
-    await page.evaluate(() => c.shadowRoot.querySelector('.pause').click());
     // AIT-587: the paused record exists only once the pause is acknowledged; a timeout fails the test.
-    await page.waitForFunction(() => c.shadowRoot.querySelector('.pause').getAttribute('aria-pressed') === 'true', { timeout: 10_000 })
-      .catch(error => { throw new Error(`${label}: the pause was not acknowledged within 10 s`, { cause: error }); });
+    await togglePause(page, true, label);
     states.push(await bandRecord(page, 'paused'));
     await page.evaluate(() => c.shadowRoot.querySelector('.voice-close').click());
     await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.call === 'none');
@@ -499,6 +517,22 @@ test('AIT-553 slice 3 M1: beside a host header the opener playback row keeps one
       if (s.status.visible) assert.ok(s.status.box[0] + s.status.box[2] <= s.signal[0] + s.signal[2] + .5, `status stays in its track: ${where}`);
     }
   }
+});
+
+// AIT-587 (Codex gate1c C12): the rail presses Pause before the provider answers and keeps it pressed when the
+// answer is missing (the local media hold stays). A pause check must therefore fail on a missing acknowledgement.
+test('AIT-587: a pause check fails when the provider does not acknowledge the pause', { timeout: 60_000 }, async t => {
+  const { page, server } = await harness(t);
+  await open(page, server, hostRowDesktops[0]);
+  await page.evaluate(() => { globalThis.refusedReceipt = { pause: { acknowledged: false, paused: false } }; grant(); });
+  await page.waitForFunction(() => c.session.featureMatrix.best.voice.available);
+  await page.click('aithema-session >>> .composer-mic');
+  await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.call === 'active');
+  await page.waitForFunction(() => c.shadowRoot.querySelector('.audio-rail').dataset.state !== 'connecting', { timeout: 10_000 }).catch(() => {});
+  await assert.rejects(togglePause(page, true, 'refused', 3_000), /refused: the pause was not acknowledged within 3 s/u);
+  const after = await page.evaluate(() => ({ pressed: c.shadowRoot.querySelector('.pause').getAttribute('aria-pressed'), receipts: voiceReceipts }));
+  assert.deepEqual(after.receipts, [{ command: 'pause', acknowledged: false, paused: false }], 'the provider answered without an acknowledgement');
+  assert.equal(after.pressed, 'true', 'the optimistic, unacknowledged pause stays pressed, so aria-pressed alone cannot prove an acknowledgement');
 });
 
 test('AIT-553 slice 3 M2: beside a host header the compact readiness clears the pinned composer with its whole outline', { timeout: 240_000 }, async t => {
@@ -821,14 +855,19 @@ test('AIT-553 gate2c: an asynchronous mic-unavailable failure leaves focus on th
 // AIT-587 (RC25 look 15): the ready card's check stays beside its value, also when the value wraps.
 test('AIT-587: a ready-card check stays beside the first line of a wrapped value', { timeout: 120_000 }, async t => {
   const { page, server } = await harness(t), records = [];
-  for (const variant of variants) for (const entrance of ['choice', 'combined']) {
-    const label = `${variant.width}-${variant.locale}-${variant.theme}-${entrance}`;
+  // AIT-587 r2 (Codex gate1c A3): short desktops (600 px wide or more, at most 860 px high) show the combined
+  // readiness as one compact row with its own flex layout; those variants run inside that breakpoint.
+  const compact = [{ width: 1366, height: 768, locale: 'en', theme: 'light', compact: true }, { width: 1280, height: 720, locale: 'de', theme: 'dark', compact: true }];
+  const cases = [...variants.flatMap(variant => ['choice', 'combined'].map(entrance => [variant, entrance])), ...compact.map(variant => [variant, 'combined'])];
+  for (const [variant, entrance] of cases) {
+    const label = `${variant.width}x${variant.height ?? 1000}-${variant.locale}-${variant.theme}-${entrance}`;
     await open(page, server, variant, entrance);
     await page.evaluate(() => grant());
     await page.waitForFunction(() => [...c.shadowRoot.querySelectorAll('.ready__row')]
       .some(row => row.querySelector('.ready__check').checkVisibility({ checkVisibilityCSS: true })), { timeout: 10_000 })
       .catch(async error => { throw new Error(`${label}: no ready-card check shows: ${await page.evaluate(() => c.shadowRoot.querySelector('.ready')?.outerHTML.slice(0, 600))}`, { cause: error }); });
-    const rows = await page.evaluate(() => [...c.shadowRoot.querySelectorAll('.ready__row')]
+    const layout = await page.evaluate(() => getComputedStyle(c.shadowRoot.querySelector('.ready')).display);
+    const rows = await page.evaluate(repeat => [...c.shadowRoot.querySelectorAll('.ready__row')]
       .filter(row => row.querySelector('.ready__check').checkVisibility({ checkVisibilityCSS: true })).map(row => {
         const value = row.querySelector('dd > span:last-child'), check = row.querySelector('.ready__check'), original = value.textContent;
         const measure = () => {
@@ -838,15 +877,16 @@ test('AIT-587: a ready-card check stays beside the first line of a wrapped value
             lines: new Set(lines.map(r => Math.round(r.y))).size, row: row.getBoundingClientRect().height };
         };
         const single = measure();
-        value.textContent = Array(10).fill(original).join(' ');
+        value.textContent = Array(repeat).fill(original).join(' ');
         const wrapped = measure();
         value.textContent = original;
         return { row: row.dataset.ready, single, wrapped, restored: measure() };
-      }));
-    records.push({ label, rows });
-    await retain(page, `ait587-${label}-ready-check`, { rows });
+      }), variant.compact ? 40 : 10);
+    records.push({ label, rows, layout, compact: Boolean(variant.compact) });
+    await retain(page, `ait587-${label}-ready-check`, { layout, rows });
   }
-  for (const { label, rows } of records) {
+  for (const { label, rows, layout, compact } of records) {
+    if (compact) assert.equal(layout, 'flex', `${label}: the compact readiness row is active`);
     assert.ok(rows.length > 0, `${label}: at least one ready-card check is measured`);
     for (const { row, single, wrapped, restored } of rows) {
       const where = `${label}/${row}: ${JSON.stringify({ single, wrapped })}`;
