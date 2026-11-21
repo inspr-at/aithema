@@ -2074,3 +2074,15 @@ test('AIT-601: combined entrance with a real image concept layout: the welcome o
 
 import { combinedImageOpenerFoldCheck } from './combined-image-opener-check.js';
 test('AIT-601 r5: before the first reply the idle render-label reserve cannot make fitting content follow; real overflow follows; a reply counts it again', { timeout:180_000 }, combinedImageOpenerFoldCheck);
+
+import { phoneReadyFitCheck } from './phone-ready-fit-check.js';
+test('AIT-603: phones, combined entrance with a real image concept layout: the welcome clamp follows the space with one-row readiness, a bottom fade only when even two lines do not fit, and a fixed clamp through the hand-off', { timeout:360_000 }, phoneReadyFitCheck);
+
+import { consentCapMatrixCheck, consentCapGrantCheck, consentCapLocaleSwitchCheck, consentCapFontSwapCheck, consentCapDesktopCheck, consentAccessibleTextCheck, consentSentenceOnceCheck } from './consent-cap-check.js';
+test('AIT-603 PR-A: the phone consent cap is pure CSS: at most two lines, the host text clamps with "…" in its own box, the action is whole and ends line 2 (360/390 EN/DE, host text 0..very long, a 72-letter word, a short action)', { timeout:300_000 }, consentCapMatrixCheck);
+test('AIT-603 PR-A: pending → granted keeps the dock, mic and Send (0 px); the granted line sits top-aligned in the shared two-line reserve (plain and image docks)', { timeout:300_000 }, consentCapGrantCheck);
+test('AIT-603 PR-A: a locale switch (another action length) re-lays out the cap by CSS alone, both directions', { timeout:180_000 }, consentCapLocaleSwitchCheck);
+test('AIT-603 PR-A: a font swap with the same family and width keeps the cap with no font event or JS', { timeout:180_000 }, consentCapFontSwapCheck);
+test('AIT-603 PR-A: desktop (1440) keeps the consent line unclamped with its inline action', { timeout:120_000 }, consentCapDesktopCheck);
+test('AIT-603 PR-A (TICK r5): the consent action is named by the visible action; the host sentence is its description at 320/360/390', { timeout:240_000 }, consentAccessibleTextCheck);
+test('AIT-603 PR-A (TICK r5): the host sentence is exposed once in the composer accessibility tree (the action description); no title on the status line', { timeout:240_000 }, consentSentenceOnceCheck);
