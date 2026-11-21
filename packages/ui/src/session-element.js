@@ -46,7 +46,7 @@ import { icon } from './icons.js';
 import { modelDisplayName, languageFlag, formatCredits, clockTime } from './display.js';
 import { bandStyles } from './band-styles.js';
 import { voiceSingleRowMinWidth, voiceRailMinWidth, voiceRailFlexMinWidth } from './first-paint.js';
-import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, FooterPopups, PhoneComposerViewport, latchFeedback } from './layout.js';
+import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, FooterPopups, PhoneComposerViewport, latchFeedback, releaseFeedback } from './layout.js';
 import { createReveal } from './reveal.js';
 import { mountVersionDetails, renderHostVersion } from './version-display.js';
 import { QuestionCard, questionCardMarkup, questionCardStyles } from './question-card.js';
@@ -969,8 +969,9 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.purpose-new').addEventListener('click', () => this.#newConversation({ processingPreset: this.#session.processingPreset, settings: this.#session.settings }));
     // r7: discarding is the visitor's own action: release the kept keyboard-up
     // feedback row before the discard repaints (capture phase, ahead of the handlers).
+    // r8: the release holds until the discarded content has left the row.
     root.querySelector('.composer').addEventListener('click', e => {
-      if (e.target.closest?.('.upload-discard, .staged-image__remove, .image-refusals__dismiss')) root.querySelector('.composer-feedback')?.removeAttribute('data-keyboard-kept');
+      if (e.target.closest?.('.upload-discard, .staged-image__remove, .image-refusals__dismiss')) releaseFeedback(root, { discard: true });
     }, true);
     root.querySelector('form').addEventListener('submit', e => { e.preventDefault(); if (this.#composerPaused) void this.#resumeComposer(); else void this.#send(); });
     root.querySelector('.composer-resume').addEventListener('click', () => { void this.#resumeComposer(); });
@@ -4128,7 +4129,7 @@ export class AithemaSession extends HTMLElement {
     if (this.#navigation) this.#navigation.userId = this.#pending.clientEventId;
     clearTimeout(this.#savedTimer); this.#saved = false; this.#savedAnnouncement = false;
     // r7: sending is the visitor's own action: the kept keyboard-up row may shrink.
-    this.shadowRoot.querySelector('.composer-feedback')?.removeAttribute('data-keyboard-kept');
+    releaseFeedback(this.shadowRoot);
     this.#sending = true; button.disabled = true; this.#render('composer'); this.#status(this.#copy.sending);
     try {
       const response = await this.#api(`${this.#base}/api/sessions/${sessionId}/turns`, this.#pending, { sessionToken: this.#sessionToken });

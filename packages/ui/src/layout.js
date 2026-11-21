@@ -387,11 +387,47 @@ export const feedbackShows = feedback => Boolean(feedback) && (feedback.hasAttri
   || Boolean(feedback.querySelector('button, a, input, [tabindex]')));
 // While the keyboard is up, a row that has shown anything stays (data-keyboard-kept)
 // until the keyboard closes or the visitor sends or discards (session-element).
+// r8 (Codex gatepra7 Medium, TICK r7): the kept row also holds the LARGEST
+// height it rendered since the latch (a two-line notice that clears leaves a
+// two-line empty row, not a one-line one), as an inline min-height recorded at
+// every latch, every keyboard-up paint and every resize of the row; released
+// with the latch.
+const heldHeight = new WeakMap(), observed = new WeakSet(), discarded = new WeakMap();
+// What a discard was about: the row's reason text and its controls.
+const shownContent = feedback => `${feedback.hasAttribute('data-saved')}|${feedback.querySelector(':scope > .composer-reason')?.textContent ?? ''}|${feedback.querySelectorAll('button, a, input, [tabindex]').length}`;
+const holdHeight = feedback => {
+  const style = feedback.ownerDocument.defaultView.getComputedStyle(feedback), rendered = feedback.getBoundingClientRect().height;
+  // min-height applies to the content box unless the row is border-box.
+  const frame = style.boxSizing === 'border-box' ? 0 : ['paddingTop', 'paddingBottom', 'borderTopWidth', 'borderBottomWidth'].reduce((sum, key) => sum + (parseFloat(style[key]) || 0), 0);
+  const height = Math.max(heldHeight.get(feedback) ?? 0, rendered - frame);
+  heldHeight.set(feedback, height);
+  if (height > 0 && feedback.style.minHeight !== `${height}px`) feedback.style.minHeight = `${height}px`;
+};
+// The visitor's own action (send, discard) or the keyboard closing releases the
+// kept row and its held height. r8 (Codex gatepra7 Low): a discard also keeps the
+// row from latching again on the content being discarded (a viewport paint
+// before the withdrawal acknowledgment would otherwise latch the still-visible
+// "Preparing…") until that content has left the row.
+export const releaseFeedback = (root, { discard = false } = {}) => {
+  const feedback = root.querySelector('.composer-feedback');
+  if (!feedback) return;
+  feedback.removeAttribute('data-keyboard-kept'); feedback.style.minHeight = ''; heldHeight.delete(feedback);
+  if (discard) discarded.set(feedback, shownContent(feedback)); else discarded.delete(feedback);
+};
 export const latchFeedback = (root, keyboardUp = root.querySelector('.workspace')?.hasAttribute('data-phone-keyboard')) => {
   const feedback = root.querySelector('.composer-feedback');
   if (!feedback) return;
-  if (!keyboardUp) feedback.removeAttribute('data-keyboard-kept');
-  else if (feedbackShows(feedback)) feedback.setAttribute('data-keyboard-kept', '');
+  if (!keyboardUp) { if (feedback.hasAttribute('data-keyboard-kept') || feedback.style.minHeight || discarded.has(feedback)) releaseFeedback(root); return; }
+  if (discarded.has(feedback)) {
+    if (discarded.get(feedback) === shownContent(feedback)) return;
+    discarded.delete(feedback);
+  }
+  if (feedbackShows(feedback)) feedback.setAttribute('data-keyboard-kept', '');
+  if (!feedback.hasAttribute('data-keyboard-kept')) return;
+  holdHeight(feedback);
+  // A row that grows between paints (a notice painted by a feature poll) is held too.
+  const Observer = feedback.ownerDocument.defaultView?.ResizeObserver;
+  if (Observer && !observed.has(feedback)) { observed.add(feedback); new Observer(() => latchFeedback(root)).observe(feedback); }
 };
 export class PhoneComposerViewport {
   constructor(root, { onNoticesChange = () => {}, onCompactChange = () => {}, followsTranscript = () => true,
