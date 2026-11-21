@@ -52,7 +52,8 @@ async function harness(t) {
   // `sentence`: the host's featureConsent.text override (undefined = stock).
   // `doc`: the consent document GET returns (null = the load fails with 500);
   // it waits for releaseConsent(), so the scroll before the load is known.
-  return async ({ width, height, locale, sentence, doc }, problems) => {
+  // `noFocusVisible` (r4): emulate an engine that ignores focus({ focusVisible }).
+  return async ({ width, height, locale, sentence, doc, noFocusVisible = false }, problems) => {
     const page = await browser.newPage();
     page.on('pageerror', error => problems.push(error.message));
     await page.setViewport({ width, height });
@@ -62,7 +63,11 @@ async function harness(t) {
       ? request.respond({ status: 200, contentType: 'text/html', body: fixture }) : request.continue()); });
     await page.goto(`${server.url}/combined-fixture?locale=${locale}&passiveDenied`);
     await page.waitForFunction(() => globalThis.ready && document.querySelector('aithema-session').shadowRoot.querySelector('.composer-status').textContent.length > 0);
-    await page.evaluate(async (locale, sentence, doc) => {
+    await page.evaluate(async (locale, sentence, doc, noFocusVisible) => {
+      if (noFocusVisible) {
+        const focus = HTMLElement.prototype.focus;
+        HTMLElement.prototype.focus = function (options) { return focus.call(this, options && { preventScroll: options.preventScroll }); };
+      }
       const base = (await import(`/packages/ui/src/i18n/${locale}.js`))[locale];
       globalThis.fixtureCopy = sentence === undefined ? base : { ...base, featureConsent: { ...base.featureConsent, text: sentence } };
       let release; globalThis.releaseConsent = new Promise(resolve => { release = resolve; }); globalThis.release = () => release();
@@ -70,7 +75,7 @@ async function harness(t) {
       globalThis.fetch = async (url, options = {}) => String(url).endsWith('/consent') && (options.method ?? 'GET') === 'GET'
         ? (await globalThis.releaseConsent, doc ? Response.json(doc) : new Response('unavailable', { status: 500 })) : prior(url, options);
       mount(JSON.parse(JSON.stringify(document.querySelector('aithema-session').session)));
-    }, locale, sentence, doc);
+    }, locale, sentence, doc, noFocusVisible);
     await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason[data-consent-feature="text"] .consent-action'));
     await settle(page);
     return page;
@@ -108,7 +113,16 @@ const readSheet = (c, full) => {
   let ch70 = null;
   if (holder) { const probe = document.createElement('span'); probe.textContent = '0'.repeat(70); probe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;max-width:none'; holder.after(probe); ch70 = probe.getBoundingClientRect().width; probe.remove(); }
   const context = [...dialog.querySelectorAll('.settings-context, .settings__footer')].find(n => n.checkVisibility());
-  return { open: true, targetFocusVisible: Boolean(target?.matches(':focus-visible')) && active === target, ch70, below: box(context), sentence: box(holder), sentenceOnScreen: onScreen(holder), target: box(target), row: box(row), label: box(target?.closest('label')), targetOnScreen: onScreen(target),
+  // r4 (gate M2): the ring the checkbox draws, and the :focus-visible ring of
+  // settings-styles.js (3px solid accent, 2px offset) it must equal.
+  let targetRing = null, focusRing = null;
+  if (target) {
+    const css = getComputedStyle(target);
+    targetRing = { style: css.outlineStyle, width: css.outlineWidth, offset: css.outlineOffset, color: css.outlineColor, boxShadow: css.boxShadow };
+    const probe = document.createElement('span'); probe.style.cssText = 'position:absolute;visibility:hidden;color:var(--aithema-accent)';
+    target.parentElement.append(probe); focusRing = { style: 'solid', width: '3px', offset: '2px', color: getComputedStyle(probe).color }; probe.remove();
+  }
+  return { open: true, targetRing, focusRing, targetFocusVisible: Boolean(target?.matches(':focus-visible')) && active === target, ch70, below: box(context), sentence: box(holder), sentenceOnScreen: onScreen(holder), target: box(target), row: box(row), label: box(target?.closest('label')), targetOnScreen: onScreen(target),
     body: box(body), scrollTop: body.scrollTop, items: dialog.querySelectorAll('.consent-item').length,
     status: dialog.querySelector('.consent-status')?.textContent ?? null,
     focus: active ? `${active.tagName.toLowerCase()}${active.className ? `.${String(active.className).split(' ').join('.')}` : ''}` : null,
@@ -340,6 +354,39 @@ export async function consentSheetOversizedCheck(t) {
   }
 }
 
+// AIT-603 PR-B r4 (gate M2): the ring is deterministic across engines. Both
+// fit (short sentence, short document, loaded): the sheet focuses the target
+// checkbox and it draws the same ring as :focus-visible, in Chromium as is and
+// with focus({ focusVisible }) ignored (as engines without that option do).
+// The lane has no WebKit; the emulation stands in for it.
+export async function consentSheetRingCheck(t) {
+  const open = await harness(t);
+  for (const item of sheetCases) for (const engine of ['native', 'no-focus-visible']) {
+    const name = `${item.width}x${item.height}-${item.locale}-ring-${engine}`;
+    await t.test(name, async () => {
+      const problems = [], full = stock[item.locale];
+      const page = await open({ ...item, doc: documentFor('short', 'fixture-ait-603b-ring'), noFocusVisible: engine !== 'native' }, problems);
+      try {
+        await openSheet(page);
+        await page.evaluate(() => globalThis.release());
+        await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings[open] .consent-item--target'));
+        await settle(page);
+        const sheet = await page.$eval('aithema-session', readSheet, full);
+        const failures = [];
+        if (!(sheet.target?.width > 0 && sheet.target?.height > 0)) failures.push(`the target checkbox positive box: ${JSON.stringify(sheet.target)}`);
+        if (!sheet.focusTarget) failures.push(`the target checkbox has focus (both fit): ${sheet.focus}`);
+        const ring = sheet.targetRing, want = sheet.focusRing;
+        if (!ring || !want || ring.style !== want.style || ring.width !== want.width || ring.offset !== want.offset || ring.color !== want.color) {
+          failures.push(`the focused checkbox draws the :focus-visible ring: ${JSON.stringify(ring)} vs ${JSON.stringify(want)}`);
+        }
+        await capture(page, name, { summary: `${engine}; focus ${sheet.focus}; ring ${ring?.style} ${ring?.width} ${ring?.color}`, sentenceText: full, engine, ...sheet });
+        none(failures, `${name}: ${JSON.stringify({ focus: sheet.focus, ring, want })}`);
+        assert.deepEqual(problems, []);
+      } finally { await page.close(); }
+    });
+  }
+}
+
 // AIT-603 PR-B r3 (TICK M1, L2): the sentence lives only in the scrolling body.
 // The settings body keeps the same height (+-1 px) for the stock, a long and an
 // oversized host sentence, and the gap between the body and the footer row
@@ -348,14 +395,18 @@ export async function consentSheetOversizedCheck(t) {
 const oversized = locale => Array(16).fill(locale === 'de'
   ? 'Ihre Nachrichten erreichen unseren Modellanbieter erst nach Ihrer Zustimmung.'
   : 'Your messages reach our model provider only after you agree.').join(' ');
+// r4 (gate M1): two host sentences whose 40-character help prefixes differ in
+// rendered width (wide and narrow glyphs); the help cell's reserve must hold
+// the tallest rendering, whatever the character count.
+const glyphs = { wide: Array(12).fill('WWWW').join(' '), narrow: Array(12).fill('iiii').join(' ') };
 export async function consentSheetBodyHeightCheck(t) {
   const open = await harness(t);
   for (const item of sheetCases) {
     const name = `${item.width}x${item.height}-${item.locale}-body-height`;
     await t.test(name, async () => {
       const problems = [], seen = {};
-      for (const kind of ['short', 'long', 'oversized']) {
-        const full = kind === 'short' ? stock[item.locale] : kind === 'long' ? longSentence(item.locale) : oversized(item.locale);
+      for (const kind of ['short', 'long', 'oversized', 'wide', 'narrow']) {
+        const full = kind === 'short' ? stock[item.locale] : kind === 'long' ? longSentence(item.locale) : kind === 'oversized' ? oversized(item.locale) : glyphs[kind];
         const page = await open({ ...item, sentence: kind === 'short' ? undefined : full, doc: null }, problems);
         try {
           await openSheet(page);
@@ -374,7 +425,7 @@ export async function consentSheetBodyHeightCheck(t) {
         if (!(sheet.below?.width > 0 && sheet.below?.height > 0)) failures.push(`${kind}: the footer row under the body positive box: ${JSON.stringify(sheet.below)}`);
         if (!(sheet.sentence?.width > 0 && sheet.sentence?.height > 0)) failures.push(`${kind}: the sentence positive box: ${JSON.stringify(sheet.sentence)}`);
       }
-      if (!failures.length) for (const kind of ['long', 'oversized']) {
+      if (!failures.length) for (const kind of ['long', 'oversized', 'wide', 'narrow']) {
         const a = seen.short, b = seen[kind];
         if (Math.abs(b.body.height - a.body.height) > 1) failures.push(`${kind}: the settings body keeps its height: ${b.body.height} vs ${a.body.height} (short)`);
         const band = sheet => sheet.below.y - sheet.body.bottom;
