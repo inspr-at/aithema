@@ -1,188 +1,102 @@
 # Aithema 2026.10
 
-Version **261120065345.0.0**. Licensed under **AGPL-3.0-only**.
+Version **261121100916.0.0**. Licensed under **AGPL-3.0-only**.
 
-Every added file now ends attached or with its own reason, upload notices stay
-readable in one row each, and the combined entrance opens calmly. Uploads and
-image input appear only where the host enables them; the combined entrance is a
-host opt-in and the default entrance remains `'choice'`.
+The welcome stays in place when a host uses image concepts, the "Show more
+notices" focus ring stays clear of nearby text, and the footer and English
+credit copy are calmer. The combined entrance is a host opt-in and the default
+entrance remains `'choice'`; upload notices appear only where the host enables
+uploads.
 
 ## What visitors notice
 
-- **No lost uploads (AIT-559, #468).** Every added file is attached or says why not; eligible documents always go through. Where the host enables uploads.
-- **Clear upload limits (AIT-561, #470).** When a pick is too large, the limit and its figure are shown, and images waiting for consent are kept. Where the host enables uploads; held images only with image input.
-- **Held images stay visible (AIT-563, #474).** An image waiting for consent stays named with its consent action, even when newer files are refused. Only where the host enables image input.
-- **No stray email reads (AIT-568, #476).** On sites that keep no visitor email, Aithema no longer reads it after the page reconfigures, so the no-storage promise holds in every state.
-- **Steady consent line (AIT-572, #478).** After the workspace reloads, the drafts line no longer flashes a stale consent request, and an old approval can no longer hide consent that is now missing.
-- **Steady start screen (AIT-569, #479).** After resizing from phone to desktop width, the start options stay exactly where they are under the pointer instead of jumping.
-- **Clear upload notices (AIT-566, #480).** Upload and held-file notices show one per row with their action, and a sheet lists any extra notices; nothing in the composer moves. Where the host enables uploads.
-- **Calm first screen (AIT-553, #483).** The combined entrance opens with one microphone, a neutral pause and readiness that fits on short screens; in the call band a long status fades instead of wrapping, so the band stays one row where it fits; keyboard users keep their place when a call ends. One microphone, readiness and the export link apply where the host enables the combined entrance; the neutral pause and the fading call-band status apply in both entrances.
-
-When nothing else fits, the notice row shows one honest summary: “Can't upload ·
-Details” only for real upload limits and “Consent needed · Details” for consent.
-“Show N more notices” opens the notices sheet with the same actions. A long
-call-band status now fades at its edge instead of ending in “…”; important
-notices are never cut.
+- **Welcome stays in place (AIT-601, #494).** The welcome no longer overlaps the readiness panel when a host uses image concepts. Applies on desktop widths in the combined entrance with a host's image concept layout; the conversation no longer jumps when the readiness panel hands over to the live conversation.
+- **Clear focus ring (AIT-589, #488).** With the keyboard, the focus ring on "Show more notices" no longer covers nearby text or its own label, on phones and desktops. Where the host enables uploads.
+- **Calmer footer and copy (AIT-587, #496).** Polished first-screen details and fewer known rough edges. The footer says "Connected" without a running number, with the connection's start time as its title; English writes "credits" in lower case mid-sentence; the used-up message no longer promises an export.
 
 ## Was Besucher bemerken
 
-- **Keine verlorenen Uploads (AIT-559, #468).** Jede hinzugefügte Datei wird angehängt oder nennt den Grund; passende Dokumente werden immer angehängt. Bei vom Host aktivierten Uploads.
-- **Klare Upload-Grenzen (AIT-561, #470).** Bei zu großer Auswahl werden Grenze und Zahl angezeigt; Bilder, die auf eine Einwilligung warten, bleiben erhalten. Bei vom Host aktivierten Uploads; wartende Bilder nur mit Bildeingabe.
-- **Wartende Bilder sichtbar (AIT-563, #474).** Ein Bild, das auf eine Einwilligung wartet, bleibt mit seiner Einwilligungsaktion sichtbar, auch neben abgelehnten neueren Dateien. Nur bei vom Host aktivierter Bildeingabe.
-- **Keine verirrten E-Mail-Abfragen (AIT-568, #476).** Auf Websites, die keine Besucher-E-Mail speichern, fragt Aithema sie nach einer Neukonfiguration der Seite nicht mehr ab, sodass das Versprechen ohne Speicherung in jedem Zustand gilt.
-- **Stabile Einwilligungszeile (AIT-572, #478).** Nach dem Neuladen des Arbeitsbereichs zeigt die Entwurfszeile keine veraltete Einwilligungsanfrage mehr, und eine alte Zustimmung kann eine jetzt fehlende Einwilligung nicht mehr verdecken.
-- **Stabiler Startbildschirm (AIT-569, #479).** Nach einer Größenänderung von Handy- auf Desktopbreite bleiben die Startoptionen genau unter dem Mauszeiger, statt zu springen.
-- **Klare Upload-Hinweise (AIT-566, #480).** Upload- und Halte-Hinweise stehen je in einer Zeile mit ihrer Aktion, weitere Hinweise zeigt ein eigenes Blatt; im Eingabebereich verschiebt sich nichts. Bei vom Host aktivierten Uploads.
-- **Ruhiger Startbildschirm (AIT-553, #483).** Der kombinierte Einstieg zeigt ein Mikrofon, eine neutrale Pause und eine Bereitschaftsanzeige, die auf kurze Bildschirme passt; in der Anrufleiste blendet ein langer Status aus, statt umzubrechen, sodass die Leiste einzeilig bleibt, wo sie Platz hat; Tastaturnutzer behalten nach einem Anruf ihren Platz. Ein Mikrofon, Bereitschaftsanzeige und Export-Link gelten bei vom Host aktiviertem kombiniertem Einstieg; die neutrale Pause und der ausblendende Status der Anrufleiste in beiden Einstiegen.
-
-Passt sonst nichts, zeigt die Hinweiszeile eine ehrliche Zusammenfassung:
-„Hochladen nicht möglich · Details“ nur bei echten Upload-Grenzen und
-„Einwilligung nötig · Details“ bei fehlender Einwilligung. „N weitere Meldungen
-anzeigen“ öffnet das Hinweisblatt mit denselben Aktionen. Ein langer Status in
-der Anrufleiste blendet am Rand aus, statt mit „…“ zu enden; wichtige Hinweise
-werden nie abgeschnitten.
+- **Begrüßung bleibt stehen (AIT-601, #494).** Die Begrüßung überdeckt das Bereitschaftsfeld nicht mehr, wenn ein Host Bildkonzepte nutzt. Gilt auf Desktopbreiten im kombinierten Einstieg mit dem Bildkonzept-Layout eines Hosts; beim Übergang vom Bereitschaftsfeld ins laufende Gespräch springt das Gespräch nicht mehr.
+- **Klarer Fokusrahmen (AIT-589, #488).** Mit der Tastatur verdeckt der Fokusrahmen von „Weitere Meldungen anzeigen“ weder benachbarten Text noch die eigene Beschriftung, auf Smartphone und Desktop. Bei vom Host aktivierten Uploads.
+- **Ruhigere Fußzeile und Texte (AIT-587, #496).** Ausgefeilte Details auf dem Startbildschirm und weniger bekannte Ecken und Kanten. Die Fußzeile zeigt „Verbunden“ ohne laufende Zahl, mit dem Beginn der Verbindung als Titel; die Meldung zu aufgebrauchten Credits verspricht keinen Export mehr.
 
 ## For hosts
 
-- AIT-559: `POST /api/sessions/:id/uploads` refuses images **per file**. The
-  additive `refused` array contains `{index, name, kind: 'image', reason}`, with
-  `index` the zero-based file position in the request. Images that the current
-  binding, normalizer or consent cannot take, and images beyond the session image
-  quota, are omitted from `uploads` and `events`; their original bytes are never
-  staged. Eligible documents in the same request still attach. An entirely
-  refused image request also returns **202** with empty `uploads`/`events`
-  arrays (previously 403 `uploads-unavailable` or 413; see Breaking for hosts).
-  A receipt replays its refusals unchanged at 200; a later consent grant needs a
-  new request ID for the retained images. Refusal receipts store positions and
-  reasons, not plaintext filenames. Request framing, ownership, document
-  admission and other capacity failures keep their existing HTTP errors. Direct
-  `SQLiteStorage.postUploads` callers keep the image-limit `RangeError` unless they
-  pass the additive opt-in `guard.partialImages`; its result adds `refused`.
-- AIT-559 / AIT-561 client intake: classifiable selections keep the specific
-  document-count and byte-capacity notices with their figures. Only selections
-  with an uncertain document/image kind defer those checks to the server, so a
-  disguised image cannot hold eligible documents. The client reads at most 16
-  signature bytes per candidate document without decoding or retaining it.
-  Excess images get the existing named image-limit refusal; images that fit and
-  eligible documents continue. Final ownership, missing-session and conflict
-  failures stop the selection with one notice giving the reason before all unsent
-  filenames; several unsent files use the additive `uploads.failedMany`. Behaviour
-  change: combined composers with document intake and no image input reserve
-  three feedback lines (previously two). Feedback is its own grid row below the
-  44 px control row, so its minimum grows from `2.6em` to `3.75em` (43.2 px at a
-  16 px root font size, previously about 30 px) and the idle composer can be up
-  to about 13 px taller than in RC26. With image input the existing 44 px image
-  reserve applies unchanged.
-- AIT-561 / AIT-563 held images: detected images awaiting consent reuse the
-  existing image consent action and keep their files while document batches
-  continue. A newer pick, drop or paste keeps consent-held images, even when the
-  new selection is refused entirely; granting attaches the held images once and
-  keeps newer file notices. Re-picks with the same name, size and last-modified
-  time share one hold. Decline and expiry ask the visitor to choose again without
-  removing earlier notices, and expired notices are not resurrected. Phones reuse
-  the existing narrow consent wording with the full file-specific sentence in the
-  action's accessible name.
-- AIT-566: upload and held-file notices render one per row inside the existing
-  reserved feedback cell, with the action beside the text when it fits.
-  Overflow shows “Show N more notices”, opening a modal notices sheet (a native
-  `dialog` in the component's shadow root) that holds the same action nodes; focus
-  returns to a visible enabled control on close. When nothing fits, the row is an
-  honest one-line summary: `uploads.summaryUnavailable` only for real upload
-  limits, `uploads.summaryConsent` for consent, each followed by
-  `uploads.detailsAction`. Idle composer geometry equals its immediate baseline,
-  main before #480, which already includes the AIT-561 reserve above.
-- AIT-568: on hosts that keep no visitor email (`visitorEmail.canSave: false`
-  and `canDelete: false`), a reconfigure no longer starts a stray
-  `/api/visitor/email` read from the torn-down verifier; AIT-543's no-store
-  contract holds in every state. Fix only; no flag or option.
-- AIT-572: feature and consent refreshes are fenced across `configure()`. An
-  older refresh can no longer repaint the new view, neither as a stale “needs
-  consent” nor, the safety case, as a stale “allowed”. Fix only; no flag.
-- AIT-569: when a host's `headerRailReservation` CSS already reserves the second
-  header row, the component no longer persists its own row flag; it records only
-  a measured overflow beyond that contract at single-row widths. After a
-  phone-to-desktop resize the start chooser no longer jumps. Reserved geometry
-  is unchanged.
-- AIT-553 (combined entrance): exactly one microphone before any call; the
-  composer owns the first action and the band keeps its mic cell reserved without
-  a second mic or an idle speech invitation. Readiness uses the
-  conversation's full width, with a compact one-line consent form on desktops at
-  most 860 px tall; the render-only opener ends at its text. Phone email
-  confirmation stacks under its text. The used-up offer exposes the existing
-  export link (short label `usedUpExportShort` on phones, full accessible name
-  kept); host daily-cap action suppression still applies. The call band stays one
-  row when the rail track has room (544 px by default, 384 px with
-  `railMinWidth: voiceRailFlexMinWidth`); consent actions and important notices
-  take the second row. Keyboard End keeps focus by handing it to the composer mic.
-- AIT-553 (both entrances): the idle conversation Pause keeps its existing
-  availability with a neutral, unpressed look instead of the live call's filled
-  treatment. From 600 px an ordinary long band status clips and fades in its own
-  track (no “…”) and hides when that track is narrower than 96 px; the controls
-  and their 44 px cells never move. Consent actions and important notices
-  (failure, credit, cooldown) keep their complete measured row and take the
-  second row when they do not fit.
-- **AIT-553 first-paint API — additive and opt-in.** `@inspr/aithema-ui/first-paint`
-  exports `voiceRailFlexMinWidth` (`384`) and `voiceRailLineFloor` (`160`).
-  `headerRailReservation({ railMinWidth })` accepts an optional **number** in px
-  (not a CSS length), rounded to whole pixels. A value that `Number()` cannot read,
-  or that rounds to 0 (for example `0`), uses the default 544; any other value
-  below 384, including a negative one, is raised to 384. The default stays
-  `voiceRailMinWidth` (`544`), so every existing host's geometry is unchanged.
-  Hosts with wide header actions may pass
-  `railMinWidth: voiceRailFlexMinWidth`: an ordinary voice status then clips and
-  fades down to a 160 px line before the band takes a second row. Consent actions
-  and important notices still take the second row when they do not fit whole. The
-  emitted CSS adds `--aithema-header-rail-floor`. See
-  [the embedding guide](https://github.com/inspr-at/aithema/blob/v261120065345.0.0/docs/embedding.md).
-
-### Options and additive fields
-
-| New surface | Default / fallback and host contract |
-| --- | --- |
-| `POST /uploads` response `refused` | Always present on new and replayed responses; `[]` when nothing is refused. Entries `{index, name, kind: 'image', reason}`. Image-only refusals return 202 (new) / 200 (replay). |
-| `SQLiteStorage.postUploads(..., guard.partialImages)` | Absent/false keeps the existing atomic image-limit `RangeError`. True refuses images per file; the result and replay add `refused` (`{index, kind, reason}`). |
-| `voiceRailFlexMinWidth`, `voiceRailLineFloor` | New exports of `@inspr/aithema-ui/first-paint`: `384` and `160`. Constants only; nothing changes unless a host passes them. |
-| `headerRailReservation({ railMinWidth })` | Optional number in px; default `voiceRailMinWidth` (`544`); minimum 384. Other arguments remain literal CSS lengths. |
-| `--aithema-header-rail-floor` | Emitted by `headerRailReservation`; the mounted fit reads it. Absent means the default 544 px floor. |
+- AIT-601 (combined entrance, desktop above 600 px, host image concept layout):
+  before live, the opener thread contains only its inline axis, so the
+  render-only welcome owns its height above readiness and no longer overlaps it;
+  live keeps the size container and phones are unchanged. The transcript's
+  40 px render-label reserve is now the shadow-internal custom property
+  `--aithema-render-reserve`; before the first reply and before any visual wish
+  that reserve is idle and no longer counts as content, so fitting content does
+  not scroll at the readiness → live hand-off. Once a render label shows, the
+  transcript moves by at most that reserve so the label never covers the
+  visitor's turn. Fix only; no flag or option.
+- AIT-589: the "Show N more notices" control keeps a constant 6 px inline
+  padding and draws its keyboard focus ring inside its 44 px box vertically,
+  reaching sideways at most 4 px and never beyond the actions gap.
+- AIT-587 footer: while plainly connected the status reads `connected`
+  ("Connected" / "Verbunden") with no running timer (the timer cell keeps its
+  reserved width, hidden). The new copy key `connectedSince` with the local
+  clock time is the status's `title` and accessible description
+  (`aria-describedby`), on desktop and on the phone status below 600 px.
+- AIT-587 copy: English writes "credits" in lower case mid-sentence across the
+  credit, email and used-up copy, in the shipped confirmation mail's English
+  explanation line and on the demo host's confirmation page and admin unit; the
+  credit unit legend `1 Credit = 1 US cent` is unchanged. The used-up body
+  (EN/DE) no longer promises an export, because the export link is not always
+  shown. Host overrides keep winning.
+- AIT-587 polish inside the shadow DOM: the ready-card check stays beside the
+  first line of a wrapped value, the fold icon meets 3:1 non-text contrast at
+  rest, only a pressed Pause is filled (live and closing Pause stay outlined),
+  the summary and signals toggles share one right edge, and the overview reserve
+  applies in the same frame as a pane width change.
+- AIT-587 uploads: an upload plans its images with the image capability read
+  after the classification await, so a processing change during a pick decides
+  that pick's plan. See the AIT-610 limitation below.
 
 ### Copy compatibility
 
-All new leaf keys in the EN/DE bundles between RC26 and this release (paths are
-relative to `copy`). `uploads.moreNotices` uses the one/other plural shape and
-replaces `{count}`.
+One new leaf key between RC27 and this release (path relative to `copy`); no key
+was removed.
 
 | New copy key | EN default | DE default | Legacy fallback |
 | --- | --- | --- | --- |
-| `uploads.moreNotices.one` | Show {count} more notice | {count} weitere Meldung anzeigen | None |
-| `uploads.moreNotices.other` | Show {count} more notices | {count} weitere Meldungen anzeigen | None |
-| `uploads.summaryUnavailable` | Can't upload | Hochladen nicht möglich | None |
-| `uploads.summaryConsent` | Consent needed | Einwilligung nötig | None |
-| `uploads.detailsAction` | Details | Details | None |
-| `uploads.noticesTitle` | Upload notices | Meldungen zum Hochladen | None |
-| `uploads.closeNotices` | Close | Schließen | None |
-| `uploads.failedMany` | The files could not be added. | Die Dateien konnten nicht übernommen werden. | `uploads.failed` |
-| `usedUpExportShort` | Export | Exportieren | None |
+| `connectedSince` | Connected since {time} | Verbunden seit {time} | None |
 
+`{time}` is the connection's start as a local clock time in the page language.
 Shared resolver: `packages/ui/src/copy-resolve.js`. A nondefault host override
-wins; for `uploads.failedMany` a nondefault legacy `uploads.failed` override wins
-next; then the active locale's default, then English.
+wins, then the active locale's default, then English.
 
-### Changed defaults relative to RC26
+### Changed defaults relative to RC27
 
-None. The complete EN/DE bundle diff between RC26 (`7de34739`) and this release
-adds the nine leaf keys above and changes or removes no existing default.
+The complete EN/DE bundle diff between RC27 (`99a33921`) and this release
+changes 29 EN defaults and 1 DE default:
+
+- `hostSurface.usedUp.body`: EN "Your conversation stays saved. You can read and
+  export it." → "Your conversation stays saved."; DE "Ihr Gespräch bleibt
+  gespeichert. Sie können es lesen und exportieren." → "Ihr Gespräch bleibt
+  gespeichert."
+- EN "Credits" → "credits" mid-sentence, wording otherwise unchanged, in 28
+  keys: `layout.creditsUnit` (" Credits" → " credits");
+  `hostSurface.emailAsk.` `balance`, `balanceLow`, `benefitCredits`,
+  `benefitCreditsMail`, `saved`, `folded`, `lineGive`, `lineConfirm`,
+  `lineNone`, `announceAsk`, `announceLow`; `hostSurface.email.` `leadSave`,
+  `leadMail`, `leadEdit`, `leadReconfirm`, `tier`, `deleteDrop`, `deleteOver`,
+  `deleted`, `pendingTier`, `confirmed`; `hostSurface.usedUp.` `give`,
+  `confirm`, `hostConfirm`; `hostSurface.credits.` `low`, `balanceOut`,
+  `anonymous`. For example `hostSurface.credits.low` "{available} Credits left"
+  → "{available} credits left".
+- Confirmation mail (`@inspr/aithema-plugin-mail-smtp`, EN `explanation`):
+  "Once confirmed, your credit rises to {tier} Credits." → "Once confirmed, your
+  credit rises to {tier} credits." The DE mail is unchanged.
 
 ### Behaviour changes without a key change
 
-- AIT-566: the notices sheet and the compact one-line summary row.
-- AIT-553: the call-band status fades instead of truncating; important notices
-  take the band's second row; the readiness card's compact form on desktops at
-  most 860 px tall.
-- AIT-569: the header-row reservation now comes from CSS alone; the component
-  flags only a measured overflow.
-- AIT-561: combined composers with document intake and no image input reserve
-  three feedback lines in their own feedback row (minimum `3.75em`, previously
-  `2.6em`), so the idle composer can be up to about 13 px taller than in RC26.
+- AIT-587: the footer no longer shows a running connection timer.
+- AIT-601: the pre-live welcome's height in the combined image concept layout on
+  desktop, and no jump at the readiness → live hand-off.
+- AIT-589: the "Show more notices" focus ring and its constant inline padding.
 
 German release prose is impersonal; quoted shipped defaults stay exact.
 
@@ -207,25 +121,36 @@ German release prose is impersonal; quoted shipped defaults stay exact.
   (AIT-590).
 - On a phone overview (390×844), the pinned demo/contact strip sits partly under
   the composer and the collapse chevron touches “Up to date”; planned (AIT-591).
+- On phones (600 px and narrower) in the combined entrance with a host's image
+  concept layout, the ready stage leaves little space (at 390×664 the welcome is
+  cut off and readiness sits below the fold); planned (AIT-603).
+- On a 320×568 phone, following real overflow at the readiness → live hand-off
+  can stop 44 px short of the visitor's first message; planned (AIT-606).
+- In the consent sheet, a failed save shows its error twice; planned (AIT-612).
+- On the ready screen the disabled fold control is drawn faint; it is to be
+  hidden until there is something to fold; planned (AIT-608).
+- In English, “Connected since” shows the time with a leading zero (for example
+  “09:04 PM” instead of “9:04 PM”); planned (AIT-609).
+- Under a stale client verdict, an upload's image bytes can reach the server,
+  which refuses them, so nothing is stored; planned (AIT-610).
+- If a host page tears down its DOM environment (for example a test harness that
+  removes `document`) while the assistant's late answers are still in flight,
+  those answers can raise an error in that page. Normal browser pages are not
+  affected; planned (AIT-615).
 
 ## Breaking for hosts
 
-**No for hosts that serve the shipped component with the shipped server,
-relative to RC26 (`v261118191311.0.0`). Yes, narrowly, for custom HTTP clients
-of `POST /api/sessions/:id/uploads` that send images.** Requests whose images
-were refused for unavailable image input or missing consent previously returned
-403 `uploads-unavailable`, and requests over the session image quota 413; those
-images are now refused per file in a 202 (replay 200) response with the additive
-`refused` array, and eligible documents in the same request attach. Such clients
-must read `refused` and `uploads` instead of treating 2xx as “every file
-attached”. Every other change is compatible: the first-paint exports and
-`railMinWidth` are additive and opt-in with unchanged defaults; the nine copy
-keys are additive and host overrides keep winning; `guard.partialImages` is
-opt-in for direct storage callers; AIT-568 and AIT-572 are fixes with no flag;
-the AIT-566 notices sheet and AIT-569 header-row change live inside the
-component's shadow DOM and keep reserved geometry; AIT-561's taller document
-feedback row is a visual behaviour change inside the shadow DOM, not a host
-contract change. No configuration, event, slot or host requirement changes.
+**No, relative to RC27 (`v261120065345.0.0`).** No public export, configuration
+key, HTTP status code, event, slot or host requirement changes. The one new copy
+key `connectedSince` is additive and host overrides keep winning. Changed
+defaults are wording only (EN "credits" lower case, the shorter EN/DE used-up
+body) and keep every placeholder; hosts that override these keys are unaffected.
+The confirmation mail's EN explanation line changes one letter's case and keeps
+`{tier}`; its structure, subject and DE text are unchanged. The footer's new
+`title`/`aria-describedby` and hidden timer, the AIT-601 container and scroll
+behaviour (including `--aithema-render-reserve`) and the AIT-589 focus ring live
+inside the component's shadow DOM and keep reserved geometry; they are visual
+behaviour changes, not host contract changes.
 
 ## Availability and verification
 
@@ -240,6 +165,6 @@ and RC23's asynchronous-delivery `identity.acceptsAddress` requirement still app
 Release assets include module tarballs, workspace archive, dependency locks,
 SPDX SBOM and `release-set.json`. Verify attestations and `SHA256SUMS` before
 installation using [the verification instructions](https://github.com/inspr-at/aithema/blob/v261021043938.0.0/release/notes.md#verify-and-install)
-with tag `v261120065345.0.0` in download/installation URLs. Retain verified assets,
+with tag `v261121100916.0.0` in download/installation URLs. Retain verified assets,
 manifest and deployment pin for exact rollback. See the
-[embedding guide](https://github.com/inspr-at/aithema/blob/v261120065345.0.0/docs/embedding.md).
+[embedding guide](https://github.com/inspr-at/aithema/blob/v261121100916.0.0/docs/embedding.md).

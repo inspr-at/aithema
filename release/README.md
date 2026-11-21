@@ -106,6 +106,267 @@ resolves to core/src/x.js, outside package/`. `release:verify` prints one
 `import check: TARBALL scanned N files, 0 cross-package imports` line per
 tarball on stderr.
 
+## Twenty-eighth candidate (AIT-614)
+
+The reserved coordinate is `261121100916.0.0` (UTC reservation time 2026-11-21T10:09:16Z),
+stable sequence 39 (previous: 38), status `reserved`, scheme `inspr-calver-3`.
+Marketing name: **Aithema 2026.10**, exact version below the notes title. The
+RC20–RC27 visible-name rule remains satisfied: `docs/embedding.md` and the UI
+(`session-element.js`) still name **Aithema 2026.10**, so the name is unchanged.
+Authority: the standing release go, Desk **4d867165-4eb5-4b69-8980-88d43a7ec64b**
+(2026-10-19), and LEAD's approval of the RC28 brief on 2026-11-21 06:1x. German
+release prose is impersonal; quoted shipped defaults stay exact.
+
+The coordinator holds pushed `release-lock/seq-39` at
+L = `559eef0230e32b943633badc413a3a7a3ae718c4` (#497), tag object
+`724dcc8254de6a4f450990fe9c48520d953e71ff`; remote object and peeled target
+were checked read-only. This is the **twentieth release on the active
+fixed-candidate route (AIT-363 B)**. Order: lock (done), preparation, coordinator
+gates, true merge preserving C, candidate marker, MAC-OPS cut and verification.
+There is no merge freeze. Builders prepare only: no reviewer model, push, PR,
+tag creation/movement/push, forge release or publication. The coordinator owns
+gates, merge and marker; MAC-OPS owns the cut. START pins independently.
+Branch `release/ait-614-twenty-eighth-release`; worker session `AIT-614-r1`
+(`518f24b9-563c-4b6c-a507-dde0c81fec0d`, builder). History is append-only.
+
+The previous release `v261120065345.0.0`, stable sequence 38, AIT-588,
+[forge release](https://github.com/inspr-at/aithema/releases/tag/v261120065345.0.0),
+is appended to `history.json` exactly like earlier entries with source C
+`99a339217d8e30ae703410396e1e03d151406889` (the remote tag's target, checked
+read-only; second parent of release merge #484 = `81da7bef`). Migration anchors
+remain fixed.
+
+The complete first-parent range `81da7bef..559eef02` contains exactly thirteen
+merges, in order (checked; stop and report any difference). Shipped-file
+classification comes from each merge's diff against its first parent:
+
+| Merge | Commit | Content |
+| --- | --- | --- |
+| #485 | `2f1001c5` | AIT-585 test only: understanding-failure AIT-198 live voice notice flake; no shipped file; hidden from release notes |
+| #486 | `d24d320f` | AIT-584 flake fix: the footer width probe's cloned role radios lose their group name, so the probe can no longer uncheck the live role (`packages/ui/src/layout.js`, 3 lines). A real but invisible correctness fix inside the shadow DOM's offscreen probe; hidden from release notes |
+| #487 | `ddb1e06d` | AIT-582 release tooling: server release metadata reads only its own package; the pack-time cross-package import check; hidden from release notes |
+| #492 | `4d6e525c` | AIT-546 test only: AIT-411 on parallel pages; hidden from release notes |
+| #491 | `62ede4f5` | AIT-599 CI only: measured unit timings, a fourth unit shard; hidden from visitor notes |
+| #489 | `bb7223ec` | AIT-597 CI only: measured browser weights, a fifteenth browser shard; hidden from visitor notes |
+| #490 | `b6dc02f4` | AIT-592 release tooling: every `new URL` target verified in package space; hidden from release notes |
+| #488 | `68ac4a37` | AIT-589 the "Show more notices" focus ring clears its own text and nearby text |
+| #493 | `5f607264` | AIT-598 test only: AIT-261 on parallel theme pages; hidden from release notes |
+| #495 | `0ffd97f6` | AIT-594 test only: the AIT-569 chooser settle point; hidden from release notes |
+| #494 | `1358cbb7` | AIT-601 product fix: pre-live welcome owns its height above readiness in the desktop image concept layout; no jump at the hand-off |
+| #496 | `96ec6f72` | AIT-587 polish: lower-case EN "credits", used-up copy, "Connected" footer with "Connected since" title, ready-card, fold, Pause, overview toggles and reserve, upload capability read |
+| #497 | `559eef02` = L | AIT-611 test only: the demo host test drains in-flight host requests before teardown (`demo/test/host-drain.js`); every shipped file is byte-identical to main; hidden from release notes |
+
+**Notes summary.** RC28 visitor entries use each ticket's stored EN/DE pill and
+benefit, read through the aeon CLI during this preparation (AIT-601, AIT-589,
+AIT-587); German direct address is impersonal. AIT-601's entry is scoped to the
+combined entrance with a host's image concept layout on desktop; AIT-589's to
+host-enabled uploads. AIT-587 carries `hide_from_release_notes` in PPM at
+preparation time while the approved brief lists it as visible with its pill;
+this preparation follows the brief and names the difference in the handoff.
+AIT-582, AIT-584, AIT-585, AIT-546, AIT-592, AIT-594, AIT-597, AIT-598, AIT-599
+and AIT-611 appear only in this technical record: AIT-582 and AIT-592 are
+release tooling, AIT-597 and AIT-599 CI only, AIT-546, AIT-585, AIT-594,
+AIT-598 and AIT-611 test only, and AIT-584's three-line probe fix changes no
+visible output (the live role stays checked, as it always should have).
+
+**Host record.** `release/next-notes.md` was already the stub
+`# Next release — unreleased`; no merge in the range touched it, so there were
+no entries to fold and it stays the stub. The `notes.md` "For hosts" section is
+the code-at-L host record. In short:
+
+- AIT-601: in the combined entrance with a host image concept layout above
+  600 px, the pre-live opener thread is an inline-size container, so the welcome
+  owns its height above readiness; the transcript's 40 px render-label reserve
+  becomes the shadow-internal `--aithema-render-reserve`, idle (not counted as
+  content) before the first reply and any visual wish; once a render label shows,
+  the transcript moves by at most that reserve so the label never covers the
+  visitor's turn. Phones and live keep their previous containers.
+- AIT-589: `.upload-notices-more` keeps a constant 6 px inline padding; its
+  focus ring stays inside the 44 px box vertically and extends sideways at most
+  4 px, never beyond `--composer-actions-gap`.
+- AIT-587: footer status "Connected" without a running timer (the timer cell is
+  hidden and keeps its width); `connectedSince` is the status `title` and
+  `aria-describedby` description on desktop and the phone status. EN "credits"
+  lower case mid-sentence in the UI bundle, the mail-smtp EN `explanation` and
+  the demo host's confirmation page and admin unit; the used-up body (EN/DE) no
+  longer promises an export. Shadow-DOM polish: ready-card check, fold icon
+  contrast, pressed-only filled Pause, shared toggle right edge, same-frame
+  overview reserve. Uploads plan images with the capability read after the
+  classification await.
+
+### Copy compatibility
+
+Verified with the complete diff of `packages/ui/src/i18n/en.js` and `de.js`
+between `81da7bef` and L (flattened leaf comparison): one new leaf key, 29
+changed EN defaults, 1 changed DE default, no removed key. The brief's list
+(`connectedSince`, EN "credits", the used-up copy, the mail line) is complete.
+
+| New copy key | EN default | DE default | Legacy fallback |
+| --- | --- | --- | --- |
+| `connectedSince` | Connected since {time} | Verbunden seit {time} | None |
+
+Shared resolver `packages/ui/src/copy-resolve.js`: a nondefault host override
+wins, then the active locale, then English.
+
+### Changed defaults relative to RC27
+
+- `hostSurface.usedUp.body` EN "Your conversation stays saved. You can read and
+  export it." → "Your conversation stays saved."; DE "Ihr Gespräch bleibt
+  gespeichert. Sie können es lesen und exportieren." → "Ihr Gespräch bleibt
+  gespeichert."
+- EN "Credits" → "credits" (case only) in 28 keys: `layout.creditsUnit`;
+  `hostSurface.emailAsk.{balance, balanceLow, benefitCredits,
+  benefitCreditsMail, saved, folded, lineGive, lineConfirm, lineNone,
+  announceAsk, announceLow}`; `hostSurface.email.{leadSave, leadMail, leadEdit,
+  leadReconfirm, tier, deleteDrop, deleteOver, deleted, pendingTier,
+  confirmed}`; `hostSurface.usedUp.{give, confirm, hostConfirm}`;
+  `hostSurface.credits.{low, balanceOut, anonymous}`. The legend
+  `hostSurface.credits.unit` "1 Credit = 1 US cent" is unchanged.
+- Mail template (`plugins/mail-smtp/src/templates.js`, EN `explanation`, the
+  AIT-220 pin re-pinned in #496): "Once confirmed, your credit rises to {tier}
+  Credits." → "… to {tier} credits." DE mail unchanged.
+- Demo host only (not a published module): `demo/confirmation-page.js` EN
+  `ready.lead`/`confirmed.lead` and `demo/admin-copy.js` `credits.unit`, `hint`,
+  `max` and `initAll` use lower-case "credits".
+
+**Behaviour changes without a key change:** AIT-587's footer without a running
+timer; AIT-601's pre-live welcome height in the desktop image layout and no jump
+at the hand-off; AIT-589's focus ring.
+
+**Known limitations (release copy describes shipped code):** carried from RC27
+and still open at preparation time: AIT-549, AIT-551, AIT-552, AIT-571, AIT-580,
+AIT-576, AIT-578, AIT-590 and AIT-591. AIT-590 and AIT-591 are still open in PPM
+and nothing in the range addresses them, so they stay listed although the RC28
+brief's carried list did not name them (named in the handoff). New: AIT-603
+(phone ≤ 600 px, combined entrance with image concept layout: little space on the
+ready stage, 390×664 welcome cut off and readiness below the fold), AIT-606
+(320×568: a real-overflow follow at the hand-off can stop 44 px short of the
+visitor's first message), AIT-612 (consent sheet: a failed save shows its error
+twice), AIT-608 (disabled fold control drawn faint on the ready screen), AIT-609
+(EN "Connected since" with a leading zero, "09:04 PM"), AIT-610 (under a stale
+client verdict an upload's image bytes can reach the server, which refuses them;
+nothing is stored) and AIT-615 (a host page that tears down its DOM environment
+while late answers are in flight can see an error; normal browser pages are not
+affected). All open at preparation time; each worded “planned (AIT-nnn)” in
+`notes.md`.
+
+**Breaking for hosts:** **No, relative to RC27 (`v261120065345.0.0`).** The
+diff changes no public export, configuration key, HTTP status code, event, slot
+or host requirement. `connectedSince` is additive; the changed defaults are
+wording (case and one shortened sentence) with every placeholder kept, and host
+overrides keep winning. The mail template's EN line changes the case of one word
+and keeps `{tier}`; subject, structure and DE text are unchanged. AIT-587's
+footer `title`/`aria-describedby` and hidden timer, AIT-601's container and
+scroll behaviour (`--aithema-render-reserve` is set inside the shadow DOM) and
+AIT-589's focus ring are shadow-DOM visual behaviour with reserved geometry
+kept, not host contract changes. AIT-582's server release metadata now reads
+only `packages/server/package.json` in a development tree (a packed artifact
+still reads its `release-runtime.json`); a source checkout reports
+`release_sequence: null`, which is development-only and not a host contract.
+
+**CI-only:** AIT-597 (#489) moves browser shards from 14 to 15 with measured
+browser weights; AIT-599 (#491) moves unit shards from 3 to 4 with measured unit
+timings. Test only: AIT-546, AIT-598, AIT-594, AIT-584 (its regression test;
+the three-line probe fix is described above), AIT-585 and AIT-611. These facts
+live only in this technical record, not in `notes.md`. The release unit test
+set below is unchanged. The release PR's own browser CI must be fully green.
+Voxtral remains private/parked; Grok Voice is not qualified in live use;
+provider-side closure remains parked until ElevenLabs monitoring. RC14 host
+requirements and RC23's `identity.acceptsAddress` still apply.
+
+**Final-lock npm audit:** `npm audit --package-lock-only --omit=dev` reports
+**0 vulnerabilities in the release closure**. `npm audit --package-lock-only`
+also reports **0**, leaving **0 dev-only**. Any closure finding is a stop.
+The lockfile's dependency set is unchanged in the range; all manifests, lockfile
+entries and internal pins mirror `261121100916.0.0`; migration pins stay fixed.
+`release/evidence.json` stays historical; final-head retained evidence is
+authoritative.
+
+**presentation pin reviewed: unchanged at bd0a13816f728ad91c36d849f88168bcac4fdc6e**.
+The local inspr-at/inspr HEAD and remote HEAD match the pin. Both
+`release/verify-upstream-presentation.mjs` and `release/presentation-pin.mjs`
+passed against the pinned Git objects and complete tracked payload, with config
+SHA-256 `bf6aa144cd73dc97dc941f0f0914138b04ae0a28fbead5123465b15b1f2a2fd9`
+and manifest SHA-256 `a3d2d8d45f4f9c2c1f978225f4737d2248f654595237cb12231e78cff0e2ed6e`.
+No presentation file changes in the range. A changed upstream pin is a stop,
+never an update.
+
+**Accepted lane exceptions.** Canonical wording from the coordinator's
+`accepted-failures.txt` at preparation time follows. Accepted means known and
+tracked, not passing; anything outside this scope is a stop. **Entries 4, 5, 7
+and 8 are retired for this range:** AIT-545 (`cf76a680`), AIT-550 (`55933f7f`),
+AIT-554 (`f152e427`), AIT-546 (`4d6e525c`) and AIT-598 (`5f607264`) are
+ancestors of L (checked with `git merge-base --is-ancestor`), so on this head
+any E1/AIT-364, `demo/test/host.test.js`, AIT-102, AIT-411 or AIT-261 timeout
+failure is a stop. The demo-host teardown flake seen on heads containing AIT-550
+is fixed by AIT-611 (#497, test harness only). Entry 6 (AIT-548) is still
+present in the file and AIT-548 is open at preparation time; it is quoted as
+written. The release PR's browser CI must still be fully green.
+
+1. AIT-529 (unit, macOS lanes): test/release-candidate-gate.test.js, "sibling marker bound failure escapes the outer rethrow guard" and "... fallback rethrow guard".
+2. AIT-531 (browser, mbp2606): every entry in known-mbp2606-browser-failures.txt (AIT-350, AIT-261 axe undefined, AIT-400 plus its nested 1 px composer case, AIT-225, the AIT-512 Control+Enter pair plus its parent, AIT-266, AIT-221 DE390 plus its parent).
+3. agm2 composed qualification:
+   - browser test/browser/composed-qualification.test.js (15);
+   - unit plugins/composed-voice/test/qualification-host.test.js (2, historical pair).
+4. AIT-545 RETIRED for new work (AIT-545 merged 2026-11-19 09:10 as cf76a680: E1 now asserts synchronous removal, not 5 ms). Applies ONLY to heads that do NOT contain cf76a680 (check: git merge-base --is-ancestor cf76a680 HEAD fails), and then exactly as before: nested "AIT-365 E1 <w>/<kind>" failing on the eventToRemovalMs assertion (scoped-consent-edges.js:65) plus its dependent parent "AIT-364 … both widths and both artifact kinds are retained" (partial-consent-frames.js:250, n !== 3). On any head that contains cf76a680, ANY E1 or AIT-364 failure is a stop.
+5. (retired 2026-11-20: AIT-261 fixed by AIT-598, merged as 5f607264, 30.9 s / 90 s in the merge group; AIT-411 by AIT-546. LEAD OK 19:4x.)
+6. AIT-548 (browser, orb-reveal): "AIT-140 … brand and returning controls exceed 25% together" (orb-reveal.test.js:140).
+7. AIT-550 RETIRED for new work (AIT-550 merged 2026-11-19 15:37 as 55933f7f: the demo host aborts and drains its work before teardown). Applies ONLY to heads that do NOT contain 55933f7f (check: git merge-base --is-ancestor 55933f7f HEAD fails), and then exactly as before: UNIT only, demo/test/host.test.js file-level "generated asynchronous activity after the test ended … document is not defined" (not test/browser/demo.test.js). On any head that contains 55933f7f, ANY demo/test/host.test.js failure is a stop.
+8. AIT-554 RETIRED for new work (AIT-554 merged 2026-11-19 11:01 as f152e427: the fixture no longer rewrites the timer during the paint wait). Applies ONLY to heads that do NOT contain f152e427 (check: git merge-base --is-ancestor f152e427 HEAD fails), and then exactly as before: "AIT-102 PR 3: voice viewport matrix…" (voice-presentation.test.js:89) ONLY with the message "<state>-1440-<theme>-<lang>.png: stable backdrop paint". On any head that contains f152e427, ANY AIT-102 failure is a stop. (Was time-boxed to RC27; now resolved.)
+
+Preparation order (remote execution only):
+
+1. Verify Content at L, the lock, product name, final-lock audit and presentation
+   pin. Reserve once, mirror all manifests/internal pins, append sequence 38
+   history and fold notes. Commit with `git commit -s`, using configured identity
+   only. History is append-only.
+2. Run the release test set at **final committed C** through the durable wrapper
+   `~/.local/share/ait-qa/coordinator/rb-fetchretry.sh` on mbp2606 only (AGM2-HOLD
+   during this preparation). The candidate builds twice, verifies, smoke-tests the
+   isolated seventeen-module consumer, reinstalls its lock, replaces its
+   dependency and proves exact rollback with mocks. Admission/tag tests use
+   synthetic fixtures. WAIT/exit 3 or 7 means back off about five minutes and
+   retry, up to 48 admissions. Set `MBP2607=0` on every wrapper call; never run
+   suites locally. The coordinator owns lane priority. Any release-test failure
+   is a stop except AIT-529's exact pair on a macOS lane, explicitly named in the
+   handoff.
+
+   ```sh
+   MBP2607=0 EVIDENCE_OUT="$PWD/dist/aitrc28-final" FETCH_TRIES=300 \
+     "$HOME/.local/share/ait-qa/coordinator/rb-fetchretry.sh" \
+     "$PWD" unit --test-concurrency=2 \
+     test/release-candidate.test.js test/release-workflow.test.js \
+     test/release-candidate-gate.test.js test/release-publication.test.js \
+     test/release-prep.test.js test/release-normalize.test.js \
+     test/release-normalize-pack.test.js test/calver.test.js \
+     test/calver-surgical.test.js test/version-presentation.test.js \
+     test/consumer-isolation.test.js test/grok-release.test.js
+   ```
+
+   The whole browser suite must also complete remotely because the UI manifest
+   changes. Use the same durable wrapper with `MBP2607=0`, `FETCH_TRIES=300`,
+   `EVIDENCE_OUT` and `FULL_LOG=1` (for nested exception signatures), mode `browser`.
+   Record platform and actual counts; only the exact accepted signatures above
+   are allowed. The release PR still requires fully green browser CI; the
+   coordinator owns that gate and no green PR result is claimed here.
+   Run the cross-package import check on every final candidate tarball; it must
+   report 0 (the pack itself also fails on any cross-package import since
+   AIT-582/AIT-592).
+3. Retain `dist/aitrc28-final/candidate/` and copy the whole evidence directory to
+   `~/.local/share/ait-qa/release-evidence/aitrc28-final/`. Keep `first/`, `second/`,
+   `candidate-evidence.json`, deployment pins/locks and isolated consumer artifacts.
+   Confirm `source_commit` equals C; recompute `manifest_sha256` and
+   `normalized_digest` against `first/`. No evidence-only commit after the final
+   build; any source/commit change requires another final-C build.
+4. Write `.data/ait-rc28/handoff.txt` with C and every commit since L, sequence
+   39 (previous 38), reserved version, both retained directories, digests,
+   presentation result, range, breaking reason, copy-key diff, limitations,
+   audits, actual release/browser results, pack check and anything unproved.
+   Keep `.data/` and `.agent-status.json` out of Git. Commit locally only; no
+   push or PR. The coordinator owns gates, true merge, green release CI and
+   candidate marker; MAC-OPS owns the cut. Retain final-C evidence before
+   publication.
+
 ## Twenty-seventh candidate (AIT-588)
 
 The reserved coordinate is `261120065345.0.0` (UTC reservation time 2026-11-20T06:53:45Z),
