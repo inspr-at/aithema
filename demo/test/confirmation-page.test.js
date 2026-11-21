@@ -72,7 +72,7 @@ test('C2 address and tier are escaped before the tier/unit emphasis is added', a
   const host = { demo: true, identity: { deliversVerification: true }, confirmation: {
     inspect: () => ({ state: 'valid', address: '<script>alert(1)</script>', tier: '<img src=x>' }), csrf: () => '' } };
   const html = await (await createConfirmationPage({ host, publicOrigin: origin }).handle(new Request(origin + '/confirm-email'))).text();
-  assert.ok(html.includes('&lt;script&gt;alert(1)&lt;/script&gt;')); assert.ok(html.includes('&lt;img src=x&gt; Credits</b>'));
+  assert.ok(html.includes('&lt;script&gt;alert(1)&lt;/script&gt;')); assert.ok(html.includes('&lt;img src=x&gt; credits</b>'));
   assert.doesNotMatch(html, /<img|<script>alert/u);
 });
 
