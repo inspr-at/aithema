@@ -1131,7 +1131,7 @@ const withdrawById = page => page.evaluate(() => { const c = document.querySelec
   }; });
 const stagedCount = (page, count) => page.waitForFunction(count => document.querySelector('aithema-session').shadowRoot.querySelectorAll('.staged-images:not([hidden]) .staged-image').length === count, { timeout: 15_000 }, count);
 export async function consentKeyboardHeldMinimumCheck(t) {
-  const { open, capture } = await harness(t);
+  const { open, grant, capture } = await harness(t);
   const [width, height, viewport] = KEYBOARD[0];
   for (const locale of ['en', 'de']) {
     const name = `${width}x${height}-${locale}-keyboard-up-image-dock-consent-clears`;
@@ -1224,8 +1224,11 @@ export async function consentKeyboardHeldMinimumCheck(t) {
     const name = `${width}x${height}-${locale}-keyboard-up-discard-one-of-two`;
     await t.test(name, async () => {
       const problems = [], failures = [];
-      const page = await open({ width, height, locale, intake: 'image', granted: true }, problems);
+      // The fixture's own grant (consent.revised + its feature state), not the mount override: the withdrawal
+      // acknowledgment re-reads the features and would show the consent line instead of the remaining "Preparing…".
+      const page = await open({ width, height, locale, intake: 'image', consent: { text: stock[locale].text } }, problems);
       try {
+        await grant(page);
         await mockIntake(page);
         await withdrawById(page);
         await keyboardUp(page, viewport); await settleLong(page);
