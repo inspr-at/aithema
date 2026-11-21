@@ -1083,6 +1083,8 @@ export async function consentKeyboardKeptHeightCheck(t) {
         await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
         const between = await page.$eval('aithema-session', rowState);
         await capture(page, `r8-discard-${name}-before-ack`, { ...await page.$eval('aithema-session', savedState), row: between });
+        // r8c: the discard's release holds while the discarded "Preparing…" is still painted (no re-latch on it).
+        if (between.kept || between.minHeight) failures.push(`${name}: a viewport paint before the acknowledgment does not latch the discarded content again: ${JSON.stringify(between)}`);
         await page.waitForFunction(() => typeof window.k1Withdraw === 'function', { timeout: 15_000 });
         await page.evaluate(() => window.k1Withdraw());
         await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.staged-images:not([hidden]) .staged-image'), { timeout: 15_000 });
