@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { Window } from 'happy-dom';
 import { startChild, temporaryDb } from '../../test/helpers.js';
 import { contrast, mix, tokens } from '../../test/contrast.js';
+import { hostDrain } from './host-drain.js';
 
 test('demo host creates owned sessions through postJson and combines consent, pause and settings controls', { timeout: 60_000 }, async t => {
   const running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb());
@@ -17,12 +18,15 @@ test('demo host creates owned sessions through postJson and combines consent, pa
   let holdSession = false, host;
   // AIT-611: the device conversation's host reads answer only after teardown.
   let holdHostReads = false; const hostReadGate = Promise.withResolvers(), hostReadsHeld = Promise.withResolvers();
+  // AIT-611: the harness drain (test-only, ./host-drain.js) tracks the page's requests; its first drain
+  // releases the held host reads, so they answer while teardown waits for them and the page still exists.
+  let harness;
   try {
     const html = await nativeFetch(running.url).then(response => response.text());
     window.document.write(html.replace(/<script[^>]*>[\s\S]*?<\/script>/gu, ''));
     for (const key of keys) globalThis[key] = window[key];
     localStorage.setItem('aithema-demo-locale', 'en');
-    globalThis.fetch = async (url, init = {}) => {
+    harness = hostDrain({ onDrain: () => hostReadGate.resolve(), fetch: async (url, init = {}) => {
       if (holdSession && (String(url) === '/api/sessions' || String(url).endsWith('/demo/outbox'))) {
         const held = String(url) === '/api/sessions' ? lateRequest : lateOutbox;
         heldSignals.push(init.signal);
@@ -46,7 +50,8 @@ test('demo host creates owned sessions through postJson and combines consent, pa
       const createdCookie = response.headers.get('set-cookie');
       if (createdCookie) cookie = createdCookie.split(';')[0];
       return response;
-    };
+    } });
+    globalThis.fetch = harness.fetch;
     host = await import('../host.js');
     const component = document.querySelector('aithema-session'), root = component.shadowRoot;
     const wait = async (step, predicate) => {
@@ -177,10 +182,14 @@ test('demo host creates owned sessions through postJson and combines consent, pa
   } finally {
     lateAdoption.resolve();
     await host?.stopHost();
+    // AIT-611: host reads still in flight answer (and their continuations run) before the DOM globals go;
+    // an exceeded deadline fails the test naming the open requests (after the globals are restored).
+    const undrained = await harness?.drain().then(() => null, error => error);
     window.document.querySelector('aithema-session')?.remove();
     await running.kill(); await window.happyDOM.close();
     globalThis.fetch = nativeFetch;
     for (const key of keys) { if (originals[key] === undefined) delete globalThis[key]; else globalThis[key] = originals[key]; }
+    if (undrained) throw undrained;
   }
 });
 
