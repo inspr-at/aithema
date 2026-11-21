@@ -995,6 +995,61 @@ export async function consentKeyboardFitActionCheck(t) {
   }
 }
 
+// r7 (TICK r6 L1): with the keyboard up the reason never shows a stub like
+// "E…": once the room left for it is narrower than three of its characters
+// plus the ellipsis it drops out entirely (the action carries the meaning; the
+// full sentence is in the sheet). Read from the painted text: a visible text
+// run inside the reason implies room for at least three characters + "…".
+const reasonState = c => {
+  const root = c.shadowRoot, box = n => { const r = n.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
+  const copy = root.querySelector('.composer-reason[data-consent-feature="text"] > .consent-line-copy');
+  if (!copy) return { copy: null };
+  const reasonBox = box(copy), runs = [];
+  let three = null;
+  const walker = document.createTreeWalker(copy, NodeFilter.SHOW_TEXT);
+  for (let n; (n = walker.nextNode());) {
+    if (!n.textContent.trim() || !n.parentElement.checkVisibility()) continue;
+    const range = document.createRange(); range.selectNodeContents(n);
+    for (const r of range.getClientRects()) {
+      const left = Math.max(r.x, reasonBox.x), right = Math.min(r.x + r.width, reasonBox.x + reasonBox.width);
+      if (r.height > .5 && right - left > .5) runs.push({ left, right });
+    }
+    if (three === null && n.textContent.length >= 3) { const first = document.createRange(); first.setStart(n, 0); first.setEnd(n, 3); three = first.getBoundingClientRect().width; }
+  }
+  const probe = document.createElement('span'); probe.textContent = '…'; probe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap';
+  copy.parentNode.append(probe); const ellipsis = probe.getBoundingClientRect().width; probe.remove();
+  return { keyboard: root.querySelector('.workspace').hasAttribute('data-phone-keyboard'), copy: reasonBox, runs, three, ellipsis, text: copy.textContent,
+    line: box(copy.parentNode), dock: box(root.querySelector('.composer-dock')), send: box(root.querySelector('.send')), mic: box(root.querySelector('.composer-mic')) };
+};
+export async function consentKeyboardReasonDropCheck(t) {
+  const { open, capture } = await harness(t);
+  for (const [width, height, viewport] of KEYBOARD) for (const locale of ['en', 'de']) {
+    const name = `${width}x${height}-${locale}-reason-drop`;
+    await t.test(name, async () => {
+      const problems = [], failures = [];
+      const probePage = await open({ width, height, locale, consent: { text: stock[locale].text } }, problems);
+      let fit;
+      try { fit = await probePage.$eval('aithema-session', fittingLabel, locale === 'de' ? 'Jetzt' : 'Agree'); } finally { await probePage.close(); }
+      const page = await open({ width, height, locale, consent: { action: fit.label, actionNarrow: fit.label, text: stock[locale].text } }, problems);
+      try {
+        await keyboardUp(page, viewport); await settleLong(page);
+        const up = await page.$eval('aithema-session', reasonState);
+        if (!up.keyboard) failures.push(`${name}: the keyboard flag is set`);
+        if (!up.copy) failures.push(`${name}: the consent line is present`);
+        else {
+          for (const part of ['line', 'dock', 'send', 'mic']) if (!(up[part]?.width > 0 && up[part]?.height > 0)) failures.push(`${name}: ${part} positive box: ${JSON.stringify(up[part])}`);
+          if (!(up.three > 0 && up.ellipsis > 0)) failures.push(`${name}: fixture: three characters and the ellipsis measure: ${JSON.stringify({ three: up.three, ellipsis: up.ellipsis })}`);
+          else if (up.runs.length && up.copy.width < up.three + up.ellipsis - .5)
+            failures.push(`${name}: the reason drops out below three characters (no stub): ${JSON.stringify({ reason: up.copy.width, three: up.three, ellipsis: up.ellipsis, runs: up.runs })}`);
+        }
+        await capture(page, `r7-reason-drop-${name}`, up);
+      } finally { await page.close(); }
+      none(failures, name);
+      assert.deepEqual(problems, []);
+    });
+  }
+}
+
 // r5 (Codex gatepra4 Medium, TICK M1 safety net): a host action label WIDER
 // than the row. The reason yields to 0, the action is capped at the row with an
 // ellipsis (never offscreen, never wrapping the dock taller), and its
