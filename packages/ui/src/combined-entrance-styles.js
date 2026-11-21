@@ -218,17 +218,33 @@ export const combinedEntranceStyles = `
      reserved while the keyboard is up, so the row changes only when the keyboard
      opens or closes. Keyboard down keeps r2's two rows (TICK (a)). */
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > :is(.composer-feedback-reserve, .composer-saved-sizer) { display:none; }
-  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy { -webkit-line-clamp:1; height:1lh; }
-  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > :is(.consent-line-copy, .consent-action) > .consent-wide { display:none; }
-  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > :is(.consent-line-copy, .consent-action) > .consent-narrow { display:inline; }
+  /* r4, TICK M1: the keyboard never changes the action's label or name; the
+     action keeps the width rule's variant (the wide label above 340 px, as with
+     the keyboard down). Only the reason is the short one. Safety net for a long
+     host action: the reason yields (one line, min-width 0, "…"), the action
+     never shrinks; the row is a plain flex row, no float spacer. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy {
+    display:block; -webkit-line-clamp:none; height:1lh; flex:1 1 auto; min-width:0; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy::before,
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy > [data-action]::before { content:none; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy > .consent-wide { display:none; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy > .consent-narrow { display:inline; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action {
+    position:relative; inset:auto; flex:none; height:1lh; white-space:nowrap; margin-inline-start:.35em; }
   /* One row sits 8 px (the composer's row gap) under Send: its 44 px target
      starts at that gap and grows down over the status row, clear of Send and Mic. */
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action::after { top:-8px; transform:none; }
-  /* Granted (no consent or failure line): the feedback row leaves the grid; its
-     status regions stay in the accessibility tree at no size. */
-  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:not([data-image-input]):not(:has(.staged-images:not([hidden]))):not(:has(.composer-feedback > .composer-reason:is([data-consent-feature],[data-send-failed]))) {
+  /* r4 (Codex KEYBOARD): pending is one row on document- and image-enabled
+     docks too: their refusal floors (3.75em, 44 px) yield to the consent line. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer .composer-feedback:has(> .composer-reason[data-consent-feature="text"]) { min-height:0; }
+  /* Granted and IDLE only (r4, Codex A11Y): the feedback row leaves the grid
+     when it holds nothing but the idle shortcut line (or nothing): no retry,
+     discard, upload notice, refusal, failure or any other control. Its status
+     regions stay in the accessibility tree at no size. Plain, document- and
+     image-enabled docks alike (r4, Codex KEYBOARD); a staged image keeps its row. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:not(:has(.staged-images:not([hidden]))):has(.composer-feedback > .composer-reason:is([data-shortcut],:empty)):not(:has(.composer-feedback :is(button, a, input, [tabindex]))) {
     grid-template-areas:"message mic send" "status status status" "notice notice notice"; }
-  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:not([data-image-input]):not(:has(.staged-images:not([hidden]))):not(:has(.composer-feedback > .composer-reason:is([data-consent-feature],[data-send-failed]))) .composer-feedback {
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:not(:has(.staged-images:not([hidden]))):has(.composer-feedback > .composer-reason:is([data-shortcut],:empty)):not(:has(.composer-feedback :is(button, a, input, [tabindex]))) .composer-feedback {
     grid-area:auto; position:absolute; width:1px; height:0; min-height:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
   .workspace[data-entrance="combined"] { height:auto; padding-bottom:calc(var(--phone-dock,250px) + var(--phone-footer,57px) + 24px); }
   .workspace[data-entrance="combined"] .conversation { height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,250px) - 32px); min-height:0; }
