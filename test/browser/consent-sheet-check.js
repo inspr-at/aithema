@@ -444,7 +444,7 @@ const readHelp = async (c, locale, full) => {
   return { stockMax, line, cell: { width: before.width, height: before.height }, cellAfter: { width: after.width, height: after.height },
     message: { width: shown.width, height: shown.height }, unclamped, lineClamp: getComputedStyle(message).webkitLineClamp, help };
 };
-const helpFailures = (kind, h, width) => {
+const helpFailures = (kind, h, width, locale) => {
   const failures = [];
   if (!(h.cell.width > 0 && h.cell.height > 0 && h.cellAfter.width > 0 && h.cellAfter.height > 0 && h.message.width > 0 && h.message.height > 0 && h.line > 0 && h.stockMax > 0)) {
     return [`${kind}: help cell, help line, line height and stock probe positive: ${JSON.stringify(h)}`];
@@ -455,7 +455,9 @@ const helpFailures = (kind, h, width) => {
   if (h.message.height > lines * h.line + 1) failures.push(`${kind}: the help line shows at most N=${lines} lines: ${h.message.height} vs ${lines * h.line}`);
   if (Math.abs(h.message.height / h.line - Math.round(h.message.height / h.line)) * h.line > 1) failures.push(`${kind}: the help line shows whole lines only: ${h.message.height} / ${h.line}`);
   if (h.unclamped > lines * h.line + 1 && String(h.lineClamp) !== String(lines)) failures.push(`${kind}: a help text taller than N=${lines} lines is clamped there with an ellipsis: line-clamp ${h.lineClamp}`);
-  if (['cjk', 'emoji'].includes(kind) && width === 360 && !(h.unclamped > lines * h.line + 1)) failures.push(`precondition: the ${kind} help needs more than N=${lines} lines at 360: ${h.unclamped}`);
+  // The clamp must be exercised: emoji at 360 EN/DE, CJK at 360 EN (DE needs
+  // N=4 stock lines there, and the 40-grapheme CJK help fits in them).
+  if ((kind === 'emoji' || kind === 'cjk' && locale === 'en') && width === 360 && !(h.unclamped > lines * h.line + 1)) failures.push(`precondition: the ${kind} help needs more than N=${lines} lines at 360: ${h.unclamped}`);
   return failures;
 };
 export async function consentSheetBodyHeightCheck(t) {
@@ -486,7 +488,7 @@ export async function consentSheetBodyHeightCheck(t) {
         if (!(sheet.below?.width > 0 && sheet.below?.height > 0)) failures.push(`${kind}: the footer row under the body positive box: ${JSON.stringify(sheet.below)}`);
         if (!(sheet.sentence?.width > 0 && sheet.sentence?.height > 0)) failures.push(`${kind}: the sentence positive box: ${JSON.stringify(sheet.sentence)}`);
       }
-      for (const [kind, sheet] of Object.entries(seen)) failures.push(...helpFailures(kind, sheet.help, item.width));
+      for (const [kind, sheet] of Object.entries(seen)) failures.push(...helpFailures(kind, sheet.help, item.width, item.locale));
       if (!failures.length) for (const kind of ['long', 'oversized', 'wide', 'narrow', 'cjk', 'emoji']) {
         const a = seen.short, b = seen[kind];
         if (Math.abs(b.body.height - a.body.height) > 1) failures.push(`${kind}: the settings body keeps its height: ${b.body.height} vs ${a.body.height} (short)`);
