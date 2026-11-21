@@ -1,5 +1,4 @@
 import '../packages/ui/src/session-element.js';
-import { hostSettled } from '../packages/ui/src/host-surface.js';
 import { createDeviceReasoning } from '../plugins/device/src/index.js';
 import { createVoiceControl } from '../packages/ui/src/voice-control.js';
 import { createElevenLabsClient } from '../plugins/elevenlabs/src/client.js';
@@ -16,6 +15,8 @@ import { sessionKey as key, localeKey, preferredLocale, readPreference, remember
 // Keep this page's document and stop its work before the owner tears it down.
 const document = globalThis.document, page = document.defaultView, component = document.querySelector('aithema-session');
 const lifetime = new AbortController(), pending = new Set();
+// AIT-611: the component's internal teardown drain (registry key; not package API).
+const hostSettled = Symbol.for('aithema.internal.hostSettled');
 const active = () => !lifetime.signal.aborted && Boolean(component?.isConnected);
 async function hostWork(action) {
   if (!active()) return;

@@ -19,9 +19,10 @@ import { formatCredits, wholeCredits } from './display.js';
 import { EmailAsk, lowCredit } from './email-ask.js';
 
 export const defaultCreditFormat = formatCredits;
-// AIT-611: internal teardown drain (not package API; this module is not exported by the package).
-// A host page awaits it before it tears down the page, so late answers land while the DOM still exists.
-export const hostSettled = Symbol('aithema.hostSettled');
+// AIT-611: internal teardown drain (not package API; this module is not a package export and the key is
+// not documented). A host page awaits it before it tears down the page, so late answers land while the DOM
+// still exists. A registry key, so the demo host reaches it without importing package internals (AIT-202).
+export const hostSettled = Symbol.for('aithema.internal.hostSettled');
 
 export class HostSurface {
   #erased = null; #request;
