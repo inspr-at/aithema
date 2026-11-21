@@ -1616,5 +1616,5 @@ test('AIT-603 PR-B: a loaded consent document keeps the full host sentence on sc
 test('AIT-603 PR-B r2: focus the visitor moves while the consent document loads stays there after a successful load, 360 EN / 1440 DE', { timeout: 120_000 }, consentSheetFocusKeptCheck);
 test('AIT-603 PR-B r2: a tall target purpose: text scrolls the least for sentence + checkbox, other features centre the focused checkbox inside the scrollport, 360/390/1440 EN/DE', { timeout: 240_000 }, consentSheetTallPurposeCheck);
 test('AIT-603 PR-B r2: an oversized DE host sentence anchors at its top with focus on it, failed and loaded, 360/390', { timeout: 120_000 }, consentSheetOversizedCheck);
-test('AIT-603 PR-B r3: the settings body keeps its height for any host sentence length, no empty band above the footer, 70ch at 1440, 360/390/1440 EN/DE', { timeout: 480_000 }, consentSheetBodyHeightCheck);
-test('AIT-603 PR-B r4: the focused target checkbox draws the :focus-visible ring with and without focus({ focusVisible }), both fit, 360/390/1440 EN/DE', { timeout: 240_000 }, consentSheetRingCheck);
+test('AIT-603 PR-B r3: the settings body keeps its height for any host sentence length, no empty band above the footer, 70ch at 1440, 360/390/1440 EN/DE', { timeout: 660_000 }, consentSheetBodyHeightCheck);
+test('AIT-603 PR-B r4: the focused target checkbox draws the :focus-visible ring with and without focus({ focusVisible }), both fit, 360/390/1440 EN/DE', { timeout: 300_000 }, consentSheetRingCheck);

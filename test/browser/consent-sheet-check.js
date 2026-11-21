@@ -53,7 +53,8 @@ async function harness(t) {
   // `doc`: the consent document GET returns (null = the load fails with 500);
   // it waits for releaseConsent(), so the scroll before the load is known.
   // `noFocusVisible` (r4): emulate an engine that ignores focus({ focusVisible }).
-  return async ({ width, height, locale, sentence, doc, noFocusVisible = false }, problems) => {
+  // `focusFails` (r5, gate Low): focus() on a consent checkbox does nothing.
+  return async ({ width, height, locale, sentence, doc, noFocusVisible = false, focusFails = false }, problems) => {
     const page = await browser.newPage();
     page.on('pageerror', error => problems.push(error.message));
     await page.setViewport({ width, height });
@@ -63,7 +64,11 @@ async function harness(t) {
       ? request.respond({ status: 200, contentType: 'text/html', body: fixture }) : request.continue()); });
     await page.goto(`${server.url}/combined-fixture?locale=${locale}&passiveDenied`);
     await page.waitForFunction(() => globalThis.ready && document.querySelector('aithema-session').shadowRoot.querySelector('.composer-status').textContent.length > 0);
-    await page.evaluate(async (locale, sentence, doc, noFocusVisible) => {
+    await page.evaluate(async (locale, sentence, doc, noFocusVisible, focusFails) => {
+      if (focusFails) {
+        const focus = HTMLElement.prototype.focus;
+        HTMLElement.prototype.focus = function (options) { if (this.matches('.consent-item input')) return undefined; return focus.call(this, options); };
+      }
       if (noFocusVisible) {
         const focus = HTMLElement.prototype.focus;
         HTMLElement.prototype.focus = function (options) { return focus.call(this, options && { preventScroll: options.preventScroll }); };
@@ -75,7 +80,7 @@ async function harness(t) {
       globalThis.fetch = async (url, options = {}) => String(url).endsWith('/consent') && (options.method ?? 'GET') === 'GET'
         ? (await globalThis.releaseConsent, doc ? Response.json(doc) : new Response('unavailable', { status: 500 })) : prior(url, options);
       mount(JSON.parse(JSON.stringify(document.querySelector('aithema-session').session)));
-    }, locale, sentence, doc, noFocusVisible);
+    }, locale, sentence, doc, noFocusVisible, focusFails);
     await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason[data-consent-feature="text"] .consent-action'));
     await settle(page);
     return page;
@@ -122,7 +127,7 @@ const readSheet = (c, full) => {
     const probe = document.createElement('span'); probe.style.cssText = 'position:absolute;visibility:hidden;color:var(--aithema-accent)';
     target.parentElement.append(probe); focusRing = { style: 'solid', width: '3px', offset: '2px', color: getComputedStyle(probe).color }; probe.remove();
   }
-  return { open: true, targetRing, focusRing, targetFocusVisible: Boolean(target?.matches(':focus-visible')) && active === target, ch70, below: box(context), sentence: box(holder), sentenceOnScreen: onScreen(holder), target: box(target), row: box(row), label: box(target?.closest('label')), targetOnScreen: onScreen(target),
+  return { open: true, targetMarked: target ? target.hasAttribute('data-focus-ring') : null, targetRing, focusRing, targetFocusVisible: Boolean(target?.matches(':focus-visible')) && active === target, ch70, below: box(context), sentence: box(holder), sentenceOnScreen: onScreen(holder), target: box(target), row: box(row), label: box(target?.closest('label')), targetOnScreen: onScreen(target),
     body: box(body), scrollTop: body.scrollTop, items: dialog.querySelectorAll('.consent-item').length,
     status: dialog.querySelector('.consent-status')?.textContent ?? null,
     focus: active ? `${active.tagName.toLowerCase()}${active.className ? `.${String(active.className).split(' ').join('.')}` : ''}` : null,
@@ -361,11 +366,15 @@ export async function consentSheetOversizedCheck(t) {
 // The lane has no WebKit; the emulation stands in for it.
 export async function consentSheetRingCheck(t) {
   const open = await harness(t);
-  for (const item of sheetCases) for (const engine of ['native', 'no-focus-visible']) {
+  // r5 (gate Low): `focus-fails` (360 EN, 1440 DE): focus() does not land on the
+  // checkbox, so no data-focus-ring marker may stay on it for a later pointer focus.
+  const engines = item => item.width === 360 && item.locale === 'en' || item.width === 1440 && item.locale === 'de'
+    ? ['native', 'no-focus-visible', 'focus-fails'] : ['native', 'no-focus-visible'];
+  for (const item of sheetCases) for (const engine of engines(item)) {
     const name = `${item.width}x${item.height}-${item.locale}-ring-${engine}`;
     await t.test(name, async () => {
       const problems = [], full = stock[item.locale];
-      const page = await open({ ...item, doc: documentFor('short', 'fixture-ait-603b-ring'), noFocusVisible: engine !== 'native' }, problems);
+      const page = await open({ ...item, doc: documentFor('short', 'fixture-ait-603b-ring'), noFocusVisible: engine === 'no-focus-visible', focusFails: engine === 'focus-fails' }, problems);
       try {
         await openSheet(page);
         await page.evaluate(() => globalThis.release());
@@ -374,11 +383,14 @@ export async function consentSheetRingCheck(t) {
         const sheet = await page.$eval('aithema-session', readSheet, full);
         const failures = [];
         if (!(sheet.target?.width > 0 && sheet.target?.height > 0)) failures.push(`the target checkbox positive box: ${JSON.stringify(sheet.target)}`);
-        if (!sheet.focusTarget) failures.push(`the target checkbox has focus (both fit): ${sheet.focus}`);
         const ring = sheet.targetRing, want = sheet.focusRing;
-        if (!ring || !want || ring.style !== want.style || ring.width !== want.width || ring.offset !== want.offset || ring.color !== want.color) {
+        if (engine === 'focus-fails') {
+          if (sheet.focusTarget) failures.push(`precondition: focus() did not land on the checkbox: ${sheet.focus}`);
+          if (sheet.targetMarked !== false) failures.push(`no stale data-focus-ring marker on a checkbox that did not get focus: ${sheet.targetMarked}`);
+        } else if (!sheet.focusTarget) failures.push(`the target checkbox has focus (both fit): ${sheet.focus}`);
+        if (engine !== 'focus-fails' && (!ring || !want || ring.style !== want.style || ring.width !== want.width || ring.offset !== want.offset || ring.color !== want.color) {
           failures.push(`the focused checkbox draws the :focus-visible ring: ${JSON.stringify(ring)} vs ${JSON.stringify(want)}`);
-        }
+        })
         await capture(page, name, { summary: `${engine}; focus ${sheet.focus}; ring ${ring?.style} ${ring?.width} ${ring?.color}`, sentenceText: full, engine, ...sheet });
         none(failures, `${name}: ${JSON.stringify({ focus: sheet.focus, ring, want })}`);
         assert.deepEqual(problems, []);
@@ -398,14 +410,61 @@ const oversized = locale => Array(16).fill(locale === 'de'
 // r4 (gate M1): two host sentences whose 40-character help prefixes differ in
 // rendered width (wide and narrow glyphs); the help cell's reserve must hold
 // the tallest rendering, whatever the character count.
-const glyphs = { wide: Array(12).fill('WWWW').join(' '), narrow: Array(12).fill('iiii').join(' ') };
+// r5 (TICK decision (i)): a CJK and an emoji host sentence. Their help line
+// is clamped to the N lines the stock copy needs, with an ellipsis.
+const glyphs = { wide: Array(12).fill('WWWW').join(' '), narrow: Array(12).fill('iiii').join(' '),
+  cjk: Array(4).fill('您的消息只有在您同意后才会到达我们的模型提供商。').join(''), emoji: Array(60).fill('😀').join('') };
+// r5 (TICK decision (i)): read in the page. `stockMax`: the tallest rendering
+// of every stock help text (consent-needed with each stock feature reason) in
+// the help cell's width, probed apart from the dialog's own measures. Then the
+// consent-needed help for this sentence goes into the live help line, as the
+// dialog writes it: the cell keeps its height and the line shows whole lines,
+// at most N = stockMax / line height, clamped when the text needs more.
+const readHelp = async (c, locale, full) => {
+  const dialog = c.shadowRoot.querySelector('dialog.settings[open]');
+  const cell = dialog.querySelector('.context-text'), message = cell.querySelector('.context-message');
+  const { helpReason, fill } = await import('/packages/ui/src/settings-dialog.js');
+  const { featureConsentText } = await import('/packages/ui/src/consent-line.js');
+  const base = (await import(`/packages/ui/src/i18n/${locale}.js`))[locale];
+  const frames = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const probe = text => {
+    const node = message.cloneNode(false); node.removeAttribute('role'); node.removeAttribute('aria-live'); node.removeAttribute('style');
+    for (const key of Object.keys(node.dataset)) delete node.dataset[key];
+    node.style.visibility = 'hidden'; node.textContent = text; cell.append(node);
+    const height = node.getBoundingClientRect().height; node.remove(); return height;
+  };
+  const stockTexts = Object.entries(base.help).flatMap(([key, text]) => key === 'consentNeeded'
+    ? ['text', 'uploads', 'images', 'html', 'voice', 'analysis'].map(feature => fill(text, { reason: helpReason(featureConsentText(base, feature)) })) : [fill(text, { reason: '' })]);
+  const stockMax = Math.max(...stockTexts.map(probe));
+  const line = parseFloat(getComputedStyle(message).lineHeight);
+  const before = cell.getBoundingClientRect();
+  const help = fill(base.help.consentNeeded, { reason: helpReason(full) }), unclamped = probe(help);
+  message.textContent = help; await frames();
+  const after = cell.getBoundingClientRect(), shown = message.getBoundingClientRect();
+  return { stockMax, line, cell: { width: before.width, height: before.height }, cellAfter: { width: after.width, height: after.height },
+    message: { width: shown.width, height: shown.height }, unclamped, lineClamp: getComputedStyle(message).webkitLineClamp, help };
+};
+const helpFailures = (kind, h, width) => {
+  const failures = [];
+  if (!(h.cell.width > 0 && h.cell.height > 0 && h.cellAfter.width > 0 && h.cellAfter.height > 0 && h.message.width > 0 && h.message.height > 0 && h.line > 0 && h.stockMax > 0)) {
+    return [`${kind}: help cell, help line, line height and stock probe positive: ${JSON.stringify(h)}`];
+  }
+  const lines = Math.round(h.stockMax / h.line);
+  if (Math.abs(h.cell.height - h.stockMax) > 1) failures.push(`${kind}: the help cell reserves exactly the tallest stock help (no sample): ${h.cell.height} vs ${h.stockMax}`);
+  if (Math.abs(h.cellAfter.height - h.cell.height) > 1) failures.push(`${kind}: the help cell keeps its height with this reason in the help line: ${h.cellAfter.height} vs ${h.cell.height}`);
+  if (h.message.height > lines * h.line + 1) failures.push(`${kind}: the help line shows at most N=${lines} lines: ${h.message.height} vs ${lines * h.line}`);
+  if (Math.abs(h.message.height / h.line - Math.round(h.message.height / h.line)) * h.line > 1) failures.push(`${kind}: the help line shows whole lines only: ${h.message.height} / ${h.line}`);
+  if (h.unclamped > lines * h.line + 1 && String(h.lineClamp) !== String(lines)) failures.push(`${kind}: a help text taller than N=${lines} lines is clamped there with an ellipsis: line-clamp ${h.lineClamp}`);
+  if (['cjk', 'emoji'].includes(kind) && width === 360 && !(h.unclamped > lines * h.line + 1)) failures.push(`precondition: the ${kind} help needs more than N=${lines} lines at 360: ${h.unclamped}`);
+  return failures;
+};
 export async function consentSheetBodyHeightCheck(t) {
   const open = await harness(t);
   for (const item of sheetCases) {
     const name = `${item.width}x${item.height}-${item.locale}-body-height`;
     await t.test(name, async () => {
       const problems = [], seen = {};
-      for (const kind of ['short', 'long', 'oversized', 'wide', 'narrow']) {
+      for (const kind of ['short', 'long', 'oversized', 'wide', 'narrow', 'cjk', 'emoji']) {
         const full = kind === 'short' ? stock[item.locale] : kind === 'long' ? longSentence(item.locale) : kind === 'oversized' ? oversized(item.locale) : glyphs[kind];
         const page = await open({ ...item, sentence: kind === 'short' ? undefined : full, doc: null }, problems);
         try {
@@ -417,6 +476,8 @@ export async function consentSheetBodyHeightCheck(t) {
           const sheet = seen[kind];
           await capture(page, `${name}-${kind}`, { summary: `${kind} sentence; body height ${sheet.body?.height}; band ${sheet.below && sheet.body ? sheet.below.y - sheet.body.bottom : null}; footer top ${sheet.below?.y}`, sentenceText: full,
             bodyHeight: sheet.body?.height ?? null, footerTop: sheet.below?.y ?? null, ...sheet });
+          sheet.help = await page.$eval('aithema-session', readHelp, item.locale, full);
+          if (['cjk', 'emoji'].includes(kind)) await capture(page, `${name}-${kind}-help`, { summary: `${kind} help line; cell ${sheet.help.cell.height} -> ${sheet.help.cellAfter.height}; line ${sheet.help.message.height} / ${sheet.help.line}; clamp ${sheet.help.lineClamp}`, ...sheet.help });
         } finally { await page.close(); }
       }
       const failures = [];
@@ -425,7 +486,8 @@ export async function consentSheetBodyHeightCheck(t) {
         if (!(sheet.below?.width > 0 && sheet.below?.height > 0)) failures.push(`${kind}: the footer row under the body positive box: ${JSON.stringify(sheet.below)}`);
         if (!(sheet.sentence?.width > 0 && sheet.sentence?.height > 0)) failures.push(`${kind}: the sentence positive box: ${JSON.stringify(sheet.sentence)}`);
       }
-      if (!failures.length) for (const kind of ['long', 'oversized', 'wide', 'narrow']) {
+      for (const [kind, sheet] of Object.entries(seen)) failures.push(...helpFailures(kind, sheet.help, item.width));
+      if (!failures.length) for (const kind of ['long', 'oversized', 'wide', 'narrow', 'cjk', 'emoji']) {
         const a = seen.short, b = seen[kind];
         if (Math.abs(b.body.height - a.body.height) > 1) failures.push(`${kind}: the settings body keeps its height: ${b.body.height} vs ${a.body.height} (short)`);
         const band = sheet => sheet.below.y - sheet.body.bottom;
@@ -433,7 +495,7 @@ export async function consentSheetBodyHeightCheck(t) {
         if (Math.abs(b.below.y - a.below.y) > 1) failures.push(`${kind}: the footer row stays in place: ${b.below.y} vs ${a.below.y} (short)`);
         if (item.width === 1440 && !(b.ch70 > 0 && b.sentence.width <= b.ch70 + 1)) failures.push(`${kind}: at 1440 the sentence wraps at about 70ch: ${b.sentence.width} vs ${b.ch70}`);
       }
-      none(failures, `${name}: ${JSON.stringify(Object.fromEntries(Object.entries(seen).map(([k, v]) => [k, { body: v.body, below: v.below, sentence: v.sentence, ch70: v.ch70 }])))}`);
+      none(failures, `${name}: ${JSON.stringify(Object.fromEntries(Object.entries(seen).map(([k, v]) => [k, { body: v.body?.height, below: v.below?.y, help: v.help && { cell: v.help.cell.height, after: v.help.cellAfter.height, stock: v.help.stockMax, line: v.help.line, shown: v.help.message.height, clamp: v.help.lineClamp } }])))}`);
       assert.deepEqual(problems, []);
     });
   }

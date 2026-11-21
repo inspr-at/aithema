@@ -33,3 +33,25 @@ test('AIT-603 PR-B r4: helpReason keeps a combining mark with its letter at the 
   const text = `${'a'.repeat(38)}é${'x'.repeat(10)}`;
   assert.equal(helpReason(text), `${'a'.repeat(38)}é…`);
 });
+
+// r5 (gate Low): without Intl.Segmenter the fallback still keeps a combining
+// mark with its letter and a ZWJ sequence (with its modifiers) whole at the cut.
+const withoutSegmenter = run => {
+  const segmenter = Object.getOwnPropertyDescriptor(Intl, 'Segmenter');
+  Object.defineProperty(Intl, 'Segmenter', { value: undefined, configurable: true, writable: true });
+  try { return run(); } finally { Object.defineProperty(Intl, 'Segmenter', segmenter); }
+};
+
+test('AIT-603 PR-B r5: helpReason without Intl.Segmenter keeps a decomposed letter whole at the cut', () => {
+  const text = `${'a'.repeat(38)}é${'x'.repeat(10)}`;
+  assert.equal(withoutSegmenter(() => typeof Intl.Segmenter), 'undefined');
+  assert.equal(withoutSegmenter(() => helpReason(text)), `${'a'.repeat(38)}é…`);
+});
+
+test('AIT-603 PR-B r5: helpReason without Intl.Segmenter keeps a ZWJ sequence and its modifiers whole at the cut', () => {
+  for (const emoji of ['👩‍👩‍👧', '👍🏽', '🧑🏽‍💻', '❤️']) {
+    const text = `${'a'.repeat(38)}${emoji}${'b'.repeat(10)}`;
+    assert.equal(withoutSegmenter(() => helpReason(text)), `${'a'.repeat(38)}${emoji}…`, `whole ${emoji}`);
+  }
+  assert.equal(withoutSegmenter(() => helpReason(`${'a'.repeat(39)}👩‍👩‍👧`)), `${'a'.repeat(39)}👩‍👩‍👧`);
+});
