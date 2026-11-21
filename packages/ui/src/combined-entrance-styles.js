@@ -235,19 +235,20 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy {
     display:block; -webkit-line-clamp:none; height:1lh; flex:1 1 0; min-width:0; white-space:nowrap; text-overflow:ellipsis; overflow:hidden;
     container:aithema-k1-reason / inline-size; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy::before,
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy > [data-action]::before { content:none; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy > .consent-wide { display:none; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy > .consent-narrow { display:inline; }
   /* r7 (TICK r6 L1): no stub like "E…". When the room the action leaves the
      reason is under 3em (about three characters plus the ellipsis) its text
      drops out entirely, as when it yields to 0; the action carries the meaning
      and the full sentence is in the sheet. The box keeps its flex size (size
      containment: its content never sizes it), so nothing moves. The narrow
-     copy is aria-hidden; the action's description is unchanged. */
+     copy is aria-hidden; the action's description is unchanged. After the
+     narrow copy's display rule, at its specificity (r7b: a bare * lost to it). */
   @container aithema-k1-reason (max-width:3em) {
-    .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy > * { display:none; }
+    .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy > :is(.consent-wide, .consent-narrow, *) { display:none; }
   }
-  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy::before,
-  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy > [data-action]::before { content:none; }
-  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy > .consent-wide { display:none; }
-  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy > .consent-narrow { display:inline; }
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action {
     position:relative; inset:auto; flex:0 1 auto; height:1lh; white-space:nowrap; order:2; }
   /* r6 (Codex gatepra5 Medium, TICK M1 rule): the .35em gap belongs between the
