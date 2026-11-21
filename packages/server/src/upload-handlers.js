@@ -67,6 +67,16 @@ function acquireExtraction(signal, image = false) {
     signal.addEventListener('abort', abort, { once: true });
   });
 }
+// Zero-fill a buffer except the given views of it (sorted, non-overlapping parts).
+function zeroExcept(buffer, views) {
+  let offset = 0;
+  for (const view of [...views].sort((a, b) => a.byteOffset - b.byteOffset)) {
+    const start = view.byteOffset - buffer.byteOffset;
+    if (view.buffer !== buffer.buffer || start < offset || start + view.byteLength > buffer.byteLength) continue;
+    buffer.fill(0, offset, start); offset = start + view.byteLength;
+  }
+  buffer.fill(0, offset);
+}
 const extensions = { pdf: EXTRACTOR_MEDIA_TYPES.pdf, docx: EXTRACTOR_MEDIA_TYPES.docx, xlsx: EXTRACTOR_MEDIA_TYPES.xlsx,
   pptx: EXTRACTOR_MEDIA_TYPES.pptx, txt: 'text/plain', md: 'text/markdown', csv: 'text/csv', json: 'application/json', xml: 'application/xml' };
 export function sniffUploadDocument(bytes, filename, maxBytes = EXTRACTOR_LIMITS.maxBytes) {
@@ -221,7 +231,7 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
       imageSlots += reserved;
       pendingUploadRequests++;
       requestsPerSession.set(id, active + 1); requestsInDeployment++;
-      let retained = false, files = [], bytes;
+      let retained = false, files = [], bytes, kept = [];
       try {
         const deadlineAt = now() + limits.requestBudgetMs;
         bytes = await readBody(request, limits.maxRequestBytes);
@@ -289,6 +299,8 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
           // This callback captures no request body or multipart byte views.
           Promise.allSettled(pending).then(releasePendingRequest);
           retained = true;
+          // Admitted documents are stored by the document rules; their views stay intact.
+          kept = admittedFiles.filter(file => file.kind !== 'image').map(file => file.bytes);
           for (const event of result.events) publish(id, event);
           if (result.events.some(event => !stagedImage(event.data))) onInput(id, { pending: true });
           expire(id);
@@ -300,11 +312,13 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
         requestsInDeployment--;
         if (!retained) releasePendingRequest();
         imageSlots -= reserved; // the unused reservation, on every exit
-        // Every exit (refusal, error or admission): zero the WHOLE request body.
-        // Multipart parts are views of it; admitted originals were copied into
-        // the in-memory hold and documents into storage before this point.
-        bytes?.fill(0);
-        for (const file of files) file.bytes.fill(0);
+        // Every exit (refusal, error or admission): zero the whole request body
+        // (framing, fields, every image part and every refused part). Only the
+        // views of admitted documents stay: the document rules store them anyway
+        // and erase the stored copy after extraction. Admitted image originals
+        // were copied into the in-memory hold before this point.
+        if (bytes) zeroExcept(bytes, kept);
+        for (const file of files) if (!kept.includes(file.bytes)) file.bytes.fill(0);
       }
     },
     resume() {

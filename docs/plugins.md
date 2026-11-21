@@ -335,8 +335,9 @@ drop). Two other byte paths follow their own rules, listed below.
   any await; without room it is refused (429,
   `reason: 'image-normalizations'`) before its body is read. After parsing it
   keeps one slot per admitted image and returns the rest. On every exit,
-  refusal or admission, the whole request body is zero-filled, and a failed
-  read zero-fills its partial buffers. Request and image bytes in memory stay
+  refusal or admission, the request body is zero-filled (only the parts of
+  admitted documents stay, which the document rules store), and a failed read
+  zero-fills its partial buffers. Request and image bytes in memory stay
   below about 166 MiB at the default ceilings: three retained request bodies
   (3 × 21 MiB), their held originals (3 × 21 MiB, at most eight) and the
   normalizer's IPC copies of one image (2 × 20 MiB). A file is image input when
