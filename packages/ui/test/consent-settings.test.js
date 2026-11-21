@@ -113,3 +113,23 @@ for (const copy of [de, en]) test(`AIT-321 ${copy.display.locale}: reloads a ref
   assert.equal(posts.length, 1);
   h.editor.close(); assert.equal(h.editor.stale, false);
 });
+
+// AIT-603 PR-B: the sheet opened for the text feature shows the host's text-consent
+// sentence in full (the host override, else the stock copy); other features show none.
+for (const copy of [de, en]) test(`AIT-603 ${copy.display.locale}: the text feature shows the full host sentence, the stock one without an override, none for other features`, async t => {
+  const long = Array(6).fill(copy.featureConsent.text).join(' ');
+  const text = { contract: 'v1', features: { text: ['host-model'], voice: ['host-speech'] }, selected: [], items: [
+    { id: 'host-speech', title: 'Speech', recipients: 'Voice processor', text: 'Speech purpose', version: 1 },
+    { id: 'host-model', title: 'Model', recipients: 'Model processor', text: 'Model purpose', version: 1 },
+  ] };
+  const reason = h => [...h.root.querySelectorAll('p')].find(p => p.textContent === long || p.textContent === copy.featureConsent.text);
+  const host = fixture(t, { ...copy, featureConsent: { ...copy.featureConsent, text: long } }, { document: text, load: async () => text });
+  await host.editor.open('text');
+  assert.equal(reason(host)?.textContent, long); assert.equal(reason(host).hidden, false);
+  await host.editor.open('voice');
+  assert.equal([...host.root.querySelectorAll('p')].some(p => !p.hidden && p.textContent === long), false);
+  const stock = fixture(t, copy, { document: text, load: async () => { throw new Error('unavailable'); } });
+  await stock.editor.open('text');
+  assert.equal(stock.root.querySelector('.consent-status').textContent, copy.host.consentFailed);
+  assert.equal(reason(stock)?.textContent, copy.featureConsent.text); assert.equal(reason(stock).hidden, false);
+});

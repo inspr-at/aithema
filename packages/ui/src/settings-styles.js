@@ -20,7 +20,7 @@ dialog.settings { padding:0; margin:auto; border:1px solid var(--aithema-line); 
   font:.875rem/1.4 var(--aithema-font); }
 dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur(6px); }
 .settings__frame { position:relative; display:flex; flex-direction:column; height:100%; min-height:0; }
-.settings :is(button,input,select,textarea,summary,a,[tabindex]):focus-visible { outline:3px solid var(--aithema-accent); outline-offset:2px; }
+.settings :is(button,input,select,textarea,summary,a,[tabindex]):focus-visible, .settings .consent-item input[data-focus-ring]:focus { outline:3px solid var(--aithema-accent); outline-offset:2px; }
 /* The unavailable email section retains programmatic screen-reader focus. */
 .settings #email-heading:focus { outline:none; }
 .settings :is(button,select,summary,.select__button) { min-height:2.75rem; }
@@ -209,6 +209,8 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .consent-item label { display:flex; align-items:center; gap:.6rem; }
 .consent-item input { flex:none; width:20px; height:20px; accent-color:var(--aithema-accent); }
 .consent-item p, .consent-intro, .consent-withdrawal, .consent-status { margin:0; font-size:.8125rem; line-height:1.5; color:var(--aithema-muted); }
+/* AIT-603: the host's full text-consent sentence. */
+.consent-reason { margin:0; max-width:70ch; font-size:.8125rem; line-height:1.5; color:var(--aithema-ink); overflow-wrap:anywhere; }
 .consent-status { min-height:1.5em; }
 .general h3 { font:400 1.25rem/1.2 var(--aithema-display); }
 .general button { justify-self:start; margin-left:-.85rem; }
