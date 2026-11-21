@@ -4348,7 +4348,8 @@ export class AithemaSession extends HTMLElement {
         this.#retryStaleConsentRefresh(pending);
         if (session.id === sessionId && (session.seq !== this.#cursor || voiceGeneration !== this.#rail?.generation)) {
           if (unlockEdge && session.seq > this.#cursor && !lockedIdentity(session.identity) && lockedIdentity(this.#session.identity)) this.#connect();
-          repeat(session.seq, JSON.stringify(session.featureMatrix) !== JSON.stringify(this.#session.featureMatrix));
+          // A settings change awaiting its verdict repeats even when the overtaken matrix looks the same (AIT-587 r3).
+          repeat(session.seq, this.#staleFeatures || JSON.stringify(session.featureMatrix) !== JSON.stringify(this.#session.featureMatrix));
         }
         return;
       }
