@@ -74,7 +74,10 @@ async function harness(t) {
         if ((options.method ?? 'GET') !== 'GET' || !new URL(String(url?.url ?? url), location.href).pathname.endsWith('/settings')) return prior(url, options);
         const catalog = await (await prior(url, options)).json();
         for (const preset of Object.values(catalog.presets ?? {})) for (const model of preset.models ?? []) model.facts = { ...model.facts, hostCountries: countries, hostTraining: true };
-        if (catalog.presets?.best?.models?.[0]) catalog.presets.best.models.unshift({ ...catalog.presets.best.models[0], id: 'default' });
+        // The fixture server has no provider, so its best preset may list no model.
+        const best = (catalog.presets ??= {}).best ??= { offered: true, status: 'available', models: [] };
+        (best.models ??= []).unshift({ ...best.models[0] ?? { label: 'Fixture model', status: 'available', offered: true }, id: 'default', facts: { ...best.models[0]?.facts, hostCountries: countries, hostTraining: true } });
+        catalog.settings = { ...catalog.settings, model: 'default' };
         if (globalThis.countriesSession) catalog.settings = globalThis.countriesSession.settings;
         return Response.json(catalog);
       };
@@ -665,14 +668,15 @@ export async function consentSheetPrivacyLinkCheck(t) {
         // model carries the countries, voice and visuals off.
         await page.$eval('aithema-session', c => {
           const session = structuredClone(c.session);
-          session.settings = { ...session.settings, preset: 'best', model: 'default', voice: 'off', visuals: 'off' };
+          session.processingPreset = 'best'; session.settings = { ...session.settings, preset: 'best', model: 'default', voice: 'off', visuals: 'off' };
           globalThis.countriesSession = session;
           c.configure({ copy: globalThis.fixtureCopy, session }); c.openSettings();
         });
         try {
           await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings[open] [data-gauge="privacy"]')?.dataset.state === 'hostCountries', { timeout: 20_000 });
         } catch {
-          const state = await page.$eval('aithema-session', c => ({ open: Boolean(c.shadowRoot.querySelector('dialog.settings[open]')), privacy: c.shadowRoot.querySelector('[data-gauge="privacy"]')?.dataset.state ?? null, settings: c.session?.settings ?? null }));
+          const state = await page.$eval('aithema-session', c => ({ open: Boolean(c.shadowRoot.querySelector('dialog.settings[open]')), privacy: c.shadowRoot.querySelector('[data-gauge="privacy"]')?.dataset.state ?? null, preset: c.session?.processingPreset ?? null, settings: c.session?.settings ?? null,
+            model: c.shadowRoot.querySelector('[data-select="model"]')?.textContent ?? null }));
           throw new Error(`precondition: the privacy gauge shows provider countries: ${JSON.stringify(state)}`);
         }
         await settle(page);
