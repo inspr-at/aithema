@@ -84,6 +84,24 @@ export async function combinedOfferCheck(t) {
     rects.push({ label, targets, before, after, shift, saved, scroll: { before: scrollBefore, after: scrollAfter } });
     if (evidence) { await writeFile(join(evidence, 'ait-506-email-address-rects.json'), JSON.stringify(rects, null, 2)); await page.screenshot({ path: join(evidence, `ait-506-${label}-email-address-saved.png`) }); }
     assert.ok(shift <= .5, `${label}: saved address shifts combined offer ${shift}px; ${JSON.stringify({ before, after, saved })}`);
+    // AIT-603 r5 (Codex gatepra4 Low, AIT-506): the keep-row rule holds only for
+    // the save re-reveal of the same offer. An explicit Latest jump after the
+    // save realigns as on main: from a reading position a few pixels off it
+    // lands where a Latest jump from the saved position lands.
+    if (width === 390) {
+      const latest = async () => { await shadow(page, c => c.shadowRoot.querySelector('.transcript-latest').click()); await settle(page);
+        return shadow(page, c => ({ top: c.shadowRoot.querySelector('.transcript-shell').scrollTop, row: c.shadowRoot.querySelector('.email-offer__row').getBoundingClientRect().toJSON() })); };
+      const aligned = await latest();
+      assert.ok(aligned.row.width > 0 && aligned.row.height > 0, `${label}: positive offer row after Latest`);
+      const moved = await shadow(page, c => { const shell = c.shadowRoot.querySelector('.transcript-shell'), from = shell.scrollTop;
+        shell.scrollTop = from > 3 ? from - 3 : from + 3; return { from, to: shell.scrollTop }; });
+      await settle(page);
+      assert.ok(Math.abs(moved.to - moved.from) >= 1, `${label}: the reading position moves off the aligned row: ${JSON.stringify(moved)}`);
+      const again = await latest();
+      assert.ok(again.row.width > 0 && again.row.height > 0, `${label}: positive offer row after the second Latest`);
+      assert.ok(Math.abs(again.top - aligned.top) <= .5 && Math.abs(again.row.y - aligned.row.y) <= .5,
+        `${label}: a Latest jump after the save realigns the offer row: ${JSON.stringify({ aligned, moved, again })}`);
+    }
   }
 }
 

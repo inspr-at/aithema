@@ -557,11 +557,13 @@ export async function consentKeyboardUpCheck(t) {
         const page = await open({ width, height, locale, consent: { ...action(), text: stock[locale].text } }, problems);
         try {
           const consent = await page.evaluate(() => globalThis.fixtureCopy.featureConsent);
+          // r5 (Codex gatepra4 Low, evidence): grant first, so the keyboard-down
+          // twin of "granted" shows the granted dock, not the pending one.
+          if (actionName === 'granted') await grant(page);
           const down = await page.$eval('aithema-session', keyboardState);
           const downName = actionName === 'granted' ? null : await actionName_(page);
           // r4: the keyboard-down twin of every keyboard-up capture (TICK's label parity pairs).
           await capture(page, `r4-k1-${label}-down`, down);
-          if (actionName === 'granted') await grant(page);
           await keyboardUp(page, viewport); await settleLong(page);
           const up = await page.$eval('aithema-session', keyboardState);
           if (!up.keyboard) { failures.push(`${label}: the keyboard flag is set`); continue; }
@@ -654,7 +656,10 @@ const intakeState = c => {
     composer: rect(root.querySelector('.composer')), field: rect(root.querySelector('textarea')), send: rect(root.querySelector('.send')),
     feedback: rect(root.querySelector('.composer-feedback')), images: rect(root.querySelector('.staged-images')),
     documentInput: root.querySelector('.composer').hasAttribute('data-document-input'), imageInput: root.querySelector('.composer').hasAttribute('data-image-input'),
-    line: line ? { box: rect(line), lineHeight: parseFloat(getComputedStyle(line).lineHeight) } : null, controls };
+    line: line ? { box: rect(line), lineHeight: parseFloat(getComputedStyle(line).lineHeight) } : null, controls,
+    // r5: idle = the row holds nothing but the shortcut hint (no Saved, no control).
+    idle: Boolean(root.querySelector('.composer-reason[data-shortcut]')) && !root.querySelector('.composer-feedback[data-saved]') && !root.querySelector('.composer-feedback :is(button, a, input)'),
+    reasonState: { shortcut: root.querySelector('.composer-reason').hasAttribute('data-shortcut'), text: root.querySelector('.composer-reason').textContent } };
 };
 const focusable = (page, selector) => page.$eval('aithema-session', (c, selector) => {
   const n = c.shadowRoot.querySelector(selector); if (!n) return false; n.focus(); return c.shadowRoot.activeElement === n;
@@ -694,6 +699,8 @@ export async function consentKeyboardIntakeCheck(t) {
             await page.$eval('aithema-session', c => { const transfer = new DataTransfer(); transfer.items.add(new File([window.k1PNG], 'k1.png', { type: 'image/png' }));
               c.shadowRoot.querySelector('textarea').dispatchEvent(new ClipboardEvent('paste', { bubbles: true, clipboardData: transfer })); });
             await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.staged-images:not([hidden]) .staged-image'), { timeout: 15_000 });
+            // r5: ready (no longer preparing): the reason is the idle shortcut hint again.
+            await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason[data-shortcut]'), { timeout: 15_000 }).catch(() => {});
           }
           if (state === 'rate-limited') {
             await page.$eval('aithema-session', c => { const input = c.shadowRoot.querySelector('.attach-input'), transfer = new DataTransfer();
@@ -716,6 +723,10 @@ export async function consentKeyboardIntakeCheck(t) {
           } else if (state === 'staged') {
             if (!(up.images?.width > 0 && up.images?.height > 0)) failures.push(`${label}: the staged image keeps its row: ${JSON.stringify(up.images)}`);
             else if (up.images.y + up.images.height > up.field.y + .5) failures.push(`${label}: the staged row sits above the field: ${JSON.stringify({ images: up.images, field: up.field })}`);
+            // r5 (Codex gatepra4 Low, KEYBOARD): a READY staged image leaves no blank
+            // feedback row under the field: the row holds only the shortcut hint, so it takes 0 px.
+            if (!up.idle) failures.push(`${label}: the staged image becomes ready (the row holds only the shortcut hint): ${JSON.stringify(up.reasonState)}`);
+            else if (up.feedback && up.feedback.height > .5) failures.push(`${label}: a ready staged image leaves no blank feedback row: ${JSON.stringify(up.feedback)}`);
           } else {
             if (up.controls.length !== 2) failures.push(`${label}: Try again and Discard are present: ${JSON.stringify(up.controls)}`);
             if (!(up.feedback?.width > 0 && up.feedback?.height > 0)) failures.push(`${label}: the feedback row keeps a positive box: ${JSON.stringify(up.feedback)}`);
@@ -730,6 +741,116 @@ export async function consentKeyboardIntakeCheck(t) {
           await capture(page, `r4-k1-${label}`, up);
         } finally { await page.close(); }
       }
+      none(failures, name);
+      assert.deepEqual(problems, []);
+    });
+  }
+}
+
+// r5 (Codex gatepra4 Medium, A11Y): the keyboard-up collapse takes only a row
+// that shows NOTHING but the shortcut hint. The visual Saved confirmation after
+// a successful send stays visible and unclipped with the keyboard up, on plain,
+// document- and image-enabled docks.
+const savedState = c => {
+  const root = c.shadowRoot, box = n => { const r = n.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
+  const feedback = root.querySelector('.composer-feedback'), saved = root.querySelector('.composer-saved');
+  return { keyboard: root.querySelector('.workspace').hasAttribute('data-phone-keyboard'), flag: feedback.hasAttribute('data-saved'),
+    feedback: box(feedback), feedbackClip: getComputedStyle(feedback).clipPath, saved: box(saved), text: saved.textContent.trim(),
+    visible: saved.checkVisibility({ visibilityProperty: true, opacityProperty: true }), field: box(root.querySelector('textarea')), viewport: innerWidth,
+    dock: box(root.querySelector('.composer-dock')), mic: box(root.querySelector('.composer-mic')), send: box(root.querySelector('.send')) };
+};
+export async function consentKeyboardSavedCheck(t) {
+  const { open, capture } = await harness(t);
+  for (const [width, height, viewport] of KEYBOARD) for (const locale of ['en', 'de']) {
+    const name = `${width}x${height}-${locale}-keyboard-up-saved`;
+    await t.test(name, async () => {
+      const problems = [], failures = [];
+      for (const intake of [null, 'document', 'image']) {
+        const label = `${name}-${intake ?? 'plain'}`;
+        const page = await open({ width, height, locale, intake, granted: true, consent: { text: stock[locale].text } }, problems);
+        try {
+          await keyboardUp(page, viewport); await settleLong(page);
+          await typeLines(page, 1); await settleLong(page);
+          await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.send').click());
+          await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-feedback[data-saved]'), { timeout: 15_000 });
+          await settle(page);
+          const up = await page.$eval('aithema-session', savedState);
+          if (!up.keyboard) { failures.push(`${label}: the keyboard flag is set`); continue; }
+          const copy = await page.evaluate(() => (typeof globalThis.fixtureCopy.saved === 'string' ? globalThis.fixtureCopy.saved : null));
+          if (!up.flag || !up.text || (copy && up.text !== copy)) failures.push(`${label}: Saved is painted: ${JSON.stringify({ flag: up.flag, text: up.text, copy })}`);
+          if (!up.visible) failures.push(`${label}: Saved is visible`);
+          for (const part of ['feedback', 'saved', 'field', 'send']) if (!(up[part]?.width > 0 && up[part]?.height > 0)) failures.push(`${label}: ${part} positive box: ${JSON.stringify(up[part])}`);
+          if (up.feedbackClip !== 'none') failures.push(`${label}: the feedback row is not clipped: ${up.feedbackClip}`);
+          const f = up.feedback, s = up.saved;
+          if (s.y < f.y - .5 || s.y + s.height > f.y + f.height + .5 || s.x < f.x - .5 || s.x + s.width > f.x + f.width + .5)
+            failures.push(`${label}: Saved lies inside its row: ${JSON.stringify({ saved: s, feedback: f })}`);
+          if (s.x < -.5 || s.x + s.width > up.viewport + .5) failures.push(`${label}: Saved is on screen: ${JSON.stringify(s)}`);
+          if (s.y < up.field.y + up.field.height - .5) failures.push(`${label}: Saved sits under the field: ${JSON.stringify({ saved: s, field: up.field })}`);
+          await capture(page, `r5-k1-${label}`, up);
+        } finally { await page.close(); }
+      }
+      none(failures, name);
+      assert.deepEqual(problems, []);
+    });
+  }
+}
+
+// r5 (Codex gatepra4 Medium, TICK M1 safety net): a host action label WIDER
+// than the row. The reason yields to 0, the action is capped at the row with an
+// ellipsis (never offscreen, never wrapping the dock taller), and its
+// accessible name stays the full label (the visible text is its prefix).
+// Keyboard down and up alike.
+const OVERWIDE = { en: 'Review and agree to sending all of your messages, documents and images to the assistant right now',
+  de: 'Die Verarbeitung aller Nachrichten, Dokumente und Bilder durch den Assistenten jetzt prüfen und zustimmen' };
+export async function consentKeyboardWideActionCheck(t) {
+  const { open, capture } = await harness(t);
+  for (const [width, height, viewport] of KEYBOARD) for (const locale of ['en', 'de']) {
+    const name = `${width}x${height}-${locale}-overwide-action`;
+    await t.test(name, async () => {
+      const problems = [], failures = [];
+      const full = OVERWIDE[locale];
+      const page = await open({ width, height, locale, consent: { action: full, actionNarrow: full, text: stock[locale].text } }, problems);
+      try {
+        const check = async (state, mode) => {
+          const label = `${name}-${mode}`;
+          for (const part of ['dock', 'composer', 'field', 'send']) if (!(state[part]?.width > 0 && state[part]?.height > 0)) failures.push(`${label}: ${part} positive box: ${JSON.stringify(state[part])}`);
+          const { line, action, feedback } = state;
+          if (!(line?.box?.width > 0 && line?.box?.height > 0)) { failures.push(`${label}: the consent line positive box: ${JSON.stringify(line)}`); return; }
+          if (!(action?.box?.width > 0 && action?.box?.height > 0)) { failures.push(`${label}: the action positive box: ${JSON.stringify(action)}`); return; }
+          // Nothing offscreen; the action box stays inside the row.
+          if (action.box.x < -.5 || action.box.x + action.box.width > width + .5) failures.push(`${label}: the action is on screen: ${JSON.stringify(action.box)}`);
+          if (action.box.x < line.box.x - .5 || action.box.x + action.box.width > line.box.x + line.box.width + .5) failures.push(`${label}: the action box is at most the row: ${JSON.stringify({ action: action.box, line: line.box })}`);
+          for (const r of action.rects) if (r.x < -.5 || r.x + r.width > width + .5) failures.push(`${label}: no action text offscreen: ${JSON.stringify(r)}`);
+          // One line: the action never wraps the dock taller.
+          if (action.box.height > line.lineHeight + .5) failures.push(`${label}: the action is one line: ${action.box.height} vs ${line.lineHeight}`);
+          if (new Set(action.rects.map(r => Math.round(r.y))).size > 1) failures.push(`${label}: the action's text is one line: ${JSON.stringify(action.rects)}`);
+          // The visible text is a prefix of the full label (an ellipsis ends it).
+          if (!state.actionEllipsis) failures.push(`${label}: the action ends with an ellipsis: ${JSON.stringify(state.actionText)}`);
+          const name_ = await actionName_(page);
+          if (name_ !== full) failures.push(`${label}: the accessible name is the full label: "${name_}"`);
+          if (!(feedback?.height > 0)) failures.push(`${label}: the feedback row positive box: ${JSON.stringify(feedback)}`);
+          return name_;
+        };
+        const widthState = c => {
+          const action = c.shadowRoot.querySelector('.composer-reason[data-consent-feature="text"] .consent-action');
+          const shown = action ? [...action.children].find(n => n.checkVisibility()) : null;
+          return { actionEllipsis: Boolean(shown && getComputedStyle(shown).textOverflow === 'ellipsis' && shown.scrollWidth > shown.clientWidth),
+            actionText: shown ? { text: shown.textContent, scrollWidth: shown.scrollWidth, clientWidth: shown.clientWidth, overflow: getComputedStyle(shown).textOverflow } : null };
+        };
+        const down = { ...await page.$eval('aithema-session', keyboardState), ...await page.$eval('aithema-session', widthState) };
+        const downName = await check(down, 'keyboard-down');
+        await capture(page, `r5-k1-${name}-down`, down);
+        await keyboardUp(page, viewport); await settleLong(page);
+        const up = { ...await page.$eval('aithema-session', keyboardState), ...await page.$eval('aithema-session', widthState) };
+        if (!up.keyboard) failures.push(`${name}: the keyboard flag is set`);
+        const upName = await check(up, 'keyboard-up');
+        if (downName !== upName) failures.push(`${name}: no name change keyboard down vs up: "${downName}" -> "${upName}"`);
+        // The reason yields to 0 with the keyboard up.
+        if (up.labelBox && up.labelBox.width > .5) failures.push(`${name}: the reason yields to 0: ${JSON.stringify(up.labelBox)}`);
+        if (up.line?.box && Math.abs(up.line.box.height - up.line.lineHeight) > .5) failures.push(`${name}: the keyboard-up row is one row: ${JSON.stringify(up.line)}`);
+        if (!(up.hit?.width >= 44 - .5 && up.hit?.height >= 44 - .5)) failures.push(`${name}: the action's hit area is 44 px: ${JSON.stringify(up.hit)}`);
+        await capture(page, `r5-k1-${name}-up`, up);
+      } finally { await page.close(); }
       none(failures, name);
       assert.deepEqual(problems, []);
     });
