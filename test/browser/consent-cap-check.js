@@ -179,6 +179,12 @@ async function harness(t) {
   const open = async ({ width, height, locale, start = false, consent = {}, intake = null, granted = false, copy = {} }, problems) => {
     const page = await browser.newPage();
     page.on('pageerror', error => problems.push(error.message));
+    // AIT-603 r8b: the keyboard-up latch observes the feedback row with a ResizeObserver. Chrome dispatches a
+    // "ResizeObserver loop" error to window without reporting it as a page error, so forward it as a problem.
+    page.on('console', message => { if (/ResizeObserver/.test(message.text())) problems.push(message.text()); });
+    await page.evaluateOnNewDocument(() => window.addEventListener('error', event => {
+      if (/ResizeObserver/.test(String(event.message))) console.error(`ResizeObserver loop: ${event.message}`);
+    }));
     await page.setViewport({ width, height });
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
     await page.setRequestInterception(true);
