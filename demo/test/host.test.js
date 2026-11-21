@@ -17,10 +17,6 @@ test('demo host creates owned sessions through postJson and combines consent, pa
   let holdSession = false, host;
   // AIT-611: the device conversation's host reads answer only after teardown.
   let holdHostReads = false; const hostReadGate = Promise.withResolvers(), hostReadsHeld = Promise.withResolvers();
-  // AIT-611 deadline: a library read that never answers until the test lets it.
-  let hangLibrary = false; const libraryHang = Promise.withResolvers();
-  // Internal teardown drain (not package API); absent before it exists.
-  const { hostSettled } = await import('../../packages/ui/src/host-surface.js');
   try {
     const html = await nativeFetch(running.url).then(response => response.text());
     window.document.write(html.replace(/<script[^>]*>[\s\S]*?<\/script>/gu, ''));
@@ -45,7 +41,6 @@ test('demo host creates owned sessions through postJson and combines consent, pa
         if (String(url).endsWith('/credits')) answer.then(() => hostReadsHeld.resolve(), hostReadsHeld.reject);
         return held.promise;
       }
-      if (hangLibrary && !init.method && /\/api\/library(\?|$)/u.test(String(url))) return libraryHang.promise;
       if (init.method === 'POST') posts.push({ path: String(url), contentType: headers.get('content-type') });
       const response = await nativeFetch(new URL(url, running.url), { ...init, headers });
       const createdCookie = response.headers.get('set-cookie');
@@ -54,9 +49,6 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     };
     host = await import('../host.js');
     const component = document.querySelector('aithema-session'), root = component.shadowRoot;
-    // The held host reads answer once teardown starts draining them; with no drain, only after teardown.
-    const drain = hostSettled && component[hostSettled];
-    if (drain) component[hostSettled] = function (...args) { hostReadGate.resolve(); return drain.apply(this, args); };
     const wait = async (step, predicate) => {
       const started = performance.now();
       // HTTP admission, mock reasoning and the event stream compete with the full
@@ -182,21 +174,6 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     assert.equal(heldSignals.length, count, 'a stopped host starts no new work');
     t.after(() => setImmediate(() => lateRequest.reject(new Error('fixture: page has closed'))));
     t.after(() => setImmediate(() => hostReadGate.resolve()));
-    // AIT-611: a host read that never answers hits the drain's deadline (injected clock); stopHost
-    // reports it as an error that names the open call, instead of hanging or passing silently.
-    hangLibrary = true;
-    t.after(() => libraryHang.resolve(new Response(JSON.stringify({ items: [], total: 0 }), { status: 200 })));
-    root.querySelector('.library-open-dialog').click();
-    const timers = [];
-    const deadline = { timeout: 5000, setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, clearTimer() {} };
-    const stoppedLate = host.stopHost(deadline);
-    stoppedLate.catch(() => {});
-    await wait('the drain arms its deadline', () => timers.length > 0);
-    assert.deepEqual(timers.map(timer => timer.ms), [5000], 'one bounded deadline');
-    timers[0].fn();
-    await assert.rejects(stoppedLate, error => /deadline/u.test(error.message) && /GET \/api\/library\?/u.test(error.message), 'stopHost names the open call');
-    hangLibrary = false;
-    libraryHang.resolve(new Response(JSON.stringify({ items: [], total: 0 }), { status: 200 }));
   } finally {
     lateAdoption.resolve();
     await host?.stopHost();

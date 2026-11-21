@@ -15,21 +15,16 @@ import { sessionKey as key, localeKey, preferredLocale, readPreference, remember
 // Keep this page's document and stop its work before the owner tears it down.
 const document = globalThis.document, page = document.defaultView, component = document.querySelector('aithema-session');
 const lifetime = new AbortController(), pending = new Set();
-// AIT-611: the component's internal teardown drain (registry key; not package API).
-const hostSettled = Symbol.for('aithema.internal.hostSettled');
 const active = () => !lifetime.signal.aborted && Boolean(component?.isConnected);
 async function hostWork(action) {
   if (!active()) return;
   const work = action(); pending.add(work);
   try { return await work; } finally { pending.delete(work); }
 }
-export async function stopHost(settle) {
+export async function stopHost() {
   page.removeEventListener('pagehide', pageHidden);
   lifetime.abort();
   await Promise.all([...pending]);
-  // AIT-611: the component's host reads in flight answer before the page goes away (bounded; see HostSurface).
-  const { open } = await (component?.[hostSettled]?.(settle) ?? { open: [] });
-  if (open.length) throw new Error(`Host teardown deadline passed with host calls still open: ${open.map(call => `${call.verb} ${call.path}`).join(', ')}`);
 }
 function pageHidden(event) {
   // A page kept in the back/forward cache still owns its DOM and may resume.
