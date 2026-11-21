@@ -56,8 +56,9 @@ export const combinedEntranceStyles = `
 .workspace[data-entrance="combined"] .send { grid-area:send; align-self:end; }
 /* r9 (AIT-603, Codex gatepra8 Medium): a kept keyboard-up row holds its largest
    height in --feedback-held (layout.js latchFeedback), combined with the dock's
-   own minimum below, never instead of it. */
-.workspace[data-entrance="combined"] .composer-feedback { grid-area:feedback; margin:0; font-size:.72rem; min-height:var(--feedback-held,auto); }
+   own minimum below, never instead of it. r10: the plain row's hold is the
+   shared rule (styles.js), for every entrance. */
+.workspace[data-entrance="combined"] .composer-feedback { grid-area:feedback; margin:0; font-size:.72rem; }
 /* Reserve wrapped document refusals only where document intake is configured. */
 .workspace[data-entrance="combined"] .composer[data-document-input] .composer-feedback { min-height:max(var(--feedback-held,0px),3.75em); }
 /* Image refusals reserve the longest real localized reason before intake. */
@@ -264,9 +265,12 @@ export const combinedEntranceStyles = `
   /* One row sits 8 px (the composer's row gap) under Send: its 44 px target
      starts at that gap and grows down over the status row, clear of Send and Mic. */
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action::after { top:-8px; transform:none; }
-  /* r4 (Codex KEYBOARD): pending is one row on document- and image-enabled
-     docks too: their refusal floors (3.75em, 44 px) yield to the consent line. */
-  .workspace[data-entrance="combined"][data-phone-keyboard] .composer .composer-feedback:has(> .composer-reason[data-consent-feature="text"]) { min-height:var(--feedback-held,0px); }
+  /* r10 (TICK r9 M1, LEAD 23:4x): every keyboard-up feedback row respects its
+     dock's floor in every state, the pending consent line included. r4's
+     override (the document and image floors yielding to the one-row consent
+     line) is gone: the consent LINE stays one row, its row keeps the floor
+     (3.75em, 44 px; the rules above, max() with --feedback-held), so consent
+     clearing leaves the row, and Send and Mic, where they are. */
   /* Granted and IDLE only (r4, Codex A11Y): the feedback row leaves the grid
      when it shows NOTHING but the keyboard-shortcut hint (or nothing): no
      visible status text (r5, Codex gatepra4 A11Y: the Saved confirmation after

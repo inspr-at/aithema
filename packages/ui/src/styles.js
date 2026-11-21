@@ -477,7 +477,10 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .composer-reason { flex:1; min-width:0; line-height:1.3; max-height:2.6em; overflow-wrap:anywhere; overflow-y:auto; overscroll-behavior:contain; }
 /* A resumed call retains its held hint's slot. Ordinary shortcuts keep the
    compact confirmation width; all variants share the existing row height. */
-.composer-feedback { display:grid; flex:1; margin-right:auto; min-width:0; align-items:center; align-self:stretch; }
+/* AIT-603 r10 (Codex gatepra9 Medium): every entrance's kept keyboard-up row
+   holds its largest height (--feedback-held, layout.js latchFeedback); an
+   entrance's own minimum combines with it (max(), combined-entrance-styles.js). */
+.composer-feedback { display:grid; flex:1; margin-right:auto; min-width:0; align-items:center; align-self:stretch; min-height:var(--feedback-held,auto); }
 .composer-feedback:not([data-voice-space]):has(.composer-reason[data-shortcut]) { flex:0 1 auto; }
 .composer-feedback > :not(.sr-only) { grid-area:1/1; }
 .composer-reason { transition:opacity 120ms ease; }

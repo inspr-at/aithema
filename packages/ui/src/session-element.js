@@ -46,7 +46,7 @@ import { icon } from './icons.js';
 import { modelDisplayName, languageFlag, formatCredits, clockTime } from './display.js';
 import { bandStyles } from './band-styles.js';
 import { voiceSingleRowMinWidth, voiceRailMinWidth, voiceRailFlexMinWidth } from './first-paint.js';
-import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, FooterPopups, PhoneComposerViewport, latchFeedback, releaseFeedback } from './layout.js';
+import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, FooterPopups, PhoneComposerViewport, latchFeedback, releaseFeedback, endDiscard } from './layout.js';
 import { createReveal } from './reveal.js';
 import { mountVersionDetails, renderHostVersion } from './version-display.js';
 import { QuestionCard, questionCardMarkup, questionCardStyles } from './question-card.js';
@@ -4038,7 +4038,11 @@ export class AithemaSession extends HTMLElement {
       const response = await this.#api(sameOrigin(this.ownerDocument.defaultView, `${this.#base}/api/sessions/${sessionId}/uploads/${encodeURIComponent(id)}/withdraw`), {}, { sessionToken: this.#sessionToken });
       if (!response.ok) throw new Error();
       const body = await response.json(); if (sessionId === this.#session.id) this.receive(body.event);
-    } catch { this.#status(this.#copy.uploads.withdrawFailed); }
+    } catch {
+      this.#status(this.#copy.uploads.withdrawFailed);
+      // r10 (AIT-603, Codex gatepra9 Low): the tile stays; its feedback latches again.
+      endDiscard(this.shadowRoot);
+    }
   }
   #consumeImageIntent() {
     const pending = this.#imageIntent;

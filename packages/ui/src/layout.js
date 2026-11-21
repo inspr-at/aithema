@@ -430,6 +430,12 @@ export const releaseFeedback = (root, { discard = null } = {}) => {
   feedback.removeAttribute('data-keyboard-kept'); feedback.style.removeProperty('--feedback-held'); heldHeight.delete(feedback);
   if (discard) discarded.set(feedback, discardScope(feedback, discard)); else discarded.delete(feedback);
 };
+// r10 (Codex gatepra9 Low): a discard that FAILED (its error shows, the tile
+// stays staged) ends the suppression at once; the row latches again.
+export const endDiscard = root => {
+  const feedback = root.querySelector('.composer-feedback');
+  if (feedback && discarded.delete(feedback)) latchFeedback(root);
+};
 export const latchFeedback = (root, keyboardUp = root.querySelector('.workspace')?.hasAttribute('data-phone-keyboard')) => {
   const feedback = root.querySelector('.composer-feedback');
   if (!feedback) return;
@@ -456,13 +462,17 @@ export class PhoneComposerViewport {
       const view = this.view, viewport = view?.visualViewport;
       const height = viewport?.height ?? view?.innerHeight ?? 0;
       // Pinch zoom is a reading gesture; do not move controls while zooming.
-      // r9 (Codex gatepra8 Low): the keyboard closing while zoomed (focus left
-      // the composer, or the zoomed viewport covers the whole layout height
-      // again) still releases the kept feedback row and its held height.
+      // r9 (Codex gatepra8 Low): the keyboard closing while zoomed still
+      // releases the kept feedback row and its held height. r10 (Codex
+      // gatepra9 Low): only the keyboard's actual close does (the zoomed
+      // viewport covers the whole layout height again), not focus loss while
+      // it is still hiding; the keyboard flag clears with it, so a later
+      // composer render cannot latch the row again while still zoomed.
       if (viewport && viewport.scale !== 1) {
-        const active = root.ownerDocument.activeElement === root.host ? root.activeElement : null;
-        const editing = active?.matches('textarea,input,[contenteditable="true"]') || active?.closest('.composer');
-        if (!editing || (this.fullHeight ?? 0) - height * viewport.scale < 150) latchFeedback(root, false);
+        if ((this.fullHeight ?? 0) - height * viewport.scale < 150) {
+          root.querySelector('.workspace')?.removeAttribute('data-phone-keyboard');
+          latchFeedback(root, false);
+        }
         return;
       }
       const workspace = root.querySelector('.workspace');
