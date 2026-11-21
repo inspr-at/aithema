@@ -834,6 +834,97 @@ export async function consentKeyboardSavedCheck(t) {
   }
 }
 
+// r7 (TICK r6 M1 general rule, Codex gatepra6 Medium x2): with the keyboard
+// up the feedback row only GROWS. Feedback that clears by itself (an image's
+// "Preparing…" turning ready; Saved after its timer) leaves its row in place,
+// empty, until the keyboard closes. (a) pending -> ready on an image-enabled
+// dock, 390 EN/DE: Send/Mic identical at "Preparing…", at ready and at ready
+// + 2 s. (b) Saved visible keyboard-down on a phone that is ALREADY compact,
+// then the keyboard opens (no compact-mode change, so no composer render), then
+// Saved clears: the row stays, Send/Mic identical at +1.6 s and +3 s.
+const wait = (page, ms) => page.evaluate(ms => new Promise(resolve => setTimeout(resolve, ms)), ms);
+export async function consentKeyboardSelfClearCheck(t) {
+  const { open, capture } = await harness(t);
+  const [width, height, viewport] = KEYBOARD[1];
+  for (const locale of ['en', 'de']) {
+    const name = `${width}x${height}-${locale}-keyboard-up-preparing-ready`;
+    await t.test(name, async () => {
+      const problems = [], failures = [];
+      const page = await open({ width, height, locale, intake: 'image', granted: true, consent: { text: stock[locale].text } }, problems);
+      try {
+        await mockIntake(page);
+        await keyboardUp(page, viewport); await settleLong(page);
+        await page.$eval('aithema-session', c => { const transfer = new DataTransfer(); transfer.items.add(new File([window.k1PNG], 'k1.png', { type: 'image/png' }));
+          c.shadowRoot.querySelector('textarea').dispatchEvent(new ClipboardEvent('paste', { bubbles: true, clipboardData: transfer })); });
+        await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.staged-images:not([hidden]) .staged-image'), { timeout: 15_000 });
+        await settleLong(page);
+        const preparing = await page.$eval('aithema-session', savedState);
+        const preparingText = await page.$eval('aithema-session', c => ({ shortcut: c.shadowRoot.querySelector('.composer-reason').hasAttribute('data-shortcut'),
+          text: c.shadowRoot.querySelector('.composer-reason').textContent.trim(), pending: c.session.uploads.some(u => u.kind === 'image' && u.state === 'staged-pending') }));
+        if (!preparing.keyboard) failures.push(`${name}: the keyboard flag is set`);
+        if (!preparingText.pending || preparingText.shortcut || !preparingText.text) failures.push(`${name}: fixture: the image is preparing ("Preparing…" in the row): ${JSON.stringify(preparingText)}`);
+        if (!(preparing.feedback?.width > 0 && preparing.feedback?.height > 0)) failures.push(`${name}: "Preparing…" takes its row: ${JSON.stringify(preparing.feedback)}`);
+        await capture(page, `r7-preparing-${name}-preparing`, { ...preparing, reason: preparingText });
+        await page.$eval('aithema-session', c => { const image = c.session.uploads.find(u => u.kind === 'image');
+          c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'upload.state', data: { ...image, state: 'staged-ready', reason: undefined, digest: 'fixture', w: 1, h: 1 } }); });
+        await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason[data-shortcut]'), { timeout: 15_000 });
+        await settleLong(page);
+        const ready = await page.$eval('aithema-session', savedState);
+        await capture(page, `r7-preparing-${name}-ready`, ready);
+        await wait(page, 2000); await settleLong(page);
+        const later = await page.$eval('aithema-session', savedState);
+        await capture(page, `r7-preparing-${name}-ready-plus-2s`, later);
+        for (const [when, state] of [['ready', ready], ['ready + 2 s', later]]) {
+          if (!state.keyboard) failures.push(`${name} ${when}: the keyboard stays up`);
+          if (state.reasonPainted) failures.push(`${name} ${when}: the kept row is empty (no hint painted)`);
+          failures.push(...stableBoxes(`${name} Preparing -> ${when}`, preparing, state, ['mic', 'send', 'feedback', 'dock']));
+        }
+        await keyboardDown(page); await settleLong(page);
+        await keyboardUp(page, viewport); await settleLong(page);
+        const reopened = await page.$eval('aithema-session', savedState);
+        if (!reopened.keyboard) failures.push(`${name}: the keyboard reopens`);
+        if (reopened.feedback.height > .5) failures.push(`${name}: after the keyboard closes and reopens a ready image's row starts at 0 px: ${JSON.stringify(reopened.feedback)}`);
+      } finally { await page.close(); }
+      none(failures, name);
+      assert.deepEqual(problems, []);
+    });
+  }
+  // (b) Already compact before the keyboard opens: 320x568 and 390x600.
+  for (const [w, h, v] of [[320, 568, 308], [390, 600, 380]]) for (const locale of ['en', 'de']) {
+    const name = `${w}x${h}-${locale}-compact-saved-then-keyboard`;
+    await t.test(name, async () => {
+      const problems = [], failures = [];
+      const page = await open({ width: w, height: h, locale, granted: true, consent: { text: stock[locale].text } }, problems);
+      try {
+        const compact = await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.workspace').hasAttribute('data-phone-short'));
+        if (!compact) failures.push(`${name}: fixture: the phone is compact before the keyboard opens`);
+        await typeLines(page, 1); await settleLong(page);
+        await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.send').click());
+        await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-feedback[data-saved]'), { timeout: 15_000 });
+        await keyboardUp(page, v); await settle(page);
+        const up = await page.$eval('aithema-session', savedState);
+        if (!up.keyboard) failures.push(`${name}: the keyboard flag is set`);
+        if (!up.flag || !up.visible) failures.push(`${name}: fixture: Saved is still visible when the keyboard opens: ${JSON.stringify({ flag: up.flag, visible: up.visible })}`);
+        await capture(page, `r7-compact-saved-${name}-keyboard-opened`, up);
+        await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer-feedback[data-saved]'), { timeout: 15_000 });
+        await settleLong(page);
+        const cleared = await page.$eval('aithema-session', savedState);
+        await capture(page, `r7-compact-saved-${name}-cleared`, cleared);
+        await wait(page, 1400); await settleLong(page);
+        const later = await page.$eval('aithema-session', savedState);
+        await capture(page, `r7-compact-saved-${name}-plus-3000ms`, later);
+        for (const [when, state] of [['Saved cleared', cleared], ['+3 s', later]]) {
+          if (!state.keyboard) failures.push(`${name} ${when}: the keyboard stays up`);
+          if (state.reasonPainted) failures.push(`${name} ${when}: the kept row is empty (no hint painted)`);
+          failures.push(...stableBoxes(`${name} ${when}`, up, state, ['mic', 'send', 'feedback', 'dock']));
+        }
+      } finally { await page.close(); }
+      none(failures, name);
+      assert.deepEqual(problems, []);
+    });
+  }
+}
+
 // r6 (Codex gatepra5 Medium, TICK M1 rule): a host action that EXACTLY fits the
 // keyboard-down row (within the old .35em gap) is not ellipsized with the
 // keyboard up: once the reason has yielded to 0 the gap goes too and the action
