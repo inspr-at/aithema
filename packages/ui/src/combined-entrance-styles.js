@@ -196,6 +196,9 @@ export const combinedEntranceStyles = `
     content:attr(data-action); float:inline-end; clear:both; visibility:hidden; white-space:nowrap; letter-spacing:normal; padding-inline-start:.35em; }
   .workspace[data-entrance="combined"] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action,
   .composer-reserve-line.composer-reserve-consent > .composer-reserve-action { position:absolute; inset-inline-end:0; bottom:0; }
+  /* Its 44 px target grows from the line end back over the text, never past
+     the text column toward Mic and Send (a short action, e.g. "OK"). */
+  .workspace[data-entrance="combined"] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action::after { left:auto; right:auto; inset-inline-end:0; }
   /* A shorter line (granted, the send shortcut) sits top-aligned in that reserve. */
   .workspace[data-entrance="combined"] .composer:not([data-image-input]) .composer-feedback > .composer-reason:not([data-send-failed]) { align-self:start; }
   /* r5 (Codex gate4c Low): image-enabled docks too, for the consent line and the
