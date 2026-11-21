@@ -29,6 +29,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHandlers, createPluginRuntime, SQLiteStorage, mockPresets } from '../src/index.js';
+import { listen } from '../src/http.js';
 import { createMockReasoning, PluginRegistry, reasoningRequest } from '@inspr/aithema-core';
 import { registerDemoExtractors } from '../../../demo/uploads.js';
 import { mockConsent, testToken, ownedRequest, temporaryDb } from '../../../test/helpers.js';
@@ -149,12 +150,12 @@ test('AIT-610 P1: a consent revision during admission refuses with a reason and 
   await f.assertNoTrace(image, { responses: [body] });
 });
 
-test('AIT-610 P1: the real runtime verdict (no normalizer configured) refuses with a reason and leaves no trace', async t => {
+test('AIT-610 P1: the real runtime verdict (a binding without image input) refuses with a reason and leaves no trace', async t => {
   const f = await fixture(t), image = sentinelImage();
   f.availability.real = true;
   const response = await f.upload('unconfigured', [['photo.png', image.bytes, 'application/octet-stream']]), body = await response.text();
   assert.equal(response.status, 202, body);
-  assert.deepEqual(JSON.parse(body).refused, [{ index: 0, name: 'photo.png', kind: 'image', reason: 'image normalizer not configured' }]);
+  assert.deepEqual(JSON.parse(body).refused, [{ index: 0, name: 'photo.png', kind: 'image', reason: 'image input not supported' }]);
   await f.assertNoTrace(image, { responses: [body] });
 });
 
@@ -234,3 +235,38 @@ for (const [label, change] of [
   assert.equal(f.normalized.length, 0, 'the normalizer is never called after a refusal');
   await f.assertNoTrace(image, { responses: [body] });
 });
+
+// The same refusals through the real HTTP adapter: its error path logs nothing
+// and an early refusal discards the body without retaining it.
+test('AIT-610 P1 over HTTP: admission and size refusals leave no trace through the node adapter', async t => {
+  const f = await fixture(t), image = sentinelImage(), huge = sentinelImage();
+  f.availability.reason = 'consent expired';
+  const { server, url } = await listen(request => f.handlers.handle(request));
+  t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
+  const send = (clientEventId, name, content) => {
+    const form = new FormData(); form.append('clientEventId', clientEventId); form.append('files', new File([content], name, { type: 'image/png' }));
+    return fetch(`${url}/api/sessions/${f.session.id}/uploads`, { method: 'POST', body: form, headers: { 'x-aithema-session-token': testToken } });
+  };
+  const refused = await send('http-refusal', 'wire.png', image.bytes), body = await refused.text();
+  assert.equal(refused.status, 202, body);
+  assert.deepEqual(JSON.parse(body).refused, [{ index: 0, name: 'wire.png', kind: 'image', reason: 'consent expired' }]);
+  const oversized = await send('http-oversized', 'huge.png', Buffer.concat([huge.bytes, Buffer.alloc(21 * 1024 * 1024, 7)])), oversizedBody = await oversized.text();
+  assert.equal(oversized.status, 413, oversizedBody);
+  assert.equal(f.normalized.length, 0);
+  await f.assertNoTrace(image, { responses: [body, oversizedBody] });
+  await f.assertNoTrace(huge, { responses: [oversizedBody] });
+});
+
+// JSON routes never accept image bytes: a body that is not JSON is refused
+// with 400 before any storage, and the error path logs nothing.
+for (const route of ['turns', 'concepts', 'focus-question', 'locale', 'voice/start']) {
+  test(`AIT-610 non-byte route ${route}: image bytes posted as a body are refused without a trace`, async t => {
+    const f = await fixture(t), image = sentinelImage();
+    const response = await f.handlers.handle(ownedRequest(`http://localhost/api/sessions/${f.session.id}/${route}`, { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: image.bytes }));
+    const body = await response.text();
+    assert.ok(response.status >= 400 && response.status < 500, `${response.status} ${body}`);
+    assert.equal(f.normalized.length, 0);
+    await f.assertNoTrace(image, { responses: [body] });
+  });
+}
