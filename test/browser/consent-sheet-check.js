@@ -57,7 +57,7 @@ async function harness(t) {
   // `hostCopy` (r6): 'host' = the host overrides every feature reason and help
   // template with long copy; 'fr' = a custom locale (fr) on the EN copy;
   // 'fr-host' = both.
-  return async ({ width, height, locale, sentence, doc, noFocusVisible = false, focusFails = false, hostCopy = '' }, problems) => {
+  return async ({ width, height, locale, sentence, doc, noFocusVisible = false, focusFails = false, hostCopy = '', countries = null }, problems) => {
     const page = await browser.newPage();
     page.on('pageerror', error => problems.push(error.message));
     await page.setViewport({ width, height });
@@ -68,7 +68,7 @@ async function harness(t) {
     await page.goto(`${server.url}/combined-fixture?locale=${locale}&passiveDenied`);
     await page.waitForFunction(() => globalThis.ready && document.querySelector('aithema-session').shadowRoot.querySelector('.composer-status').textContent.length > 0);
     await page.evaluate(() => addEventListener('error', event => { (globalThis.pageErrors ??= []).push(String(event.message)); }));
-    await page.evaluate(async (locale, sentence, doc, noFocusVisible, focusFails, hostCopy) => {
+    await page.evaluate(async (locale, sentence, doc, noFocusVisible, focusFails, hostCopy, countries) => {
       if (focusFails) {
         const focus = HTMLElement.prototype.focus;
         HTMLElement.prototype.focus = function (options) { if (this.matches('.consent-item input')) return undefined; return focus.call(this, options); };
@@ -90,8 +90,21 @@ async function harness(t) {
       const prior = globalThis.fetch;
       globalThis.fetch = async (url, options = {}) => String(url).endsWith('/consent') && (options.method ?? 'GET') === 'GET'
         ? (await globalThis.releaseConsent, doc ? Response.json(doc) : new Response('unavailable', { status: 500 })) : prior(url, options);
+      // `countries` (r6): every catalog model's providers are seated in these
+      // countries (the privacy gauge shows hostCountries) and the host slots a
+      // privacy link, before the first settings load.
+      if (countries) {
+        const consentFetch = globalThis.fetch;
+        globalThis.fetch = async (url, options = {}) => {
+          if ((options.method ?? 'GET') !== 'GET' || !new URL(url, location.href).pathname.endsWith('/settings')) return consentFetch(url, options);
+          const catalog = await (await consentFetch(url, options)).json();
+          for (const preset of Object.values(catalog.presets ?? {})) for (const model of preset.models ?? []) model.facts = { ...model.facts, hostCountries: countries, hostTraining: true };
+          return Response.json(catalog);
+        };
+        document.querySelector('aithema-session').insertAdjacentHTML('beforeend', '<nav slot="legal"><a data-aithema-privacy href="/host-privacy">Host document</a></nav>');
+      }
       mount(JSON.parse(JSON.stringify(document.querySelector('aithema-session').session)));
-    }, locale, sentence, doc, noFocusVisible, focusFails, hostCopy);
+    }, locale, sentence, doc, noFocusVisible, focusFails, hostCopy, countries);
     await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason[data-consent-feature="text"] .consent-action'));
     await settle(page);
     return page;
@@ -644,21 +657,9 @@ export async function consentSheetPrivacyLinkCheck(t) {
   for (const [width, height, locale] of [[360, 740, 'en'], [360, 740, 'de'], [1440, 900, 'en']]) {
     await t.test(`${width} ${locale}: the privacy link with a long country list`, async () => {
       const problems = [];
-      const page = await open({ width, height, locale, sentence: undefined, doc: null }, problems);
+      const page = await open({ width, height, locale, sentence: undefined, doc: null, countries: COUNTRIES }, problems);
       try {
-        await page.$eval('aithema-session', (c, countries) => {
-          const prior = globalThis.fetch;
-          globalThis.fetch = async (url, init = {}) => {
-            if ((init.method ?? 'GET') !== 'GET' || !new URL(url, location.href).pathname.endsWith('/settings')) return prior(url, init);
-            const catalog = await (await prior(url, init)).json();
-            catalog.settings = c.session.settings; catalog.engine = c.session.engine;
-            catalog.presets.best.models = [{ ...catalog.presets.best.models[0], id: 'default', facts: { ...catalog.presets.best.models[0].facts, hostCountries: countries, hostTraining: true } }];
-            return Response.json(catalog);
-          };
-          c.insertAdjacentHTML('beforeend', '<nav slot="legal"><a data-aithema-privacy href="/host-privacy">Host document</a></nav>');
-          const session = structuredClone(c.session); session.settings = { ...session.settings, model: 'default', voice: 'off', visuals: 'off' };
-          c.configure({ copy: globalThis.fixtureCopy, session }); c.openSettings();
-        }, COUNTRIES);
+        await page.$eval('aithema-session', c => c.openSettings());
         await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings[open] [data-gauge="privacy"]')?.dataset.state === 'hostCountries', { timeout: 20_000 });
         await settle(page);
         const before = await page.$eval('aithema-session', helpState);
