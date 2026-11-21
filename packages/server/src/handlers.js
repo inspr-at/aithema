@@ -34,26 +34,27 @@ export async function readBody(request, limit = REQUEST_LIMIT) {
   const body = declared === null ? null : Buffer.allocUnsafe(declared);
   const reader = request.body.getReader();
   let first, growing, size = 0;
-  // AIT-610 r3: a body may carry refused image bytes. Each chunk is zero-filled
-  // once copied, and every partial buffer is zero-filled when the read fails;
-  // the caller zero-fills the returned body when it is done with it.
+  // AIT-610 r3: a body may carry refused image bytes. Every partial buffer is
+  // zero-filled when the read fails; the caller zero-fills the returned body
+  // when it is done with it. Chunks stay the producer's: a producer may reuse
+  // its chunk buffer (AIT-219's streamed fixture does), so they are not zeroed.
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       size += value.length;
-      if (size > limit) { value.fill(0); await reader.cancel(); throw new RangeError('Request limit'); }
+      if (size > limit) { await reader.cancel(); throw new RangeError('Request limit'); }
       if (!value.length) continue;
       if (body) {
-        if (size > body.length) { value.fill(0); await reader.cancel(); throw new TypeError('Request length mismatch'); }
-        body.set(value, size - value.length); value.fill(0);
+        if (size > body.length) { await reader.cancel(); throw new TypeError('Request length mismatch'); }
+        body.set(value, size - value.length);
       } else if (!first && !growing) first = value;
       else {
         if (!growing) {
           growing = new ArrayBuffer(size, { maxByteLength: limit });
-          new Uint8Array(growing).set(first); first.fill(0); first = null;
+          new Uint8Array(growing).set(first); first = null;
         } else growing.resize(size);
-        new Uint8Array(growing, size - value.length, value.length).set(value); value.fill(0);
+        new Uint8Array(growing, size - value.length, value.length).set(value);
       }
     }
     if (body) {
