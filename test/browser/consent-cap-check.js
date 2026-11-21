@@ -509,7 +509,10 @@ const keyboardState = c => {
     mic: rect(root.querySelector('.composer-mic')), send: rect(root.querySelector('.send')),
     feedback: rect(feedback), reserve: rect(root.querySelector('.composer-feedback-reserve')),
     line: line ? { box: rect(line), lineHeight: parseFloat(getComputedStyle(line).lineHeight) } : null,
-    reason: label ? { text: shown(label).map(n => n.textContent).join('').trim(), rects: textRects(label) } : null,
+    // The painted reason: every text node whose element is visible (a variant span holds its separator span).
+    reason: label ? { text: (() => { let text = ''; const walker = document.createTreeWalker(label, NodeFilter.SHOW_TEXT);
+      for (let n; (n = walker.nextNode());) if (n.parentElement.checkVisibility()) text += n.textContent;
+      return text.trim(); })(), rects: textRects(label) } : null,
     action: action ? { box: rect(action), text: shown(action).map(n => n.textContent).join('').trim() || action.textContent.trim(), rects: textRects(action) } : null,
     hit, description: description ? { id: description.id, text: description.textContent } : null,
   };
