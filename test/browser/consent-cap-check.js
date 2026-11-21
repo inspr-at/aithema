@@ -1377,6 +1377,92 @@ export async function consentKeyboardFloorCheck(t) {
   }
 }
 
+// r10 (Codex gatepra9 Low x2). (c) Pinch zoom: focus leaving the field while the
+// keyboard is still up (zoomed) does not release the kept row; the keyboard's
+// actual close (the zoomed viewport covers the layout height again) releases it
+// and clears the keyboard flag, so a later composer render does not latch the
+// row again while still zoomed. (d) A FAILED image withdrawal (its error shows)
+// ends the discard's suppression: the still-staged image's "Preparing…" is kept
+// and held again.
+export async function consentKeyboardLifecycleCheck(t) {
+  const { open, capture } = await harness(t);
+  const [width, height, viewport] = KEYBOARD[0];
+  {
+    const name = `${width}x${height}-en-pinch-zoom-blur-then-keyboard-closes`;
+    await t.test(name, async () => {
+      const problems = [], failures = [];
+      const page = await open({ width, height, locale: 'en', intake: 'image', granted: true }, problems);
+      try {
+        await mockIntake(page);
+        await keyboardUp(page, viewport); await settleLong(page);
+        await pasteImage(page); await stagedCount(page, 1); await settleLong(page);
+        const held = await page.$eval('aithema-session', rowState);
+        if (!held.kept || !held.minHeight) failures.push(`${name}: fixture: "Preparing…" is kept and held: ${JSON.stringify(held)}`);
+        // Pinch zoom 1.5, the keyboard still up (the zoomed viewport is the keyboard-up one), then focus leaves the field.
+        await page.evaluate(up => { const zoomed = new EventTarget(); Object.assign(zoomed, { height: up / 1.5, offsetTop: 0, scale: 1.5 });
+          Object.defineProperty(window, 'visualViewport', { configurable: true, value: zoomed });
+          document.querySelector('aithema-session').shadowRoot.querySelector('textarea').blur();
+          window.dispatchEvent(new Event('resize')); }, viewport);
+        await settleLong(page);
+        const blurred = await page.$eval('aithema-session', rowState);
+        await capture(page, `r10-pinch-zoom-${name}-blurred`, { ...await page.$eval('aithema-session', savedState), row: blurred });
+        if (!blurred.kept || !blurred.minHeight) failures.push(`${name}: focus loss while the keyboard is still up keeps the row and its held height: ${JSON.stringify(blurred)}`);
+        // The keyboard finishes hiding: the zoomed viewport covers the whole layout height again.
+        await page.evaluate(full => { const zoomed = new EventTarget(); Object.assign(zoomed, { height: full / 1.5, offsetTop: 0, scale: 1.5 });
+          Object.defineProperty(window, 'visualViewport', { configurable: true, value: zoomed }); window.dispatchEvent(new Event('resize')); }, height);
+        await settleLong(page);
+        const closed = await page.$eval('aithema-session', rowState), closedFlag = await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.workspace').hasAttribute('data-phone-keyboard'));
+        await capture(page, `r10-pinch-zoom-${name}-closed`, { ...await page.$eval('aithema-session', savedState), row: closed });
+        if (closed.kept || closed.minHeight) failures.push(`${name}: the keyboard closing while zoomed releases the row: ${JSON.stringify(closed)}`);
+        if (closedFlag) failures.push(`${name}: the keyboard flag clears when the keyboard closes while zoomed`);
+        // A later composer render while still zoomed (a second image is pasted: "Preparing…" again).
+        await pasteImage(page); await stagedCount(page, 2); await settleLong(page);
+        const later = await page.$eval('aithema-session', rowState);
+        await capture(page, `r10-pinch-zoom-${name}-later-render`, { ...await page.$eval('aithema-session', savedState), row: later });
+        if (later.kept || later.minHeight) failures.push(`${name}: a later composer render while zoomed does not latch the row again: ${JSON.stringify(later)}`);
+      } finally { await page.close(); }
+      none(failures, name);
+      assert.deepEqual(problems, []);
+    });
+  }
+  for (const locale of ['en', 'de']) {
+    const name = `${width}x${height}-${locale}-keyboard-up-discard-fails`;
+    await t.test(name, async () => {
+      const problems = [], failures = [];
+      const page = await open({ width, height, locale, intake: 'image', granted: true }, problems);
+      try {
+        await page.evaluate(() => { globalThis.granted = true; });
+        await mockIntake(page);
+        // The withdrawal fails once the test releases it.
+        await page.evaluate(() => { const previous = window.fetch;
+          window.fetch = async (url, options) => {
+            if (!/\/withdraw$/u.test(String(url))) return previous(url, options);
+            await new Promise(resolve => { window.k1Withdraw = resolve; });
+            return Response.json({ error: 'fixture failure' }, { status: 503 });
+          }; });
+        await keyboardUp(page, viewport); await settleLong(page);
+        await pasteImage(page); await stagedCount(page, 1); await settleLong(page);
+        const pending = await page.$eval('aithema-session', rowState);
+        if (!pending.kept || !pending.text) failures.push(`${name}: fixture: "Preparing…" kept: ${JSON.stringify(pending)}`);
+        await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.staged-image__remove').click());
+        await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+        const between = await page.$eval('aithema-session', rowState);
+        if (between.kept || between.minHeight) failures.push(`${name}: fixture: the discard suppresses the latch before the answer: ${JSON.stringify(between)}`);
+        await page.waitForFunction(() => typeof window.k1Withdraw === 'function', { timeout: 15_000 });
+        await page.evaluate(() => window.k1Withdraw());
+        await settleLong(page); await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+        const after = await page.$eval('aithema-session', savedState), afterRow = await page.$eval('aithema-session', rowState);
+        await capture(page, `r10-discard-fails-${name}-after`, { ...after, row: afterRow });
+        if (afterRow.images !== 1) failures.push(`${name}: the image stays staged after the failed withdrawal: ${JSON.stringify(afterRow)}`);
+        if (!afterRow.kept || !afterRow.minHeight) failures.push(`${name}: a failed withdrawal ends the suppression: the row is kept and held again: ${JSON.stringify(afterRow)}`);
+        for (const part of ['field', 'send', 'mic', 'feedback']) if (!(after[part]?.width > 0 && after[part]?.height > 0)) failures.push(`${name}: ${part} positive box: ${JSON.stringify(after[part])}`);
+      } finally { await page.close(); }
+      none(failures, name);
+      assert.deepEqual(problems, []);
+    });
+  }
+}
+
 export async function consentKeyboardReasonDropCheck(t) {
   const { open, capture } = await harness(t);
   for (const [width, height, viewport] of KEYBOARD) for (const locale of ['en', 'de']) {
