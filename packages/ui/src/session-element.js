@@ -102,6 +102,9 @@ export class AithemaSession extends HTMLElement {
   #featureRead = null;
   // AIT-603 r4 (AIT-506): the offer row the phone reveal last brought into view.
   #revealedOffer = null;
+  // AIT-603 r5 (Codex gatepra4 Low, AIT-506): the pane size at that reveal, and
+  // an explicit Latest jump; either a resize or Latest realigns as on main.
+  #revealedPane = ''; #latestJump = false;
   #signals; #signalState; #signalLiveSeq = null; #signalReplay = new WeakSet();
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #clarifyWaitTimer; #clarifyRefresh = 0;
@@ -940,7 +943,8 @@ export class AithemaSession extends HTMLElement {
       const latest = [...root.querySelectorAll('.transcript-shell .turn')].at(-1)?.dataset.id;
       this.#tailReply = this.#longReply === latest ? latest : null;
       this.#longReply = null;
-      this.#scrollToLatest();
+      this.#latestJump = true;
+      try { this.#scrollToLatest(); } finally { this.#latestJump = false; }
     });
     root.querySelector('textarea').setAttribute('aria-describedby', 'composer-reason ai-notice');
     root.querySelector('.scale').setAttribute('aria-label', `${this.#copy.talk} — ${this.#copy.build}`);
@@ -1420,7 +1424,7 @@ export class AithemaSession extends HTMLElement {
     // Scroll only this conversation pane, even when a previous gesture disabled
     // ordinary bottom-follow. Never focus the capture field or scroll the page.
     shell.scrollTop += box.top - pane.top - padding;
-    this.#revealedOffer = row;
+    this.#revealedOffer = row; this.#revealedPane = `${pane.width}x${pane.height}`;
     this.#recordTranscriptScroll(before);
   }
   #scrollToLatest() {
@@ -1502,9 +1506,12 @@ export class AithemaSession extends HTMLElement {
       // exactly (no pixel tolerance).
       const goal = shell.scrollTop + target.top - pane.top - inset;
       const atBefore = target.top - pane.top + shell.scrollTop - before;
-      const kept = this.#revealedOffer === offer && atBefore >= 0 && atBefore + target.height <= pane.height;
+      // r5 (Codex gatepra4 Low): only the save re-reveal of the same offer keeps
+      // the row: an explicit Latest jump or a resized pane realigns as on main.
+      const size = `${pane.width}x${pane.height}`;
+      const kept = !this.#latestJump && this.#revealedPane === size && this.#revealedOffer === offer && atBefore >= 0 && atBefore + target.height <= pane.height;
       shell.scrollTop = kept ? before : goal;
-      this.#revealedOffer = offer;
+      this.#revealedOffer = offer; this.#revealedPane = size;
     }
     if (this.#combined && this.#imageLayout) {
       const pane = shell.getBoundingClientRect(), scroll = this.shadowRoot.querySelector('.conversation-scroll').getBoundingClientRect();

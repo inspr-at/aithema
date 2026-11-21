@@ -199,12 +199,21 @@ export const combinedEntranceStyles = `
   .composer-reserve-line.composer-reserve-consent > .consent-line-copy::before { content:''; float:inline-end; width:0; height:calc(100% - 1lh); }
   .workspace[data-entrance="combined"] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy > [data-action]::before,
   .composer-reserve-line.composer-reserve-consent > .consent-line-copy > [data-action]::before {
-    content:attr(data-action); float:inline-end; clear:both; visibility:hidden; white-space:nowrap; letter-spacing:normal; padding-inline-start:.35em; }
+    content:attr(data-action); float:inline-end; clear:both; visibility:hidden; white-space:nowrap; letter-spacing:normal; padding-inline-start:.35em;
+    /* r5: an over-wide action's spacer is capped at the row like the action. */
+    max-width:100%; box-sizing:border-box; overflow:hidden; }
   .workspace[data-entrance="combined"] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action,
   .composer-reserve-line.composer-reserve-consent > .composer-reserve-action { position:absolute; inset-inline-end:0; bottom:0; }
   /* Its 44 px target grows from the line end back over the text, never past
      the text column toward Mic and Send (a short action, e.g. "OK"). */
   .workspace[data-entrance="combined"] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action::after { left:auto; right:auto; inset-inline-end:0; }
+  /* r5 (Codex gatepra4, TICK M1 safety net): a host action label wider than
+     the row is capped at the row and ends in "…" on its one line (never
+     offscreen, never wrapping the dock taller). Only its visible variant span
+     clips, so the button's 44 px target (::after) is not clipped; the
+     accessible name stays the full label (the visible text is its prefix). */
+  .workspace[data-entrance="combined"] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action { display:flex; max-width:100%; min-width:0; }
+  .workspace[data-entrance="combined"] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action > * { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   /* A shorter line (granted, the send shortcut) sits top-aligned in that reserve. */
   .workspace[data-entrance="combined"] .composer:not([data-image-input]) .composer-feedback > .composer-reason:not([data-send-failed]) { align-self:start; }
   /* r5 (Codex gate4c Low): image-enabled docks too, for the consent line and the
@@ -221,16 +230,16 @@ export const combinedEntranceStyles = `
   /* r4, TICK M1: the keyboard never changes the action's label or name; the
      action keeps the width rule's variant (the wide label above 340 px, as with
      the keyboard down). Only the reason is the short one. Safety net for a long
-     host action: the reason yields (one line, min-width 0, "…"), the action
-     never shrinks; the row is a plain flex row, no float spacer. */
+     host action: the reason yields first (one line, min-width 0, "…"; r5: down
+     to 0), the action shrinks only past the row (its "…", rule above); the row is a plain flex row, no float spacer. */
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy {
-    display:block; -webkit-line-clamp:none; height:1lh; flex:1 1 auto; min-width:0; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; }
+    display:block; -webkit-line-clamp:none; height:1lh; flex:1 1 0; min-width:0; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; }
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy::before,
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy > [data-action]::before { content:none; }
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy > .consent-wide { display:none; }
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy > .consent-narrow { display:inline; }
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action {
-    position:relative; inset:auto; flex:none; height:1lh; white-space:nowrap; margin-inline-start:.35em; }
+    position:relative; inset:auto; flex:0 1 auto; height:1lh; white-space:nowrap; margin-inline-start:.35em; }
   /* One row sits 8 px (the composer's row gap) under Send: its 44 px target
      starts at that gap and grows down over the status row, clear of Send and Mic. */
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action::after { top:-8px; transform:none; }
@@ -238,13 +247,18 @@ export const combinedEntranceStyles = `
      docks too: their refusal floors (3.75em, 44 px) yield to the consent line. */
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer .composer-feedback:has(> .composer-reason[data-consent-feature="text"]) { min-height:0; }
   /* Granted and IDLE only (r4, Codex A11Y): the feedback row leaves the grid
-     when it holds nothing but the idle shortcut line (or nothing): no retry,
-     discard, upload notice, refusal, failure or any other control. Its status
-     regions stay in the accessibility tree at no size. Plain, document- and
-     image-enabled docks alike (r4, Codex KEYBOARD); a staged image keeps its row. */
-  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:not(:has(.staged-images:not([hidden]))):has(.composer-feedback > .composer-reason:is([data-shortcut],:empty)):not(:has(.composer-feedback :is(button, a, input, [tabindex]))) {
+     when it shows NOTHING but the keyboard-shortcut hint (or nothing): no
+     visible status text (r5, Codex gatepra4 A11Y: the Saved confirmation after
+     a send, [data-saved], keeps the row), no retry, discard, upload notice,
+     refusal, failure or any other control. Its status regions stay in the
+     accessibility tree at no size. Plain, document- and image-enabled docks
+     alike (r4, Codex KEYBOARD). r5 (Codex gatepra4 Low): a READY staged image
+     keeps its own row above the field and leaves no blank row below it. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.composer-feedback > .composer-reason:is([data-shortcut],:empty)):not(:has(.composer-feedback[data-saved])):not(:has(.composer-feedback :is(button, a, input, [tabindex]))) {
     grid-template-areas:"message mic send" "status status status" "notice notice notice"; }
-  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:not(:has(.staged-images:not([hidden]))):has(.composer-feedback > .composer-reason:is([data-shortcut],:empty)):not(:has(.composer-feedback :is(button, a, input, [tabindex]))) .composer-feedback {
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.staged-images:not([hidden])):has(.composer-feedback > .composer-reason:is([data-shortcut],:empty)):not(:has(.composer-feedback[data-saved])):not(:has(.composer-feedback :is(button, a, input, [tabindex]))) {
+    grid-template-areas:"images images images" "message mic send" "status status status" "notice notice notice"; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.composer-feedback > .composer-reason:is([data-shortcut],:empty)):not(:has(.composer-feedback[data-saved])):not(:has(.composer-feedback :is(button, a, input, [tabindex]))) .composer-feedback {
     grid-area:auto; position:absolute; width:1px; height:0; min-height:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
   .workspace[data-entrance="combined"] { height:auto; padding-bottom:calc(var(--phone-dock,250px) + var(--phone-footer,57px) + 24px); }
   .workspace[data-entrance="combined"] .conversation { height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,250px) - 32px); min-height:0; }
