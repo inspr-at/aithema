@@ -444,7 +444,7 @@ const readHelp = async (c, locale, full) => {
   // help for the host sentence.
   const { CONSENT_REASON } = await import('/packages/core/src/settings.js');
   const term = document.createElement('span'); term.textContent = 'consent term';
-  term.style.cssText = 'position:fixed;left:24px;top:24px;width:48px;height:24px;z-index:2147483647;background:transparent';
+  term.style.cssText = 'position:fixed;left:24px;top:24px;width:48px;height:24px;z-index:2147483647;background:transparent;color:transparent';
   Object.assign(term.dataset, { help: 'consent', kind: 'consent', reason: CONSENT_REASON, feature: 'text' });
   dialog.append(term);
   const point = term.getBoundingClientRect();
