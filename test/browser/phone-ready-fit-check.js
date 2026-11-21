@@ -128,8 +128,11 @@ const stateCases = [[320, 568], [360, 740], [390, 664], [430, 932]].flatMap(([wi
   // Codex gate2c M4: a consent line of three or more lines (the locale's own
   // consent sentence three times, the short phone one five times, at a narrow
   // width and larger text). r4: these now take the two-line cap.
-  .concat([[320, 568, 'en', 150], [320, 568, 'de', 125], [360, 740, 'de', 150], [390, 664, 'en', 125]]
-    .map(([width, height, locale, text]) => ({ width, height, locale, theme: 'light', text, longConsent: 3 })))
+  // r2: the EN sentence is short ("Messages need your consent"): three times
+  // wraps to only two natural lines at 390 px 125 %, so that case repeats it
+  // four times (the r1 run's unexplained -states failure was this fixture check).
+  .concat([[320, 568, 'en', 150, 3], [320, 568, 'de', 125, 3], [360, 740, 'de', 150, 3], [390, 664, 'en', 125, 4]]
+    .map(([width, height, locale, text, longConsent]) => ({ width, height, locale, theme: 'light', text, longConsent })))
   // r4: TICK's capture set, 360/390 EN/DE with long host consent copy (the
   // locale's sentence eight times: four or more lines unclamped).
   .concat([[360, 740], [390, 664]].flatMap(([width, height]) => ['en', 'de'].map(locale => ({ width, height, locale, theme: 'light', text: 100, longConsent: 8, r4: true }))));
