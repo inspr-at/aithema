@@ -1005,7 +1005,6 @@ const reasonState = c => {
   const copy = root.querySelector('.composer-reason[data-consent-feature="text"] > .consent-line-copy');
   if (!copy) return { copy: null };
   const reasonBox = box(copy), runs = [];
-  let three = null;
   const walker = document.createTreeWalker(copy, NodeFilter.SHOW_TEXT);
   for (let n; (n = walker.nextNode());) {
     if (!n.textContent.trim() || !n.parentElement.checkVisibility()) continue;
@@ -1014,10 +1013,13 @@ const reasonState = c => {
       const left = Math.max(r.x, reasonBox.x), right = Math.min(r.x + r.width, reasonBox.x + reasonBox.width);
       if (r.height > .5 && right - left > .5) runs.push({ left, right });
     }
-    if (three === null && n.textContent.length >= 3) { const first = document.createRange(); first.setStart(n, 0); first.setEnd(n, 3); three = first.getBoundingClientRect().width; }
   }
-  const probe = document.createElement('span'); probe.textContent = '…'; probe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap';
-  copy.parentNode.append(probe); const ellipsis = probe.getBoundingClientRect().width; probe.remove();
+  // Measured with a probe in the row's font, independent of whether the reason is painted.
+  const probe = document.createElement('span'); probe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap';
+  copy.parentNode.append(probe);
+  const sample = (copy.querySelector('.consent-narrow')?.textContent || copy.textContent).trim();
+  probe.textContent = sample.slice(0, 3); const three = sample.length >= 3 ? probe.getBoundingClientRect().width : null;
+  probe.textContent = '…'; const ellipsis = probe.getBoundingClientRect().width; probe.remove();
   return { keyboard: root.querySelector('.workspace').hasAttribute('data-phone-keyboard'), copy: reasonBox, runs, three, ellipsis, text: copy.textContent,
     line: box(copy.parentNode), dock: box(root.querySelector('.composer-dock')), send: box(root.querySelector('.send')), mic: box(root.querySelector('.composer-mic')) };
 };
