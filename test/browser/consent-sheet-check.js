@@ -426,7 +426,6 @@ const readHelp = async (c, locale, full) => {
   const { helpReason, fill } = await import('/packages/ui/src/settings-dialog.js');
   const { featureConsentText } = await import('/packages/ui/src/consent-line.js');
   const base = (await import(`/packages/ui/src/i18n/${locale}.js`))[locale];
-  const frames = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const probe = text => {
     const node = message.cloneNode(false); node.removeAttribute('role'); node.removeAttribute('aria-live'); node.removeAttribute('style');
     for (const key of Object.keys(node.dataset)) delete node.dataset[key];
@@ -440,18 +439,23 @@ const readHelp = async (c, locale, full) => {
   const before = cell.getBoundingClientRect();
   const help = fill(base.help.consentNeeded, { reason: helpReason(full) }), unclamped = probe(help);
   // The dialog writes its own help on every render, so the help goes in through
-  // its own path: a consent term (as a consent-needed option carries) under the
-  // pointer; #showHelp writes the consent-needed help for the host sentence.
+  // its own path: the real pointer hovers a consent term (as a consent-needed
+  // option carries; fixed, out of flow) and #showHelp writes the consent-needed
+  // help for the host sentence.
   const { CONSENT_REASON } = await import('/packages/core/src/settings.js');
   const term = document.createElement('span'); term.textContent = 'consent term';
+  term.style.cssText = 'position:fixed;left:24px;top:24px;width:48px;height:24px;z-index:2147483647;background:transparent';
   Object.assign(term.dataset, { help: 'consent', kind: 'consent', reason: CONSENT_REASON, feature: 'text' });
-  dialog.querySelector('.settings__body').append(term);
-  term.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, composed: true }));
-  await frames();
-  const written = message.textContent;
+  dialog.append(term);
+  const point = term.getBoundingClientRect();
+  return { stockMax, line, cell: { width: before.width, height: before.height }, unclamped, help, point: { x: point.x + point.width / 2, y: point.y + point.height / 2 } };
+};
+const readHelpAfter = c => {
+  const dialog = c.shadowRoot.querySelector('dialog.settings[open]');
+  const cell = dialog.querySelector('.context-text'), message = cell.querySelector('.context-message');
   const after = cell.getBoundingClientRect(), shown = message.getBoundingClientRect();
-  return { stockMax, line, cell: { width: before.width, height: before.height }, cellAfter: { width: after.width, height: after.height },
-    message: { width: shown.width, height: shown.height }, unclamped, lineClamp: getComputedStyle(message).webkitLineClamp, help, written };
+  return { cellAfter: { width: after.width, height: after.height }, message: { width: shown.width, height: shown.height },
+    lineClamp: getComputedStyle(message).webkitLineClamp, written: message.textContent };
 };
 const helpFailures = (kind, h, width, locale) => {
   const failures = [];
@@ -488,7 +492,9 @@ export async function consentSheetBodyHeightCheck(t) {
           const sheet = seen[kind];
           await capture(page, `${name}-${kind}`, { summary: `${kind} sentence; body height ${sheet.body?.height}; band ${sheet.below && sheet.body ? sheet.below.y - sheet.body.bottom : null}; footer top ${sheet.below?.y}`, sentenceText: full,
             bodyHeight: sheet.body?.height ?? null, footerTop: sheet.below?.y ?? null, ...sheet });
-          sheet.help = await page.$eval('aithema-session', readHelp, item.locale, full);
+          const help = await page.$eval('aithema-session', readHelp, item.locale, full);
+          await page.mouse.move(help.point.x, help.point.y); await settle(page);
+          sheet.help = { ...help, ...await page.$eval('aithema-session', readHelpAfter) };
           if (['cjk', 'emoji'].includes(kind)) await capture(page, `${name}-${kind}-help`, { summary: `${kind} help line; cell ${sheet.help.cell.height} -> ${sheet.help.cellAfter.height}; line ${sheet.help.message.height} / ${sheet.help.line}; clamp ${sheet.help.lineClamp}`, ...sheet.help });
         } finally { await page.close(); }
       }
