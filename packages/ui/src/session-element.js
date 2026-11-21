@@ -3723,14 +3723,24 @@ export class AithemaSession extends HTMLElement {
       const documentPlan = { ...plan, refused: plan.refused.filter(record => !imageRefusals.includes(record)),
         blocked: plan.blocked === 'images' || (needsImages && files.every(this.#isImageFile)) ? null : plan.blocked };
       const notices = [replacement], count = plan.batches.flat().length, consentFiles = [], detectedRefusals = [];
+      // Later batches and rate-limit retries wait first, and the binding can change meanwhile. Each send
+      // re-reads the capability: an image planned under an image-capable binding that no longer is gets
+      // the refusal a pick under the current binding gets (document type), and its bytes stay here.
+      const unbound = new Set();
+      const admit = batch => {
+        if (!images || this.#imageInputEnabled()) return batch;
+        for (const file of batch) if (this.#isImageFile(file) && !unbound.has(file)) { unbound.add(file); documentPlan.refused.push({ name: file.name, reason: 'type' }); }
+        return batch.filter(file => !unbound.has(file));
+      };
       if (count) {
         this.#status(plural(copy.uploads.uploading, count));
         let sent = 0, attempted = 0;
-        for (const batch of plan.batches) {
-          const result = await this.#postUploads(batch, controller.signal, refusalVersion);
+        for (const planned of plan.batches) {
+          const result = await this.#postUploads(planned, controller.signal, refusalVersion, admit);
           if (!current()) return;
+          const batch = result?.files ?? planned;
           if (result?.final) {
-            const names = plan.batches.flat().slice(attempted).map(file => file.name).join(', ');
+            const names = plan.batches.flat().slice(attempted).filter(file => !unbound.has(file)).map(file => file.name).join(', ');
             const failure = result.failure === copy.uploads.failed && plan.batches.flat().length - attempted > 1
               ? resolveCopy(copy, 'uploads.failedMany', 'uploads.failed', this.#session.locale) : result.failure;
             // The terminal reason leads even when this pick also replaces retained files
@@ -3740,9 +3750,9 @@ export class AithemaSession extends HTMLElement {
           }
           if (typeof result === 'string' && result) {
             // Earlier batches are already attached; keep only the refused and unattempted files.
-            if (result === 'upload-rate-limit') { this.#retryFiles = plan.batches.flat().slice(attempted); break; }
+            if (result === 'upload-rate-limit') { this.#retryFiles = plan.batches.flat().slice(attempted).filter(file => !unbound.has(file)); break; }
             notices.push(plan.batches.length === 1 && batch.length === 1 ? result : batch.map(file => `${file.name}: ${result}`).join(' '));
-            attempted += batch.length; continue;
+            attempted += planned.length; continue;
           }
           for (const record of result.refused ?? []) {
             const file = batch[record.index];
@@ -3753,7 +3763,7 @@ export class AithemaSession extends HTMLElement {
             else detectedRefusals.push({ name: file.name, reason: record.reason === 'image input not supported' ? 'model'
               : record.reason === 'limit' ? 'limit' : 'unavailable' });
           }
-          sent += batch.length - (result.refused?.length ?? 0); attempted += batch.length;
+          sent += batch.length - (result.refused?.length ?? 0); attempted += planned.length;
         }
         if (sent && this.#session.uploads.some(u => u.state === 'pending')) { this.#reading = plural(copy.uploads.received, sent); this.#status(this.#reading); }
         else this.#clearNotice();
@@ -3848,19 +3858,29 @@ export class AithemaSession extends HTMLElement {
       signal.addEventListener('abort', finish, { once: true });
     });
   }
-  /** One multipart request, with at most three attempts for busy; keep the same receipt ID on retries. */
-  async #postUploads(files, signal, refusalVersion) {
-    const copy = this.#copy, sessionId = this.#session.id, form = new FormData();
+  /**
+   * One multipart request, with at most three attempts for busy; keep the same receipt ID on retries.
+   * admit(files) returns the files the current binding still allows; it runs before every attempt. A
+   * smaller set is a different request (new receipt ID; a 429 stores no receipt). The result names the
+   * files it sent (`files`); refusal indexes refer to them.
+   */
+  async #postUploads(planned, signal, refusalVersion, admit = files => files) {
+    const copy = this.#copy, sessionId = this.#session.id;
     const current = () => !signal.aborted && sessionId === this.#session.id && this.isConnected;
-    form.append('clientEventId', crypto.randomUUID());
-    for (const file of files) form.append('files', file, file.name);
-    let response, body = null;
+    let response, body = null, files = null, form;
     try {
       const path = `${this.#base}/api/sessions/${sessionId}/uploads`;
       // A 202 retains its reservation through extraction, so even sequential batches can be busy.
       // Keep the uploading state and notice unchanged until a retry succeeds or all attempts fail.
       for (let attempt = 0; attempt < 3; attempt++) {
         if (!current()) return '';
+        const admitted = admit(planned);
+        if (!admitted.length) return { refused: [], files: [] };
+        if (admitted.length !== files?.length) {
+          files = admitted; form = new FormData();
+          form.append('clientEventId', crypto.randomUUID());
+          for (const file of files) form.append('files', file, file.name);
+        }
         response = await this.#api(sameOrigin(this.ownerDocument.defaultView, path), form, { sessionToken: this.#sessionToken, signal });
         body = await response.json().catch(() => null);
         if (!current()) return '';
@@ -3875,7 +3895,7 @@ export class AithemaSession extends HTMLElement {
       this.#images?.clear(refusalVersion);
       if (body.limits) this.#limits = uploadLimits(body.limits);
       for (const event of body.events ?? []) this.receive(event);
-      return { refused: Array.isArray(body.refused) ? body.refused : [] };
+      return { refused: Array.isArray(body.refused) ? body.refused : [], files };
     }
     if ([401, 404, 409, 410].includes(response.status) || response.status === 403 && !body?.reason) return { final: true,
       failure: response.status === 409 && body?.reason === 'purpose' ? copy.purposePaused : copy.uploads.failed };
