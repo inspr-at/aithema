@@ -1016,7 +1016,7 @@ const pasteImage = page => page.$eval('aithema-session', c => { const transfer =
 const rowState = c => { const feedback = c.shadowRoot.querySelector('.composer-feedback'), reason = feedback.querySelector(':scope > .composer-reason');
   // r8b: an EMPTY kept row: kept while it shows nothing (no Saved, only the idle hint, no control).
   const empty = feedback.hasAttribute('data-keyboard-kept') && !feedback.hasAttribute('data-saved') && Boolean(reason?.matches('[data-shortcut],:empty')) && !feedback.querySelector('button, a, input, [tabindex]');
-  return { kept: feedback.hasAttribute('data-keyboard-kept'), empty, minHeight: feedback.style.minHeight, lineHeight: parseFloat(getComputedStyle(reason).lineHeight) || 1.4 * parseFloat(getComputedStyle(reason).fontSize),
+  return { kept: feedback.hasAttribute('data-keyboard-kept'), empty, minHeight: feedback.style.minHeight || feedback.style.getPropertyValue('--feedback-held'), offsetHeight: feedback.offsetHeight, computedMin: getComputedStyle(feedback).minHeight, lineHeight: parseFloat(getComputedStyle(reason).lineHeight) || 1.4 * parseFloat(getComputedStyle(reason).fontSize),
     reasonHeight: reason.getBoundingClientRect().height, text: reason.textContent.trim(), images: c.shadowRoot.querySelectorAll('.staged-images:not([hidden]) .staged-image').length }; };
 export async function consentKeyboardKeptHeightCheck(t) {
   const { open, capture } = await harness(t);
@@ -1103,6 +1103,152 @@ export async function consentKeyboardKeptHeightCheck(t) {
         // row that shows nothing fails.
         if (afterRow.empty) failures.push(`${name}: no empty kept row after the discard:${JSON.stringify({ feedback: after.feedback, row: afterRow })}`);
         for (const part of ['field', 'send', 'mic']) if (!(after[part]?.width > 0 && after[part]?.height > 0)) failures.push(`${name}: ${part} positive box: ${JSON.stringify(after[part])}`);
+      } finally { await page.close(); }
+      none(failures, name);
+      assert.deepEqual(problems, []);
+    });
+  }
+}
+
+// r9 (Codex gatepra8, 2 Medium + 2 Low). (a) Medium: the held height never
+// competes with the dock's CSS minimum: on an image dock with the keyboard up,
+// text consent clearing leaves a row of at least the restored 44 px, and Send/Mic
+// stay still afterwards. (b) Medium: under a host ancestor scaled 1.25 the held
+// height is measured in layout px, so the row does not grow on every
+// ResizeObserver delivery. (c) Low: the keyboard closing during pinch zoom
+// releases the hold. (d) Low: discarding ONE of two pending images suppresses the
+// latch only until the discarded image has left; the remaining image's
+// "Preparing…" latches again after the acknowledgment.
+const withdrawById = page => page.evaluate(() => { const c = document.querySelector('aithema-session'), previous = window.fetch;
+  window.k1Withdrawn = [];
+  window.fetch = async (url, options) => {
+    const match = /\/uploads\/([^/]+)\/withdraw$/u.exec(String(url));
+    if (!match) return previous(url, options);
+    const id = decodeURIComponent(match[1]); window.k1Withdrawn.push(id);
+    await new Promise(resolve => { window.k1Withdraw = resolve; });
+    const image = c.session.uploads.find(u => u.id === id);
+    return Response.json({ event: { sessionId: c.session.id, seq: c.session.seq + 1, type: 'upload.state', data: { ...image, state: 'withdrawn' } } });
+  }; });
+const stagedCount = (page, count) => page.waitForFunction(count => document.querySelector('aithema-session').shadowRoot.querySelectorAll('.staged-images:not([hidden]) .staged-image').length === count, { timeout: 15_000 }, count);
+export async function consentKeyboardHeldMinimumCheck(t) {
+  const { open, capture } = await harness(t);
+  const [width, height, viewport] = KEYBOARD[0];
+  for (const locale of ['en', 'de']) {
+    const name = `${width}x${height}-${locale}-keyboard-up-image-dock-consent-clears`;
+    await t.test(name, async () => {
+      const problems = [], failures = [];
+      const page = await open({ width, height, locale, intake: 'image', consent: { text: stock[locale].text } }, problems);
+      try {
+        await keyboardUp(page, viewport); await settleLong(page);
+        const pending = await page.$eval('aithema-session', savedState), pendingRow = await page.$eval('aithema-session', rowState);
+        if (!pending.keyboard) failures.push(`${name}: the keyboard flag is set`);
+        if (!pendingRow.kept || !(pending.feedback.height > 0 && pending.feedback.height < 44)) failures.push(`${name}: fixture: the one-row consent line is kept below the 44 px image row: ${JSON.stringify({ feedback: pending.feedback, row: pendingRow })}`);
+        await capture(page, `r9-image-dock-${name}-pending`, { ...pending, row: pendingRow });
+        await page.evaluate(() => grant());
+        await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason[data-consent-feature="text"]'), { timeout: 15_000 });
+        await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+        const cleared = await page.$eval('aithema-session', savedState), clearedRow = await page.$eval('aithema-session', rowState);
+        await capture(page, `r9-image-dock-${name}-cleared`, { ...cleared, row: clearedRow });
+        if (!cleared.keyboard) failures.push(`${name}: the keyboard stays up`);
+        if (!(cleared.feedback.height >= 43.5)) failures.push(`${name}: after consent clears the image dock's row keeps its 44 px minimum: ${JSON.stringify({ feedback: cleared.feedback, row: clearedRow })}`);
+        t.diagnostic(`${name}: grant moved Send by ${(cleared.send.y - pending.send.y).toFixed(2)} px (a visitor action), row ${pending.feedback.height} -> ${cleared.feedback.height}`);
+        await wait(page, 2000); await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+        const later = await page.$eval('aithema-session', savedState);
+        await capture(page, `r9-image-dock-${name}-cleared-plus-2s`, later);
+        failures.push(...stableBoxes(`${name} cleared -> cleared + 2 s`, cleared, later, ['mic', 'send', 'feedback', 'dock']));
+        if (!(later.feedback.height >= 43.5)) failures.push(`${name}: the row keeps 44 px 2 s later: ${JSON.stringify(later.feedback)}`);
+      } finally { await page.close(); }
+      none(failures, name);
+      assert.deepEqual(problems, []);
+    });
+  }
+  {
+    const name = `${width}x${height}-en-keyboard-up-scaled-host`;
+    await t.test(name, async () => {
+      const problems = [], failures = [];
+      const page = await open({ width, height, locale: 'en', intake: 'image', granted: true }, problems);
+      try {
+        // The host scales an ancestor of the element (not moved: no reconnect).
+        await page.evaluate(() => { const ancestor = document.querySelector('aithema-session').parentElement;
+          ancestor.style.transform = 'scale(1.25)'; ancestor.style.transformOrigin = '0 0'; });
+        await settleLong(page);
+        await mockIntake(page);
+        await keyboardUp(page, viewport); await settleLong(page);
+        await pasteImage(page);
+        await stagedCount(page, 1); await settleLong(page);
+        const samples = [];
+        for (let i = 0; i < 5; i++) {
+          await wait(page, 300); await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+          samples.push(await page.$eval('aithema-session', rowState));
+        }
+        const state = await page.$eval('aithema-session', savedState);
+        await capture(page, `r9-scaled-host-${name}`, { ...state, samples });
+        if (!samples[0].kept || !samples[0].text) failures.push(`${name}: fixture: "Preparing…" shows in a kept row: ${JSON.stringify(samples[0])}`);
+        for (const sample of samples) if (!(sample.offsetHeight > 0)) failures.push(`${name}: the row has a positive height: ${JSON.stringify(sample)}`);
+        const heights = samples.map(s => s.offsetHeight), held = samples.map(s => parseFloat(s.minHeight) || 0);
+        if (Math.max(...heights) - Math.min(...heights) > .5 || Math.max(...held) - Math.min(...held) > .5) failures.push(`${name}: the row does not grow across ResizeObserver deliveries: heights ${heights}, held ${held}`);
+        if (Math.max(...held) > Math.max(...heights) + .5) failures.push(`${name}: the held height is in layout px (not above the row's own layout height): heights ${heights}, held ${held}`);
+        for (const part of ['field', 'send', 'mic']) if (!(state[part]?.width > 0 && state[part]?.height > 0)) failures.push(`${name}: ${part} positive box: ${JSON.stringify(state[part])}`);
+      } finally { await page.close(); }
+      none(failures, name);
+      assert.deepEqual(problems, []);
+    });
+  }
+  {
+    const name = `${width}x${height}-en-keyboard-closes-during-pinch-zoom`;
+    await t.test(name, async () => {
+      const problems = [], failures = [];
+      const page = await open({ width, height, locale: 'en', intake: 'image', granted: true }, problems);
+      try {
+        await mockIntake(page);
+        await keyboardUp(page, viewport); await settleLong(page);
+        await pasteImage(page);
+        await stagedCount(page, 1); await settleLong(page);
+        const held = await page.$eval('aithema-session', rowState);
+        if (!held.kept || !held.minHeight) failures.push(`${name}: fixture: "Preparing…" is kept and held: ${JSON.stringify(held)}`);
+        // Pinch zoom 1.5 with the keyboard closing: focus leaves the field and the zoomed visual viewport covers the whole layout height.
+        await page.evaluate(full => { const zoomed = new EventTarget(); Object.assign(zoomed, { height: full / 1.5, offsetTop: 0, scale: 1.5 });
+          Object.defineProperty(window, 'visualViewport', { configurable: true, value: zoomed });
+          document.querySelector('aithema-session').shadowRoot.querySelector('textarea').blur();
+          window.dispatchEvent(new Event('resize')); }, height);
+        await settleLong(page);
+        const zoomed = await page.$eval('aithema-session', rowState);
+        await capture(page, `r9-pinch-zoom-${name}`, { ...await page.$eval('aithema-session', savedState), row: zoomed });
+        if (zoomed.kept || zoomed.minHeight) failures.push(`${name}: closing the keyboard while zoomed releases the kept row and its held height: ${JSON.stringify(zoomed)}`);
+      } finally { await page.close(); }
+      none(failures, name);
+      assert.deepEqual(problems, []);
+    });
+  }
+  for (const locale of ['en', 'de']) {
+    const name = `${width}x${height}-${locale}-keyboard-up-discard-one-of-two`;
+    await t.test(name, async () => {
+      const problems = [], failures = [];
+      const page = await open({ width, height, locale, intake: 'image', granted: true }, problems);
+      try {
+        await mockIntake(page);
+        await withdrawById(page);
+        await keyboardUp(page, viewport); await settleLong(page);
+        await pasteImage(page); await stagedCount(page, 1); await settleLong(page);
+        await pasteImage(page); await stagedCount(page, 2); await settleLong(page);
+        const pending = await page.$eval('aithema-session', rowState);
+        if (!pending.kept || !pending.text || pending.images !== 2) failures.push(`${name}: fixture: two pending images, "Preparing…" kept: ${JSON.stringify(pending)}`);
+        await capture(page, `r9-discard-one-${name}-two-pending`, { ...await page.$eval('aithema-session', savedState), row: pending });
+        await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.staged-image .staged-image__remove').click());
+        await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+        const between = await page.$eval('aithema-session', rowState);
+        await capture(page, `r9-discard-one-${name}-before-ack`, { ...await page.$eval('aithema-session', savedState), row: between });
+        if (between.kept || between.minHeight) failures.push(`${name}: before the acknowledgment the discarded image's paint does not latch again: ${JSON.stringify(between)}`);
+        await page.waitForFunction(() => typeof window.k1Withdraw === 'function', { timeout: 15_000 });
+        await page.evaluate(() => window.k1Withdraw());
+        await stagedCount(page, 1);
+        await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+        const after = await page.$eval('aithema-session', savedState), afterRow = await page.$eval('aithema-session', rowState);
+        await capture(page, `r9-discard-one-${name}-after-ack`, { ...after, row: afterRow });
+        if (!after.keyboard) failures.push(`${name}: the keyboard stays up`);
+        if (afterRow.images !== 1 || !afterRow.text) failures.push(`${name}: the other image stays pending with "Preparing…": ${JSON.stringify(afterRow)}`);
+        if (!afterRow.kept || !afterRow.minHeight) failures.push(`${name}: after the acknowledgment the remaining image's "Preparing…" is kept and held again: ${JSON.stringify(afterRow)}`);
+        for (const part of ['field', 'send', 'mic', 'feedback']) if (!(after[part]?.width > 0 && after[part]?.height > 0)) failures.push(`${name}: ${part} positive box: ${JSON.stringify(after[part])}`);
       } finally { await page.close(); }
       none(failures, name);
       assert.deepEqual(problems, []);
