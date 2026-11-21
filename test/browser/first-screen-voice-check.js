@@ -934,7 +934,12 @@ test('AIT-587: the footer shows Connected without a running number; since lives 
       label: r.querySelector('.status__label').textContent, dotLabel: r.querySelector('.status__dot').getAttribute('aria-label'), footerText: row.innerText,
       timer: { text: timer.textContent, visibility: style.visibility, display: style.display, box: box(timer), inPopup: Boolean(timer.closest('.footer-popup')) },
       zones: [...row.children].filter(zone => zone.checkVisibility()).map(zone => ({ zone: zone.className, box: box(zone) })),
-      group: box(r.querySelector('.status__group')), foot: box(r.querySelector('.display-foot')) };
+      group: box(r.querySelector('.status__group')), foot: box(r.querySelector('.display-foot')),
+      // AIT-587 r3: below 600 px the visible status is the phone popup's (the desktop status is clipped there).
+      phone: (() => { const p = r.querySelector('.phone-status'), d = p.getAttribute('aria-describedby');
+        return { title: p.title, describedBy: d, description: d ? r.getElementById(d)?.textContent ?? null : null, display: getComputedStyle(p).display,
+          label: r.querySelector('.phone-status__label').textContent }; })(),
+      statusClipped: getComputedStyle(status).clipPath !== 'none' };
   });
   for (const variant of footerVariants) {
     const label = `${variant.width}-${variant.locale}-${variant.theme}`;
@@ -960,6 +965,15 @@ test('AIT-587: the footer shows Connected without a running number; since lives 
     assert.equal(after.label, connected, `the footer says ${connected}: ${where}`);
     assert.match(after.title, new RegExp(`^${since} \\d{2}:\\d{2}(?: [AP]M)?$`, 'u'), `title: ${where}`);
     assert.equal(after.description, after.title, `accessible description: ${where}`);
+    if (variant.width === 390) {
+      // AIT-587 r3 (Codex gate2c Low): the phone element itself, not the clipped desktop status.
+      assert.ok(after.statusClipped, `at 390 px the desktop status is clipped: ${where}`);
+      assert.equal(after.phone.display, 'block', `at 390 px the phone status is the visible one: ${where}`);
+      assert.equal(after.phone.label, connected, `the phone status says ${connected}: ${where}`);
+      assert.equal(after.phone.title, after.title, `the phone status has the same title: ${where}`);
+      assert.equal(after.phone.description, after.title, `the phone status has the same accessible description: ${where}`);
+      assert.equal(later.phone.title, after.phone.title, `the phone start stays: ${where}`);
+    }
     assert.doesNotMatch(after.footerText, /\d+:\d{2}/u, `no clock or timer is visible in the footer: ${where}`);
     assert.equal(later.footerText, after.footerText, `nothing ticks: ${where}`);
     assert.equal(later.title, after.title, `the start stays: ${where}`);

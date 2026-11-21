@@ -256,3 +256,28 @@ for (const locale of ['de', 'en']) test(`AIT-587: connected shows no running num
   stream.close(); await flush();
   assert.equal(status.title, copy.reconnecting); assert.equal(status.hasAttribute('aria-describedby'), false, 'no stale "since" while reconnecting');
 });
+// AIT-587 r3 (Codex gate2c Low): below 600 px the visible status is the phone popup's; it carries the same title
+// and accessible description as the (then clipped) desktop status, and drops both when not plainly connected.
+for (const locale of ['de', 'en']) test(`AIT-587 r3: the phone status has the same "since" title and description, ${locale}`, async t => {
+  const copy = { en, de }[locale], start = Date.UTC(2026, 10, 20, 20, 4, 30);
+  t.mock.timers.enable({ apis: ['Date'], now: start });
+  const c = configure(locale), r = c.shadowRoot;
+  let stream;
+  t.mock.method(globalThis, 'fetch', url => url.endsWith('/events')
+    ? Promise.resolve(new Response(new ReadableStream({ start(controller) { stream = controller; } }))) : Promise.resolve(Response.json({})));
+  document.body.append(c); t.after(() => c.remove());
+  const flush = () => new Promise(resolve => setImmediate(resolve));
+  for (let i = 0; i < 20 && !r.querySelector('.status').hasAttribute('data-connected'); i++) await flush();
+  const phone = r.querySelector('.phone-status');
+  const time = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', ...(locale === 'de' ? { hour12: false } : {}) }).format(start);
+  const since = copy.connectedSince.replace('{time}', time);
+  assert.equal(r.querySelector('.phone-status__label').textContent, copy.connected);
+  assert.equal(phone.title, since, 'the phone status has the title');
+  const described = phone.getAttribute('aria-describedby');
+  assert.ok(described, 'the phone status has an accessible description');
+  assert.equal(r.getElementById(described)?.textContent, since);
+  assert.equal(phone.title, r.querySelector('.status').title, 'the same title as the desktop status');
+  stream.close(); await flush();
+  assert.equal(phone.hasAttribute('title'), false, 'no stale "since" title while reconnecting');
+  assert.equal(phone.hasAttribute('aria-describedby'), false, 'no stale "since" description while reconnecting');
+});
