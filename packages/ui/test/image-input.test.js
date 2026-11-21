@@ -614,8 +614,9 @@ function admissionWindow(t, f) {
     }
     if (url.endsWith('/uploads') && state.limits) return Response.json({ limits: state.limits });
     if (!String(url).endsWith(`/api/sessions/${f.c.session.id}`) || !state.mode) return originalFetch(url, options);
-    const gate = state.gate; if (gate) await gate.promise;
-    const snapshot = await (await originalFetch(url, options)).json();
+    const gate = state.gate, early = state.snapshotFirst ? await (await originalFetch(url, options)).json() : null;
+    if (gate) await gate.promise;
+    const snapshot = early ?? await (await originalFetch(url, options)).json();
     snapshot.featureMatrix.best.imageInput = state.mode === 'imageless' ? { available: false, reason: 'image input not supported' }
       : state.mode === 'consent' ? { available: false, reason: 'current processing consent required' } : { available: true, reason: null };
     return Response.json(snapshot);
@@ -742,4 +743,21 @@ test('AIT-587 r3 (e): a held image released while a settings change is unconfirm
   await state.release();
   assert.equal(sentImage(state), false, 'the current verdict decides the held image');
   assert.equal(f.root.querySelector('.staged-image'), null);
+});
+
+// (a, liveness) A snapshot overtaken by a later journal event cannot confirm the new settings, but the verdict must still
+// become current: the read repeats even when the overtaken matrix looks the same, so a pick does not fail closed.
+test('AIT-587 r3 (a): an overtaken snapshot for changed settings is read again; the image is sent once confirmed', async t => {
+  const f = fixture(t, en, true), state = admissionWindow(t, f);
+  state.snapshotFirst = true;
+  state.change('capable');
+  // Another journal event lands while the snapshot read (taken at the settings change) is held.
+  f.c.receive({ sessionId: f.c.session.id, seq: f.c.session.seq + 1, type: 'session.locale-changed', data: { locale: 'en' } });
+  await choose(f.root, [new window.File(['pixels'], 'photo.png', { type: 'image/png' })]);
+  for (let i = 0; i < 20; i++) await tick();
+  assert.deepEqual(state.posts, [], 'nothing is sent before the current verdict');
+  state.snapshotFirst = false; const gate = state.gate; state.gate = null; gate.resolve();
+  await state.until(() => state.posts.length);
+  assert.deepEqual(state.posts, [['photo.png']], 'the repeated read confirms the settings and the image is sent');
+  assert.equal(f.root.querySelectorAll('.staged-image').length, 1);
 });
