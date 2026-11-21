@@ -759,8 +759,18 @@ const savedState = c => {
   return { keyboard: root.querySelector('.workspace').hasAttribute('data-phone-keyboard'), flag: feedback.hasAttribute('data-saved'),
     feedback: box(feedback), feedbackClip: getComputedStyle(feedback).clipPath, saved: box(saved), text: saved.textContent.trim(),
     visible: saved.checkVisibility({ visibilityProperty: true, opacityProperty: true }), field: box(root.querySelector('textarea')), viewport: innerWidth,
-    dock: box(root.querySelector('.composer-dock')), mic: box(root.querySelector('.composer-mic')), send: box(root.querySelector('.send')) };
+    dock: box(root.querySelector('.composer-dock')), mic: box(root.querySelector('.composer-mic')), send: box(root.querySelector('.send')),
+    // r6: the idle hint is not painted in a kept (empty) row.
+    reasonPainted: !feedback.hasAttribute('data-saved') && Boolean(root.querySelector('.composer-reason').textContent.trim())
+      && root.querySelector('.composer-reason').checkVisibility({ visibilityProperty: true, opacityProperty: true }) && root.querySelector('.composer-reason').getBoundingClientRect().height > .5
+      && getComputedStyle(feedback).clipPath === 'none' };
 };
+// r6: the keyboard closes (focus leaves the field, the visual viewport is whole again).
+const keyboardDown = page => page.evaluate(() => {
+  Object.defineProperty(window, 'visualViewport', { configurable: true, value: globalThis.k1Viewport });
+  document.querySelector('aithema-session').shadowRoot.querySelector('textarea').blur();
+  window.dispatchEvent(new Event('resize'));
+});
 export async function consentKeyboardSavedCheck(t) {
   const { open, capture } = await harness(t);
   for (const [width, height, viewport] of KEYBOARD) for (const locale of ['en', 'de']) {
@@ -789,8 +799,105 @@ export async function consentKeyboardSavedCheck(t) {
           if (s.x < -.5 || s.x + s.width > up.viewport + .5) failures.push(`${label}: Saved is on screen: ${JSON.stringify(s)}`);
           if (s.y < up.field.y + up.field.height - .5) failures.push(`${label}: Saved sits under the field: ${JSON.stringify({ saved: s, field: up.field })}`);
           await capture(page, `r5-k1-${label}`, up);
+          // r6 (TICK r5 M1): with the keyboard up the feedback row only grows. Saved
+          // clears itself 1.6 s after the send; its row stays (empty) and Send/Mic
+          // do not move at +1.6 s nor at +3 s. Closing and reopening the keyboard
+          // starts the row at 0 px again.
+          await capture(page, `r6-saved-${label}-at-send`, up);
+          await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer-feedback[data-saved]'), { timeout: 15_000 });
+          await settleLong(page);
+          const cleared = await page.$eval('aithema-session', savedState);
+          await capture(page, `r6-saved-${label}-plus-1600ms`, cleared);
+          await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 1400))); await settleLong(page);
+          const later = await page.$eval('aithema-session', savedState);
+          await capture(page, `r6-saved-${label}-plus-3000ms`, later);
+          for (const [when, state] of [['+1.6 s', cleared], ['+3 s', later]]) {
+            if (!state.keyboard) failures.push(`${label} ${when}: the keyboard stays up`);
+            if (state.flag || state.text) failures.push(`${label} ${when}: Saved has cleared: ${JSON.stringify({ flag: state.flag, text: state.text })}`);
+            if (state.reasonPainted) failures.push(`${label} ${when}: the kept row is empty (no hint painted)`);
+            failures.push(...stableBoxes(`${label} Saved ${when}`, up, state, ['mic', 'send', 'feedback', 'dock']));
+          }
+          await keyboardDown(page); await settleLong(page);
+          const closed = await page.$eval('aithema-session', savedState);
+          if (closed.keyboard) failures.push(`${label}: the keyboard closes`);
+          await keyboardUp(page, viewport); await settleLong(page);
+          const reopened = await page.$eval('aithema-session', savedState);
+          if (!reopened.keyboard) failures.push(`${label}: the keyboard reopens`);
+          for (const part of ['field', 'send', 'mic']) if (!(reopened[part]?.width > 0 && reopened[part]?.height > 0)) failures.push(`${label} reopened: ${part} positive box: ${JSON.stringify(reopened[part])}`);
+          if (reopened.feedback.height > .5) failures.push(`${label}: after the keyboard closes and reopens the row starts at 0 px: ${JSON.stringify(reopened.feedback)}`);
+          await capture(page, `r6-saved-${label}-reopened`, reopened);
         } finally { await page.close(); }
       }
+      none(failures, name);
+      assert.deepEqual(problems, []);
+    });
+  }
+}
+
+// r6 (Codex gatepra5 Medium, TICK M1 rule): a host action that EXACTLY fits the
+// keyboard-down row (within the old .35em gap) is not ellipsized with the
+// keyboard up: once the reason has yielded to 0 the gap goes too and the action
+// gets the whole row. Read from the visible span's PAINTED text (its text run
+// against the span's own box), not the button box.
+const fitState = c => {
+  const root = c.shadowRoot, box = n => { const r = n.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
+  const line = root.querySelector('.composer-reason[data-consent-feature="text"]'), action = line?.querySelector('.consent-action');
+  const span = action ? [...action.children].find(n => n.checkVisibility()) : null;
+  const range = document.createRange(); if (span) range.selectNodeContents(span);
+  const runs = span ? [...range.getClientRects()].filter(r => r.width > .5 && r.height > .5).map(r => ({ x: r.x, y: r.y, width: r.width, height: r.height })) : [];
+  return { keyboard: root.querySelector('.workspace').hasAttribute('data-phone-keyboard'), line: line ? box(line) : null, action: action ? box(action) : null,
+    span: span ? { ...box(span), text: span.textContent, scrollWidth: span.scrollWidth, clientWidth: span.clientWidth, textOverflow: getComputedStyle(span).textOverflow,
+      gap: .35 * parseFloat(getComputedStyle(span).fontSize) } : null, runs,
+    dock: box(root.querySelector('.composer-dock')), mic: box(root.querySelector('.composer-mic')), send: box(root.querySelector('.send')) };
+};
+// Builds, in the page, a label whose painted width is within (row - gap, row - .25].
+const fittingLabel = (c, prefix) => {
+  const line = c.shadowRoot.querySelector('.composer-reason[data-consent-feature="text"]'), action = line.querySelector('.consent-action');
+  const span = [...action.children].find(n => n.checkVisibility()), row = line.getBoundingClientRect().width;
+  const probe = span.cloneNode(false); probe.removeAttribute('class'); probe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;width:auto;max-width:none;overflow:visible';
+  span.parentNode.append(probe);
+  const width = text => { probe.textContent = text; const range = document.createRange(); range.selectNodeContents(probe); return range.getBoundingClientRect().width; };
+  const max = row - .25;
+  // Letters first, then thin and hair spaces in the middle (never trailing: they would hang).
+  const make = (body, mid) => `${prefix}${mid} ${body}k`;
+  let body = '', mid = '';
+  for (const ch of 'mwnoeaskrtifl') for (let i = 0; i < 200 && width(make(body + ch, mid)) <= max; i++) body += ch;
+  for (const ch of [' ', ' ']) for (let i = 0; i < 40 && width(make(body, mid + ch)) <= max; i++) mid += ch;
+  const label = make(body, mid), measured = width(label); probe.remove();
+  return { label, measured, row };
+};
+export async function consentKeyboardFitActionCheck(t) {
+  const { open, capture } = await harness(t);
+  for (const [width, height, viewport] of KEYBOARD) for (const locale of ['en', 'de']) {
+    const name = `${width}x${height}-${locale}-fitting-action`;
+    await t.test(name, async () => {
+      const problems = [], failures = [];
+      const probePage = await open({ width, height, locale, consent: { text: stock[locale].text } }, problems);
+      let fit;
+      try { fit = await probePage.$eval('aithema-session', fittingLabel, locale === 'de' ? 'Jetzt' : 'Agree'); } finally { await probePage.close(); }
+      const page = await open({ width, height, locale, consent: { action: fit.label, actionNarrow: fit.label, text: stock[locale].text } }, problems);
+      try {
+        const painted = (state, mode) => {
+          const label = `${name}-${mode}`, { span, runs, line } = state;
+          if (!(line?.width > 0 && line?.height > 0)) { failures.push(`${label}: the consent line positive box: ${JSON.stringify(line)}`); return; }
+          if (!(span?.width > 0 && span?.height > 0)) { failures.push(`${label}: the visible label positive box: ${JSON.stringify(span)}`); return; }
+          if (span.text !== fit.label) failures.push(`${label}: the visible label is the host label: "${span.text}"`);
+          if (runs.length !== 1 || !(runs[0].width > 0 && runs[0].height > 0)) { failures.push(`${label}: the label is one painted run: ${JSON.stringify(runs)}`); return; }
+          // Painted whole: the text run ends inside the span's own (clipping) box.
+          if (runs[0].x < span.x - .5 || runs[0].x + runs[0].width > span.x + span.width + .5) failures.push(`${label}: the label is painted whole (no ellipsis): ${JSON.stringify({ run: runs[0], span: { x: span.x, width: span.width }, scrollWidth: span.scrollWidth, clientWidth: span.clientWidth })}`);
+        };
+        const down = await page.$eval('aithema-session', fitState);
+        // The fixture is near-fitting: wider than the row minus the old .35em gap.
+        if (!(down.runs[0]?.width > down.line.width - down.span.gap && down.runs[0]?.width <= down.line.width)) failures.push(`${name}: fixture: the label nearly fills the keyboard-down row: ${JSON.stringify({ run: down.runs[0], row: down.line?.width, gap: down.span?.gap, fit })}`);
+        painted(down, 'keyboard-down');
+        await capture(page, `r6-fit-${name}-down`, down);
+        await keyboardUp(page, viewport); await settleLong(page);
+        const up = await page.$eval('aithema-session', fitState);
+        if (!up.keyboard) failures.push(`${name}: the keyboard flag is set`);
+        painted(up, 'keyboard-up');
+        if (up.line && down.line && Math.abs(up.line.width - down.line.width) > .5) t.diagnostic(`${name}: row width down ${down.line.width} vs up ${up.line.width}`);
+        await capture(page, `r6-fit-${name}-up`, up);
+      } finally { await page.close(); }
       none(failures, name);
       assert.deepEqual(problems, []);
     });
