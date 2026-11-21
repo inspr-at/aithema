@@ -388,9 +388,9 @@ export async function consentSheetRingCheck(t) {
           if (sheet.focusTarget) failures.push(`precondition: focus() did not land on the checkbox: ${sheet.focus}`);
           if (sheet.targetMarked !== false) failures.push(`no stale data-focus-ring marker on a checkbox that did not get focus: ${sheet.targetMarked}`);
         } else if (!sheet.focusTarget) failures.push(`the target checkbox has focus (both fit): ${sheet.focus}`);
-        if (engine !== 'focus-fails' && (!ring || !want || ring.style !== want.style || ring.width !== want.width || ring.offset !== want.offset || ring.color !== want.color) {
+        if (engine !== 'focus-fails' && (!ring || !want || ring.style !== want.style || ring.width !== want.width || ring.offset !== want.offset || ring.color !== want.color)) {
           failures.push(`the focused checkbox draws the :focus-visible ring: ${JSON.stringify(ring)} vs ${JSON.stringify(want)}`);
-        })
+        }
         await capture(page, name, { summary: `${engine}; focus ${sheet.focus}; ring ${ring?.style} ${ring?.width} ${ring?.color}`, sentenceText: full, engine, ...sheet });
         none(failures, `${name}: ${JSON.stringify({ focus: sheet.focus, ring, want })}`);
         assert.deepEqual(problems, []);
