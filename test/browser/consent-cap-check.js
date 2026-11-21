@@ -1224,11 +1224,12 @@ export async function consentKeyboardHeldMinimumCheck(t) {
     const name = `${width}x${height}-${locale}-keyboard-up-discard-one-of-two`;
     await t.test(name, async () => {
       const problems = [], failures = [];
-      // The fixture's own grant (consent.revised + its feature state), not the mount override: the withdrawal
-      // acknowledgment re-reads the features and would show the consent line instead of the remaining "Preparing…".
-      const page = await open({ width, height, locale, intake: 'image', consent: { text: stock[locale].text } }, problems);
+      // The withdrawal acknowledgment re-reads the fixture's features, which follow its page-global `granted`: set it
+      // too, so after the ack the row shows the remaining image's "Preparing…" (not the consent line). The fixture's
+      // grant event is not used: its feature state has no image intake, so a paste would never stage.
+      const page = await open({ width, height, locale, intake: 'image', granted: true }, problems);
       try {
-        await grant(page);
+        await page.evaluate(() => { globalThis.granted = true; });
         await mockIntake(page);
         await withdrawById(page);
         await keyboardUp(page, viewport); await settleLong(page);
