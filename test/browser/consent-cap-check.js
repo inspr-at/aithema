@@ -79,16 +79,20 @@ function capFailures(state) {
   if (Math.abs(lines - Math.round(lines)) > .05) failures.push(`the consent line shows whole lines: ${line.height} / ${line.lineHeight}`);
   if (Math.round(lines) > 2 || Math.round(lines) < 1) failures.push(`the consent line shows one or two lines: ${lines.toFixed(2)}`);
   // The sentence's own clamp box: -webkit-line-clamp 2 ("…" at the clamp).
-  if (label?.lineClamp !== '2' || !/-webkit-box/u.test(label?.display ?? '') || label?.overflow !== 'hidden') failures.push(`the host text has its own two-line clamp box: ${JSON.stringify({ display: label?.display, clamp: label?.lineClamp, overflow: label?.overflow })}`);
+  // Chromium computes display:-webkit-box with a line clamp as flow-root.
+  if (label?.lineClamp !== '2' || !/-webkit-box|flow-root/u.test(label?.display ?? '') || label?.overflow !== 'hidden') failures.push(`the host text has its own two-line clamp box: ${JSON.stringify({ display: label?.display, clamp: label?.lineClamp, overflow: label?.overflow })}`);
   const clamped = label.scrollHeight > label.clientHeight + 1;
   if (clamped && Math.round(lines) !== 2) failures.push(`a clamped line shows exactly two lines: ${lines.toFixed(2)}`);
   // The action: one whole box (never cut or wrapped), inside the line, on its last line.
   if (action?.rects?.length !== 1) failures.push(`the consent action is one painted box: ${JSON.stringify(action?.rects)}`);
   for (const b of action?.rects ?? []) {
     if (!(b.width > 0 && b.height > 0)) failures.push(`consent action text positive box: ${JSON.stringify(b)}`);
-    if (b.x < line.x - .5 || b.x + b.width > line.x + line.width + .5 || b.y < line.y - .5 || b.y + b.height > line.y + line.height + .5)
-      failures.push(`the consent action is whole inside the line: ${JSON.stringify({ b, line })}`);
+    // Horizontally whole inside the line; vertically its middle is inside the
+    // line (a text box is the font's content area, which a larger glyph face
+    // can make taller than the line height).
     const middle = b.y + b.height / 2 - line.y;
+    if (b.x < line.x - .5 || b.x + b.width > line.x + line.width + .5 || middle < 0 || middle > line.height)
+      failures.push(`the consent action is whole inside the line: ${JSON.stringify({ b, line })}`);
     if (Math.floor(middle / line.lineHeight) + 1 !== Math.round(lines)) failures.push(`the consent action is on the last line: ${JSON.stringify({ b, line })}`);
     // It ends the line: nothing painted after it on its line.
     for (const t of label?.rects ?? []) {
