@@ -53,6 +53,9 @@ const consentInPage = c => {
     reason: rect(root.querySelector('.composer-feedback > .composer-reason')), reasonText: root.querySelector('.composer-feedback > .composer-reason')?.textContent ?? null,
     pageOverflow: document.documentElement.scrollWidth - innerWidth,
     reserve: rect([...root.querySelectorAll('.composer-feedback-reserve > .composer-reserve-consent')].find(n => n.checkVisibility())) };
+  // r2 (Codex CLAMP): the reserve's own line height, for the desktop two-line cap.
+  const reserveNode = [...root.querySelectorAll('.composer-feedback-reserve > .composer-reserve-consent')].find(n => n.checkVisibility());
+  base.reserveLineHeight = reserveNode ? parseFloat(getComputedStyle(reserveNode).lineHeight) : null;
   const line = root.querySelector('.composer-reason[data-consent-feature="text"]');
   if (!line?.checkVisibility()) return { ...base, line: null };
   const label = line.querySelector('.consent-line-copy'), action = line.querySelector('.consent-action'), style = getComputedStyle(line);
@@ -62,7 +65,26 @@ const consentInPage = c => {
       for (const b of range.getClientRects()) if (b.width > .5 && b.height > .5) rects.push({ x: b.x, y: b.y, width: b.width, height: b.height }); }
     return rects; };
   const labelStyle = getComputedStyle(label);
-  return { ...base, line: { ...box(line), lineHeight: parseFloat(style.lineHeight), scrollWidth: line.scrollWidth, clientWidth: line.clientWidth, direction: style.direction },
+  // r2 (TICK (a)): every "·" the clamp box paints inside its own box (clamped
+  // lines beyond it are not on screen).
+  const lb = label.getBoundingClientRect(), separators = [];
+  { const walker = document.createTreeWalker(label, NodeFilter.SHOW_TEXT);
+    for (let n; (n = walker.nextNode());) { if (!n.parentElement.checkVisibility()) continue;
+      for (let i = n.textContent.indexOf('·'); i >= 0; i = n.textContent.indexOf('·', i + 1)) {
+        const range = document.createRange(); range.setStart(n, i); range.setEnd(n, i + 1);
+        for (const b of range.getClientRects()) { const middle = b.y + b.height / 2;
+          if (b.width > .5 && b.height > .5 && middle > lb.y && middle < lb.y + lb.height && b.x >= lb.x - .5 && b.x + b.width <= lb.x + lb.width + .5) separators.push({ x: b.x, y: b.y, width: b.width, height: b.height }); } } } }
+  // r2 (Codex CLAMP): the action's ACTUAL hit area, its ::after target, read
+  // from the used values (position, size and the translate), not assumed.
+  const after = getComputedStyle(action, '::after'), a = action.getBoundingClientRect();
+  let hit = null;
+  if (after.content !== 'none' && after.display !== 'none') {
+    const w = parseFloat(after.width), h = parseFloat(after.height), m = new DOMMatrixReadOnly(after.transform === 'none' ? undefined : after.transform);
+    const x = after.left !== 'auto' ? a.x + action.clientLeft + parseFloat(after.left) : a.x + action.clientLeft + action.clientWidth - parseFloat(after.right) - w;
+    const y = after.top !== 'auto' ? a.y + action.clientTop + parseFloat(after.top) : a.y + action.clientTop + action.clientHeight - parseFloat(after.bottom) - h;
+    hit = { x: x + m.m41, y: y + m.m42, width: w, height: h };
+  }
+  return { ...base, separators, hit, line: { ...box(line), lineHeight: parseFloat(style.lineHeight), scrollWidth: line.scrollWidth, clientWidth: line.clientWidth, direction: style.direction },
     label: { ...box(label), display: labelStyle.display, lineClamp: labelStyle.webkitLineClamp, overflow: labelStyle.overflowY,
       scrollHeight: label.scrollHeight, clientHeight: label.clientHeight, scrollWidth: label.scrollWidth, clientWidth: label.clientWidth, rects: textRects(label) },
     action: { ...box(action), text: action.textContent.trim() ? [...action.querySelectorAll('*')].filter(n => n.checkVisibility() && !n.children.length).map(n => n.textContent).join('') || action.textContent : '',
@@ -291,6 +313,60 @@ export async function consentCapFontSwapCheck(t) {
   }
 }
 
+// r2, TICK decision (a): on phones the consent line is ALWAYS two rows and the
+// action ALWAYS ends row 2 at one fixed spot (short text, clamped text, the
+// 72-letter word, both action lengths, both locales). No "·" is painted (row 1
+// never ends with one; the clamped case has none). Mic and Send keep one box
+// at each width across all of them, the locale switch and pending → granted;
+// the granted line sits top-aligned in the same two rows. Codex CLAMP: the
+// action's actual 44 px hit area never overlaps Send or Mic (320/360/390 EN/DE).
+const overlap = (p, q) => Math.max(0, Math.min(p.x + p.width, q.x + q.width) - Math.max(p.x, q.x)) * Math.max(0, Math.min(p.y + p.height, q.y + q.height) - Math.max(p.y, q.y));
+export async function consentCapTwoRowsCheck(t) {
+  const { open, mountWith, grant, read, capture } = await harness(t);
+  for (const [width, height] of [[320, 568], ...phones]) {
+    const name = `${width}x${height}-two-rows`;
+    await t.test(name, async () => {
+      const problems = [], failures = [];
+      const page = await open({ width, height, locale: 'en' }, problems);
+      try {
+        let ref = null, last = null;
+        for (const locale of ['en', 'de']) for (const [actionName, action] of Object.entries(ACTIONS)) for (const [textName, text] of Object.entries(TEXTS)) {
+          const label = `${width}x${height}-${locale}-${textName}-${actionName}-action`;
+          await mountWith(page, locale, { ...action(), text: text(locale) });
+          const state = await read(page); last = { label, state };
+          failures.push(...capFailures(state).failures.map(f => `${label}: ${f}`));
+          const { line } = state;
+          if (!(line?.height > 0)) continue;
+          if (Math.abs(line.height - 2 * line.lineHeight) > .5) failures.push(`${label}: the consent line is always two rows: ${line.height} vs 2 × ${line.lineHeight}`);
+          if (state.separators?.length) failures.push(`${label}: no "·" ends row 1 (none is painted): ${JSON.stringify(state.separators)}`);
+          const box = state.action?.rects?.[0];
+          if (!(box?.width > 0 && box?.height > 0)) { failures.push(`${label}: the action's painted box is positive: ${JSON.stringify(box)}`); continue; }
+          const spot = { right: box.x + box.width, bottom: box.y + box.height };
+          // The hit area: positive, and clear of Send and Mic.
+          if (!(state.hit?.width >= 44 - .5 && state.hit?.height >= 44 - .5)) failures.push(`${label}: the action's hit area is 44 px: ${JSON.stringify(state.hit)}`);
+          for (const control of ['send', 'mic']) {
+            if (!(state[control]?.width > 0 && state[control]?.height > 0)) failures.push(`${label}: ${control} positive box: ${JSON.stringify(state[control])}`);
+            else if (state.hit && overlap(state.hit, state[control]) > .5) failures.push(`${label}: the action's hit area stays off ${control}: ${JSON.stringify({ hit: state.hit, [control]: state[control] })}`);
+          }
+          if (!ref) { ref = { label, state, spot }; if (textName === 'short') await capture(page, `r2-${label}-pending`, state); continue; }
+          if (textName === 'short') await capture(page, `r2-${label}-pending`, state);
+          for (const key of ['right', 'bottom']) if (Math.abs(spot[key] - ref.spot[key]) > .5) failures.push(`${label}: the action ends row 2 at one spot (${key}): ${ref.spot[key]} (${ref.label}) -> ${spot[key]}`);
+          failures.push(...sameBoxFailures(`${label} vs ${ref.label}`, ref.state, state).filter(f => !/: dock keeps/u.test(f)));
+          if (Math.abs(line.y - ref.state.line.y) > .5) failures.push(`${label}: the consent line keeps its top: ${ref.state.line.y} -> ${line.y}`);
+        }
+        // Pending → granted (the last mount: DE, the short action, the 72-letter word inside the stock text).
+        const granted = await grant(page);
+        await capture(page, `r2-${last.label}-granted`, granted);
+        failures.push(...sameBoxFailures(`granted vs ${ref?.label}`, ref?.state ?? {}, granted).filter(f => !/: dock keeps/u.test(f)));
+        if (!(granted.reason?.width > 0 && granted.reason?.height > 0)) failures.push(`the granted line positive box: ${JSON.stringify(granted.reason)}`);
+        else if (ref && Math.abs(granted.reason.y - ref.state.line.y) > .5) failures.push(`the granted line is top-aligned in the same two rows: ${granted.reason.y} vs ${ref.state.line.y}`);
+        none(failures, name);
+        assert.deepEqual(problems, []);
+      } finally { await page.close(); }
+    });
+  }
+}
+
 // Desktop (> 600 px) unchanged: no clamp box, the action inline after the sentence.
 export async function consentCapDesktopCheck(t) {
   const { open, read, capture } = await harness(t);
@@ -305,6 +381,11 @@ export async function consentCapDesktopCheck(t) {
         if (state.label?.lineClamp !== 'none' || /-webkit-box/u.test(state.label?.display ?? '')) failures.push(`desktop keeps no clamp box: ${JSON.stringify({ display: state.label?.display, clamp: state.label?.lineClamp })}`);
         if (state.label && state.label.scrollHeight > state.label.clientHeight + 1 && state.label.overflow === 'hidden') failures.push('desktop shows the whole sentence');
         if (state.action?.position !== 'relative') failures.push(`desktop keeps the action inline: ${state.action?.position}`);
+        // r2 (Codex CLAMP Medium): desktop behaves as main: its reserve keeps
+        // main's two-line cap (.composer-reason max-height 2.6em = 2 × 1.3), so a
+        // long sentence cannot hold a third line in the dock after consent.
+        if (!(state.reserve?.width > 0 && state.reserve?.height > 0 && state.reserveLineHeight > 0)) failures.push(`the desktop consent reserve positive box: ${JSON.stringify({ reserve: state.reserve, lineHeight: state.reserveLineHeight })}`);
+        else if (state.reserve.height > 2 * state.reserveLineHeight + .5) failures.push(`the desktop reserve keeps main's two-line cap: ${state.reserve.height} > 2 × ${state.reserveLineHeight}`);
         await capture(page, `${name}-pending`, state);
         none(failures, name);
         assert.deepEqual(problems, []);

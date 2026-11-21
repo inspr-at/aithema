@@ -27,10 +27,23 @@ for (const locale of ['en', 'de']) cases.push({ width: 390, height: 664, locale,
 // feedback row keeps the 44 px image reserve (combined-entrance-styles.js), which
 // adds the ~25 px between the plain fixture dock (246.61 px) and START's.
 for (const locale of ['en', 'de']) cases.push({ width: 390, height: 664, locale, theme: 'light', text: 100, start: true });
-const caseName = ({ width, height, locale, theme, text, start, longConsent, r4 }) => `${width}x${height}-${locale}-${theme}${text === 100 ? '' : `-text${text}`}${start ? '-start' : ''}${longConsent ? '-longconsent' : ''}${r4 ? '-r4' : ''}`;
+// r2 (Codex READY-STAGE Medium): the ready stage fits with BOTH scrollbar
+// modes of .conversation-scroll (scrollbar-gutter:stable). Every case above
+// runs with a classic 15 px gutter (a desktop Chromium, the remote lane's
+// default); these run again with an overlay scrollbar (0 px, as on phones).
+// Each mode is set explicitly in the page, never left to the host's default.
+for (const [width, height, locale, text] of [[320, 568, 'en', 100], [320, 568, 'de', 100], [360, 740, 'de', 100], [390, 664, 'en', 100], [390, 664, 'de', 125]])
+  cases.push({ width, height, locale, theme: 'light', text, scrollbar: 'overlay' });
+const SCROLLBARS = {
+  classic: '.conversation-scroll::-webkit-scrollbar { width:15px; height:15px; } .conversation-scroll::-webkit-scrollbar-thumb { background:#8888; }',
+  overlay: '.conversation-scroll::-webkit-scrollbar { width:0; height:0; }',
+};
+const caseName = ({ width, height, locale, theme, text, start, longConsent, r4, scrollbar }) => `${width}x${height}-${locale}-${theme}${text === 100 ? '' : `-text${text}`}${start ? '-start' : ''}${longConsent ? '-longconsent' : ''}${r4 ? '-r4' : ''}${scrollbar === 'overlay' ? '-overlay' : ''}`;
 const CAP = 6, MIN = 2;
 const keys = ['x', 'y', 'width', 'height'];
 const positive = (label, box) => assert.ok(box && box.width > 0 && box.height > 0, `${label} positive box: ${JSON.stringify(box)}`);
+// The lane summary keeps only lines with "Error:", so a failure names its reasons there (r2: the two unexplained r1 entries).
+const none = (failures, label) => { if (failures.length) throw new Error(`${failures.join(' | ')} [${label}]`.slice(0, 1500)); };
 const inside = (outer, inner) => inner.y >= outer.y - .5 && inner.y + inner.height <= outer.y + outer.height + .5;
 // TICK M1: no "·" starts or ends a painted line of the one-row readiness, and
 // a line that joins two runs of text still separates them.
@@ -140,7 +153,7 @@ const boxesInPage = c => {
     const dock = root.querySelector('.composer-dock'), shell = root.querySelector('.transcript-shell');
     const list = shell?.querySelector('ol')?.getBoundingClientRect(), pane = shell?.getBoundingClientRect();
     return { stage: workspace.dataset.stage, layout: workspace.dataset.conceptLayout, entrance: workspace.dataset.entrance,
-      scroll: rect(scroll), scrollTop: scroll.scrollTop, scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight,
+      scroll: rect(scroll), gutter: scroll.offsetWidth - scroll.clientWidth, scrollTop: scroll.scrollTop, scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight,
       fade: getComputedStyle(scroll).maskImage, fadeAttribute: scroll.hasAttribute('data-bottom'),
       fadeLength: (() => { const match = /calc\(100% - ([\d.]+)px\)/u.exec(getComputedStyle(scroll).maskImage); return match ? Number(match[1]) : null; })(),
       opener: rect(row), label: rect(row?.querySelector(':scope > strong')), text: rect(text), firstLine: first ? { x: first.x, y: first.y, width: first.width, height: first.height } : null,
@@ -231,7 +244,7 @@ export async function phoneReadyFitCheck(t) {
   t.after(async () => { try { await browser?.close(); } finally { await server.kill(); } });
   browser = await browserForFile();
   const evidence = process.env.AITHEMA_EVIDENCE_DIR, index = [], tickIndex = [];
-  const open = async (page, { width, height, locale, theme, text, start, longConsent }, problems) => {
+  const open = async (page, { width, height, locale, theme, text, start, longConsent, scrollbar = 'classic' }, problems) => {
     page.on('pageerror', error => problems.push(error.message));
     await page.setViewport({ width, height });
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
@@ -240,8 +253,12 @@ export async function phoneReadyFitCheck(t) {
       ? request.respond({ status: 200, contentType: 'text/html', body: fixture }) : request.continue()); });
     await page.goto(`${server.url}/combined-fixture?locale=${locale}&passiveDenied`);
     await page.waitForFunction(() => globalThis.ready && document.querySelector('aithema-session').shadowRoot.querySelector('.composer-status').textContent.length > 0);
-    await page.evaluate(async (welcomeText, locale, size, start, longConsent) => {
+    await page.evaluate(async (welcomeText, locale, size, start, longConsent, scrollbarStyle) => {
       document.documentElement.style.fontSize = `${size}%`;
+      // r2: the scroll area's scrollbar mode, before mount (the fit reads the width it leaves).
+      const scrollbarSheet = new CSSStyleSheet(); scrollbarSheet.replaceSync(scrollbarStyle);
+      const shadow = document.querySelector('aithema-session').shadowRoot;
+      shadow.adoptedStyleSheets = [...shadow.adoptedStyleSheets, scrollbarSheet];
       if (longConsent) {
         const base = (await import(`/packages/ui/src/i18n/${locale}.js`))[locale], consent = base.featureConsent;
         const repeat = (words, times) => Array(times).fill(words).join(' ');
@@ -254,7 +271,7 @@ export async function phoneReadyFitCheck(t) {
       // Kept for a second configure() with the same snapshot (Codex M2).
       globalThis.snapshot603 = snapshot;
       mount(snapshot);
-    }, welcome[locale], locale, text, Boolean(start), longConsent ?? 0);
+    }, welcome[locale], locale, text, Boolean(start), longConsent ?? 0, SCROLLBARS[scrollbar]);
   };
   if (evidence) await mkdir(join(evidence, 'ait-603', 'shots'), { recursive: true });
   for (const item of cases) {
@@ -264,7 +281,7 @@ export async function phoneReadyFitCheck(t) {
       try {
         await open(page, item, problems);
         const record = async (state, boxes) => {
-          index.push({ name, state, width, height, locale, theme, text, start: Boolean(item.start), file: `ait-603/${name}-${state}.json`, shot: `ait-603/shots/${name}-${state}.png` });
+          index.push({ name, state, width, height, locale, theme, text, start: Boolean(item.start), scrollbar: item.scrollbar ?? 'classic', file: `ait-603/${name}-${state}.json`, shot: `ait-603/shots/${name}-${state}.png` });
           if (!evidence) return;
           await writeFile(join(evidence, 'ait-603', `${name}-${state}.json`), JSON.stringify(boxes, null, 2));
           await writeFile(join(evidence, 'ait-603', 'index.json'), JSON.stringify(index, null, 2));
@@ -277,6 +294,8 @@ export async function phoneReadyFitCheck(t) {
         assert.equal(before.layout, 'image', `${label}: a bound image visual enters the real image concept layout`);
         assert.notEqual(before.stage, 'live');
         for (const key of ['scroll', 'opener', 'label', 'text', 'firstLine', 'ready', 'dock', 'composer', 'mic', 'send']) positive(`${label}/${key}`, before[key]);
+        // r2: the scrollbar mode is the one this case asks for (15 px classic gutter, 0 px overlay).
+        assert.equal(before.gutter, (item.scrollbar ?? 'classic') === 'overlay' ? 0 : 15, `${label}: the ${item.scrollbar ?? 'classic'} scrollbar gutter`);
         // The combined dock renders no separate attach control; record it, never compare a hidden box.
         if (before.attach) positive(`${label}/attach`, before.attach);
         assert.ok(before.naturalLines > CAP, `${label}: the fixture welcome is longer than the clamp: ${before.naturalLines}`);
@@ -426,6 +445,7 @@ export async function phoneReadyFitCheck(t) {
         if (Math.abs(settled.dock.height - after.dock.height) > .5) failures.push(`.composer-dock height changed: ${settled.dock.height} -> ${after.dock.height}`);
         index.at(-1).followed = !kept;
         if (failures.length) failures.push(`prelive ${JSON.stringify(before)}`, `first live ${JSON.stringify(first)}`, `live ${JSON.stringify(after)}`);
+        none(failures, name);
         assert.deepEqual(failures, [], name);
         assert.deepEqual(problems, []);
       } finally { await page.close(); }
@@ -488,7 +508,27 @@ export async function phoneReadyFitCheck(t) {
           await page.screenshot({ path: join(evidence, 'ait-603', 'shots', `${name}-granted.png`), fullPage: false });
         }
         if (failures.length) failures.push(`pending ${JSON.stringify(pending)}`, `granted ${JSON.stringify(granted)}`);
+        none(failures, name);
         assert.deepEqual(failures, [], name);
+        assert.deepEqual(problems, []);
+      } finally { await page.close(); }
+    });
+  }
+  // r2 (Codex READY-STAGE Low): one boundary. Phones are ≤ 600 px: at exactly
+  // 600 px the phone readiness shows its processing route line (RC26); from
+  // 601 px the desktop rule hides it.
+  for (const [width, phone] of [[600, true], [601, false]]) {
+    const name = `${width}x800-route-boundary`;
+    await t.test(name, async () => {
+      const page = await browser.newPage(), problems = [], failures = [];
+      try {
+        await open(page, { width, height: 800, locale: 'en', theme: 'light', text: 100 }, problems);
+        const state = await measure(page);
+        positive(`${name}/ready`, state.ready);
+        if (state.readyRow?.count !== 3) failures.push(`the one-row readiness form: ${JSON.stringify(state.readyRow)}`);
+        if (phone && !(state.readyRoute?.width > 0 && state.readyRoute?.height > 0 && state.routeText?.trim())) failures.push(`a phone (≤ 600 px) shows the processing route line: ${JSON.stringify({ route: state.readyRoute, text: state.routeText })}`);
+        if (!phone && state.readyRoute) failures.push(`above 600 px the desktop rule hides the route line: ${JSON.stringify(state.readyRoute)}`);
+        none(failures, name);
         assert.deepEqual(problems, []);
       } finally { await page.close(); }
     });
