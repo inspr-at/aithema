@@ -1620,4 +1620,4 @@ test('AIT-603 PR-B r3: the settings body keeps its height for any host sentence 
 test('AIT-603 PR-B r4: the focused target checkbox draws the :focus-visible ring with and without focus({ focusVisible }), both fit, 360/390/1440 EN/DE', { timeout: 300_000 }, consentSheetRingCheck);
 test('AIT-603 PR-B r6: a resize 1440 -> 360 with the emoji help never paints the help past the reserve, the body keeps its height in every frame, EN/DE', { timeout: 180_000 }, consentSheetHelpResizeCheck);
 test('AIT-603 PR-B r6: host-overridden reasons and help templates do not set the help reserve, 360 en/de/fr', { timeout: 240_000 }, consentSheetHostCopyReserveCheck);
-test('AIT-603 PR-B r6: the privacy help with a long country list keeps its link visible and focusable with its ring, body height unchanged, 360 EN/DE, 1440 EN', { timeout: 180_000 }, consentSheetPrivacyLinkCheck);
+test('AIT-603 PR-B r6: the privacy help with a long country list keeps its link visible and focusable with its ring, body height unchanged, 768/1440 EN; below 600 px (gauges hidden) it reserves nothing, 360 EN/DE', { timeout: 180_000 }, consentSheetPrivacyLinkCheck);

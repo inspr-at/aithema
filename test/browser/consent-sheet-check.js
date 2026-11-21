@@ -659,7 +659,7 @@ export async function consentSheetHostCopyReserveCheck(t) {
 const COUNTRIES = ['US', 'IE', 'DE', 'FR', 'JP', 'BR', 'IN', 'CA', 'AU', 'SG', 'KR', 'MX', 'ZA', 'CH', 'SE', 'NO', 'PL', 'IT', 'ES', 'NL'];
 export async function consentSheetPrivacyLinkCheck(t) {
   const open = await harness(t);
-  for (const [width, height, locale] of [[360, 740, 'en'], [360, 740, 'de'], [1440, 900, 'en']]) {
+  for (const [width, height, locale] of [[360, 740, 'en'], [360, 740, 'de'], [768, 1024, 'en'], [1440, 900, 'en']]) {
     await t.test(`${width} ${locale}: the privacy link with a long country list`, async () => {
       const problems = [];
       const page = await open({ width, height, locale, sentence: undefined, doc: null, countries: COUNTRIES }, problems);
@@ -681,8 +681,27 @@ export async function consentSheetPrivacyLinkCheck(t) {
         }
         await settle(page);
         const before = await page.$eval('aithema-session', helpState);
-        // On phones the gauge can sit below the body's fold: bring it on screen first.
-        await page.$eval('aithema-session', c => c.shadowRoot.querySelector('dialog.settings[open] [data-gauge="privacy"]').scrollIntoView({ block: 'center' }));
+        // Below 600 px the gauges are hidden (AIT-294 phone essentials), so the
+        // privacy help never shows there and its measure must reserve nothing.
+        if (width < 600) {
+          const phone = await page.$eval('aithema-session', c => {
+            const dialog = c.shadowRoot.querySelector('dialog.settings[open]'), m = dialog.querySelector('.context-link-measure');
+            return { gauges: dialog.querySelector('[data-gauge="privacy"]').checkVisibility(), measure: m ? m.getBoundingClientRect().height : null };
+          });
+          const failures = [];
+          if (phone.gauges) failures.push('precondition: the gauges are hidden below 600 px');
+          if (phone.measure > 0) failures.push(`below 600 px the privacy help's measure reserves nothing: ${phone.measure}`);
+          await r6Capture(page, `privacy-link-${width}-${locale}`, { summary: `phone: gauges visible ${phone.gauges}; link measure ${phone.measure}`, ...phone });
+          none(failures, `privacy ${width} ${locale}`);
+          assert.deepEqual(problems, []);
+          return;
+        }
+        // The gauge can sit below the body's fold: bring it on screen first.
+        await page.$eval('aithema-session', c => {
+          const gauge = c.shadowRoot.querySelector('dialog.settings[open] [data-gauge="privacy"]'), details = gauge.closest('details');
+          if (details) details.open = true;
+          gauge.scrollIntoView({ block: 'center' });
+        });
         await settle(page);
         const point = await page.$eval('aithema-session', c => { const r = c.shadowRoot.querySelector('dialog.settings[open] [data-gauge="privacy"]').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
         // The keyboard path (the gauge is focusable in this state); the pointer
@@ -706,10 +725,10 @@ export async function consentSheetPrivacyLinkCheck(t) {
           return { link: { width: r.width, height: r.height, top: r.top, bottom: r.bottom }, focused: c.shadowRoot.activeElement === link, outline: css.outlineStyle, ring, clipped, visible: link.checkVisibility(), text: message.textContent };
         });
         const shown = await page.$eval('aithema-session', helpState), failures = [...positiveHelp(before, 'before'), ...positiveHelp(shown, 'shown')];
-        if (!after.link) failures.push(`precondition: the help line carries the host's privacy link: ${JSON.stringify(after.text)}`);
+        if (!after.link) failures.push(`precondition: the help line carries the host's privacy link: ${JSON.stringify(after.text)} ${JSON.stringify(await page.$eval('aithema-session', c => { const g = c.shadowRoot.querySelector('dialog.settings[open] [data-gauge="privacy"]'), r = g.getBoundingClientRect(); return { focused: c.shadowRoot.activeElement?.className ?? null, visible: g.checkVisibility(), box: [r.x, r.y, r.width, r.height], tabIndex: g.tabIndex, details: g.closest('details')?.open ?? null, hidden: Boolean(g.closest('[hidden]')) }; }))}`);
         else {
           if (!(after.link.width > 0 && after.link.height > 0) || !after.visible) failures.push(`the link has a positive, visible box: ${JSON.stringify(after.link)}`);
-          if (width === 360 && !(shown.message.height > 2 * shown.line - 1)) failures.push(`precondition: the privacy help wraps over several lines: ${shown.message.height} / ${shown.line}`);
+          if (width === 768 && !(shown.message.height > 2 * shown.line - 1)) failures.push(`precondition: the privacy help wraps over several lines: ${shown.message.height} / ${shown.line}`);
           if (!after.focused || after.outline === 'none' || !(after.ring > 0)) failures.push(`the link takes focus and draws a ring: ${JSON.stringify({ focused: after.focused, outline: after.outline, ring: after.ring })}`);
           if (after.clipped.length) failures.push(`the link and its ring are inside every clipping box: ${after.clipped.join(' | ')}`);
           if (shown.message.height > shown.reserve + 1) failures.push(`the reserve covers the privacy help: ${shown.message.height} vs ${shown.reserve}`);
