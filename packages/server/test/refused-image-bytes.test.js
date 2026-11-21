@@ -270,3 +270,16 @@ for (const route of ['turns', 'concepts', 'focus-question', 'locale', 'voice/sta
     await f.assertNoTrace(image, { responses: [body] });
   });
 }
+
+// Positive control: the same scans do find bytes that were stored or logged,
+// so a green proof above cannot come from a blind scanner.
+test('AIT-610 control: the trace scans detect stored, logged and forwarded sentinel bytes', async t => {
+  const stored = await fixture(t), image = sentinelImage();
+  stored.storage.postUploads(stored.session.id, 'control', 'control', [{ kind: 'image', filename: 'control.png', mediaType: 'image/png', bytes: image.bytes, deadlineAt: Date.now() + 25000 }], {});
+  await assert.rejects(stored.assertNoTrace(image), /uploads row|table uploads|database file/u);
+  for (const [label, leak] of [['console', f => console.error('upload body', image.bytes.toString('base64'))], ['model lanes', f => f.admitted.push(image.marker)]]) {
+    const f = await fixture(t);
+    leak(f);
+    await assert.rejects(f.assertNoTrace(image), new RegExp(label, 'u'));
+  }
+});
