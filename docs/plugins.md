@@ -316,6 +316,33 @@ endpoint, routing, account and operation; it cannot grant another provider's
 item. Its in-memory ledger intentionally loses grants on restart. Production
 hosts persist and audit their own decisions.
 
+### Image input: the server is authoritative
+
+The browser's image admission (the composer reads the `imageInput` feature once
+before it plans an upload) is best effort. A stale verdict can still send image
+bytes, for example right after a consent, preset or verification change. The
+server decides again on every request and drops refused bytes:
+
+- **Upload route** (`POST /api/sessions/:id/uploads`; upload, paste and drop;
+  a retry replays the same receipt by `clientEventId`). Consent, configuration,
+  verification, normalizer health, the image quota and a consent revision during
+  admission refuse the image in the receipt's `refused[]` with its reason. A
+  purpose pause (409), size or part limits (413), malformed multipart (400) and
+  unavailable documents (403) refuse the whole request. Refused bytes are never
+  written: no `uploads` row, no blob, no temp file, no cache. The receipt keeps
+  only positions, reasons and a SHA-256 digest of the request for replay.
+- **Staged normalization.** An admitted image waits as `staged-pending` for the
+  local normalizer, which is the server's own verifier (local, free,
+  credential-free). The runtime checks admission again before calling it. A
+  refusal at that point, or by the normalizer (type, size, dimensions,
+  malformed), records `staged-refused` with its reason and erases the original
+  bytes (`secure_delete`, WAL checkpoint).
+- **Turns** carry upload IDs, never bytes. A refused ID cannot be attached.
+
+On every path, refused bytes never reach a model, a plugin other than the
+normalizer, an event, a log or telemetry; logs carry at most a reason.
+`packages/server/test/refused-image-bytes.test.js` proves each path and reason.
+
 ## Routing and health
 
 **OpenAI Images compatibility note (AIT-300):** direct mode (`gpt-image-2`)
