@@ -54,13 +54,28 @@ export function zip(parts, { compress = false } = {}) {
   return Buffer.concat([...local, directory, end]);
 }
 const xml = body => `<?xml version="1.0" encoding="UTF-8"?>${body}`;
-const office = (main, type, parts) => zip({
-  '[Content_Types].xml': xml(`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/${main}" ContentType="application/vnd.openxmlformats-officedocument.${type}.main+xml"/></Types>`),
+const office = (main, type, parts, defaults = '') => zip({
+  '[Content_Types].xml': xml(`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>${defaults}<Override PartName="/${main}" ContentType="application/vnd.openxmlformats-officedocument.${type}.main+xml"/></Types>`),
   '_rels/.rels': xml(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="${main}"/></Relationships>`), ...parts });
 // `media` adds package parts such as an embedded image (word/media/image1.png).
 export function docx(text = 'Document extraction fixture &amp; readable words.', media = {}) {
   return office('word/document.xml', 'wordprocessingml.document', {
     'word/document.xml': xml(`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:body></w:document>`), ...media });
+}
+// A DOCX whose document.xml REFERENCES an embedded PNG as an inline picture
+// (w:drawing > a:blip r:embed), with its relationship and content type, as
+// a word processor writes it.
+export function docxWithInlineImage(text, png) {
+  const ns = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" ' +
+    'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" ' +
+    'xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"';
+  const drawing = '<w:r><w:drawing><wp:inline><wp:extent cx="914400" cy="914400"/><wp:docPr id="1" name="Picture 1"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">' +
+    '<pic:pic><pic:nvPicPr><pic:cNvPr id="1" name="image1.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdImage1"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>' +
+    '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
+  return office('word/document.xml', 'wordprocessingml.document', {
+    'word/document.xml': xml(`<w:document ${ns}><w:body><w:p><w:r><w:t>${text}</w:t></w:r></w:p><w:p>${drawing}</w:p></w:body></w:document>`),
+    'word/_rels/document.xml.rels': xml('<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdImage1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/></Relationships>'),
+    'word/media/image1.png': png }, '<Default Extension="png" ContentType="image/png"/>');
 }
 export function xlsx(text = 'Spreadsheet extraction fixture') {
   const texts = Array.isArray(text) ? text : [text];

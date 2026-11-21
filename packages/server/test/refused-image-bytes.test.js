@@ -34,7 +34,9 @@
 //   to a model lane, asserted for an embedded DOCX image below).
 import { test as nodeTest } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import fs from 'node:fs';
+import fsp, { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -43,7 +45,53 @@ import { listen } from '../src/http.js';
 import { createMockReasoning, imageReferences, PluginRegistry, reasoningRequest } from '@inspr/aithema-core';
 import { registerDemoExtractors } from '../../../demo/uploads.js';
 import { mockConsent, testToken, ownedRequest, temporaryDb } from '../../../test/helpers.js';
-import { bytes as textBytes, docx, pdf } from '../../../test/extractor-fixtures.js';
+import * as uploadModule from '../src/upload-handlers.js';
+import { bytes as textBytes, docxWithInlineImage, pdf } from '../../../test/extractor-fixtures.js';
+
+// Captured before any fixture hooks the fs write APIs (a control writes a
+// synthetic rollback journal without passing through the hook).
+const rawWriteFile = writeFile;
+const chunkText = chunk => typeof chunk === 'string' ? chunk : chunk instanceof Uint8Array || ArrayBuffer.isView(chunk)
+  ? Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength).toString('latin1') : '';
+// Records every byte written through Node's fs write APIs while a fixture is
+// alive, so a file written and deleted between two temp-dir samples is still
+// seen. SQLite writes natively and is covered by the database file scans.
+function hookFsWrites(t, writes) {
+  const mocks = [];
+  const record = (api, data) => { writes.push(`${api}:${chunkText(data)}`); };
+  const wrapStream = stream => {
+    for (const method of ['write', 'end']) {
+      const original = stream[method];
+      stream[method] = function (chunk, ...rest) { if (chunk && typeof chunk !== 'function') record(`stream.${method}`, chunk); return original.call(this, chunk, ...rest); };
+    }
+    return stream;
+  };
+  const wrapHandle = handle => {
+    for (const method of ['write', 'writeFile', 'appendFile']) {
+      const original = handle[method];
+      handle[method] = function (data, ...rest) { record(`handle.${method}`, data); return original.call(this, data, ...rest); };
+    }
+    return handle;
+  };
+  for (const name of ['writeFile', 'writeFileSync', 'appendFile', 'appendFileSync']) {
+    const original = fs[name];
+    mocks.push(t.mock.method(fs, name, function (path, data, ...rest) { record(`fs.${name}`, data); return original.call(this, path, data, ...rest); }));
+  }
+  for (const name of ['write', 'writeSync']) {
+    const original = fs[name];
+    mocks.push(t.mock.method(fs, name, function (fd, data, ...rest) { record(`fs.${name}`, data); return original.call(this, fd, data, ...rest); }));
+  }
+  const createWriteStream = fs.createWriteStream;
+  mocks.push(t.mock.method(fs, 'createWriteStream', function (...args) { return wrapStream(createWriteStream.apply(this, args)); }));
+  for (const name of ['writeFile', 'appendFile']) {
+    const original = fsp[name];
+    mocks.push(t.mock.method(fsp, name, function (path, data, ...rest) { record(`fsp.${name}`, data); return original.call(this, path, data, ...rest); }));
+  }
+  const open = fsp.open;
+  mocks.push(t.mock.method(fsp, 'open', async function (...args) { return wrapHandle(await open.apply(this, args)); }));
+  syncBuiltinESMExports();
+  t.after(() => { for (const mock of mocks) mock.mock.restore(); syncBuiltinESMExports(); });
+}
 
 // A failing assertion must fail its test, never hang the file.
 const test = (name, fn) => nodeTest(name, { timeout: 60_000 }, fn);
@@ -92,7 +140,7 @@ async function changedTemp(before) {
 
 async function fixture(t, { voice } = {}) {
   const path = await temporaryDb(), storage = new SQLiteStorage(path);
-  const logs = [], writes = [], admitted = [], normalized = [], during = [];
+  const logs = [], writes = [], admitted = [], normalized = [], during = [], fsWrites = [], live = [];
   // Documents use the demo extractors so a mixed request runs the model lanes.
   const reasoning = createMockReasoning(), registry = new PluginRegistry().register(reasoning), presets = mockPresets();
   registerDemoExtractors(registry, presets);
@@ -122,9 +170,14 @@ async function fixture(t, { voice } = {}) {
   t.mock.method(runtime, 'imageInputAvailability', async (current, options) => availability.real ? real(current, options)
     : typeof availability.reason === 'function' ? availability.reason(current) : availability.reason ? { reason: availability.reason } : { plugin: normalizer, maxImages: 4 });
   const before = await tmpEntries();
-  t.after(async () => { await handlers.close(); storage.close(); });
+  hookFsWrites(t, fsWrites);
+  // Live events: the session's event stream, as a connected client receives it.
+  const stream = await handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/events`));
+  const reader = stream.body.getReader();
+  (async () => { while (true) { const { done, value } = await reader.read(); if (done) break; live.push(Buffer.from(value).toString('latin1')); } })().catch(() => {});
+  t.after(async () => { await reader.cancel().catch(() => {}); await handlers.close(); storage.close(); });
   let snapshots = 0;
-  const f = { path, storage, runtime, handlers, session, logs, writes, admitted, normalized, normalizer, availability, during,
+  const f = { path, storage, runtime, handlers, session, logs, writes, admitted, normalized, normalizer, availability, during, fsWrites, live,
     // A backup through SQLite itself (VACUUM INTO, a second connection) plus the
     // temp dir, taken during the job.
     async duringJob() {
@@ -147,9 +200,12 @@ async function fixture(t, { voice } = {}) {
         headers: { 'x-aithema-session-token': testToken, ...headers } }));
     },
     // Proves: not stored (rows, journal, receipts, database file and WAL, temp
-    // dir), not logged (console, host log), not forwarded (model lanes, events).
+    // dir, fs writes), not logged (console, host log), not forwarded (model
+    // lanes, stored and live events).
     async assertNoTrace(image, { responses = [] } = {}) {
       await handlers.idle();
+      await new Promise(resolve => setImmediate(resolve));
+      assert.deepEqual(leaksIn(live.join(''), image), [], 'live events');
       for (const capture of during) assert.deepEqual(leaksIn(capture.text, image), [], capture.label);
       const db = storage.db;
       for (const row of db.prepare('SELECT id, bytes FROM uploads').all()) {
@@ -166,6 +222,7 @@ async function fixture(t, { voice } = {}) {
       assert.deepEqual(leaksIn(serialize(logs), image), [], 'console and host log');
       assert.deepEqual(leaksIn(writes.join(''), image), [], 'stdout/stderr');
       for (const file of await changedTemp(before)) assert.deepEqual(leaksIn(file.text, image), [], `temp file ${file.path}`);
+      assert.deepEqual(leaksIn(fsWrites.join('\n'), image), [], 'fs write');
       assert.deepEqual(leaksIn(admitted.join('\n'), image), [], 'model lanes');
       assert.deepEqual(leaksIn(serialize(storage.read(session.id)), image), [], 'published events');
       const current = storage.get(session.id);
@@ -356,6 +413,9 @@ test('AIT-610 control: the trace scans detect stored, logged and forwarded senti
     ['console', f => console.error('upload body', image.bytes.toString('base64'))],
     ['host log', f => f.logs.push({ error: new Error(`decoder failed on ${image.marker}`) })],
     ['host log', f => { const error = new Error('decoder failed'); error.stack = `Error: decoder failed\n    at ${image.marker}`; f.logs.push(error); }],
+    // Error.cause only: message and stack carry nothing.
+    ['host log', f => { const cause = new Error('inner'); cause.stack = 'inner'; cause.message = `decoder failed on ${image.marker}`;
+      const error = new Error('decoder failed', { cause }); error.stack = 'Error: decoder failed'; f.logs.push(error); }],
     ['stdout/stderr', f => { process.stderr.write(`AIT-610 control ${image.marker}\n`); }],
     ['stdout/stderr', f => { process.stdout.write(`# AIT-610 control ${image.bytes.toString('base64')}\n`); }],
     ['temp file', async f => { await mkdir(join(nested, 'deep', 'er'), { recursive: true }); await writeFile(join(nested, 'deep', 'er', 'part.bin'), image.bytes); }],
@@ -365,6 +425,22 @@ test('AIT-610 control: the trace scans detect stored, logged and forwarded senti
       await f.duringJob(); f.storage.withdrawUpload(f.session.id, f.storage.get(f.session.id).uploads[0].id);
     }],
     ['model lanes', f => f.admitted.push(image.marker)],
+    // A committed write that a concurrent reader keeps in the WAL, deleted from
+    // the table again: only the -wal file still holds it.
+    ['database file-wal', f => {
+      f.holdReader();
+      f.storage.db.exec('CREATE TABLE IF NOT EXISTS wal_control (x BLOB)');
+      f.storage.db.prepare('INSERT INTO wal_control VALUES (?)').run(image.bytes);
+      f.storage.db.exec('DELETE FROM wal_control');
+    }],
+    // A synthetic rollback journal next to the database (WAL mode never writes
+    // one; the scan reads it if a legacy/rollback-mode database leaves one).
+    ['database file-journal', async f => { await rawWriteFile(`${f.path}-journal`, image.bytes); }],
+    // Live events: a document whose name carries the marker reaches the live
+    // stream (and, later in the scan order, the stored events).
+    ['live events', async f => { const response = await f.upload('live-control', [[`${image.marker}.txt`, textBytes('Plain words'), 'text/plain']]); await response.text(); }],
+    // A file written and deleted before any temp-dir sample: only the fs hook sees it.
+    ['fs write', async f => { const file = join(tmpdir(), `ait610-gone-${process.pid}.bin`); await writeFile(file, image.bytes); await rm(file); }],
   ]) {
     image = sentinelImage();
     const f = await fixture(t);
@@ -466,7 +542,10 @@ test('AIT-610 option A: above the pending-normalization cap a request is refused
 // lane receives it as image input, and the image normalizer never sees it.
 test('AIT-610 scope: an image embedded in an Office document never becomes image input to a model lane', async t => {
   const f = await fixture(t), image = sentinelImage();
-  const file = docx('Quarterly report words.', { 'word/media/image1.png': image.bytes });
+  // document.xml references the image as an inline picture (gate2c): a real
+  // embedded image, not an unreferenced package member.
+  const file = docxWithInlineImage('Quarterly report words.', image.bytes);
+  assert.ok(file.includes(Buffer.from('r:embed="rIdImage1"')) && file.includes(Buffer.from('media/image1.png')), 'the fixture references its image');
   const response = await f.upload('embedded', [['report.docx', file, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']]);
   const body = await response.text();
   assert.equal(response.status, 202, body);
@@ -477,4 +556,150 @@ test('AIT-610 scope: an image embedded in an Office document never becomes image
   for (const request of f.admitted) assert.equal(imageReferences(JSON.parse(request)).length, 0, 'no image input on a model lane');
   assert.deepEqual(leaksIn(f.admitted.join('\n'), image), [], 'model lanes');
   assert.equal(f.normalized.length, 0, 'the image normalizer never sees document content');
+});
+
+// ---- AIT-610 r3 (gate2c) ----
+const multipart = (clientEventId, files) => {
+  const form = new FormData(); form.append('clientEventId', clientEventId);
+  for (const [name, content, type = 'image/png'] of files) form.append('files', new File([content], name, { type }));
+  return new Request('http://localhost/', { method: 'POST', body: form });
+};
+// A body the test owns chunk by chunk: `pulled` reports whether the server read it.
+async function streamedUpload(f, sessionId, encoded, { chunks: split = 2, contentLength = false, failAfter } = {}) {
+  const raw = Buffer.from(await encoded.arrayBuffer()), size = Math.ceil(raw.length / split), chunks = [];
+  for (let offset = 0; offset < raw.length; offset += size) chunks.push(new Uint8Array(raw.subarray(offset, offset + size)));
+  const state = { pulled: false, chunks, raw };
+  let next = 0;
+  const stream = new ReadableStream({ pull(controller) {
+    state.pulled = true;
+    if (failAfter !== undefined && next === failAfter) { controller.error(new TypeError('connection reset')); return; }
+    if (next < chunks.length) controller.enqueue(chunks[next++]); else controller.close();
+  } }, { highWaterMark: 0 });
+  const headers = { 'x-aithema-session-token': testToken, 'content-type': encoded.headers.get('content-type'), ...(contentLength ? { 'content-length': String(raw.length) } : {}) };
+  state.response = f.handlers.handle(new Request(`http://localhost/api/sessions/${sessionId}/uploads`, { method: 'POST', body: stream, duplex: 'half', headers }));
+  return state;
+}
+
+// M1: the image-slot reservation is taken synchronously at the admission
+// check, before any await; concurrent requests cannot all pass the check.
+test('AIT-610 r3: three concurrent image requests at the cap: at most the cap is admitted, the rest get 429 image-normalizations before their body is read', async t => {
+  const f = await fixture(t);
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  f.normalizer.verdict = async (bytes, metadata, options) => { await gated(gate, options); return { status: 'staged-refused', reason: 'unsupported' }; };
+  const sessions = [f.session, f.storage.create({ ownerToken: testToken, demo: true }), f.storage.create({ ownerToken: testToken, demo: true })];
+  const images = sessions.map(() => Array.from({ length: 3 }, () => sentinelImage()));
+  // All three handle() calls start in the same tick, as concurrent HTTP requests do.
+  const encoded = images.map((set, i) => multipart(`concurrent-${i}`, set.map((image, j) => [`c${i}-${j}.png`, image.bytes])));
+  const states = await Promise.all(sessions.map((session, i) => streamedUpload(f, session.id, encoded[i])));
+  const responses = await Promise.all(states.map(async state => { const response = await state.response; return { status: response.status, body: await response.text(), pulled: state.pulled }; }));
+  const admitted = responses.filter(r => r.status === 202), refused = responses.filter(r => r.status === 429);
+  const admittedImages = admitted.reduce((n, r) => n + JSON.parse(r.body).uploads.filter(upload => upload.kind === 'image').length, 0);
+  assert.ok(admittedImages <= 8, `at most the cap is admitted (${admittedImages} images in ${admitted.length} requests)`);
+  assert.equal(admitted.length + refused.length, 3, JSON.stringify(responses.map(r => r.status)));
+  assert.ok(refused.length >= 1, 'a concurrent request is refused');
+  for (const r of refused) {
+    assert.deepEqual(JSON.parse(r.body), { error: 'upload-rate-limit', reason: 'image-normalizations' });
+    assert.equal(r.pulled, false, 'refused before its body is read');
+  }
+  release();
+  await f.handlers.idle();
+  assert.deepEqual({ ...uploadModule.uploadAdmissionState?.() }, { pendingUploadRequests: 0, imageSlots: 0 }, 'every reservation is released');
+  for (const set of images) for (const image of set) await f.assertNoTrace(image, { responses: responses.map(r => r.body) });
+});
+
+// M2: every exit path zero-fills the whole request body (and the partial
+// buffers of a failed read), not only the classified image views.
+for (const [label, build, options] of [
+  ['malformed multipart', image => {
+    const boundary = 'ait610zero', raw = Buffer.concat([Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="clientEventId"\r\n\r\nzero\r\n--${boundary}\r\n` +
+      'Content-Disposition: form-data; name="files"; filename="x.png"\r\nContent-Type: image/png\r\n\r\n'), image.bytes, Buffer.from(`\r\n--${boundary}-X\r\n`)]);
+    return new Request('http://localhost/', { method: 'POST', body: raw, headers: { 'content-type': `multipart/form-data; boundary=${boundary}` } });
+  }, {}],
+  ['excess parts', image => multipart('zero-parts', Array.from({ length: 10 }, (_, i) => [`p-${i}.png`, image.bytes])), { contentLength: true }],
+  ['an unknown field', image => { const request = multipart('zero-field', [['f.png', image.bytes]]); return request; }, { field: true }],
+  ['oversized file', image => multipart('zero-size', [['huge.png', Buffer.concat([image.bytes, Buffer.alloc(SERVER_UPLOAD_LIMITS.maxBytes, 7)])]]), { contentLength: true }],
+  ['a read failure', image => multipart('zero-read', [['cut.png', image.bytes]]), { chunks: 3, failAfter: 2 }],
+  ['a request over the limit while reading', image => multipart('zero-limit', [['big.png', Buffer.concat([image.bytes, Buffer.alloc(SERVER_UPLOAD_LIMITS.maxRequestBytes, 7)])]]), { chunks: 3 }],
+  ['an admitted request', image => multipart('zero-admitted', [['ok.png', image.bytes], ['notes.txt', textBytes('Plain words'), 'text/plain']]), { contentLength: true }],
+]) test(`AIT-610 r3: the whole request body is zero-filled on exit (${label})`, async t => {
+  const f = await fixture(t), image = sentinelImage(), captured = [];
+  let request = build(image);
+  if (options.field) {
+    const form = new FormData(); form.append('clientEventId', 'zero-field'); form.append('smuggled', new File([image.bytes], 'f.png', { type: 'image/png' }));
+    request = new Request('http://localhost/', { method: 'POST', body: form });
+  }
+  const size = Buffer.from(await request.clone().arrayBuffer()).length;
+  // The declared-length body buffer is allocated by readBody: keep a handle on it.
+  const allocUnsafe = Buffer.allocUnsafe;
+  t.mock.method(Buffer, 'allocUnsafe', function (n, ...rest) { const buffer = allocUnsafe.call(this, n, ...rest); if (n === size) captured.push(buffer); return buffer; });
+  const state = await streamedUpload(f, f.session.id, request, options);
+  const response = await state.response.catch(error => error), body = response instanceof Response ? await response.text() : String(response);
+  await f.handlers.idle();
+  t.mock.restoreAll();
+  if (label === 'an admitted request') assert.equal(response.status, 202, body); else assert.ok(!(response instanceof Response) || response.status >= 400, body);
+  assert.ok(state.pulled, 'the body was read');
+  if (options.contentLength) assert.ok(captured.length >= 1, 'the declared-length body buffer was observed');
+  for (const [i, chunk] of state.chunks.entries()) assert.deepEqual(leaksIn(Buffer.from(chunk).toString('latin1'), image), [], `request chunk ${i}`);
+  for (const buffer of captured) assert.deepEqual(leaksIn(buffer.toString('latin1'), image), [], 'the declared-length body buffer');
+  await f.assertNoTrace(image, { responses: [body] });
+});
+
+// M3: an exception after admission (an expiry checkpoint, for example) can
+// never strand an owned original or a reservation.
+test('AIT-610 r3: a throw in expiry after admission strands no original and releases the reservation', async t => {
+  const f = await fixture(t), image = sentinelImage();
+  let armed = false, thrown = 0;
+  const postUploads = f.storage.postUploads.bind(f.storage), expireStagedUploads = f.storage.expireStagedUploads.bind(f.storage);
+  t.mock.method(f.storage, 'postUploads', (...args) => { const result = postUploads(...args); armed = true; return result; });
+  t.mock.method(f.storage, 'expireStagedUploads', (...args) => { if (armed) { armed = false; thrown++; throw new Error('Erasure checkpoint unavailable'); } return expireStagedUploads(...args); });
+  const response = await f.upload('expiry-throws', [['strand.png', image.bytes]]).catch(error => error);
+  const body = response instanceof Response ? await response.text() : String(response);
+  await f.handlers.idle();
+  assert.equal(thrown, 1, 'the injected expiry failure happened after admission');
+  const upload = f.storage.get(f.session.id).uploads.find(item => item.filename === 'strand.png');
+  assert.equal(upload.state, 'staged-refused', 'the job still ran and released its original');
+  assert.equal(f.normalized.length, 1);
+  assert.deepEqual({ ...uploadModule.uploadAdmissionState?.() }, { pendingUploadRequests: 0, imageSlots: 0 }, 'no original or reservation is stranded');
+  await f.assertNoTrace(image, { responses: [body] });
+});
+
+// M4: restart recovery. A missing original is checked first; boot expiry runs
+// after recovery, so an old pending row becomes 'unavailable', never discarded.
+for (const [label, shift] of [['after the request deadline', 60_000], ['after the staging expiry (an old pending row at boot)', 31 * 60_000]]) {
+  test(`AIT-610 r3: restart recovery ${label} surfaces as staged-refused 'unavailable'`, async t => {
+    const f = await fixture(t), image = sentinelImage(), start = Date.now();
+    f.storage.postUploads(f.session.id, 'before-restart', 'before-restart', [{ kind: 'image', filename: 'lost.png', mediaType: 'image/png',
+      bytes: image.bytes, deadlineAt: start + 25_000 }], SERVER_UPLOAD_LIMITS);
+    // One clock for every component: Date, read by the storage and the runtime.
+    t.mock.timers.enable({ apis: ['Date'], now: start + shift });
+    await f.handlers.resume();
+    await f.handlers.idle();
+    const upload = f.storage.get(f.session.id).uploads.find(item => item.filename === 'lost.png');
+    assert.equal(upload.state, 'staged-refused', 'never discarded silently, never ready');
+    assert.equal(upload.reason, 'unavailable', 'the client asks the visitor to attach it again');
+    assert.equal(f.normalized.length, 0);
+    t.mock.timers.reset();
+    await f.assertNoTrace(image);
+  });
+}
+
+// M5: image signatures the classifier missed (BMP, TIFF) and an image MIME on
+// a document suffix are image input: held in memory, never stored if refused.
+for (const [label, name, content, type] of [
+  ['BMP bytes named as a PDF', 'scan.pdf', image => Buffer.concat([Buffer.from('BM'), Buffer.alloc(12, 0), image.bytes]), 'application/pdf'],
+  ['little-endian TIFF bytes named as text', 'notes.txt', image => Buffer.concat([Buffer.from([0x49, 0x49, 0x2a, 0x00]), image.bytes]), 'text/plain'],
+  ['big-endian TIFF bytes without a suffix', 'photo', image => Buffer.concat([Buffer.from([0x4d, 0x4d, 0x00, 0x2a]), image.bytes]), 'application/octet-stream'],
+  ['an image MIME on a document suffix', 'chart.csv', image => image.bytes.subarray(8), 'image/png'],
+]) test(`AIT-610 r3: ${label} is image input and never reaches SQLite, the WAL or a backup`, async t => {
+  const f = await fixture(t), image = sentinelImage();
+  f.holdReader();
+  const response = await f.upload(`format-${name}`, [[name, content(image), type]]), body = await response.text();
+  assert.equal(response.status, 202, body);
+  await f.handlers.idle();
+  const upload = f.storage.get(f.session.id).uploads[0];
+  assert.equal(upload?.kind, 'image', JSON.stringify(upload));
+  assert.equal(upload.state, 'staged-refused');
+  assert.ok(upload.reason, 'the refusal states its reason');
+  await f.assertNoTrace(image, { responses: [body] });
 });
