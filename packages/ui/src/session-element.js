@@ -92,8 +92,6 @@ function textKeys(values) {
 const lockedIdentity = identity => identity?.verificationRequired === true && identity.assessmentUnlocked !== true;
 // Each natural read owns at most five journal-driven repeats, with no timer.
 const REPEAT_LIMIT = 5;
-// How long upload admission waits for the snapshot of changed settings before it keeps images here (fail closed).
-const FEATURE_WAIT = 10000;
 const START_INTENT_KEY = 'aithema-start-intent';
 const startIntentTTL = mode => mode === 'voice' ? 60_000 : 180_000;
 
@@ -130,8 +128,6 @@ export class AithemaSession extends HTMLElement {
   #uploadAt = new Map(); #uploading = false; #uploadNotice = ''; #uploadReselectNotice = ''; #reading = ''; #limits = UPLOAD_LIMITS; #limitsLoad = null; #dragDepth = 0;
   #images; #imageLayout = false; #imageIntent = null; #imageIntentTimer; #detectedImages = new WeakSet(); #unclassifiedUploads = new WeakSet();
   #uploadController; #uploadRetryTimer = null; #retryFiles = []; #uploadSelection = 0;
-  // A settings change awaits the snapshot of its verdict (AIT-587 B5), and who waits for it.
-  #staleFeatures = false; #featureWaiters = new Set();
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
     // Track the resting pointer so updates can keep the element under it in place.
@@ -215,7 +211,6 @@ export class AithemaSession extends HTMLElement {
     this.#createDevice = deviceConnector; this.#deviceEndpoint = deviceEndpoint;
     this.#imageLayout = session.featureMatrix?.[session.processingPreset ?? 'best']?.imageInput?.available === true || isConsentReason(session.featureMatrix?.[session.processingPreset ?? 'best']?.imageInput?.reason);
     this.#session = structuredClone(session); this.#sessionToken = sessionToken; this.#cursor = session.seq; this.#partials.clear(); this.#voiceTranscript = { pending: null }; this.#reasoningRevision = 0;
-    this.#featuresSettled();
     this.#syncClarify(); this.#restoreFailure(); this.#pending = null; this.#sending = false;
     this.#invalidatedAt = 0; this.#chooser = { choice: null, busy: false, error: '' }; this.#started = false; this.#inputMode = null;
     this.#open = []; this.#cleared = []; this.#follow = true; this.#onTranscript = false; this.#notice = ''; this.#connection = '';
@@ -1938,7 +1933,6 @@ export class AithemaSession extends HTMLElement {
     if (ack.event) this.receive(ack.event);
     if (this.#session.settings?.revision === ack.settings.revision && this.#session.processingPreset === ack.processingPreset) {
       this.#session.featureMatrix = ack.featureMatrix; this.#session.engine = ack.engine;
-      this.#featuresSettled();
     }
     this.#renderMode();
     this.#render('features'); this.#render('composer'); this.#render('aside'); this.#render('transcript'); this.#renderVoice();
@@ -2008,7 +2002,7 @@ export class AithemaSession extends HTMLElement {
     // Accepted snapshots fence older responses to concurrent restores.
     this.#invalidatedAt = Math.max(this.#invalidatedAt, session.seq);
     const before = this.#session;
-    this.#session = session; this.#cursor = session.seq; this.#featureRead = null; this.#featuresSettled();
+    this.#session = session; this.#cursor = session.seq; this.#featureRead = null;
     this.#reasoningRevision = Math.max(this.#reasoningRevision, session.settings?.revision ?? 0);
     this.#partials.clear(); this.#updateVoiceTranscript({ type: 'reset' });
     this.#restoreVoiceEffects(before); this.#repaintLocale();
@@ -3691,11 +3685,6 @@ export class AithemaSession extends HTMLElement {
   }
   async #attach(files, retry = false, refusalVersion, continuation = null) {
     if (!files.length || !this.isConnected) return;
-    // Picks and released holds decide on the verdict for the current settings, never the old choice's.
-    if (!this.#featuresCurrent()) {
-      const sessionId = this.#session.id; await this.#currentFeatures();
-      if (!this.isConnected || sessionId !== this.#session.id) return;
-    }
     // A later pick owns its feedback, but cannot silently discard consent-held files.
     if (!retry && !continuation) this.#uploadSelection++;
     const consentRevision = this.#session.consentRevision;
@@ -3738,8 +3727,6 @@ export class AithemaSession extends HTMLElement {
       // specific count/byte notice, including on a later retained-file retry.
       for (const file of await unclassifiedUploads(files, this.#isImageFile)) this.#unclassifiedUploads.add(file);
       if (!current()) return;
-      await this.#currentFeatures(controller.signal);
-      if (!current()) return;
       // Read the binding after the last await: a processing change during this pick decides its plan.
       const images = this.#imageInputEnabled();
       const plan = planUploads(files, { limits: this.#limits, uploads: this.#session.uploads, images, imageFile: this.#isImageFile,
@@ -3750,35 +3737,14 @@ export class AithemaSession extends HTMLElement {
       const documentPlan = { ...plan, refused: plan.refused.filter(record => !imageRefusals.includes(record)),
         blocked: plan.blocked === 'images' || (needsImages && files.every(this.#isImageFile)) ? null : plan.blocked };
       const notices = [replacement], count = plan.batches.flat().length, consentFiles = [], detectedRefusals = [];
-      // Later batches and rate-limit retries wait first, and the binding can change meanwhile. Every attempt
-      // is admitted on the verdict for the CURRENT settings (it waits for a changed setting's snapshot):
-      // - image input available: the image is sent;
-      // - consent required: the image is held here and asks, exactly like a fresh pick;
-      // - no image input: refused like a pick under that binding (document type);
-      // - still unconfirmed after the wait: kept here, refused as unavailable (fail closed).
-      // An image kept out once stays out of every later attempt of this upload (excluded).
-      const excluded = new Set(), unverified = [];
-      const admit = async batch => {
-        const confirmed = await this.#currentFeatures(controller.signal);
-        const verdict = this.#feature('imageInput', true, { ignorePause: true });
-        for (const file of batch) {
-          if (!images || excluded.has(file) || !this.#isImageFile(file)) continue;
-          if (!confirmed) { excluded.add(file); unverified.push({ name: file.name, reason: 'unavailable' }); }
-          else if (verdict.available) continue;
-          else if (isConsentReason(verdict.rawReason ?? verdict.reason)) { excluded.add(file); consentFiles.push(file); }
-          else { excluded.add(file); documentPlan.refused.push({ name: file.name, reason: 'type' }); }
-        }
-        return batch.filter(file => !excluded.has(file));
-      };
       if (count) {
         this.#status(plural(copy.uploads.uploading, count));
         let sent = 0, attempted = 0;
-        for (const planned of plan.batches) {
-          const result = await this.#postUploads(planned, controller.signal, refusalVersion, admit);
+        for (const batch of plan.batches) {
+          const result = await this.#postUploads(batch, controller.signal, refusalVersion);
           if (!current()) return;
-          const batch = result?.files ?? planned;
           if (result?.final) {
-            const names = plan.batches.flat().slice(attempted).filter(file => !excluded.has(file)).map(file => file.name).join(', ');
+            const names = plan.batches.flat().slice(attempted).map(file => file.name).join(', ');
             const failure = result.failure === copy.uploads.failed && plan.batches.flat().length - attempted > 1
               ? resolveCopy(copy, 'uploads.failedMany', 'uploads.failed', this.#session.locale) : result.failure;
             // The terminal reason leads even when this pick also replaces retained files
@@ -3786,11 +3752,11 @@ export class AithemaSession extends HTMLElement {
             notices.unshift([failure, copy.uploads.refused.replace('{list}', names)].join(reasonSeparator));
             break;
           }
-          if (result?.error) {
+          if (typeof result === 'string' && result) {
             // Earlier batches are already attached; keep only the refused and unattempted files.
-            if (result.error === 'upload-rate-limit') { this.#retryFiles = plan.batches.flat().slice(attempted).filter(file => !excluded.has(file)); break; }
-            notices.push(plan.batches.length === 1 && planned.length === 1 ? result.error : batch.map(file => `${file.name}: ${result.error}`).join(' '));
-            attempted += planned.length; continue;
+            if (result === 'upload-rate-limit') { this.#retryFiles = plan.batches.flat().slice(attempted); break; }
+            notices.push(plan.batches.length === 1 && batch.length === 1 ? result : batch.map(file => `${file.name}: ${result}`).join(' '));
+            attempted += batch.length; continue;
           }
           for (const record of result.refused ?? []) {
             const file = batch[record.index];
@@ -3801,14 +3767,14 @@ export class AithemaSession extends HTMLElement {
             else detectedRefusals.push({ name: file.name, reason: record.reason === 'image input not supported' ? 'model'
               : record.reason === 'limit' ? 'limit' : 'unavailable' });
           }
-          sent += batch.length - (result.refused?.length ?? 0); attempted += planned.length;
+          sent += batch.length - (result.refused?.length ?? 0); attempted += batch.length;
         }
         if (sent && this.#session.uploads.some(u => u.state === 'pending')) { this.#reading = plural(copy.uploads.received, sent); this.#status(this.#reading); }
         else this.#clearNotice();
       }
-      if (imageRefusals.length || plan.imageRefused.length || detectedRefusals.length || unverified.length || plan.blocked && needsImages) this.#images.refuse([
+      if (imageRefusals.length || plan.imageRefused.length || detectedRefusals.length || plan.blocked && needsImages) this.#images.refuse([
         ...imageRefusals.map(record => ({ ...record, reason: record.reason === 'type' ? 'unsupported' : record.reason })),
-        ...plan.imageRefused, ...detectedRefusals, ...unverified,
+        ...plan.imageRefused, ...detectedRefusals,
         ...(plan.blocked && plan.blocked !== 'images' && needsImages ? [{ reason: plan.blocked === 'count' ? 'limit' : 'session' }] : [])]);
       // Retained-file retry facts keep their established copy and action order.
       const supported = this.#imageLayout && this.#imageInputEnabled()
@@ -3868,8 +3834,6 @@ export class AithemaSession extends HTMLElement {
   #consumeImageIntent() {
     const pending = this.#imageIntent;
     if (!pending || pending.id !== this.#session.id || !this.isConnected || this.#uploading) return;
-    // A settings change awaits its snapshot: the refresh that lands it consumes the hold on the current verdict.
-    if (!this.#featuresCurrent()) return;
     // The POST's consent refusal outranks a stale available feature projection.
     if (pending.continuation && this.#session.consentRevision === pending.continuation.consentRevision) return;
     if (pending.features.includes('imageInput') && !this.#feature('imageInput').available || pending.features.includes('uploads') && !this.#feature('uploads').available) return;
@@ -3887,26 +3851,6 @@ export class AithemaSession extends HTMLElement {
     clearTimeout(this.#uploadRetryTimer); this.#uploadRetryTimer = null;
     this.#retryFiles = []; this.#uploadController?.abort();
   }
-  // Whether the feature matrix is the verdict for the current settings (no settings change awaits its snapshot).
-  #featuresCurrent() { return !this.#staleFeatures; }
-  // Called where a matrix confirmed for the current settings lands (a snapshot at the cursor, a settings
-  // acknowledgement for this revision, a restore or a new configuration).
-  #featuresSettled() {
-    this.#staleFeatures = false;
-    for (const done of [...this.#featureWaiters]) done();
-  }
-  // Resolves true once the verdict is current; false when it is still stale after the wait (or the upload ended).
-  #currentFeatures(signal) {
-    if (this.#featuresCurrent() || signal?.aborted) return Promise.resolve(this.#featuresCurrent());
-    return new Promise(resolve => {
-      const done = () => {
-        clearTimeout(timer); this.#featureWaiters.delete(done);
-        signal?.removeEventListener('abort', done); resolve(this.#featuresCurrent());
-      };
-      const timer = setTimeout(done, FEATURE_WAIT); this.#featureWaiters.add(done);
-      signal?.addEventListener('abort', done, { once: true });
-    });
-  }
   #waitForUploadRetry(delay, signal) {
     if (signal.aborted) return Promise.resolve();
     return new Promise(resolve => {
@@ -3918,37 +3862,26 @@ export class AithemaSession extends HTMLElement {
       signal.addEventListener('abort', finish, { once: true });
     });
   }
-  /**
-   * One multipart request, with at most three attempts for busy; keep the same receipt ID on retries.
-   * admit(files) returns the files the current binding still allows; it runs before every attempt. A
-   * different set is a different request (new receipt ID; a 429 stores no receipt). The result names the
-   * files it sent (`files`); refusal indexes refer to them. A non-final failure is { error, files }.
-   */
-  async #postUploads(planned, signal, refusalVersion, admit = files => files) {
-    const copy = this.#copy, sessionId = this.#session.id;
+  /** One multipart request, with at most three attempts for busy; keep the same receipt ID on retries. */
+  async #postUploads(files, signal, refusalVersion) {
+    const copy = this.#copy, sessionId = this.#session.id, form = new FormData();
     const current = () => !signal.aborted && sessionId === this.#session.id && this.isConnected;
-    let response, body = null, files = null, form;
+    form.append('clientEventId', crypto.randomUUID());
+    for (const file of files) form.append('files', file, file.name);
+    let response, body = null;
     try {
       const path = `${this.#base}/api/sessions/${sessionId}/uploads`;
       // A 202 retains its reservation through extraction, so even sequential batches can be busy.
       // Keep the uploading state and notice unchanged until a retry succeeds or all attempts fail.
       for (let attempt = 0; attempt < 3; attempt++) {
         if (!current()) return '';
-        const admitted = await admit(planned);
-        if (!current()) return '';
-        if (!admitted.length) return { refused: [], files: [] };
-        if (admitted.length !== files?.length || admitted.some((file, index) => file !== files[index])) {
-          files = admitted; form = new FormData();
-          form.append('clientEventId', crypto.randomUUID());
-          for (const file of files) form.append('files', file, file.name);
-        }
         response = await this.#api(sameOrigin(this.ownerDocument.defaultView, path), form, { sessionToken: this.#sessionToken, signal });
         body = await response.json().catch(() => null);
         if (!current()) return '';
         if (response.status !== 429 || body?.error !== 'upload-rate-limit' || attempt === 2) break;
         await this.#waitForUploadRetry(uploadRetryDelay(response, attempt), signal);
       }
-    } catch { return current() ? { error: copy.uploads.failed, files: files ?? [] } : ''; }
+    } catch { return current() ? copy.uploads.failed : ''; }
     if (!current()) return '';
     if (response.ok && body) {
       // Keep failures from this selection, including SSE before the receipt
@@ -3956,16 +3889,14 @@ export class AithemaSession extends HTMLElement {
       this.#images?.clear(refusalVersion);
       if (body.limits) this.#limits = uploadLimits(body.limits);
       for (const event of body.events ?? []) this.receive(event);
-      return { refused: Array.isArray(body.refused) ? body.refused : [], files };
+      return { refused: Array.isArray(body.refused) ? body.refused : [] };
     }
     if ([401, 404, 409, 410].includes(response.status) || response.status === 403 && !body?.reason) return { final: true,
       failure: response.status === 409 && body?.reason === 'purpose' ? copy.purposePaused : copy.uploads.failed };
-    // A failure names the files of the failing request, never one admission kept out of it.
-    const failed = error => ({ error, files });
-    if (response.status === 413) return failed(copy.uploads.overLimit);
-    if (response.status === 429) return failed('upload-rate-limit');
-    if (response.status === 403 && typeof body?.reason === 'string') return failed(copy.uploads.unavailable.replace('{reason}', reasonText(copy, body.reason, 'uploads')));
-    return failed(copy.uploads.failed);
+    if (response.status === 413) return copy.uploads.overLimit;
+    if (response.status === 429) return 'upload-rate-limit';
+    if (response.status === 403 && typeof body?.reason === 'string') return copy.uploads.unavailable.replace('{reason}', reasonText(copy, body.reason, 'uploads'));
+    return copy.uploads.failed;
   }
   #expandLabel() {
     const details = [...this.shadowRoot.querySelectorAll('.cleared details')], button = this.shadowRoot.querySelector('.expand');
@@ -4124,9 +4055,6 @@ export class AithemaSession extends HTMLElement {
         }
         // Labels and verdicts belong to the old choice until the snapshot refresh confirms them.
         if (presetBefore !== this.#session.processingPreset) this.#modeChanged(presetBefore);
-        // Until the snapshot for these settings lands, the matrix in hand is the old choice's verdict.
-        // Upload admission waits for the new one (AIT-587 B5); a device choice's verdict is local.
-        this.#staleFeatures = this.#session.processingPreset !== 'device';
         this.#renderMode(); this.#dialog?.sync();
         if (this.isConnected) void this.#refreshFeatures();
       }
@@ -4348,8 +4276,7 @@ export class AithemaSession extends HTMLElement {
         this.#retryStaleConsentRefresh(pending);
         if (session.id === sessionId && (session.seq !== this.#cursor || voiceGeneration !== this.#rail?.generation)) {
           if (unlockEdge && session.seq > this.#cursor && !lockedIdentity(session.identity) && lockedIdentity(this.#session.identity)) this.#connect();
-          // A settings change awaiting its verdict repeats even when the overtaken matrix looks the same (AIT-587 r3).
-          repeat(session.seq, this.#staleFeatures || JSON.stringify(session.featureMatrix) !== JSON.stringify(this.#session.featureMatrix));
+          repeat(session.seq, JSON.stringify(session.featureMatrix) !== JSON.stringify(this.#session.featureMatrix));
         }
         return;
       }
@@ -4359,7 +4286,7 @@ export class AithemaSession extends HTMLElement {
         if (session.paused) restorePaused();
         else this.#voiceResumeProjection = null;
       }
-      this.#clarifyRefresh++; this.#session.featureMatrix = session.featureMatrix; this.#featuresSettled();
+      this.#clarifyRefresh++; this.#session.featureMatrix = session.featureMatrix;
       const openerChanged = JSON.stringify(this.#session.opener) !== JSON.stringify(session.opener);
       if ('opener' in session) this.#session.opener = session.opener; else delete this.#session.opener;
       if (openerChanged) this.#render('transcript');
