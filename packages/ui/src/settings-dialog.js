@@ -1,6 +1,8 @@
 import { neutralBindingReason } from './reason-text.js';
 import { featureConsentText, reasonSeparator } from './consent-line.js';
 import { ConsentSettings } from './consent-settings.js';
+import { en } from './i18n/en.js';
+import { de } from './i18n/de.js';
 // START AiSettings.astro, ai-settings.ts and settings-controls.ts behaviour, ported
 // to a native modal <dialog> inside the component (INSPR D3). The server owns every
 // verdict: this dialog sends option ids and shows only acknowledged state.
@@ -61,20 +63,34 @@ const shortCountryNames = (countries, locale) => {
 // r4: the cap counts graphemes (an emoji or a letter with its combining mark is
 // one), so the cut never splits one; code points where Intl.Segmenter is missing.
 const HELP_REASON_CAP = 40;
-const graphemes = text => typeof Intl.Segmenter === 'function'
-  ? Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text), part => part.segment) : [...text];
+// r5 (gate Low): without Intl.Segmenter, a combining mark, a variation selector,
+// a skin-tone modifier, a ZWJ and the code point after a ZWJ join the previous
+// code point, so the fallback keeps those sequences whole too (other clusters,
+// e.g. Hangul jamo or regional-indicator flags, may still split there).
+const JOINS = /^[\p{M}\u200D\u{1F3FB}-\u{1F3FF}]$/u;
+const graphemes = text => {
+  if (typeof Intl.Segmenter === 'function') return Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text), part => part.segment);
+  const parts = [];
+  for (const point of text) {
+    if (parts.length && (JOINS.test(point) || parts.at(-1).endsWith('\u200D'))) parts[parts.length - 1] += point; else parts.push(point);
+  }
+  return parts;
+};
 export const helpReason = text => {
   const value = String(text ?? ''), parts = graphemes(value);
   return parts.length > HELP_REASON_CAP ? `${parts.slice(0, HELP_REASON_CAP - 1).join('').trimEnd()}…` : value;
 };
 // r4 (gate M1): the help cell's reserve holds the tallest RENDERING, not the
 // longest string: the consent-needed measure stacks one hidden copy per capped
-// feature reason in one grid cell (the cell takes the tallest), plus a run of
-// the widest Latin glyph at the cap, so no host sentence's prefix (wide or
-// narrow glyphs) can change the reserve or grow the row.
-const WIDEST_REASON = `${'W'.repeat(HELP_REASON_CAP - 1)}…`;
+// feature reason in one grid cell (the cell takes the tallest).
+// r5 (TICK decision (i)): the reasons are the STOCK sentences of the locale (a
+// host override never sets the reserve), so the reserve is the N lines the
+// stock copy needs at this width; the live help line is clamped to those N
+// lines with an ellipsis (#fitHelp). No sample string.
+const stockCopy = copy => ({ en, de })[String(copy.display?.locale ?? '').slice(0, 2).toLowerCase()] ?? copy;
 const helpMeasurements = copy => {
-  const reasons = [...['text', 'uploads', 'images', 'html', 'voice', 'analysis'].map(feature => helpReason(featureConsentText(copy, feature))), WIDEST_REASON];
+  const stock = stockCopy(copy);
+  const reasons = ['text', 'uploads', 'images', 'html', 'voice', 'analysis'].map(feature => helpReason(featureConsentText(stock, feature)));
   return Object.entries(copy.help).map(([key, text]) => key === 'consentNeeded' ? reasons.map(reason => fill(text, { reason })) : fill(text, { reason: '' }));
 };
 // One measure node per help text; a list of variants stacks in that node.
@@ -272,10 +288,31 @@ export class SettingsDialog {
     }
   }
   #observeFade() {
-    this.#fadeObserver ??= new this.#dialog.ownerDocument.defaultView.ResizeObserver(() => this.#updateFade());
+    this.#fadeObserver ??= new this.#dialog.ownerDocument.defaultView.ResizeObserver(() => {
+      this.#updateFade();
+      // The next frame, not inside the callback: a clamp that changes the help
+      // cell here would re-enter the observer (a "loop completed" error).
+      this.#dialog.ownerDocument.defaultView.requestAnimationFrame(() => this.#fitHelp());
+    });
     // Panels track content changes even when the body's own size stays fixed.
-    for (const node of this.#all('.settings__body, .settings-panel, .select__menu')) this.#fadeObserver.observe(node);
-    this.#updateFade();
+    // r5: the help cell and its measures (width or locale changes move N).
+    for (const node of this.#all('.settings__body, .settings-panel, .select__menu, .context-text, .context-measure')) this.#fadeObserver.observe(node);
+    this.#updateFade(); this.#fitHelp();
+  }
+  // r5 (TICK decision (i)): N = the lines the tallest stock help needs here
+  // (the measures); a help text taller than N lines is clamped to whole N lines
+  // with an ellipsis (data-clamp), so the help cell never grows past its reserve.
+  // Text that fits is not clamped, so a focused inline link keeps its ring.
+  #fitHelp() {
+    const message = this.#q('.context-message');
+    if (!message || !this.#dialog.open) return;
+    const line = parseFloat(this.#dialog.ownerDocument.defaultView.getComputedStyle(message).lineHeight);
+    const reserve = Math.max(0, ...[...this.#all('.context-measure')].map(node => node.getBoundingClientRect().height));
+    if (!(line > 0) || !(reserve > 0)) return;
+    const lines = Math.max(1, Math.round(reserve / line));
+    message.style.setProperty('--help-lines', String(lines));
+    delete message.dataset.clamp;
+    if (message.getBoundingClientRect().height > lines * line + .5) message.dataset.clamp = '';
   }
   #wire() {
     const dialog = this.#dialog;
@@ -755,7 +792,7 @@ export class SettingsDialog {
     const privacy = this.#q('[data-gauge="privacy"]');
     const keepLink = message.querySelector('a[data-aithema-privacy]') && privacy.dataset.state === 'hostCountries' && message.textContent === privacy.dataset.helpText;
     if (keepLink && (message.contains(this.#focused()) || !term || term.dataset.help === 'gauges')) return;
-    message.textContent = text;
+    message.textContent = text; this.#fitHelp();
     if (term?.dataset.gauge !== 'privacy' || term.dataset.state !== 'hostCountries') return;
     const host = this.#dialog.getRootNode().host;
     const marked = [...(host?.children ?? [])].filter(node => node.slot === 'legal')

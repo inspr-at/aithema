@@ -148,7 +148,11 @@ export class ConsentSettings {
     if (shown || reason.hidden) {
       target.dataset.focusRing = '';
       target.addEventListener('blur', () => { delete target.dataset.focusRing; }, { once: true });
-      target.focus({ preventScroll: true, focusVisible: true }); return;
+      target.focus({ preventScroll: true, focusVisible: true });
+      // r5 (gate Low): focus did not land, so no marker may ring a later pointer focus.
+      const root = target.getRootNode?.() ?? target.ownerDocument;
+      if (root && root.activeElement !== target) delete target.dataset.focusRing;
+      return;
     }
     reason.tabIndex = -1; reason.focus({ preventScroll: true });
   }

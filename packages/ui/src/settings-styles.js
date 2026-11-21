@@ -166,6 +166,8 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .context-text { flex:1; min-width:0; display:grid; align-items:center; }
 .context-text>p { grid-area:1/1; overflow-wrap:anywhere; }
 .context-measure { visibility:hidden; user-select:none; pointer-events:none; }
+/* r5 (TICK decision (i)): a help text taller than the stock N lines ends in an ellipsis on line N. */
+.context-message[data-clamp] { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:var(--help-lines); overflow:hidden; }
 .context-measure--stack { display:grid; }
 .context-measure--stack>span { grid-area:1/1; }
 .settings__footer { flex:none; position:relative; display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; gap:1rem; padding:.4rem 1.6rem 1rem; }
