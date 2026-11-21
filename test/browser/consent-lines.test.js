@@ -13,6 +13,7 @@ import { shadow, until, boxes, evidenceCommit } from './start2-display-helpers.j
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { compactStatusMaximum } from './overview-fade-check.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
+import { consentSheetFailedLoadCheck, consentSheetLoadedCheck } from './consent-sheet-check.js';
 
 const features = { imageInput: ['models-international', 'image-input'], uploads: ['models-international'], transcription: ['voice-elevenlabs'], images: ['models-international'], text: ['models-international'], html: ['drafts-anthropic'], voice: ['voice-elevenlabs'], analysis: ['models-international'] };
 const places = { html: '.concept-activity-text', voice: '.voice-state', analysis: '.notice' };
@@ -1608,3 +1609,7 @@ test('AIT-509 r10: default HTML consent copy is impersonal and keeps positive fr
     await record(t, page, `ait509-${locale}-${theme}-${width}-${entrance}-html-ask`, { before, after, ...state });
   }
 });
+
+// AIT-603 PR-B: the text-consent sheet shows the host sentence in full, on screen, with focus on screen.
+test('AIT-603 PR-B: a failed consent load shows the full host sentence on screen, focus on screen, 360/390/1440 EN/DE long/short', { timeout: 240_000 }, consentSheetFailedLoadCheck);
+test('AIT-603 PR-B: a loaded consent document keeps the full host sentence on screen; focus on the target when on screen, else the sentence; both fit scrolls least, 360/390/1440 EN/DE long/short', { timeout: 240_000 }, consentSheetLoadedCheck);
