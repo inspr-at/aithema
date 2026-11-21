@@ -25,10 +25,11 @@
 //   text and refuses invalid JSON with 400 before any storage.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { createHandlers, createPluginRuntime, SQLiteStorage, mockPresets } from '../src/index.js';
+import { dirname, join } from 'node:path';
+import { createFacadeSecrets, createHandlers, createPluginRuntime, SQLiteStorage, SERVER_UPLOAD_LIMITS, mockPresets } from '../src/index.js';
 import { listen } from '../src/http.js';
 import { createMockReasoning, PluginRegistry, reasoningRequest } from '@inspr/aithema-core';
 import { registerDemoExtractors } from '../../../demo/uploads.js';
@@ -44,39 +45,85 @@ function sentinelImage() {
 }
 const encodings = image => [image.marker, image.bytes.toString('base64'), image.bytes.toString('base64url'), Buffer.from(image.marker).toString('base64'),
   Buffer.from(image.marker).toString('hex'), image.bytes.toString('hex')];
+// Error message, stack and cause are not enumerable: JSON alone would drop them.
 const serialize = value => JSON.stringify(value, (key, v) => v instanceof Uint8Array || v?.type === 'Buffer' && Array.isArray(v.data)
-  ? Buffer.from(v instanceof Uint8Array ? v : v.data).toString('base64') : typeof v === 'bigint' ? String(v) : v) ?? String(value);
+  ? Buffer.from(v instanceof Uint8Array ? v : v.data).toString('base64') : typeof v === 'bigint' ? String(v)
+    : v instanceof Error ? { ...v, name: v.name, message: v.message, stack: v.stack, cause: v.cause } : v) ?? String(value);
 function leaksIn(text, image) { return encodings(image).filter(encoding => text.includes(encoding)); }
 
-async function tmpEntries() {
-  const root = tmpdir(), out = new Map();
-  for (const name of await readdir(root).catch(() => [])) out.set(name, (await stat(join(root, name)).catch(() => null))?.mtimeMs);
+// Every file below the temp dir, nested ones included (a lane run has its own
+// temp dir). Bounded so a crowded temp dir cannot stall the proof.
+async function tmpEntries(root = tmpdir(), out = new Map(), depth = 0) {
+  if (depth > 8 || out.size > 20_000) return out;
+  for (const entry of await readdir(root, { withFileTypes: true }).catch(() => [])) {
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) await tmpEntries(path, out, depth + 1);
+    else if (entry.isFile()) out.set(path, (await stat(path).catch(() => null))?.mtimeMs);
+  }
+  return out;
+}
+async function changedTemp(before) {
+  const out = [];
+  for (const [path, mtime] of await tmpEntries()) {
+    if (before.get(path) === mtime) continue;
+    const size = (await stat(path).catch(() => null))?.size ?? 0;
+    if (size > 64 * 1024 * 1024) continue;
+    const file = await readFile(path).catch(() => null);
+    if (file) out.push({ path, text: file.toString('latin1') });
+  }
   return out;
 }
 
-async function fixture(t) {
+async function fixture(t, { voice } = {}) {
   const path = await temporaryDb(), storage = new SQLiteStorage(path);
-  const logs = [], admitted = [], normalized = [];
+  const logs = [], writes = [], admitted = [], normalized = [], during = [];
   // Documents use the demo extractors so a mixed request runs the model lanes.
   const reasoning = createMockReasoning(), registry = new PluginRegistry().register(reasoning), presets = mockPresets();
   registerDemoExtractors(registry, presets);
   const runtime = createPluginRuntime({ storage, reasoning, registry, presets, consent: mockConsent });
-  const handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent: mockConsent, log: entry => { logs.push(entry); } });
+  const handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent: mockConsent, log: entry => { logs.push(entry); }, ...(voice ? { voice } : {}) });
   const session = storage.create({ ownerToken: testToken, demo: true });
   for (const method of ['log', 'info', 'warn', 'error', 'debug', 'trace']) t.mock.method(console, method, (...args) => { logs.push(args); });
+  // Direct stream writes bypass console. Record them and pass them on (the test
+  // runner reports through the same streams).
+  for (const stream of [process.stdout, process.stderr]) {
+    const write = stream.write;
+    t.mock.method(stream, 'write', function (chunk, ...rest) { writes.push(Buffer.from(chunk).toString('latin1')); return write.call(this, chunk, ...rest); });
+  }
   // Every model lane passes through runtime.admit with its full request.
   const admit = runtime.admit.bind(runtime);
   t.mock.method(runtime, 'admit', args => { admitted.push(serialize(args.request)); return admit(args); });
   // A fake local normalizer: records every byte it receives and refuses or accepts.
+  // While it runs, the job is at its widest: capture a backup snapshot of the
+  // database and every temp file (transient ones vanish before the job ends).
   const normalizer = { verdict: { status: 'staged-refused', reason: 'unsupported' },
-    async normalize(bytes, metadata) { normalized.push(Buffer.from(bytes)); return typeof this.verdict === 'function' ? this.verdict(bytes, metadata) : this.verdict; } };
+    async normalize(bytes, metadata, options) {
+      normalized.push(Buffer.from(bytes)); await f.duringJob();
+      return typeof this.verdict === 'function' ? this.verdict(bytes, metadata, options) : this.verdict;
+    } };
   const availability = { reason: undefined };
   const real = runtime.imageInputAvailability.bind(runtime);
   t.mock.method(runtime, 'imageInputAvailability', async (current, options) => availability.real ? real(current, options)
     : typeof availability.reason === 'function' ? availability.reason(current) : availability.reason ? { reason: availability.reason } : { plugin: normalizer, maxImages: 4 });
   const before = await tmpEntries();
   t.after(async () => { await handlers.close(); storage.close(); });
-  const f = { path, storage, runtime, handlers, session, logs, admitted, normalized, normalizer, availability,
+  let snapshots = 0;
+  const f = { path, storage, runtime, handlers, session, logs, writes, admitted, normalized, normalizer, availability, during,
+    // A backup through SQLite itself (VACUUM INTO, a second connection) plus the
+    // temp dir, taken during the job.
+    async duringJob() {
+      const snapshot = join(dirname(path), `snapshot-${++snapshots}.sqlite`), db = new DatabaseSync(path);
+      try { db.exec(`VACUUM INTO '${snapshot}'`); } finally { db.close(); }
+      during.push({ label: 'backup snapshot', text: (await readFile(snapshot)).toString('latin1') });
+      for (const file of await changedTemp(before)) during.push({ label: `transient temp file ${file.path}`, text: file.text });
+    },
+    // A concurrent reader holding its snapshot keeps WAL frames from being checkpointed away.
+    holdReader() {
+      const reader = new DatabaseSync(path);
+      reader.exec('BEGIN'); reader.prepare('SELECT COUNT(*) AS n FROM uploads').get();
+      t.after(() => { reader.exec('COMMIT'); reader.close(); });
+      return reader;
+    },
     upload(clientEventId, files, headers = {}) {
       const form = new FormData(); form.append('clientEventId', clientEventId);
       for (const [name, content, type = 'image/png'] of files) form.append('files', new File([content], name, { type }));
@@ -87,6 +134,7 @@ async function fixture(t) {
     // dir), not logged (console, host log), not forwarded (model lanes, events).
     async assertNoTrace(image, { responses = [] } = {}) {
       await handlers.idle();
+      for (const capture of during) assert.deepEqual(leaksIn(capture.text, image), [], capture.label);
       const db = storage.db;
       for (const row of db.prepare('SELECT id, bytes FROM uploads').all()) {
         if (row.bytes) assert.equal(leaksIn(Buffer.from(row.bytes).toString('latin1'), image).length, 0, 'no uploads row holds the refused bytes');
@@ -99,13 +147,9 @@ async function fixture(t) {
         const file = await readFile(`${path}${suffix}`).catch(() => null);
         if (file) assert.deepEqual(leaksIn(file.toString('latin1'), image), [], `database file${suffix}`);
       }
-      const after = await tmpEntries();
-      for (const [name, mtime] of after) {
-        if (before.get(name) === mtime) continue;
-        const file = await readFile(join(tmpdir(), name)).catch(() => null);
-        if (file) assert.deepEqual(leaksIn(file.toString('latin1'), image), [], `temp file ${name}`);
-      }
       assert.deepEqual(leaksIn(serialize(logs), image), [], 'console and host log');
+      assert.deepEqual(leaksIn(writes.join(''), image), [], 'stdout/stderr');
+      for (const file of await changedTemp(before)) assert.deepEqual(leaksIn(file.text, image), [], `temp file ${file.path}`);
       assert.deepEqual(leaksIn(admitted.join('\n'), image), [], 'model lanes');
       assert.deepEqual(leaksIn(serialize(storage.read(session.id)), image), [], 'published events');
       const current = storage.get(session.id);
@@ -162,12 +206,17 @@ test('AIT-610 P1: the real runtime verdict (a binding without image input) refus
 // P1 whole-request refusals: no file of the request is admitted.
 for (const [label, prepare, files, status, error] of [
   ['purpose pause', f => f.storage.append(f.session.id, 'session.paused', { paused: true, reason: 'purpose' }), image => [['paused.png', image.bytes]], 409, 'conversation-paused'],
-  ['file size limit', null, image => [['huge.png', Buffer.concat([image.bytes, Buffer.alloc(21 * 1024 * 1024, 7)])]], 413, 'size-limit'],
+  // Over the per-file limit, under the whole-request ceiling: the body is read and the per-file check refuses.
+  ['file size limit', null, image => [['huge.png', Buffer.concat([image.bytes, Buffer.alloc(SERVER_UPLOAD_LIMITS.maxBytes, 7)])]], 413, 'size-limit'],
   ['file count limit', null, image => Array.from({ length: 10 }, (_, i) => [`many-${i}.png`, image.bytes]), 413, 'size-limit'],
   ['documents unavailable', f => { f.runtime.uploadAvailability = async () => ({ reason: 'consent expired' }); }, image => [['mixed.png', image.bytes], ['mixed.pdf', pdf(), 'application/pdf']], 403, 'uploads-unavailable'],
 ]) test(`AIT-610 P1: a whole-request refusal (${label}) never stores, logs or forwards the image bytes`, async t => {
   const f = await fixture(t), image = sentinelImage();
   prepare?.(f);
+  if (label === 'file size limit') {
+    const size = files(image)[0][1].length;
+    assert.ok(size > SERVER_UPLOAD_LIMITS.maxBytes && size + 1024 < SERVER_UPLOAD_LIMITS.maxRequestBytes, 'the fixture reaches the per-file check');
+  }
   const response = await f.upload(`whole-${status}`, files(image)), body = await response.text();
   assert.equal(response.status, status, body);
   assert.equal(JSON.parse(body).error, error, 'the response states the refusal');
@@ -200,10 +249,12 @@ for (const [label, verdict] of [
 ]) test(`AIT-610 P2: a normalizer refusal (${label}) erases the staged bytes and logs or forwards nothing`, async t => {
   const f = await fixture(t), image = sentinelImage();
   f.normalizer.verdict = verdict;
+  f.holdReader();
   const response = await f.upload('normalize', [['staged.png', image.bytes]]), body = await response.text();
   assert.equal(response.status, 202, body);
   await f.handlers.idle();
   assert.equal(f.normalized.length, 1, 'only the local verifier received the bytes');
+  assert.ok(f.during.some(capture => capture.label === 'backup snapshot'), 'a backup snapshot was taken during the job');
   const upload = f.storage.get(f.session.id).uploads[0];
   assert.equal(upload.state, 'staged-refused');
   assert.equal(upload.reason, typeof verdict === 'function' ? 'unavailable' : verdict.reason, 'the refusal states its reason');
@@ -228,10 +279,9 @@ for (const [label, change] of [
   await f.handlers.idle();
   assert.ok(calls >= 2, 'the staged job re-checked admission');
   const upload = f.storage.get(f.session.id).uploads.find(item => item.filename === 'late.png');
-  if (upload) {
-    assert.notEqual(upload.state, 'staged-ready');
-    assert.equal(f.storage.uploadBytes(f.session.id, upload.id), null);
-  }
+  assert.equal(upload.state, 'staged-refused', 'the late refusal is a visible state');
+  assert.equal(upload.reason, 'unavailable', 'the late refusal states its reason');
+  assert.equal(f.storage.uploadBytes(f.session.id, upload.id), null);
   assert.equal(f.normalized.length, 0, 'the normalizer is never called after a refusal');
   await f.assertNoTrace(image, { responses: [body] });
 });
@@ -261,11 +311,12 @@ test('AIT-610 P1 over HTTP: admission and size refusals leave no trace through t
 // with 400 before any storage, and the error path logs nothing.
 for (const route of ['turns', 'concepts', 'focus-question', 'locale', 'voice/start']) {
   test(`AIT-610 non-byte route ${route}: image bytes posted as a body are refused without a trace`, async t => {
-    const f = await fixture(t), image = sentinelImage();
+    // Voice is enabled for its route, so a 404 (route absent) can never pass as a refusal.
+    const f = await fixture(t, route === 'voice/start' ? { voice: { secrets: createFacadeSecrets() } } : {}), image = sentinelImage();
     const response = await f.handlers.handle(ownedRequest(`http://localhost/api/sessions/${f.session.id}/${route}`, { method: 'POST',
       headers: { 'content-type': 'application/json' }, body: image.bytes }));
     const body = await response.text();
-    assert.ok(response.status >= 400 && response.status < 500, `${response.status} ${body}`);
+    assert.ok(response.status >= 400 && response.status < 500 && response.status !== 404, `${response.status} ${body}`);
     assert.equal(f.normalized.length, 0);
     await f.assertNoTrace(image, { responses: [body] });
   });
@@ -273,13 +324,122 @@ for (const route of ['turns', 'concepts', 'focus-question', 'locale', 'voice/sta
 
 // Positive control: the same scans do find bytes that were stored or logged,
 // so a green proof above cannot come from a blind scanner.
+// Each channel has its own control.
 test('AIT-610 control: the trace scans detect stored, logged and forwarded sentinel bytes', async t => {
-  const stored = await fixture(t), image = sentinelImage();
-  stored.storage.postUploads(stored.session.id, 'control', 'control', [{ kind: 'image', filename: 'control.png', mediaType: 'image/png', bytes: image.bytes, deadlineAt: Date.now() + 25000 }], {});
+  // A fresh sentinel per channel: a control that writes to stdout must not
+  // trip the next control through the runner's log file.
+  let image = sentinelImage();
+  // A document row stores its bytes by design; it stands in for a stored image.
+  const stored = await fixture(t);
+  stored.storage.postUploads(stored.session.id, 'control', 'control', [{ filename: 'control.txt', mediaType: 'text/plain', bytes: image.bytes, deadlineAt: Date.now() + 25000 }], {});
   await assert.rejects(stored.assertNoTrace(image), /uploads row|table uploads|database file/u);
-  for (const [label, leak] of [['console', f => console.error('upload body', image.bytes.toString('base64'))], ['model lanes', f => f.admitted.push(image.marker)]]) {
+  const nested = join(tmpdir(), `ait610-control-${process.pid}`);
+  t.after(() => rm(nested, { recursive: true, force: true }));
+  for (const [label, leak] of [
+    ['console', f => console.error('upload body', image.bytes.toString('base64'))],
+    ['host log', f => f.logs.push({ error: new Error(`decoder failed on ${image.marker}`) })],
+    ['host log', f => { const error = new Error('decoder failed'); error.stack = `Error: decoder failed\n    at ${image.marker}`; f.logs.push(error); }],
+    ['stdout/stderr', f => { process.stderr.write(`AIT-610 control ${image.marker}\n`); }],
+    ['stdout/stderr', f => { process.stdout.write(`# AIT-610 control ${image.bytes.toString('base64')}\n`); }],
+    ['temp file', async f => { await mkdir(join(nested, 'deep', 'er'), { recursive: true }); await writeFile(join(nested, 'deep', 'er', 'part.bin'), image.bytes); }],
+    ['transient temp file', async f => { const file = join(tmpdir(), `ait610-transient-${process.pid}.bin`); await writeFile(file, image.bytes); await f.duringJob(); await rm(file); }],
+    ['backup snapshot', async f => {
+      f.storage.postUploads(f.session.id, 'snap', 'snap', [{ filename: 'snap.txt', mediaType: 'text/plain', bytes: image.bytes, deadlineAt: Date.now() + 25000 }], {});
+      await f.duringJob(); f.storage.withdrawUpload(f.session.id, f.storage.get(f.session.id).uploads[0].id);
+    }],
+    ['model lanes', f => f.admitted.push(image.marker)],
+  ]) {
+    image = sentinelImage();
     const f = await fixture(t);
-    leak(f);
+    await leak(f);
     await assert.rejects(f.assertNoTrace(image), new RegExp(label, 'u'));
+    await rm(nested, { recursive: true, force: true });
   }
+});
+
+// LEAD option A (Desk 203dfe1c): original image bytes are never written to a
+// persistent store, not even while the local normalizer has not decided yet.
+test('AIT-610 option A: a staged image is held in memory only; no row, WAL frame or backup holds the original while it waits', async t => {
+  const f = await fixture(t), image = sentinelImage();
+  f.holdReader();
+  let release, entered;
+  const gate = new Promise(resolve => { release = resolve; }), running = new Promise(resolve => { entered = resolve; });
+  f.normalizer.verdict = async () => { entered(); await gate; return { status: 'staged-refused', reason: 'dimensions' }; };
+  const response = await f.upload('in-memory', [['waiting.png', image.bytes]]), body = await response.text();
+  assert.equal(response.status, 202, body);
+  await running;
+  // While the normalizer runs, nothing persistent holds the original.
+  const upload = f.storage.get(f.session.id).uploads[0];
+  assert.equal(upload.state, 'staged-pending');
+  assert.equal(f.storage.uploadBytes(f.session.id, upload.id), null, 'the pending row has no bytes');
+  for (const suffix of ['', '-wal', '-journal']) {
+    const file = await readFile(`${f.path}${suffix}`).catch(() => null);
+    if (file) assert.deepEqual(leaksIn(file.toString('latin1'), image), [], `pending: database file${suffix}`);
+  }
+  for (const capture of f.during) assert.deepEqual(leaksIn(capture.text, image), [], `pending: ${capture.label}`);
+  // P3 with an id that is not erased yet: still refused, before any model work.
+  const turn = await f.handlers.handle(ownedRequest(`http://localhost/api/sessions/${f.session.id}/turns`, { method: 'POST',
+    body: JSON.stringify({ clientEventId: 'attach-pending', content: 'Look', attachments: [upload.id] }) }));
+  const turnBody = await turn.text();
+  assert.equal(turn.status, 409, turnBody);
+  release();
+  await f.handlers.idle();
+  const settled = f.storage.get(f.session.id).uploads[0];
+  assert.equal(settled.state, 'staged-refused');
+  assert.equal(settled.reason, 'dimensions');
+  await f.assertNoTrace(image, { responses: [body, turnBody] });
+});
+
+test('AIT-610 option A: an accepted image persists only its normalized output', async t => {
+  const f = await fixture(t), image = sentinelImage(), normalized = Buffer.from('normalized pixels without the original');
+  f.normalizer.verdict = { status: 'staged-ready', bytes: normalized, mediaType: 'image/png', w: 2, h: 1 };
+  const response = await f.upload('accepted', [['fine.png', image.bytes]]), body = await response.text();
+  assert.equal(response.status, 202, body);
+  await f.handlers.idle();
+  const upload = f.storage.get(f.session.id).uploads[0];
+  assert.equal(upload.state, 'staged-ready');
+  assert.deepEqual(Buffer.from(f.storage.uploadBytes(f.session.id, upload.id)), normalized);
+  await f.assertNoTrace(image, { responses: [body] });
+});
+
+test('AIT-610 option A: a normalization lost to a restart surfaces as unavailable; the original was never stored', async t => {
+  const f = await fixture(t), image = sentinelImage();
+  // The process committed the staged row and stopped before its normalizer ran:
+  // this handler instance holds no original for it, as after a restart.
+  const staged = f.storage.postUploads(f.session.id, 'before-restart', 'before-restart', [{ kind: 'image', filename: 'lost.png', mediaType: 'image/png',
+    bytes: image.bytes, deadlineAt: Date.now() + 25000 }], SERVER_UPLOAD_LIMITS).events[0].data;
+  assert.equal(staged.state, 'staged-pending');
+  assert.equal(f.storage.uploadBytes(f.session.id, staged.id), null, 'the staged row never holds the original');
+  await f.handlers.resume();
+  await f.handlers.idle();
+  const upload = f.storage.get(f.session.id).uploads[0];
+  assert.equal(upload.state, 'staged-refused', 'never a silent loss or a false ready');
+  assert.equal(upload.reason, 'unavailable', 'the client renders this as unavailable; the visitor attaches again');
+  assert.equal(f.normalized.length, 0);
+  await f.assertNoTrace(image);
+});
+
+test('AIT-610 option A: above the pending-normalization cap a request is refused with a reason before its body is read', async t => {
+  const f = await fixture(t), images = Array.from({ length: SERVER_UPLOAD_LIMITS.maxFilesPerRequest }, () => sentinelImage());
+  let release, entered;
+  const gate = new Promise(resolve => { release = resolve; }), running = new Promise(resolve => { entered = resolve; });
+  f.normalizer.verdict = async () => { entered(); await gate; return { status: 'staged-refused', reason: 'unsupported' }; };
+  const first = await f.upload('fill', images.map((image, i) => [`held-${i}.png`, image.bytes])), firstBody = await first.text();
+  assert.equal(first.status, 202, firstBody);
+  await running;
+  let pulled = false;
+  const later = sentinelImage(), form = new FormData();
+  form.append('clientEventId', 'over-cap'); form.append('files', new File([later.bytes], 'later.png', { type: 'image/png' }));
+  const encoded = new Request('http://localhost/', { method: 'POST', body: form });
+  const raw = Buffer.from(await encoded.arrayBuffer());
+  const stream = new ReadableStream({ pull(controller) { pulled = true; controller.enqueue(raw); controller.close(); } }, { highWaterMark: 0 });
+  const response = await f.handlers.handle(new Request(`http://localhost/api/sessions/${f.session.id}/uploads`, { method: 'POST', body: stream, duplex: 'half',
+    headers: { 'x-aithema-session-token': testToken, 'content-type': encoded.headers.get('content-type') } }));
+  const body = await response.text();
+  assert.equal(response.status, 429, body);
+  assert.deepEqual(JSON.parse(body), { error: 'upload-rate-limit', reason: 'image-normalizations' });
+  assert.equal(pulled, false, 'refused before the body is read');
+  release();
+  await f.handlers.idle();
+  for (const image of [...images, later]) await f.assertNoTrace(image, { responses: [firstBody, body] });
 });
