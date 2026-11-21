@@ -65,23 +65,6 @@ async function harness(t) {
     await page.setRequestInterception(true);
     page.on('request', request => { void (new URL(request.url()).pathname === '/combined-fixture'
       ? request.respond({ status: 200, contentType: 'text/html', body: fixture }) : request.continue()); });
-    // `countries` (r6): from the first settings load on, every catalog model's
-    // providers are seated in these countries, and the best preset offers a
-    // 'default' model (as start2-display's provider-seat check).
-    if (countries) await page.evaluateOnNewDocument(countries => {
-      const prior = globalThis.fetch;
-      globalThis.fetch = async (url, options = {}) => {
-        if ((options.method ?? 'GET') !== 'GET' || !new URL(String(url?.url ?? url), location.href).pathname.endsWith('/settings')) return prior(url, options);
-        const catalog = await (await prior(url, options)).json();
-        for (const preset of Object.values(catalog.presets ?? {})) for (const model of preset.models ?? []) model.facts = { ...model.facts, hostCountries: countries, hostTraining: true };
-        // The fixture server has no provider, so its best preset may list no model.
-        const best = (catalog.presets ??= {}).best ??= { offered: true, status: 'available', models: [] };
-        (best.models ??= []).unshift({ ...best.models[0] ?? { label: 'Fixture model', status: 'available', offered: true }, id: 'default', facts: { ...best.models[0]?.facts, hostCountries: countries, hostTraining: true } });
-        catalog.settings = { ...catalog.settings, model: 'default' };
-        if (globalThis.countriesSession) catalog.settings = globalThis.countriesSession.settings;
-        return Response.json(catalog);
-      };
-    }, countries);
     await page.goto(`${server.url}/combined-fixture?locale=${locale}&passiveDenied`);
     await page.waitForFunction(() => globalThis.ready && document.querySelector('aithema-session').shadowRoot.querySelector('.composer-status').textContent.length > 0);
     await page.evaluate(() => addEventListener('error', event => { (globalThis.pageErrors ??= []).push(String(event.message)); }));
@@ -107,7 +90,24 @@ async function harness(t) {
       const prior = globalThis.fetch;
       globalThis.fetch = async (url, options = {}) => String(url).endsWith('/consent') && (options.method ?? 'GET') === 'GET'
         ? (await globalThis.releaseConsent, doc ? Response.json(doc) : new Response('unavailable', { status: 500 })) : prior(url, options);
-      if (countries) document.querySelector('aithema-session').insertAdjacentHTML('beforeend', '<nav slot="legal"><a data-aithema-privacy href="/host-privacy">Host document</a></nav>');
+      // `countries` (r6): every catalog model's providers are seated in these
+      // countries and the best preset offers a 'default' model (as
+      // start2-display's provider-seat check); the host slots a privacy link.
+      // The fixture page answers /settings itself, so this wraps its fetch.
+      if (countries) {
+        const fixtureFetch = globalThis.fetch;
+        globalThis.fetch = async (url, options = {}) => {
+          if ((options.method ?? 'GET') !== 'GET' || !String(url).endsWith('/settings')) return fixtureFetch(url, options);
+          const catalog = await (await fixtureFetch(url, options)).json();
+          for (const preset of Object.values(catalog.presets ?? {})) for (const model of preset.models ?? []) model.facts = { ...model.facts, hostCountries: countries, hostTraining: true };
+          // The fixture has no provider, so its best preset may list no model.
+          const best = (catalog.presets ??= {}).best ??= { offered: true, status: 'available', models: [] };
+          (best.models ??= []).unshift({ ...best.models[0] ?? { label: 'Fixture model', status: 'available', offered: true }, id: 'default', facts: { ...best.models[0]?.facts, hostCountries: countries, hostTraining: true } });
+          if (globalThis.countriesSession) { catalog.settings = globalThis.countriesSession.settings; catalog.processingPreset = 'best'; }
+          return Response.json(catalog);
+        };
+        document.querySelector('aithema-session').insertAdjacentHTML('beforeend', '<nav slot="legal"><a data-aithema-privacy href="/host-privacy">Host document</a></nav>');
+      }
       mount(JSON.parse(JSON.stringify(document.querySelector('aithema-session').session)));
     }, locale, sentence, doc, noFocusVisible, focusFails, hostCopy, countries);
     await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason[data-consent-feature="text"] .consent-action'));
