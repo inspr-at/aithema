@@ -1310,7 +1310,7 @@ export class AithemaSession extends HTMLElement {
       status.querySelector('.status__dot').dataset.state = 'disconnected';
       status.querySelector('.status__dot').setAttribute('aria-label', this.#copy.conversationUnavailable);
       status.removeAttribute('data-connected'); status.removeAttribute('data-message');
-      setText(status.querySelector('.status__since'), ''); status.removeAttribute('aria-describedby');
+      setText(status.querySelector('.status__since'), ''); status.removeAttribute('aria-describedby'); this.#phoneSince('');
       this.#timer?.setConnected(false); return;
     }
     const words = this.#rail?.moved ? this.#copy.voiceInAnotherTab : this.#notice || this.#connection || this.#copy.connecting;
@@ -1349,6 +1349,14 @@ export class AithemaSession extends HTMLElement {
       ? fill(resolveCopy(this.#copy, 'connectedSince', undefined, this.#session?.locale), { time: clockTime(this.#timer.since, this.#session?.locale ?? 'en') }) : '';
     setText(status.querySelector('.status__since'), since);
     if (since) { status.title = since; status.setAttribute('aria-describedby', 'status-since'); } else status.removeAttribute('aria-describedby');
+    // Below 600 px the phone popup's status is the visible one: the same title and description (AIT-587 r3).
+    this.#phoneSince(since);
+  }
+  #phoneSince(since) {
+    const phone = this.shadowRoot.querySelector('.phone-status');
+    if (!phone) return;
+    if (since) { phone.title = since; phone.setAttribute('aria-describedby', 'status-since'); }
+    else { phone.removeAttribute('title'); phone.removeAttribute('aria-describedby'); }
   }
   #followsTranscript() {
     return Boolean(!this.#longReply && (this.#navigation || this.#follow && !this.#onTranscript) && !this.#fold?.folded);
