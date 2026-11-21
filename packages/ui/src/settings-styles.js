@@ -302,6 +302,8 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
    Keep gauges on tablets and desktops, without retaining their grid row here. */
 @media(width < 600px) {
   .settings-overview { display:none; }
+  /* AIT-603 PR-B r6: no gauges here, so the privacy help (and its link) never shows; reserve nothing for it. */
+  .context-link-measure { display:none; }
   .settings-panel[data-panel=model], .settings-panel[data-panel=model] .settings-column { gap:.5rem; }
   .effort { grid-template-columns:minmax(0,1fr) auto; gap:0; }
   .effort label { grid-area:1/1; line-height:1.2; }
