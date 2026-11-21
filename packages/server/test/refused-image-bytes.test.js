@@ -568,12 +568,12 @@ const multipart = (clientEventId, files) => {
 async function streamedUpload(f, sessionId, encoded, { chunks: split = 2, contentLength = false, failAfter } = {}) {
   const raw = Buffer.from(await encoded.arrayBuffer()), size = Math.ceil(raw.length / split), chunks = [];
   for (let offset = 0; offset < raw.length; offset += size) chunks.push(new Uint8Array(raw.subarray(offset, offset + size)));
-  const state = { pulled: false, chunks, raw };
+  const state = { pulled: false, chunks, raw, sent: 0 };
   let next = 0;
   const stream = new ReadableStream({ pull(controller) {
     state.pulled = true;
     if (failAfter !== undefined && next === failAfter) { controller.error(new TypeError('connection reset')); return; }
-    if (next < chunks.length) controller.enqueue(chunks[next++]); else controller.close();
+    if (next < chunks.length) { controller.enqueue(chunks[next++]); state.sent = next; } else controller.close();
   } }, { highWaterMark: 0 });
   const headers = { 'x-aithema-session-token': testToken, 'content-type': encoded.headers.get('content-type'), ...(contentLength ? { 'content-length': String(raw.length) } : {}) };
   state.response = f.handlers.handle(new Request(`http://localhost/api/sessions/${sessionId}/uploads`, { method: 'POST', body: stream, duplex: 'half', headers }));
@@ -640,7 +640,9 @@ for (const [label, build, options] of [
   if (label === 'an admitted request') assert.equal(response.status, 202, body); else assert.ok(!(response instanceof Response) || response.status >= 400, body);
   assert.ok(state.pulled, 'the body was read');
   if (options.contentLength) assert.ok(captured.length >= 1, 'the declared-length body buffer was observed');
-  for (const [i, chunk] of state.chunks.entries()) assert.deepEqual(leaksIn(Buffer.from(chunk).toString('latin1'), image), [], `request chunk ${i}`);
+  // Every chunk the server received (a failed read never delivers the rest).
+  assert.ok(state.sent >= 1, 'the server received a chunk');
+  for (const [i, chunk] of state.chunks.slice(0, state.sent).entries()) assert.deepEqual(leaksIn(Buffer.from(chunk).toString('latin1'), image), [], `request chunk ${i}`);
   for (const buffer of captured) assert.deepEqual(leaksIn(buffer.toString('latin1'), image), [], 'the declared-length body buffer');
   await f.assertNoTrace(image, { responses: [body] });
 });
