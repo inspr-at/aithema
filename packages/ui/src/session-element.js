@@ -105,6 +105,10 @@ export class AithemaSession extends HTMLElement {
   // AIT-603 r5 (Codex gatepra4 Low, AIT-506): the pane size at that reveal, and
   // an explicit Latest jump; either a resize or Latest realigns as on main.
   #revealedPane = ''; #latestJump = false;
+  // AIT-603 r6b (AIT-543): where that reveal left the pane (its scrollTop) and
+  // the offer (its top in the pane's content). A re-reveal keeps the reading
+  // position only while both are unchanged.
+  #revealedScroll = NaN; #revealedY = NaN;
   #signals; #signalState; #signalLiveSeq = null; #signalReplay = new WeakSet();
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #clarifyWaitTimer; #clarifyRefresh = 0;
@@ -1425,6 +1429,8 @@ export class AithemaSession extends HTMLElement {
     // ordinary bottom-follow. Never focus the capture field or scroll the page.
     shell.scrollTop += box.top - pane.top - padding;
     this.#revealedOffer = row; this.#revealedPane = `${pane.width}x${pane.height}`;
+    this.#revealedScroll = shell.scrollTop;
+    this.#revealedY = row.getBoundingClientRect().top - shell.getBoundingClientRect().top + shell.scrollTop;
     this.#recordTranscriptScroll(before);
   }
   #scrollToLatest() {
@@ -1491,6 +1497,8 @@ export class AithemaSession extends HTMLElement {
     // leave them above the sticky header and make focus scroll the whole page.
     if (offer) {
       const pane = shell.getBoundingClientRect(), box = offer.getBoundingClientRect();
+      // The offer's top in the pane's content (independent of the scroll position).
+      const offerY = box.top - pane.top + shell.scrollTop;
       const padding = parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).paddingTop);
       const fits = box.height <= pane.height;
       const target = fits ? box : offer.querySelector('.email-offer__row').getBoundingClientRect();
@@ -1509,9 +1517,17 @@ export class AithemaSession extends HTMLElement {
       // r5 (Codex gatepra4 Low): only the save re-reveal of the same offer keeps
       // the row: an explicit Latest jump or a resized pane realigns as on main.
       const size = `${pane.width}x${pane.height}`;
-      const kept = !this.#latestJump && this.#revealedPane === size && this.#revealedOffer === offer && atBefore >= 0 && atBefore + target.height <= pane.height;
+      // r6b (AIT-543): "whole in the pane" alone is not enough. A re-render can
+      // move the pane or the offer between reveals (e.g. a scrollTop clamped
+      // while the list end is briefly shorter); keeping that position left a sent
+      // offer 27 px below where main puts it. So the row is kept only where the
+      // last reveal left it: the same scrollTop and the same offer position in
+      // the content. Anything else realigns to the goal, as on main.
+      const unmoved = before === this.#revealedScroll && offerY === this.#revealedY;
+      const kept = !this.#latestJump && unmoved && this.#revealedPane === size && this.#revealedOffer === offer && atBefore >= 0 && atBefore + target.height <= pane.height;
       shell.scrollTop = kept ? before : goal;
       this.#revealedOffer = offer; this.#revealedPane = size;
+      this.#revealedScroll = shell.scrollTop; this.#revealedY = offerY;
     }
     if (this.#combined && this.#imageLayout) {
       const pane = shell.getBoundingClientRect(), scroll = this.shadowRoot.querySelector('.conversation-scroll').getBoundingClientRect();
