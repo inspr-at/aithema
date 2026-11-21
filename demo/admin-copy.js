@@ -48,7 +48,7 @@ export const adminCopy = {
     dirty: 'Not saved', saving: 'Saving …', saved: 'Saved {time}',
     failed: 'Couldn’t save. Please try again.',
     conflict: 'Changed elsewhere at {time}. Reload discards unsaved edits.',
-    credits: { h: 'Visitor credit', intro: 'Starting credit per visitor, by tier. Applies from the next reservation.', unit: 'Credits',
+    credits: { h: 'Visitor credit', intro: 'Starting credit per visitor, by tier. Applies from the next reservation.', unit: 'credits',
       tiers: { anonymous: ['No email', 'On the first visit'], emailGiven: ['Email given', 'After giving an address'],
         emailConfirmed: ['Email confirmed', 'After clicking the confirmation link'] },
       off: 'Not reachable now: confirmation email is off', noDelivery: 'Not reachable now: no mail delivery set up',

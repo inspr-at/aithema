@@ -51,14 +51,14 @@ export const confirmationCopy = Object.freeze({
   "en": {
     "ready": {
       "h1": "Almost there",
-      "lead": "One more click and your credit rises to {tier} Credits.",
+      "lead": "One more click and your credit rises to {tier} credits.",
       "leadFallback": "One more click and your email address is confirmed.",
       "button": "Confirm email address",
       "busy": "Confirming …"
     },
     "confirmed": {
       "h1": "Email address confirmed",
-      "lead": "Your credit is now {tier} Credits.",
+      "lead": "Your credit is now {tier} credits.",
       "leadFallback": "Your higher credit is ready in the conversation.",
       "button": "Back to the conversation"
     },
@@ -137,7 +137,7 @@ export function createConfirmationPage({ host, publicOrigin, now = () => Date.no
     function view(viewKey, active) {
       const v = c[viewKey], heading = active ? `<h1 class="confirm-title" id="confirm-title">${escape(v.h1)}</h1>` : `<p class="confirm-title">${escape(v.h1)}</p>`;
       let lead = ['ready', 'confirmed'].includes(viewKey) && (tier === undefined || tier === null || tier === '') ? v.leadFallback : v.lead;
-      lead = escape(lead).replace('{tier} Credits', () => `<b class="confirm-num">${escape(tier)} Credits</b>`).replace('{wait}', () => escape(wait));
+      lead = escape(lead).replace(/\{tier\} (Credits|credits)/u, (_, unit) => `<b class="confirm-num">${escape(tier)} ${unit}</b>`).replace('{wait}', () => escape(wait));
       const label = `<span class="confirm-label">${escape(v.button)}</span>`;
       const action = !active ? `<span class="confirm-button">${label}</span>` : viewKey === 'ready'
         ? `<form class="confirm-form" method="post" action="/confirm-email" data-confirm><input type="hidden" name="token" value="${escape(token)}"><input type="hidden" name="csrf" value="${escape(csrf)}"><input type="hidden" name="lang" value="${locale}"><button type="submit" class="confirm-button">${label}${busy(v.busy)}</button></form>`
