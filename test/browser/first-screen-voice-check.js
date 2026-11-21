@@ -1009,12 +1009,13 @@ test('AIT-587: the fold icon keeps 3:1 when enabled at rest, hover and focus; th
     const states = [await measure('ready-disabled-rest')];
     await retainR2(page, `fold-${label}-ready-disabled-rest`, states.at(-1), crop(states.at(-1)));
     // Visuals available: the fold can fold the conversation and is enabled.
-    await page.evaluate(() => {
+    await page.evaluate(async () => {
+      const { en } = await import('/packages/ui/src/i18n/en.js');
       const prior = globalThis.fetch;
       globalThis.fetch = async (url, options) => { const response = await prior(url, options);
         if (!/\/api\/sessions\/[^/?]+$/u.test(String(url))) return response;
         const snapshot = await response.json(); snapshot.featureMatrix.best.images = { available: true }; return Response.json(snapshot); };
-      const session = c.session; session.featureMatrix.best.images = { available: true }; c.configure({ session });
+      const session = c.session; session.featureMatrix.best.images = { available: true }; c.configure({ copy: globalThis.fixtureCopy || en, session });
     });
     await page.waitForFunction(() => c.shadowRoot.querySelector('.fold').getAttribute('aria-disabled') === 'false', { timeout: 10_000 })
       .catch(error => { throw new Error(`${label}: the fold did not become enabled`, { cause: error }); });
