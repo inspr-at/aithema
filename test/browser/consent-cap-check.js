@@ -170,6 +170,8 @@ async function harness(t) {
       if (start || intake === 'image') best.imageInput = { available: true };
       if (intake === 'document') best.uploads = { available: true };
       if (granted) { best.text = structuredClone(best.analysis); best.voice = structuredClone(best.analysis); }
+      // r10: the choice entrance in its typed mode (voice off), so its start button opens the composer.
+      if (entrance !== 'combined') snapshot.settings = { ...snapshot.settings, voice: 'off' };
       mount(snapshot);
     }, locale, consent, start, intake, granted, copy, entrance);
     await page.waitForFunction(granted => {
@@ -1346,6 +1348,9 @@ export async function consentKeyboardFloorCheck(t) {
       const problems = [], failures = [];
       const page = await open({ width, height, locale, intake: 'image', granted: true, entrance: 'choice', copy: { imagePreparing: twoLine[locale] } }, problems);
       try {
+        // The visitor starts (typed mode): the choice entrance shows its composer.
+        await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.ready__start').click());
+        await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('textarea').getBoundingClientRect().height > 0, { timeout: 15_000 });
         await mockIntake(page);
         await keyboardUp(page, viewport); await settleLong(page);
         await pasteImage(page);
