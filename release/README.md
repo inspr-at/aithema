@@ -20,8 +20,9 @@ npm run release:consumer -- /retained/ait356/first
 
 `release:candidate` packs twice through `release:pack`, verifies both through
 `release:verify`, compares every archive and the manifest, then installs all
-sixteen tarballs in a scratch directory outside the repo. It checks all guide
-symbols and runtime exports, HTTP create/read/export and owner isolation, mounts
+seventeen module tarballs (every `module` artifact in the manifest; the
+workspace archive is not installed) in a scratch directory outside the repo.
+It checks all guide symbols and runtime exports, HTTP create/read/export and owner isolation, mounts
 both web components in happy-dom, runs a joined offline Grok PCM/STT/admitted
 reasoning/TTS fixture with durable child claims and its installed capture worklet,
 performs a lockfile reinstall, replaces a
@@ -129,7 +130,10 @@ gates, merge and marker; MAC-OPS owns the cut. START pins independently.
 Branch `release/ait-614-twenty-eighth-release`; worker session `AIT-614-r1`
 (`518f24b9-563c-4b6c-a507-dde0c81fec0d`, builder), then `AIT-614-r2`
 (`88e09e1b-9ae8-4456-95e2-717926fd05ec`, builder) for the gate1 and Tick L2
-corrections to `notes.md` and this record. History is append-only.
+corrections to `notes.md` and this record, then `AIT-614-r3`
+(`b612e595-64a4-4bf2-a3d0-78edc196bdb1`, builder; stopped before committing)
+and `AIT-614-r3b` (`cda0797f-8895-44e6-803a-aa32c38f9867`, builder) for the
+gate2 corrections and the browser-suite record. History is append-only.
 
 The previous release `v261120065345.0.0`, stable sequence 38, AIT-588,
 [forge release](https://github.com/inspr-at/aithema/releases/tag/v261120065345.0.0),
@@ -169,6 +173,13 @@ r2 (gate1 Medium, Tick L2): AIT-601's EN/DE benefit now says that fitting
 content stays put at the hand-off and that a longer conversation still scrolls;
 AIT-587's EN/DE benefit is the new text PPM holds after Tick's L2, verbatim
 (pills unchanged: "Calmer footer and copy" / "Ruhigere Fußzeile und Texte").
+r3 (gate2 Medium): the start time has no keyboard reveal, so AIT-587's EN/DE
+benefit now names pointing only ("when you point at it" / "beim Zeigen mit der
+Maus"), again PPM's corrected text verbatim; pills unchanged. r3 (gate2
+Low): this file's general `release:candidate` text named sixteen tarballs; it
+is a current-state description, so it now says seventeen module tarballs (the
+manifest's `module` artifacts, which `consumer.mjs` installs) and names the
+workspace archive as not installed.
 AIT-582, AIT-584, AIT-585, AIT-546, AIT-592, AIT-594, AIT-597, AIT-598, AIT-599
 and AIT-611 appear only in this technical record: AIT-582 and AIT-592 are
 release tooling, AIT-597 and AIT-599 CI only, AIT-546, AIT-585, AIT-594,
@@ -204,7 +215,10 @@ the code-at-L host record. In short:
   4 px, never beyond `--composer-actions-gap`.
 - AIT-587: footer status "Connected" without a running timer (the timer cell is
   hidden and keeps its width); `connectedSince` is the status `title` and
-  `aria-describedby` description on desktop and the phone status. EN "credits"
+  `aria-describedby` description on desktop and the phone status. Both status
+  elements sit outside the tab order, so the start time shows on pointer hover
+  only; there is no keyboard reveal (the focusable phone footer button opens the
+  popup, whose visible text is only "Connected"). EN "credits"
   lower case mid-sentence in the UI bundle, the mail-smtp EN `explanation` and
   the demo host's confirmation page and admin unit; the used-up body (EN/DE) no
   longer promises an export. Shadow-DOM polish: ready-card check, fold icon
@@ -344,6 +358,56 @@ written. The release PR's browser CI must still be fully green.
 6. AIT-548 (browser, orb-reveal): "AIT-140 … brand and returning controls exceed 25% together" (orb-reveal.test.js:140).
 7. AIT-550 RETIRED for new work (AIT-550 merged 2026-11-19 15:37 as 55933f7f: the demo host aborts and drains its work before teardown). Applies ONLY to heads that do NOT contain 55933f7f (check: git merge-base --is-ancestor 55933f7f HEAD fails), and then exactly as before: UNIT only, demo/test/host.test.js file-level "generated asynchronous activity after the test ended … document is not defined" (not test/browser/demo.test.js). On any head that contains 55933f7f, ANY demo/test/host.test.js failure is a stop.
 8. AIT-554 RETIRED for new work (AIT-554 merged 2026-11-19 11:01 as f152e427: the fixture no longer rewrites the timer during the paint wait). Applies ONLY to heads that do NOT contain f152e427 (check: git merge-base --is-ancestor f152e427 HEAD fails), and then exactly as before: "AIT-102 PR 3: voice viewport matrix…" (voice-presentation.test.js:89) ONLY with the message "<state>-1440-<theme>-<lang>.png: stable backdrop paint". On any head that contains f152e427, ANY AIT-102 failure is a stop. (Was time-boxed to RC27; now resolved.)
+
+**Whole browser suite (r3).** Platform: the remote test lane mbp2606, macOS,
+the repository's Puppeteer Chromium; agm2 held, mbp2607 not used. The suite ran
+as two sequential halves of 19 files each (all 38 files under `test/browser/`,
+no overlap), one browser run at a time, through the durable wrapper with
+evidence retained. Both halves ran at source commit `c56eba1f` (the r2 head),
+not at the first preparation commit `5a8b980f`: the wrapper cancels a run for an
+older head of the same worktree, so the half started at `5a8b980f` was replaced
+at 12:37 when the first `c56eba1f` half was admitted. That partial run is kept
+only as a replaced attempt, not as a result; so is r1's single whole-suite run
+at `5a8b980f`, which the lane's 3600 s limit killed without a summary.
+
+| Half | Files | Tests | Passed | Failed | Cancelled / skipped |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| A | 19 | 960 | 955 | 5 | 0 / 0 |
+| B | 19 | 1424 | 1418 | 6 | 0 / 0 |
+| Total | 38 | 2384 | 2373 | 11 | 0 / 0 |
+
+Every failure is an exact accepted-entry-2 signature (AIT-531, mbp2606):
+half A, `composed-media.test.js` "AIT-350: Settings provider switch viewports,
+focus and 0 px geometry" (the AIT-362 Tick spec v1.1 assertion, 1);
+`host-surface.test.js` "AIT-261: every terminal reason disables the demo UI and
+preserves export in DE and EN" (`axe is not defined`, not a timeout, 1);
+`question-card.test.js` the AIT-512 Control+Enter pair ("long reply at 390 with
+visual keyboard holds its top through final/card paints" and "overview anchoring
+stays active during a typed-send navigation intent", both timing out at the
+acknowledgement wait) plus their parent "AIT-512: picks and sends keep the new
+turn visible without stealing reading position" (3). Half B,
+`html-preview.test.js` "AIT-400: withdrawal preserves the top transcript row and
+reserved status slot" plus its nested `1024/light/de`, composer
+`[40.953125, 670, 564.5, 150]` against captured
+`[40.953125, 669.296875, 564.5, 150.703125]`, the known 1 px jitter values (2);
+`start2-display.test.js` "AIT-266: host polish five decisions, DE/EN touch/mouse
+1440/1280x860/390" (`axe is not defined`, 1); `understanding-failure.test.js`
+"AIT-221 two failures: Retry at the first failure recovers both lanes,
+overview-only unchanged, 0 px" plus nested `de 390 light` and `de 390 dark`
+(".reaction-failure dimension 3 holds under pointer", 3). No other failure, no
+cancellation; entries 3 and 6 (agm2 composed qualification, AIT-548 orb-reveal)
+were not needed because both files passed. The wrapper retains the halves'
+summaries and failure detail, not a per-file split for passing files.
+Runner difference: the halves used `node --test --test-concurrency=3` with an
+explicit file list; `npm run test:browser` runs at concurrency 1 and isolates
+`operator-login.test.js` with `--test-force-exit`. Here `operator-login.test.js`
+ran inside half B and passed without hanging.
+
+Carry-over to the final head: `git diff --stat 5a8b980f HEAD` and
+`git diff --stat c56eba1f HEAD` list only `release/README.md` and
+`release/notes.md`, and `grep -rn "release/notes\|release/README" test/browser`
+finds nothing, so no browser test reads a file that changed after `c56eba1f`.
+The release PR's browser CI must still be fully green.
 
 Preparation order (remote execution only):
 

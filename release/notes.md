@@ -12,13 +12,13 @@ uploads.
 
 - **Welcome stays in place (AIT-601, #494).** The welcome no longer overlaps the readiness panel when a host uses image concepts. Applies on desktop widths in the combined entrance (a host opt-in) with a host's image concept layout. When the readiness panel hands over to the live conversation, a conversation that fits stays where it is; a longer conversation still scrolls on to the visitor's message.
 - **Clear focus ring (AIT-589, #488).** With the keyboard, the focus ring on "Show more notices" no longer covers nearby text or its own label, on phones and desktops. Where the host enables uploads.
-- **Calmer footer and copy (AIT-587, #496).** The footer says "Connected" without a running number and shows when the connection started on hover or focus; English writes "credits" in lower case mid-sentence; the used-up message no longer promises an export.
+- **Calmer footer and copy (AIT-587, #496).** The footer says "Connected" without a running number and shows the connection's start time when you point at it; English writes "credits" in lower case mid-sentence; the used-up message no longer promises an export.
 
 ## Was Besucher bemerken
 
 - **Begrüßung bleibt stehen (AIT-601, #494).** Die Begrüßung überdeckt das Bereitschaftsfeld nicht mehr, wenn ein Host Bildkonzepte nutzt. Gilt auf Desktopbreiten im kombinierten Einstieg (vom Host aktiviert) mit dem Bildkonzept-Layout eines Hosts. Beim Übergang vom Bereitschaftsfeld ins laufende Gespräch bleibt ein Gespräch, das Platz hat, stehen; ein längeres Gespräch scrollt weiterhin bis zur Nachricht der Besucherin oder des Besuchers.
 - **Klarer Fokusrahmen (AIT-589, #488).** Mit der Tastatur verdeckt der Fokusrahmen von „Weitere Meldungen anzeigen“ weder benachbarten Text noch die eigene Beschriftung, auf Smartphone und Desktop. Bei vom Host aktivierten Uploads.
-- **Ruhigere Fußzeile und Texte (AIT-587, #496).** Die Fußzeile zeigt „Verbunden“ ohne laufende Zahl und nennt beim Zeigen oder Fokussieren den Beginn der Verbindung; die Meldung zu aufgebrauchten Credits verspricht keinen Export mehr.
+- **Ruhigere Fußzeile und Texte (AIT-587, #496).** Die Fußzeile zeigt „Verbunden“ ohne laufende Zahl und nennt beim Zeigen mit der Maus den Beginn der Verbindung; die Meldung zu aufgebrauchten Credits verspricht keinen Export mehr.
 
 ## For hosts
 
