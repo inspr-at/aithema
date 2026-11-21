@@ -691,3 +691,127 @@ for (const state of ['accepted', 'unreadable']) test(`AIT-507 integration: ${sta
   assert.equal(root.querySelector('.verify-lock').hidden, false);
   assert.equal(root.querySelector('.email-offer'), null, 'document input does not advance the accepted-message count');
 });
+
+test('AIT-611: an erased conversation moved in the page still lists the library', async t => {
+  const items = [entry('a', 'Bakery preorders', '2026-10-01T10:00:00Z')];
+  const { c, root } = setup(t, { routes: { 'GET /library': () => Response.json({ items, total: items.length, offset: 0, limit: 100 }) } });
+  await tick(8);
+  c.receive({ seq: c.session.seq + 1, type: 'session.erased', data: {} }); await tick(8);
+  assert.ok(c.hasAttribute('data-aithema-erased'));
+  // Disconnect ends the reads of that connection; the reconnected element reads again.
+  c.remove(); await tick(8); document.body.append(c); await tick(8);
+  root.querySelector('.library-open-dialog').click(); await tick(8);
+  const dialog = root.querySelector('dialog.library');
+  assert.deepEqual([...dialog.querySelectorAll('tbody tr')].map(row => row.dataset.key), ['a']);
+});
+
+// AIT-611 gate1c: moving the element ends background reads only; reads a user started complete.
+const moved = async c => { c.remove(); await tick(4); document.body.append(c); await tick(4); };
+const libraryRows = root => [...root.querySelectorAll('dialog.library tbody tr')].map(row => row.dataset.key);
+// Text and attributes alike: the element status channel paints into a label and a title.
+const failure = root => [l.actionFailed, l.failed].some(text => root.innerHTML.includes(text));
+
+test('AIT-611: a library list in flight while the element moves in the page still lists its rows', async t => {
+  const items = [entry('a', 'Bakery preorders', '2026-10-01T10:00:00Z')], list = Promise.withResolvers();
+  const { c, root } = setup(t, { routes: { 'GET /library': () => list.promise } });
+  t.after(() => list.resolve(Response.json({ items: [], total: 0 })));
+  await tick(8);
+  root.querySelector('.library-open-dialog').click(); await tick(2);
+  await moved(c);
+  list.resolve(Response.json({ items, total: items.length, offset: 0, limit: 100 })); await tick(8);
+  assert.deepEqual(libraryRows(root), ['a']);
+  assert.equal(root.querySelector('.library-retry').hidden, true, 'no retry is offered');
+  assert.equal(failure(root), false);
+});
+
+test('AIT-611: Open in the library, in flight while the element moves in the page, opens the conversation', async t => {
+  const next = createSession({ demo: true }), opened = Promise.withResolvers();
+  next.featureMatrix = { best: { text: { available: true }, analysis: { available: true } } };
+  const items = [entry(next.id, 'Bakery preorders', '2026-10-01T10:00:00Z')];
+  const { c, root } = setup(t, { routes: { 'GET /library': () => Response.json({ items, total: items.length, offset: 0, limit: 100 }),
+    [`GET /library/${next.id}`]: () => opened.promise } });
+  t.after(() => opened.resolve(Response.json({}, { status: 503 })));
+  await tick(8);
+  root.querySelector('.library-open-dialog').click(); await tick(8);
+  root.querySelector(`dialog.library tr[data-key="${next.id}"] .library-open`).click(); await tick(2);
+  await moved(c);
+  opened.resolve(Response.json({ ...items[0], session: next })); await tick(8);
+  assert.equal(failure(root), false);
+  assert.equal(c.session.id, next.id, 'the conversation opened');
+});
+
+test('AIT-611: a recent conversation, opening while the element moves in the page, opens', async t => {
+  const next = createSession({ demo: true }), opened = Promise.withResolvers();
+  next.featureMatrix = { best: { text: { available: true }, analysis: { available: true } } };
+  const items = [entry(next.id, 'Bakery preorders', '2026-10-01T10:00:00Z')];
+  const { c, root } = setup(t, { routes: { 'GET /library': () => Response.json({ items, total: items.length, offset: 0, limit: 5 }),
+    [`GET /library/${next.id}`]: () => opened.promise } });
+  t.after(() => opened.resolve(Response.json({}, { status: 503 })));
+  await tick(8);
+  root.querySelector('.conversations-toggle').click(); await tick(8);
+  root.querySelector(`.conversations-recent-item[data-key="${next.id}"]`).click(); await tick(2);
+  await moved(c);
+  opened.resolve(Response.json({ ...items[0], session: next })); await tick(8);
+  assert.equal(failure(root), false, 'no failure is shown');
+  assert.equal(c.session.id, next.id, 'the conversation opened');
+});
+
+// AIT-611 gate scope: a user's email change starts the credit receipt even when the host shows no
+// credits and no email offer. That receipt is part of the user's action: moving the element never ends it.
+for (const action of ['delete', 'save']) test(`AIT-611: the credit receipt after a user's email ${action}, in flight while the element moves in the page, completes`, async t => {
+  let saved = action === 'delete' ? 'reader@example.test' : null; const receipt = Promise.withResolvers();
+  const tiers = () => ({ allowancesMicro: a2Allowances, current: saved ? 'emailGiven' : 'anonymous', next: saved ? null : 'emailGiven', delta: saved ? 0 : 6_000_000, canConfirm: false });
+  const visitor = () => ({ address: saved, tier: saved ? 'emailGiven' : 'anonymous', limitMicro: saved ? 18_000_000 : 12_000_000 });
+  const { c, root, calls } = setup(t, { host: { verification: { delivery: false, privacyDocumentConfigured: true } },
+    session: { demo: false, identity: identity({ address: saved }), settings: { origin: 'chosen', voice: 'off', visuals: 'off' } }, routes: {
+      'GET /identity': () => Response.json({ identity: identity({ address: saved }), visitorEmail: { canSave: true, canDelete: true }, delivery: false, privacyDocumentConfigured: true }),
+      'GET /visitor/email': () => Response.json({ visitor: visitor(), notice: { version: 'ait-611-v1', deliveryEnabled: false }, privacyDocumentConfigured: true }),
+      'PUT /visitor/email': body => { saved = body.address; return Response.json({ visitor: visitor() }); },
+      'DELETE /visitor/email': () => { saved = null; return Response.json({ visitor: visitor() }); },
+      'GET /credits': () => receipt.promise,
+    } });
+  t.after(() => receipt.resolve(Response.json({}, { status: 503 })));
+  // The host's privacy document lets Settings collect an address.
+  const legal = document.createElement('nav'), privacy = document.createElement('a'); legal.slot = 'legal';
+  privacy.href = '/privacy?locale=en'; privacy.setAttribute('data-aithema-privacy', ''); legal.append(privacy); c.append(legal);
+  root.querySelector('slot[name="legal"]').dispatchEvent(new window.Event('slotchange'));
+  await tick(8);
+  const reads = () => calls.filter(call => call.method === 'GET' && call.path === '/credits').length;
+  assert.equal(reads(), 0, 'the host shows no credits and no email offer: no background credit read');
+  const section = root.querySelector('.host-verify'), em = en.hostSurface.email;
+  if (action === 'delete') { section.querySelector('.m-delete').click(); section.querySelector('.m-del').click(); }
+  else { section.querySelector('#email-input').value = 'reader@example.test'; section.querySelector('.m-form').requestSubmit(); }
+  await tick(8);
+  assert.equal(reads(), 1, `the ${action} starts the credit receipt`);
+  assert.equal(section.querySelector('.m-lead-save').textContent, em.creditLoading, 'the receipt is still in flight');
+  await moved(c);
+  const creditsBalance = { owner: { limitMicro: visitor().limitMicro, committedMicro: 0, confirmedSpendMicro: 0, reservedMicro: 0, uncertainSpendMicro: 0, availableMicro: visitor().limitMicro } };
+  receipt.resolve(Response.json({ balance: creditsBalance, exhausted: false, limitSlot: null, tiers: tiers() })); await tick(12);
+  for (const lead of section.querySelectorAll('.m-lead-save, .m-lead-edit, .m-lead-mail')) assert.notEqual(lead.textContent, em.creditLoading, 'Settings never stays on loading');
+  assert.match(section.querySelector('.m-lead-save').textContent, /your credit rises from/u, 'the receipt painted the tiers');
+});
+
+// AIT-611 gate 2: Clarify's stale-question recovery restores the snapshot; resync() reads the identity and then
+// the visitor email. That chain belongs to the person's click: moving the element never ends it.
+test('AIT-611: the identity and visitor-email reads of a stale-question restore, in flight while the element moves in the page, complete', async t => {
+  let held = false; const identityRead = Promise.withResolvers(), emailRead = Promise.withResolvers();
+  const { c, root, calls } = setup(t, { session: { identity: identity() }, routes: {
+    'POST /focus-question': () => Response.json({ error: 'focus-refused', reason: 'stale-question' }, { status: 409 }),
+    // Each read gets its own Response: the reconnect starts its own identity read, and a body reads once.
+    'GET /identity': () => held ? identityRead.promise.then(body => Response.json(body)) : Response.json({ identity: identity(), visitorEmail: { canSave: true, canDelete: true } }),
+    'GET /visitor/email': () => held ? emailRead.promise.then(body => Response.json(body)) : Response.json({ visitor: { address: null }, notice: { version: 'ait-611-v1' } }),
+  } });
+  t.after(() => { identityRead.resolve({}); emailRead.resolve({}); });
+  await tick(12);
+  const reads = path => calls.filter(call => call.method === 'GET' && call.path === path).length;
+  const identities = reads('/identity'), emails = reads('/visitor/email');
+  held = true;
+  await assert.rejects(c.focusQuestion('stale'), { reason: 'stale-question' });
+  await tick(4);
+  assert.equal(reads('/identity'), identities + 1, 'the restore resyncs the identity');
+  await moved(c);
+  identityRead.resolve({ identity: identity(), visitorEmail: { canSave: true, canDelete: true } }); await tick(8);
+  assert.ok(reads('/visitor/email') > emails, 'the identity answer continues to the visitor email');
+  emailRead.resolve({ visitor: { address: 'reader@example.test', tier: 'emailGiven' }, notice: { version: 'ait-611-v1' } }); await tick(12);
+  assert.equal(root.querySelector('.host-verify .m-addr').textContent, 'reader@example.test', 'the visitor email painted');
+});
