@@ -389,37 +389,53 @@ export const feedbackShows = feedback => Boolean(feedback) && (feedback.hasAttri
 // until the keyboard closes or the visitor sends or discards (session-element).
 // r8 (Codex gatepra7 Medium, TICK r7): the kept row also holds the LARGEST
 // height it rendered since the latch (a two-line notice that clears leaves a
-// two-line empty row, not a one-line one), as an inline min-height recorded at
-// every latch, every keyboard-up paint and every resize of the row; released
-// with the latch.
+// two-line empty row, not a one-line one), recorded at every latch, every
+// keyboard-up paint and every resize of the row; released with the latch.
+// r9 (Codex gatepra8 Medium x2): the held height is the custom property
+// --feedback-held, which the row's CSS combines with the dock's own minimum
+// (max(), combined-entrance-styles.js), so it never undercuts the image dock's
+// 44 px row. It is read in LAYOUT px (the used height, not the transformed
+// rect), so a scaled host ancestor cannot feed it back larger on every
+// ResizeObserver delivery.
 const heldHeight = new WeakMap(), observed = new WeakSet(), discarded = new WeakMap();
-// What a discard was about: the row's reason text and its controls.
+// What a discard was about: the row's reason text and its controls (a
+// document retry or an image refusal; r9: a staged image is scoped by its id).
 const shownContent = feedback => `${feedback.hasAttribute('data-saved')}|${feedback.querySelector(':scope > .composer-reason')?.textContent ?? ''}|${feedback.querySelectorAll('button, a, input, [tabindex]').length}`;
 const holdHeight = feedback => {
-  const style = feedback.ownerDocument.defaultView.getComputedStyle(feedback), rendered = feedback.getBoundingClientRect().height;
-  // min-height applies to the content box unless the row is border-box.
-  const frame = style.boxSizing === 'border-box' ? 0 : ['paddingTop', 'paddingBottom', 'borderTopWidth', 'borderBottomWidth'].reduce((sum, key) => sum + (parseFloat(style[key]) || 0), 0);
-  const height = Math.max(heldHeight.get(feedback) ?? 0, rendered - frame);
+  // The used height is in layout px and in the box min-height applies to (content or border box).
+  const rendered = parseFloat(feedback.ownerDocument.defaultView.getComputedStyle(feedback).height) || 0;
+  const height = Math.max(heldHeight.get(feedback) ?? 0, rendered);
   heldHeight.set(feedback, height);
-  if (height > 0 && feedback.style.minHeight !== `${height}px`) feedback.style.minHeight = `${height}px`;
+  if (height > 0 && feedback.style.getPropertyValue('--feedback-held') !== `${height}px`) feedback.style.setProperty('--feedback-held', `${height}px`);
 };
+// r9 (Codex gatepra8 Low): discarding a staged image suppresses the latch only
+// while THAT image is still staged (another pending image shows the same
+// "Preparing…" and latches again once the discarded one has left).
+const discardScope = (feedback, target) => {
+  const image = target?.closest?.('.staged-image[data-id]');
+  return image ? { id: image.dataset.id } : { content: shownContent(feedback) };
+};
+const stillDiscarding = (root, feedback, scope) => scope.id
+  ? [...root.querySelectorAll('.staged-image[data-id]')].some(image => image.dataset.id === scope.id)
+  : scope.content === shownContent(feedback);
 // The visitor's own action (send, discard) or the keyboard closing releases the
 // kept row and its held height. r8 (Codex gatepra7 Low): a discard also keeps the
 // row from latching again on the content being discarded (a viewport paint
 // before the withdrawal acknowledgment would otherwise latch the still-visible
-// "Preparing…") until that content has left the row.
-export const releaseFeedback = (root, { discard = false } = {}) => {
+// "Preparing…") until that content has left the row. r9: `discard` is the
+// clicked control; a staged image's remove button scopes it to that image.
+export const releaseFeedback = (root, { discard = null } = {}) => {
   const feedback = root.querySelector('.composer-feedback');
   if (!feedback) return;
-  feedback.removeAttribute('data-keyboard-kept'); feedback.style.minHeight = ''; heldHeight.delete(feedback);
-  if (discard) discarded.set(feedback, shownContent(feedback)); else discarded.delete(feedback);
+  feedback.removeAttribute('data-keyboard-kept'); feedback.style.removeProperty('--feedback-held'); heldHeight.delete(feedback);
+  if (discard) discarded.set(feedback, discardScope(feedback, discard)); else discarded.delete(feedback);
 };
 export const latchFeedback = (root, keyboardUp = root.querySelector('.workspace')?.hasAttribute('data-phone-keyboard')) => {
   const feedback = root.querySelector('.composer-feedback');
   if (!feedback) return;
-  if (!keyboardUp) { if (feedback.hasAttribute('data-keyboard-kept') || feedback.style.minHeight || discarded.has(feedback)) releaseFeedback(root); return; }
+  if (!keyboardUp) { if (feedback.hasAttribute('data-keyboard-kept') || feedback.style.getPropertyValue('--feedback-held') || discarded.has(feedback)) releaseFeedback(root); return; }
   if (discarded.has(feedback)) {
-    if (discarded.get(feedback) === shownContent(feedback)) return;
+    if (stillDiscarding(root, feedback, discarded.get(feedback))) return;
     discarded.delete(feedback);
   }
   if (feedbackShows(feedback)) feedback.setAttribute('data-keyboard-kept', '');
@@ -440,7 +456,15 @@ export class PhoneComposerViewport {
       const view = this.view, viewport = view?.visualViewport;
       const height = viewport?.height ?? view?.innerHeight ?? 0;
       // Pinch zoom is a reading gesture; do not move controls while zooming.
-      if (viewport && viewport.scale !== 1) return;
+      // r9 (Codex gatepra8 Low): the keyboard closing while zoomed (focus left
+      // the composer, or the zoomed viewport covers the whole layout height
+      // again) still releases the kept feedback row and its held height.
+      if (viewport && viewport.scale !== 1) {
+        const active = root.ownerDocument.activeElement === root.host ? root.activeElement : null;
+        const editing = active?.matches('textarea,input,[contenteditable="true"]') || active?.closest('.composer');
+        if (!editing || (this.fullHeight ?? 0) - height * viewport.scale < 150) latchFeedback(root, false);
+        return;
+      }
       const workspace = root.querySelector('.workspace');
       const footer = root.querySelector('.display-foot');
       const geometry = footerGeometry(footer, this);

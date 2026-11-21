@@ -969,9 +969,11 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.purpose-new').addEventListener('click', () => this.#newConversation({ processingPreset: this.#session.processingPreset, settings: this.#session.settings }));
     // r7: discarding is the visitor's own action: release the kept keyboard-up
     // feedback row before the discard repaints (capture phase, ahead of the handlers).
-    // r8: the release holds until the discarded content has left the row.
+    // r8: the release holds until the discarded content has left the row
+    // (r9: a staged image's remove button scopes it to that image's id).
     root.querySelector('.composer').addEventListener('click', e => {
-      if (e.target.closest?.('.upload-discard, .staged-image__remove, .image-refusals__dismiss')) releaseFeedback(root, { discard: true });
+      const discard = e.target.closest?.('.upload-discard, .staged-image__remove, .image-refusals__dismiss');
+      if (discard) releaseFeedback(root, { discard });
     }, true);
     root.querySelector('form').addEventListener('submit', e => { e.preventDefault(); if (this.#composerPaused) void this.#resumeComposer(); else void this.#send(); });
     root.querySelector('.composer-resume').addEventListener('click', () => { void this.#resumeComposer(); });

@@ -54,11 +54,14 @@ export const combinedEntranceStyles = `
 .workspace[data-entrance="combined"] .composer-actions { display:contents; }
 .workspace[data-entrance="combined"] .attach { display:none; }
 .workspace[data-entrance="combined"] .send { grid-area:send; align-self:end; }
-.workspace[data-entrance="combined"] .composer-feedback { grid-area:feedback; margin:0; font-size:.72rem; }
+/* r9 (AIT-603, Codex gatepra8 Medium): a kept keyboard-up row holds its largest
+   height in --feedback-held (layout.js latchFeedback), combined with the dock's
+   own minimum below, never instead of it. */
+.workspace[data-entrance="combined"] .composer-feedback { grid-area:feedback; margin:0; font-size:.72rem; min-height:var(--feedback-held,auto); }
 /* Reserve wrapped document refusals only where document intake is configured. */
-.workspace[data-entrance="combined"] .composer[data-document-input] .composer-feedback { min-height:3.75em; }
+.workspace[data-entrance="combined"] .composer[data-document-input] .composer-feedback { min-height:max(var(--feedback-held,0px),3.75em); }
 /* Image refusals reserve the longest real localized reason before intake. */
-.workspace[data-entrance="combined"] .composer[data-image-input] .composer-feedback { min-height:44px; }
+.workspace[data-entrance="combined"] .composer[data-image-input] .composer-feedback { min-height:max(var(--feedback-held,0px),44px); }
 .workspace[data-entrance="combined"] .composer-feedback .composer-reason { font-size:inherit; }
 .workspace[data-entrance="combined"] .composer-feedback .composer-reason[data-shortcut] { position:static; visibility:visible; width:auto; }
 .composer-notice-slot { grid-area:notice; position:relative; min-width:0; }
@@ -263,7 +266,7 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action::after { top:-8px; transform:none; }
   /* r4 (Codex KEYBOARD): pending is one row on document- and image-enabled
      docks too: their refusal floors (3.75em, 44 px) yield to the consent line. */
-  .workspace[data-entrance="combined"][data-phone-keyboard] .composer .composer-feedback:has(> .composer-reason[data-consent-feature="text"]) { min-height:0; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer .composer-feedback:has(> .composer-reason[data-consent-feature="text"]) { min-height:var(--feedback-held,0px); }
   /* Granted and IDLE only (r4, Codex A11Y): the feedback row leaves the grid
      when it shows NOTHING but the keyboard-shortcut hint (or nothing): no
      visible status text (r5, Codex gatepra4 A11Y: the Saved confirmation after
