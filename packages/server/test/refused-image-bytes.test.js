@@ -23,7 +23,7 @@
 //   images), voice/realtime (JSON control bodies; images require text mode),
 //   host/plugin routes (JSON). A JSON route that receives bytes treats them as
 //   text and refuses invalid JSON with 400 before any storage.
-import { test } from 'node:test';
+import { test as nodeTest } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
@@ -36,6 +36,13 @@ import { registerDemoExtractors } from '../../../demo/uploads.js';
 import { mockConsent, testToken, ownedRequest, temporaryDb } from '../../../test/helpers.js';
 import { bytes as textBytes, pdf } from '../../../test/extractor-fixtures.js';
 
+// A failing assertion must fail its test, never hang the file.
+const test = (name, fn) => nodeTest(name, { timeout: 60_000 }, fn);
+// A gated normalizer still ends when the job is aborted (handler close after a failure).
+const gated = (gate, options) => Promise.race([gate, new Promise((resolve, reject) => {
+  if (options?.signal?.aborted) reject(options.signal.reason);
+  options?.signal?.addEventListener('abort', () => reject(options.signal.reason), { once: true });
+})]);
 let serial = 0;
 // A PNG signature makes the server classify the bytes as an image regardless of
 // the filename. The sentinel lets every scan find even a partial copy.
@@ -364,7 +371,7 @@ test('AIT-610 option A: a staged image is held in memory only; no row, WAL frame
   f.holdReader();
   let release, entered;
   const gate = new Promise(resolve => { release = resolve; }), running = new Promise(resolve => { entered = resolve; });
-  f.normalizer.verdict = async () => { entered(); await gate; return { status: 'staged-refused', reason: 'dimensions' }; };
+  f.normalizer.verdict = async (bytes, metadata, options) => { entered(); await gated(gate, options); return { status: 'staged-refused', reason: 'dimensions' }; };
   const response = await f.upload('in-memory', [['waiting.png', image.bytes]]), body = await response.text();
   assert.equal(response.status, 202, body);
   await running;
@@ -423,7 +430,7 @@ test('AIT-610 option A: above the pending-normalization cap a request is refused
   const f = await fixture(t), images = Array.from({ length: SERVER_UPLOAD_LIMITS.maxFilesPerRequest }, () => sentinelImage());
   let release, entered;
   const gate = new Promise(resolve => { release = resolve; }), running = new Promise(resolve => { entered = resolve; });
-  f.normalizer.verdict = async () => { entered(); await gate; return { status: 'staged-refused', reason: 'unsupported' }; };
+  f.normalizer.verdict = async (bytes, metadata, options) => { entered(); await gated(gate, options); return { status: 'staged-refused', reason: 'unsupported' }; };
   const first = await f.upload('fill', images.map((image, i) => [`held-${i}.png`, image.bytes])), firstBody = await first.text();
   assert.equal(first.status, 202, firstBody);
   await running;
