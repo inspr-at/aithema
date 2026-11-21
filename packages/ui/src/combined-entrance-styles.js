@@ -285,6 +285,9 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"][data-phone-short][data-phone-keyboard] .composer[data-image-input] .composer-feedback {
     grid-area:feedback; position:relative; top:auto; left:auto; right:auto; height:auto; }
   .workspace[data-entrance="combined"][data-phone-short][data-phone-keyboard] .composer[data-image-input] .composer-feedback > .composer-reason[data-consent-feature="text"] { overflow:visible; }
+  /* k1: nothing is reserved while the keyboard is up, the image refusal reserve included
+     (image-input.js keeps its last measured height while it is hidden). */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer[data-image-input] .image-feedback-reserve { display:none; }
   .workspace[data-entrance="combined"][data-phone-short] .concept-bar[data-no-drafts] { display:none; }
   .workspace[data-entrance="combined"][data-phone-short] .conversation { height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,250px) - 26px); }
   .workspace[data-entrance="combined"][data-phone-short] .transcript-shell { padding-bottom:8px; }
