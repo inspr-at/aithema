@@ -156,19 +156,26 @@ async function harness(t) {
   if (evidence) await mkdir(evidence, { recursive: true });
   const index = [];
   // Mount (again) with the locale's copy and the host's featureConsent overrides.
-  const mountWith = async (page, locale, consent = {}, start = false) => {
-    await page.evaluate(async (locale, overrides, start) => {
+  // r4: `intake` adds document ('document') or image ('image') intake; `granted`
+  // mounts with text and voice already allowed (the fixture's analysis value).
+  const mountWith = async (page, locale, consent = {}, start = false, { intake = null, granted = false } = {}) => {
+    await page.evaluate(async (locale, overrides, start, intake, granted) => {
       const base = (await import(`/packages/ui/src/i18n/${locale}.js`))[locale];
       globalThis.fixtureCopy = { ...base, featureConsent: { ...base.featureConsent, ...overrides } };
       globalThis.snapshot603a ??= JSON.parse(JSON.stringify(document.querySelector('aithema-session').session));
-      const snapshot = JSON.parse(JSON.stringify(globalThis.snapshot603a));
-      if (start) snapshot.featureMatrix.best.imageInput = { available: true };
+      const snapshot = JSON.parse(JSON.stringify(globalThis.snapshot603a)), best = snapshot.featureMatrix.best;
+      if (start || intake === 'image') best.imageInput = { available: true };
+      if (intake === 'document') best.uploads = { available: true };
+      if (granted) { best.text = structuredClone(best.analysis); best.voice = structuredClone(best.analysis); }
       mount(snapshot);
-    }, locale, consent, start);
-    await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason[data-consent-feature="text"] .consent-action'));
+    }, locale, consent, start, intake, granted);
+    await page.waitForFunction(granted => {
+      const root = document.querySelector('aithema-session').shadowRoot;
+      return granted ? root.querySelector('.composer-reason[data-shortcut]') : root.querySelector('.composer-reason[data-consent-feature="text"] .consent-action');
+    }, {}, granted);
     await settle(page);
   };
-  const open = async ({ width, height, locale, start = false, consent = {} }, problems) => {
+  const open = async ({ width, height, locale, start = false, consent = {}, intake = null, granted = false }, problems) => {
     const page = await browser.newPage();
     page.on('pageerror', error => problems.push(error.message));
     await page.setViewport({ width, height });
@@ -178,7 +185,7 @@ async function harness(t) {
       ? request.respond({ status: 200, contentType: 'text/html', body: fixture }) : request.continue()); });
     await page.goto(`${server.url}/combined-fixture?locale=${locale}&passiveDenied`);
     await page.waitForFunction(() => globalThis.ready && document.querySelector('aithema-session').shadowRoot.querySelector('.composer-status').textContent.length > 0);
-    await mountWith(page, locale, consent, start);
+    await mountWith(page, locale, consent, start, { intake, granted });
     return page;
   };
   const grant = async page => {
@@ -195,7 +202,7 @@ async function harness(t) {
     await writeFile(join(evidence, `${name}.json`), JSON.stringify(state, null, 2));
     await writeFile(join(evidence, `index-${process.pid}-${t.name.replace(/\W+/gu, '-').slice(0, 40)}.json`), JSON.stringify(index, null, 2));
   };
-  return { open, mountWith, grant, read, capture };
+  return { open, mountWith, grant, read, capture, evidence };
 }
 
 // 360/390 × EN/DE × stock / "OK" action × host text 0 .. very long (incl. a 72-letter word).
@@ -502,6 +509,9 @@ const keyboardState = c => {
     }
   }
   const label = line?.querySelector('.consent-line-copy');
+  // r4: the reason's own box (it may ellipsize) and the action's natural width (it never shrinks).
+  const labelBox = label ? { ...rect(label), scrollWidth: label.scrollWidth, clientWidth: label.clientWidth, textOverflow: getComputedStyle(label).textOverflow, whiteSpace: getComputedStyle(label).whiteSpace } : null;
+  const actionWidths = action ? { scrollWidth: action.scrollWidth, clientWidth: action.clientWidth } : null;
   const description = action ? root.getElementById(action.getAttribute('aria-describedby') ?? '') : null;
   return {
     keyboard: root.querySelector('.workspace').hasAttribute('data-phone-keyboard'),
@@ -514,7 +524,7 @@ const keyboardState = c => {
       for (let n; (n = walker.nextNode());) if (n.parentElement.checkVisibility()) text += n.textContent;
       return text.trim(); })(), rects: textRects(label) } : null,
     action: action ? { box: rect(action), text: shown(action).map(n => n.textContent).join('').trim() || action.textContent.trim(), rects: textRects(action) } : null,
-    hit, description: description ? { id: description.id, text: description.textContent } : null,
+    hit, description: description ? { id: description.id, text: description.textContent } : null, labelBox, actionWidths,
   };
 };
 const stableBoxes = (name, before, after, parts) => {
@@ -526,18 +536,28 @@ const stableBoxes = (name, before, after, parts) => {
   }
   return failures;
 };
+// r4, TICK M1: the action's accessible name, read from the accessibility tree.
+const actionName_ = async page => {
+  const opener = await page.$('aithema-session >>> .composer-reason[data-consent-feature="text"] .consent-action');
+  const node = opener ? await page.accessibility.snapshot({ root: opener }) : null; await opener?.dispose();
+  return node?.name ?? null;
+};
+// r4, TICK M1: a host action too long for the row beside the short reason.
+const LONG_ACTION = { en: { action: 'Review and agree to message processing…', actionNarrow: 'Review and agree to processing' },
+  de: { action: 'Verarbeitung prüfen und zustimmen…', actionNarrow: 'Verarbeitung prüfen und zustimmen' } };
 export async function consentKeyboardUpCheck(t) {
   const { open, grant, capture } = await harness(t);
   for (const [width, height, viewport] of KEYBOARD) for (const locale of ['en', 'de']) {
     const name = `${width}x${height}-${locale}-keyboard-up`;
     await t.test(name, async () => {
       const problems = [], failures = [], growth = [];
-      for (const [actionName, action] of [...Object.entries(ACTIONS), ['granted', ACTIONS.stock]]) {
+      for (const [actionName, action] of [...Object.entries(ACTIONS), ['long', () => LONG_ACTION[locale]], ['granted', ACTIONS.stock]]) {
         const label = `${name}-${actionName === 'granted' ? 'granted' : `pending-${actionName}-action`}`;
         const page = await open({ width, height, locale, consent: { ...action(), text: stock[locale].text } }, problems);
         try {
           const consent = await page.evaluate(() => globalThis.fixtureCopy.featureConsent);
           const down = await page.$eval('aithema-session', keyboardState);
+          const downName = actionName === 'granted' ? null : await actionName_(page);
           if (actionName === 'granted') await grant(page);
           await keyboardUp(page, viewport); await settleLong(page);
           const up = await page.$eval('aithema-session', keyboardState);
@@ -556,8 +576,18 @@ export async function consentKeyboardUpCheck(t) {
             if (up.reason?.text !== consent.textNarrow) failures.push(`${label}: the row starts with the stock short reason "${consent.textNarrow}": "${up.reason?.text}"`);
             if (!up.reason?.rects?.length) failures.push(`${label}: the short reason is painted`);
             if (up.reason?.text?.includes(consent.text)) failures.push(`${label}: the host text is hidden while the keyboard is up`);
-            const expected = consent.actionNarrow;
-            if (up.action?.text !== expected) failures.push(`${label}: the action "${expected}" ends the row: "${up.action?.text}"`);
+            // r4, TICK M1: the keyboard never changes the action's label or name;
+            // the label follows the width rule alone, as with the keyboard down.
+            const expected = down.action?.text;
+            if (!expected || up.action?.text !== expected) failures.push(`${label}: the action keeps its keyboard-down label "${expected}" and ends the row: "${up.action?.text}"`);
+            if (width === 390 && expected !== consent.action) failures.push(`${label}: at 390 the action is the wide label "${consent.action}": "${expected}"`);
+            const upName = await actionName_(page);
+            if (!downName || upName !== downName) failures.push(`${label}: the accessible name is the same with the keyboard up: "${downName}" -> "${upName}"`);
+            // The action never shrinks; the reason yields (one line, ellipsis).
+            if (!(up.actionWidths?.clientWidth > 0) || up.actionWidths.scrollWidth > up.actionWidths.clientWidth + 1) failures.push(`${label}: the action never shrinks: ${JSON.stringify(up.actionWidths)}`);
+            if (up.labelBox?.textOverflow !== 'ellipsis' || up.labelBox?.whiteSpace !== 'nowrap') failures.push(`${label}: the reason is one line with an ellipsis: ${JSON.stringify(up.labelBox)}`);
+            if (up.labelBox && up.action?.box && up.labelBox.x + up.labelBox.width > up.action.box.x + .5) failures.push(`${label}: the reason's box ends before the action: ${JSON.stringify({ reason: up.labelBox, action: up.action.box })}`);
+            if (actionName === 'long' && !(up.labelBox?.scrollWidth > up.labelBox?.clientWidth)) failures.push(`${label}: a long host action makes the reason yield (ellipsis): ${JSON.stringify(up.labelBox)}`);
             const a = up.action?.rects;
             if (a?.length !== 1 || !(a[0].width > 0 && a[0].height > 0)) failures.push(`${label}: the action is one painted box: ${JSON.stringify(a)}`);
             else {
@@ -566,7 +596,7 @@ export async function consentKeyboardUpCheck(t) {
               if (Math.abs(a[0].x + a[0].width - (line.box.x + line.box.width)) > 1) failures.push(`${label}: the action sits at the inline end: ${a[0].x + a[0].width} vs ${line.box.x + line.box.width}`);
               for (const r of up.reason?.rects ?? []) {
                 if (!(r.width > 0 && r.height > 0)) failures.push(`${label}: reason text positive box`);
-                if (r.x + r.width > a[0].x + .5) failures.push(`${label}: the reason ends before the action: ${JSON.stringify({ r, a: a[0] })}`);
+                if (Math.min(r.x + r.width, (up.labelBox?.x ?? 0) + (up.labelBox?.width ?? Infinity)) > a[0].x + .5) failures.push(`${label}: the reason ends before the action: ${JSON.stringify({ r, a: a[0] })}`);
                 if (Math.abs((r.y + r.height / 2) - middle) > line.lineHeight / 2) failures.push(`${label}: the reason shares the action's row: ${JSON.stringify({ r, a: a[0] })}`);
               }
             }
@@ -600,6 +630,101 @@ export async function consentKeyboardUpCheck(t) {
       }
       // The lane keeps lines with "Error:"; the growth numbers go to the log either way.
       t.diagnostic(`k1 growth: ${growth.join(' | ')}`);
+      none(failures, name);
+      assert.deepEqual(problems, []);
+    });
+  }
+}
+
+// r4 (Codex KEYBOARD + A11Y): k1 holds on document- and image-enabled docks
+// too. Pending: one row (no 3.75em / 44 px refusal floor). Granted with nothing
+// staged: 0 px. A staged image keeps its row; a rate-limited document upload
+// keeps its normal feedback row with Try again and Discard visible, unclipped
+// and focusable while the keyboard is up (only an idle row collapses).
+const intakeState = c => {
+  const root = c.shadowRoot, box = n => { const r = n.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
+  const rect = n => (n && n.checkVisibility() ? box(n) : null);
+  const line = root.querySelector('.composer-reason[data-consent-feature="text"]');
+  const controls = [...root.querySelectorAll('.composer-feedback :is(.upload-retry, .upload-discard)')].map(n => ({
+    cls: n.className, text: n.textContent.trim(), box: rect(n), visible: n.checkVisibility({ visibilityProperty: true, opacityProperty: true }) }));
+  return { keyboard: root.querySelector('.workspace').hasAttribute('data-phone-keyboard'),
+    composer: rect(root.querySelector('.composer')), field: rect(root.querySelector('textarea')), send: rect(root.querySelector('.send')),
+    feedback: rect(root.querySelector('.composer-feedback')), images: rect(root.querySelector('.staged-images')),
+    documentInput: root.querySelector('.composer').hasAttribute('data-document-input'), imageInput: root.querySelector('.composer').hasAttribute('data-image-input'),
+    line: line ? { box: rect(line), lineHeight: parseFloat(getComputedStyle(line).lineHeight) } : null, controls };
+};
+const focusable = (page, selector) => page.$eval('aithema-session', (c, selector) => {
+  const n = c.shadowRoot.querySelector(selector); if (!n) return false; n.focus(); return c.shadowRoot.activeElement === n;
+}, selector);
+const mockIntake = page => page.evaluate(() => {
+  const c = document.querySelector('aithema-session'), original = window.fetch.bind(window), schedule = window.setTimeout.bind(window);
+  const canvas = document.createElement('canvas'); canvas.width = 1; canvas.height = 1; canvas.getContext('2d').fillRect(0, 0, 1, 1);
+  window.k1PNG = Uint8Array.from(atob(canvas.toDataURL('image/png').split(',')[1]), ch => ch.charCodeAt(0)); window.k1Seq = 0;
+  // The retry wait runs at once (as in AIT-290's upload-retry case); a document upload is rate limited.
+  window.setTimeout = (callback, delay, ...args) => schedule(callback, new Error().stack.includes('#waitForUploadRetry') ? 0 : delay, ...args);
+  window.fetch = async (url, options = {}) => {
+    const path = String(url);
+    if (/\/uploads$/u.test(path)) {
+      if (options.method !== 'POST') return new Response(null, { status: 503 });
+      const files = options.body.getAll('files');
+      if (files.some(file => file.type !== 'image/png')) return Response.json({ error: 'upload-rate-limit' }, { status: 429, headers: { 'Retry-After': '1' } });
+      return Response.json({ events: files.map((file, index) => ({ sessionId: c.session.id, seq: c.session.seq + index + 1, type: 'upload.state', data: {
+        id: `k1-${++window.k1Seq}`, filename: file.name, kind: 'image', state: 'staged-pending', bytes: file.size, mediaType: 'image/png', at: new Date(0).toISOString() } })) }, { status: 202 });
+    }
+    if (/\/uploads\/[^/]+\/image$/u.test(path)) return new Response(window.k1PNG, { headers: { 'content-type': 'image/png' } });
+    return original(url, options);
+  };
+});
+export async function consentKeyboardIntakeCheck(t) {
+  const { open, capture } = await harness(t);
+  for (const [width, height, viewport] of KEYBOARD) for (const locale of ['en', 'de']) for (const intake of ['document', 'image']) {
+    const name = `${width}x${height}-${locale}-${intake}-keyboard-up`;
+    await t.test(name, async () => {
+      const problems = [], failures = [];
+      for (const state of ['pending', 'granted', intake === 'image' ? 'staged' : 'rate-limited']) {
+        const label = `${name}-${state}`;
+        const page = await open({ width, height, locale, intake, granted: state !== 'pending', consent: { text: stock[locale].text } }, problems);
+        try {
+          await mockIntake(page);
+          await keyboardUp(page, viewport); await settleLong(page);
+          if (state === 'staged') {
+            await page.$eval('aithema-session', c => { const transfer = new DataTransfer(); transfer.items.add(new File([window.k1PNG], 'k1.png', { type: 'image/png' }));
+              c.shadowRoot.querySelector('textarea').dispatchEvent(new ClipboardEvent('paste', { bubbles: true, clipboardData: transfer })); });
+            await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.staged-images:not([hidden]) .staged-image'), { timeout: 15_000 });
+          }
+          if (state === 'rate-limited') {
+            await page.$eval('aithema-session', c => { const input = c.shadowRoot.querySelector('.attach-input'), transfer = new DataTransfer();
+              transfer.items.add(new File(['Offers'], 'offers.txt', { type: 'text/plain' })); input.files = transfer.files; input.dispatchEvent(new Event('change')); });
+            await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.upload-retry'), { timeout: 15_000 });
+          }
+          await settleLong(page);
+          const up = await page.$eval('aithema-session', intakeState);
+          if (!up.keyboard) { failures.push(`${label}: the keyboard flag is set`); continue; }
+          if (intake === 'document' && !up.documentInput) failures.push(`${label}: the dock is document-enabled`);
+          if (intake === 'image' && !up.imageInput) failures.push(`${label}: the dock is image-enabled`);
+          for (const part of ['composer', 'field', 'send']) if (!(up[part]?.width > 0 && up[part]?.height > 0)) failures.push(`${label}: ${part} positive box: ${JSON.stringify(up[part])}`);
+          if (state === 'pending') {
+            if (!(up.line?.box?.width > 0 && up.line?.box?.height > 0)) failures.push(`${label}: the consent line positive box: ${JSON.stringify(up.line)}`);
+            else if (!(up.feedback?.height > 0) || up.feedback.height > up.line.lineHeight + .5) failures.push(`${label}: the consent row is one row: ${JSON.stringify(up.feedback)} vs ${up.line.lineHeight}`);
+          } else if (state === 'granted') {
+            if (up.feedback && up.feedback.height > .5) failures.push(`${label}: nothing staged, the feedback row takes 0 px: ${JSON.stringify(up.feedback)}`);
+          } else if (state === 'staged') {
+            if (!(up.images?.width > 0 && up.images?.height > 0)) failures.push(`${label}: the staged image keeps its row: ${JSON.stringify(up.images)}`);
+            else if (up.images.y + up.images.height > up.field.y + .5) failures.push(`${label}: the staged row sits above the field: ${JSON.stringify({ images: up.images, field: up.field })}`);
+          } else {
+            if (up.controls.length !== 2) failures.push(`${label}: Try again and Discard are present: ${JSON.stringify(up.controls)}`);
+            if (!(up.feedback?.width > 0 && up.feedback?.height > 0)) failures.push(`${label}: the feedback row keeps a positive box: ${JSON.stringify(up.feedback)}`);
+            for (const control of up.controls) {
+              if (!control.visible || !(control.box?.width > 0 && control.box?.height > 0)) { failures.push(`${label}: ${control.cls} visible with a positive box: ${JSON.stringify(control)}`); continue; }
+              const f = up.feedback;
+              if (!f || control.box.y < f.y - .5 || control.box.y + control.box.height > f.y + f.height + .5 || control.box.x < f.x - .5 || control.box.x + control.box.width > f.x + f.width + .5)
+                failures.push(`${label}: ${control.cls} not clipped by its row: ${JSON.stringify({ control: control.box, feedback: f })}`);
+            }
+            for (const selector of ['.upload-retry', '.upload-discard']) if (!await focusable(page, selector)) failures.push(`${label}: ${selector} takes focus`);
+          }
+          await capture(page, `r4-k1-${label}`, up);
+        } finally { await page.close(); }
+      }
       none(failures, name);
       assert.deepEqual(problems, []);
     });
