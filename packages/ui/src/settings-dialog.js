@@ -1,8 +1,6 @@
 import { neutralBindingReason } from './reason-text.js';
 import { featureConsentText, reasonSeparator } from './consent-line.js';
 import { ConsentSettings } from './consent-settings.js';
-import { en } from './i18n/en.js';
-import { de } from './i18n/de.js';
 // START AiSettings.astro, ai-settings.ts and settings-controls.ts behaviour, ported
 // to a native modal <dialog> inside the component (INSPR D3). The server owns every
 // verdict: this dialog sends option ids and shows only acknowledged state.
@@ -56,51 +54,10 @@ const shortCountryNames = (countries, locale) => {
   const regions = new Intl.DisplayNames(locale, { type: 'region', style: 'short' });
   return countries.slice(0, 2).map(code => regions.of(code)).join(', ') + (countries.length > 2 ? ` +${countries.length - 2}` : '');
 };
-// AIT-603 PR-B r3: the consent sheet shows the host's sentence in full; the
-// footer help line names it in at most HELP_REASON_CAP characters, so a long
-// host sentence no longer inflates the help cell's reserve (and shrinks the
-// settings body above it). The cap is above every stock sentence (EN/DE <= 39).
-// r4: the cap counts graphemes (an emoji or a letter with its combining mark is
-// one), so the cut never splits one; code points where Intl.Segmenter is missing.
-const HELP_REASON_CAP = 40;
-// r5 (gate Low): without Intl.Segmenter, a combining mark, a variation selector,
-// a skin-tone modifier, a ZWJ and the code point after a ZWJ join the previous
-// code point, so the fallback keeps those sequences whole too (other clusters,
-// e.g. Hangul jamo or regional-indicator flags, may still split there).
-const JOINS = /^[\p{M}\u200D\u{1F3FB}-\u{1F3FF}]$/u;
-const graphemes = text => {
-  if (typeof Intl.Segmenter === 'function') return Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text), part => part.segment);
-  const parts = [];
-  for (const point of text) {
-    if (parts.length && (JOINS.test(point) || parts.at(-1).endsWith('\u200D'))) parts[parts.length - 1] += point; else parts.push(point);
-  }
-  return parts;
-};
-export const helpReason = text => {
-  const value = String(text ?? ''), parts = graphemes(value);
-  return parts.length > HELP_REASON_CAP ? `${parts.slice(0, HELP_REASON_CAP - 1).join('').trimEnd()}…` : value;
-};
-// r4 (gate M1): the help cell's reserve holds the tallest RENDERING, not the
-// longest string: the consent-needed measure stacks one hidden copy per capped
-// feature reason in one grid cell (the cell takes the tallest).
-// r5 (TICK decision (i)): the reasons are the STOCK sentences of the locale (a
-// host override never sets the reserve), so the reserve is the N lines the
-// stock copy needs at this width; the live help line is clamped to those N
-// lines with an ellipsis (#fitHelp). No sample string.
-// r6 (gate M2): the reasons AND the help templates are the bundled stock copy;
-// a locale without stock copy (e.g. fr) reserves with the EN stock. Host copy
-// never changes N.
-const stockCopy = copy => ({ en, de })[String(copy.display?.locale ?? '').slice(0, 2).toLowerCase()] ?? en;
 const helpMeasurements = copy => {
-  const stock = stockCopy(copy);
-  const reasons = ['text', 'uploads', 'images', 'html', 'voice', 'analysis'].map(feature => helpReason(featureConsentText(stock, feature)));
-  return Object.entries(stock.help).map(([key, text]) => key === 'consentNeeded' ? reasons.map(reason => fill(text, { reason })) : fill(text, { reason: '' }));
-};
-// One measure node per help text; a list of variants stacks in that node.
-const paintMeasure = (node, text) => {
-  node.classList.toggle('context-measure--stack', Array.isArray(text));
-  if (!Array.isArray(text)) { node.textContent = text ?? ''; return; }
-  node.replaceChildren(...text.map(variant => { const span = document.createElement('span'); span.textContent = variant; return span; }));
+  const reason = ['text', 'uploads', 'images', 'html', 'voice', 'analysis'].map(feature => featureConsentText(copy, feature))
+    .reduce((longest, text) => text.length > longest.length ? text : longest, '');
+  return Object.entries(copy.help).map(([key, text]) => fill(text, { reason: key === 'consentNeeded' ? reason : '' }));
 };
 
 const svg = (body, box = '0 0 24 24') => `<svg viewBox="${box}" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
@@ -244,13 +201,7 @@ export class SettingsDialog {
       const node = document.createElement('p'); node.className = className; node.setAttribute('aria-hidden', 'true'); node.textContent = text; return node;
     }));
     measure(this.#q('.general-consent-state'), Object.values(c.consentStates), 'status-line general-consent-measure');
-    const helps = helpMeasurements(this.#copy);
-    measure(this.#q('.context-text'), helps.map(() => ''), 'context-measure');
-    // r6 (gate M3): the privacy help that ends in the host's link is never
-    // clamped; its own measure (empty unless the privacy gauge shows provider
-    // countries) makes the reserve cover it.
-    measure(this.#q('.context-text'), [''], 'context-link-measure');
-    this.#all('.context-measure').forEach((n, i) => paintMeasure(n, helps[i]));
+    measure(this.#q('.context-text'), helpMeasurements(this.#copy), 'context-measure');
     measure(this.#q('.save-state'), [this.#copy.host.consentStale, this.#copy.host.consentPage.loading, this.#copy.host.consentPage.saving, this.#copy.host.consentFailed], 'consent-state-measure');
     measure(this.#q('.save-state'), SAVE_MESSAGES.map(key => c[key]), 'save-state-measure');
     const notices = [c.callActive, c.toDevice, c.fromDevice, c.consentRequired, c.running, c.conflict, fill(c.notAllowed, { reason: '' })];
@@ -271,7 +222,7 @@ export class SettingsDialog {
     this.#all('.general-consent-measure').forEach((n, i) => { n.textContent = Object.values(copy.settings.consentStates)[i]; });
     this.#all('.consent-state-measure').forEach((n, i) => { n.textContent = [copy.host.consentStale, copy.host.consentPage.loading, copy.host.consentPage.saving, copy.host.consentFailed][i]; });
     const measurements = helpMeasurements(copy);
-    this.#all('.context-measure').forEach((n, i) => paintMeasure(n, measurements[i]));
+    this.#all('.context-measure').forEach((n, i) => { n.textContent = measurements[i] ?? ''; });
     const c = copy.settings, notices = [c.callActive, c.toDevice, c.fromDevice, c.consentRequired, c.running, c.conflict, fill(c.notAllowed, { reason: '' })];
     this.#q('.notice-measure .notice-text').textContent = notices.reduce((a, b) => b.length > a.length ? b : a);
     this.#paintKeys.clear(); this.sync();
@@ -295,33 +246,10 @@ export class SettingsDialog {
     }
   }
   #observeFade() {
-    this.#fadeObserver ??= new this.#dialog.ownerDocument.defaultView.ResizeObserver(() => {
-      this.#updateFade();
-      // r6 (gate M1): in the callback, before the frame paints. The clamped
-      // help line is out of flow (settings-styles.js), so a new N changes no
-      // observed box and cannot re-enter the observer.
-      this.#fitHelp();
-    });
+    this.#fadeObserver ??= new this.#dialog.ownerDocument.defaultView.ResizeObserver(() => this.#updateFade());
     // Panels track content changes even when the body's own size stays fixed.
-    // r5: the help cell and its measures (width or locale changes move N).
-    for (const node of this.#all('.settings__body, .settings-panel, .select__menu, .context-text, .context-measure, .context-link-measure')) this.#fadeObserver.observe(node);
-    this.#updateFade(); this.#fitHelp();
-  }
-  // r5 (TICK decision (i)): N = the lines the tallest stock help needs here
-  // (the measures); the help text is clamped to whole N lines with an ellipsis.
-  // r6 (gate M1, M3): the clamp is always on (data-clamp; the CSS keeps the
-  // line out of flow, capped at the reserve, so no frame shows more), except
-  // for a help line that carries a link: that one is never clamped (its link
-  // and focus ring stay whole) and the link measure reserves it.
-  #fitHelp() {
-    const message = this.#q('.context-message');
-    if (!message || !this.#dialog.open) return;
-    if (message.querySelector('a')) delete message.dataset.clamp; else message.dataset.clamp = '';
-    const line = parseFloat(this.#dialog.ownerDocument.defaultView.getComputedStyle(message).lineHeight);
-    const reserve = Math.max(0, ...[...this.#all('.context-measure, .context-link-measure')].map(node => node.getBoundingClientRect().height));
-    if (!(line > 0) || !(reserve > 0)) return;
-    const lines = String(Math.max(1, Math.round(reserve / line)));
-    if (message.style.getPropertyValue('--help-lines') !== lines) message.style.setProperty('--help-lines', lines);
+    for (const node of this.#all('.settings__body, .settings-panel, .select__menu')) this.#fadeObserver.observe(node);
+    this.#updateFade();
   }
   #wire() {
     const dialog = this.#dialog;
@@ -791,7 +719,7 @@ export class SettingsDialog {
     const key = term?.dataset.reason ? `${term.dataset.kind || 'unavailable'}:${term.dataset.reason}` : term?.dataset.help ?? this.#help;
     const help = this.#copy.help, [kind, ...rest] = key.split(':'), reason = rest.join(':');
     const helpKey = key === 'general' && !this.#q('.host-verify').hidden ? this.#q('.host-verify').dataset.emailHelp ?? key : key;
-    const text = isConsentReason(reason) ? fill(help.consentNeeded, { reason: helpReason(featureConsentText(this.#copy, term?.dataset.feature ?? 'text')) })
+    const text = isConsentReason(reason) ? fill(help.consentNeeded, { reason: featureConsentText(this.#copy, term?.dataset.feature ?? 'text') })
       : term?.dataset.help === 'gauge' ? term.dataset.helpText : reason && ['unavailable', 'consent', 'limited'].includes(kind)
       ? fill(help[kind === 'unavailable' ? 'unavailable' : kind === 'consent' ? 'consentNeeded' : 'limited'], { reason: reasonText(this.#copy, reason, term?.dataset.feature ?? 'text') })
       : help[helpKey] ?? help[key] ?? help[this.#help] ?? help.processing;
@@ -801,7 +729,7 @@ export class SettingsDialog {
     const privacy = this.#q('[data-gauge="privacy"]');
     const keepLink = message.querySelector('a[data-aithema-privacy]') && privacy.dataset.state === 'hostCountries' && message.textContent === privacy.dataset.helpText;
     if (keepLink && (message.contains(this.#focused()) || !term || term.dataset.help === 'gauges')) return;
-    message.textContent = text; this.#fitHelp();
+    message.textContent = text;
     if (term?.dataset.gauge !== 'privacy' || term.dataset.state !== 'hostCountries') return;
     const host = this.#dialog.getRootNode().host;
     const marked = [...(host?.children ?? [])].filter(node => node.slot === 'legal')
@@ -815,7 +743,6 @@ export class SettingsDialog {
       const link = document.createElement('a'); link.dataset.aithemaPrivacy = ''; link.href = url.href; link.textContent = label;
       if (source.target === '_blank') { link.target = '_blank'; link.rel = 'noopener noreferrer'; }
       message.replaceChildren(document.createTextNode(text.slice(0, index)), link, document.createTextNode(text.slice(index + label.length)));
-      this.#fitHelp();
       break;
     }
   }
@@ -882,7 +809,6 @@ export class SettingsDialog {
     node.querySelector('.gauge__value').textContent = value;
     node.querySelector('.gauge__detail').textContent = fill(g.short?.[kind]?.[gauge.state] ?? detail, details);
     node.dataset.help = 'gauge'; node.dataset.helpText = `${g.labels[kind]}${reasonSeparator}${value}${detail ? `: ${detail}` : ''}`;
-    if (kind === 'privacy') { const link = this.#q('.context-link-measure'); if (link) link.textContent = gauge.state === 'hostCountries' ? node.dataset.helpText : ''; }
     node.setAttribute('aria-label', `${g.labels[kind]}: ${value}${detail ? `, ${detail}` : ''}`);
     node.dataset.state = gauge.state;
     node.classList.remove('gauge--unrated', 'gauge--measured');
