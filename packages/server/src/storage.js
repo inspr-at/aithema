@@ -911,10 +911,7 @@ export class SQLiteStorage {
       const event = this.#append(this.get(id), 'upload.state', { ...upload, contentRef: undefined, hash: undefined,
         state: result.status, reason: result.reason, text: result.status === 'accepted' ? result.text : undefined,
         truncated: result.truncated, extractor: result.extractor,
-        ...(image && result.status === 'staged-ready' ? { digest: hash(result.bytes), w: result.w, h: result.h, mediaType: result.mediaType } : {}),
-        // A refusal for a lost original (restart) may open a fresh staging window
-        // so the visitor sees it before expiry removes the row (AIT-610 r3).
-        ...(image && result.status === 'staged-refused' && Number.isSafeInteger(result.expiresAt) ? { expiresAt: result.expiresAt } : {}) });
+        ...(image && result.status === 'staged-ready' ? { digest: hash(result.bytes), w: result.w, h: result.h, mediaType: result.mediaType } : {}) });
       this.db.prepare('UPDATE uploads SET bytes=?,content_ref=? WHERE session_id=? AND id=?').run(image && result.status === 'staged-ready' ? result.bytes : null, event.data.contentRef, id, uploadId);
       return event;
     });

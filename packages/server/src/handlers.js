@@ -34,9 +34,6 @@ export async function readBody(request, limit = REQUEST_LIMIT) {
   const body = declared === null ? null : Buffer.allocUnsafe(declared);
   const reader = request.body.getReader();
   let first, growing, size = 0;
-  // AIT-610 r3: a body may carry refused image bytes. Each chunk is zero-filled
-  // once copied, and every partial buffer is zero-filled when the read fails;
-  // the caller zero-fills the returned body when it is done with it.
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -62,10 +59,6 @@ export async function readBody(request, limit = REQUEST_LIMIT) {
     }
     if (growing) return Buffer.from(growing, 0, size);
     return first ? Buffer.from(first.buffer, first.byteOffset, first.byteLength) : Buffer.alloc(0);
-  } catch (error) {
-    const partial = [body, first, growing && new Uint8Array(growing)];
-    setImmediate(() => { for (const buffer of partial) buffer?.fill(0); });
-    throw error;
   } finally { reader.releaseLock(); }
 }
 
