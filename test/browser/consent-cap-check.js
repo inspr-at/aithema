@@ -1093,7 +1093,9 @@ export async function consentKeyboardKeptHeightCheck(t) {
         await capture(page, `r8-discard-${name}-after-ack`, { ...after, row: afterRow });
         if (!after.keyboard) failures.push(`${name}: the keyboard stays up`);
         if (afterRow.images) failures.push(`${name}: the image is discarded`);
-        if (afterRow.empty || afterRow.minHeight) failures.push(`${name}: no empty kept row after the discard: ${JSON.stringify({ feedback: after.feedback, row: afterRow })}`);
+        // r8b: after the ack the row may be kept and hold its own rendered height (it shows the consent line); only a kept
+        // row that shows nothing fails.
+        if (afterRow.empty) failures.push(`${name}: no empty kept row after the discard:${JSON.stringify({ feedback: after.feedback, row: afterRow })}`);
         for (const part of ['field', 'send', 'mic']) if (!(after[part]?.width > 0 && after[part]?.height > 0)) failures.push(`${name}: ${part} positive box: ${JSON.stringify(after[part])}`);
       } finally { await page.close(); }
       none(failures, name);
