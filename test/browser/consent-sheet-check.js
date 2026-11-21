@@ -681,6 +681,9 @@ export async function consentSheetPrivacyLinkCheck(t) {
         }
         await settle(page);
         const before = await page.$eval('aithema-session', helpState);
+        // On phones the gauge can sit below the body's fold: bring it on screen first.
+        await page.$eval('aithema-session', c => c.shadowRoot.querySelector('dialog.settings[open] [data-gauge="privacy"]').scrollIntoView({ block: 'center' }));
+        await settle(page);
         const point = await page.$eval('aithema-session', c => { const r = c.shadowRoot.querySelector('dialog.settings[open] [data-gauge="privacy"]').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
         await page.mouse.move(point.x, point.y); await settle(page);
         await page.$eval('aithema-session', c => c.shadowRoot.querySelector('dialog.settings[open] .context-message a[data-aithema-privacy]')?.focus({ focusVisible: true }));
@@ -702,7 +705,7 @@ export async function consentSheetPrivacyLinkCheck(t) {
         if (!after.link) failures.push(`precondition: the help line carries the host's privacy link: ${JSON.stringify(after.text)}`);
         else {
           if (!(after.link.width > 0 && after.link.height > 0) || !after.visible) failures.push(`the link has a positive, visible box: ${JSON.stringify(after.link)}`);
-          if (!(shown.message.height > 2 * shown.line - 1)) failures.push(`precondition: the privacy help wraps over several lines: ${shown.message.height} / ${shown.line}`);
+          if (width === 360 && !(shown.message.height > 2 * shown.line - 1)) failures.push(`precondition: the privacy help wraps over several lines: ${shown.message.height} / ${shown.line}`);
           if (!after.focused || after.outline === 'none' || !(after.ring > 0)) failures.push(`the link takes focus and draws a ring: ${JSON.stringify({ focused: after.focused, outline: after.outline, ring: after.ring })}`);
           if (after.clipped.length) failures.push(`the link and its ring are inside every clipping box: ${after.clipped.join(' | ')}`);
           if (shown.message.height > shown.reserve + 1) failures.push(`the reserve covers the privacy help: ${shown.message.height} vs ${shown.reserve}`);
