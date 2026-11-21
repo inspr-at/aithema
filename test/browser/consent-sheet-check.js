@@ -104,7 +104,7 @@ const readSheet = (c, full) => {
   for (const n of dialog.querySelectorAll('*')) if (n.childElementCount === 0 && n.textContent === full && n.checkVisibility()) { holder = n; break; }
   const body = dialog.querySelector('.settings__body'), target = dialog.querySelector('.consent-item--target input'), row = target?.closest('.consent-item');
   const active = c.shadowRoot.activeElement;
-  return { open: true, sentence: box(holder), sentenceOnScreen: onScreen(holder), target: box(target), row: box(row), targetOnScreen: onScreen(target),
+  return { open: true, sentence: box(holder), sentenceOnScreen: onScreen(holder), target: box(target), row: box(row), label: box(target?.closest('label')), targetOnScreen: onScreen(target),
     body: box(body), scrollTop: body.scrollTop, items: dialog.querySelectorAll('.consent-item').length,
     status: dialog.querySelector('.consent-status')?.textContent ?? null,
     focus: active ? `${active.tagName.toLowerCase()}${active.className ? `.${String(active.className).split(' ').join('.')}` : ''}` : null,
@@ -117,6 +117,22 @@ async function openSheet(page) {
   await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings[open] .consent-editor:not([hidden])'));
   await settle(page);
   return page.$eval('aithema-session', c => c.shadowRoot.querySelector('dialog.settings[open] .settings__body').scrollTop);
+}
+
+// AIT-603 PR-B r2: the both-fit branch is measured by the sentence and the
+// target CHECKBOX with its label line, not the whole row (a long purpose below
+// the checkbox must neither add scroll nor force the sentence anchor). The least
+// scroll: the label line's bottom where it was before the load, 12 px clear.
+function leastScrollFailures(sheet, start) {
+  const failures = [];
+  if (!(sheet.label?.width > 0 && sheet.label?.height > 0)) return [`the target label line positive box: ${JSON.stringify(sheet.label)}`];
+  // Precondition: the sentence and the target checkbox fit together (the both-fit branch).
+  if (sheet.label.bottom - sheet.sentence.y > sheet.body.height - 2 * GAP) failures.push(`the fixture fits the sentence and the target checkbox together: ${sheet.label.bottom - sheet.sentence.y} vs ${sheet.body.height}`);
+  if (!sheet.targetOnScreen) failures.push('the target checkbox is on screen with the sentence (both fit)');
+  if (!sheet.focusTarget) failures.push(`the target checkbox has focus (both fit): ${sheet.focus}`);
+  const bottomAtStart = sheet.label.bottom + (sheet.scrollTop - start), least = Math.max(0, bottomAtStart - (sheet.body.y + sheet.body.height) + GAP);
+  if (Math.abs(sheet.scrollTop - start - least) > 1) failures.push(`the sheet scrolls the least that shows the sentence and the target checkbox: ${sheet.scrollTop - start} vs ${least}`);
+  return failures;
 }
 
 // The full sentence: present, exact, a positive box, on screen.
@@ -180,14 +196,136 @@ export async function consentSheetLoadedCheck(t) {
         if (sheet.focusSentence && sheet.sentenceTabIndex !== -1) failures.push(`the sentence is a programmatic focus stop only (tabindex -1): ${sheet.sentenceTabIndex}`);
         if (copy === 'short' && sheet.sentence && sheet.row && sheet.body) {
           // Precondition: the sentence and the target fit together (the both-fit branch).
-          if (sheet.row.bottom - sheet.sentence.y > sheet.body.height - 2 * GAP) failures.push(`the fixture fits the sentence and the target together: ${sheet.row.bottom - sheet.sentence.y} vs ${sheet.body.height}`);
-          if (!sheet.targetOnScreen) failures.push('the target checkbox is on screen with the sentence (both fit)');
-          if (!sheet.focusTarget) failures.push(`the target checkbox has focus (both fit): ${sheet.focus}`);
-          // The least scroll: the target row's bottom where it was before the load.
-          const bottomAtStart = sheet.row.bottom + (sheet.scrollTop - start), least = Math.max(0, bottomAtStart - (sheet.body.y + sheet.body.height) + GAP);
-          if (Math.abs(sheet.scrollTop - start - least) > 1) failures.push(`the sheet scrolls the least that shows both: ${sheet.scrollTop - start} vs ${least}`);
+          failures.push(...leastScrollFailures(sheet, start));
         }
         await capture(page, name, { summary: `loaded; sentence on screen ${sheet.sentenceOnScreen}; target on screen ${sheet.targetOnScreen}; focus ${sheet.focus}`, sentenceText: full, scrollAtOpen: start, ...sheet });
+        none(failures, `${name}: ${JSON.stringify({ start, sheet })}`);
+        assert.deepEqual(problems, []);
+      } finally { await page.close(); }
+    });
+  }
+}
+
+// AIT-603 PR-B r2 (gate Medium 1): focus the visitor moves while the document
+// loads stays where they put it; a successful load may scroll, never refocus.
+export async function consentSheetFocusKeptCheck(t) {
+  const open = await harness(t);
+  for (const item of sheetCases.filter(({ width, locale }) => width === 360 && locale === 'en' || width === 1440 && locale === 'de')) {
+    const name = `${item.width}x${item.height}-${item.locale}-tab-away-loaded`;
+    await t.test(name, async () => {
+      const problems = [], full = stock[item.locale];
+      const page = await open({ ...item, doc: documentFor('short', 'fixture-ait-603b-tab-away') }, problems);
+      try {
+        const start = await openSheet(page);
+        await page.keyboard.press('Tab');
+        await settle(page);
+        const moved = await page.$eval('aithema-session', c => {
+          const active = c.shadowRoot.activeElement, dialog = c.shadowRoot.querySelector('dialog.settings[open]');
+          if (!active || !dialog?.contains(active) || active.classList.contains('consent-reason')) return { ok: false, focus: active?.outerHTML.slice(0, 120) ?? null };
+          active.dataset.ait603TabAway = '1';
+          return { ok: true, focus: active.outerHTML.slice(0, 120) };
+        });
+        if (!moved.ok) throw new Error(`precondition: Tab moves focus to another control in the sheet while the document loads: ${moved.focus}`);
+        await page.evaluate(() => globalThis.release());
+        await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings[open] .consent-item--target'));
+        await settle(page);
+        const sheet = await page.$eval('aithema-session', readSheet, full);
+        const kept = await page.$eval('aithema-session', c => c.shadowRoot.activeElement?.dataset.ait603TabAway === '1');
+        const failures = [];
+        if (!kept) failures.push(`the control the visitor tabbed to keeps focus after the load (${moved.focus}; now ${sheet.focus})`);
+        if (sheet.focusTarget || sheet.focusSentence) failures.push(`the load does not move focus to the target or the sentence: ${sheet.focus}`);
+        await capture(page, name, { summary: `tab-away then loaded; focus kept ${kept}; focus ${sheet.focus}`, sentenceText: full, scrollAtOpen: start, tabbedTo: moved.focus, kept, ...sheet });
+        none(failures, `${name}: ${JSON.stringify({ start, moved, sheet })}`);
+        assert.deepEqual(problems, []);
+      } finally { await page.close(); }
+    });
+  }
+}
+
+// A target whose purpose is taller than the settings body (item 2 of 8).
+const tallPurposeDocument = (feature, contract) => ({ contract, selected: [], features: { [feature]: ['fixture-item-2'] }, items: Array.from({ length: 8 }, (_, i) => ({ id: `fixture-item-${i + 1}`, version: 1, title: `Fixture item ${i + 1}`,
+  recipients: 'The host', text: i === 1 ? Array(80).fill('This fixture purpose is long on purpose, for the local layout check only.').join(' ') : 'One short purpose.' })) });
+
+// AIT-603 PR-B r2 (gate Mediums 2 and 3): a tall target purpose.
+// Text feature: the sentence and the target checkbox fit together, so the
+// sheet scrolls the least that shows both (measured by the checkbox and its
+// label line, not the purpose) and the target keeps focus.
+// Other features (no sentence): the focused checkbox is centred, as on main,
+// so it stays inside the scrollport even when its purpose is taller.
+export async function consentSheetTallPurposeCheck(t) {
+  const open = await harness(t);
+  for (const item of sheetCases) for (const feature of ['text', 'voice']) {
+    const name = `${item.width}x${item.height}-${item.locale}-${feature}-tall-purpose-loaded`;
+    await t.test(name, async () => {
+      const problems = [], full = feature === 'text' ? stock[item.locale] : '\u0000no sentence for this feature';
+      const page = await open({ ...item, doc: tallPurposeDocument(feature, `fixture-ait-603b-tall-${feature}`) }, problems);
+      try {
+        let start;
+        if (feature === 'text') start = await openSheet(page);
+        else {
+          await page.evaluate(() => document.querySelector('aithema-session').openConsent('voice'));
+          await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings[open] .consent-editor:not([hidden])'));
+          await settle(page);
+          start = await page.$eval('aithema-session', c => c.shadowRoot.querySelector('dialog.settings[open] .settings__body').scrollTop);
+        }
+        await page.evaluate(() => globalThis.release());
+        await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings[open] .consent-item--target'));
+        await settle(page);
+        const sheet = await page.$eval('aithema-session', readSheet, full);
+        const failures = [];
+        if (!(sheet.body?.width > 0 && sheet.body?.height > 0)) failures.push(`the settings body positive box: ${JSON.stringify(sheet.body)}`);
+        if (!(sheet.target?.width > 0 && sheet.target?.height > 0 && sheet.row?.width > 0 && sheet.row?.height > 0)) failures.push(`the target positive boxes: ${JSON.stringify([sheet.target, sheet.row])}`);
+        // Precondition: the target row (with its purpose) is taller than the settings body.
+        if (sheet.row && sheet.body && sheet.row.height <= sheet.body.height) failures.push(`precondition: the target row is taller than the settings body: ${sheet.row.height} vs ${sheet.body.height}`);
+        if (!sheet.targetOnScreen) failures.push(`the focused target checkbox is inside the scrollport: ${JSON.stringify({ target: sheet.target, body: sheet.body })}`);
+        if (!sheet.focusTarget) failures.push(`the target checkbox has focus: ${sheet.focus}`);
+        if (!sheet.focusOnScreen) failures.push(`keyboard focus is on screen (${sheet.focus})`);
+        if (feature === 'text') {
+          failures.push(...sentenceFailures(sheet));
+          if (sheet.sentence && sheet.body) failures.push(...leastScrollFailures(sheet, start));
+        } else if (sheet.target && sheet.body) {
+          // As on main: the checkbox centres in the scrollport.
+          const centre = sheet.target.y + sheet.target.height / 2 - (sheet.body.y + sheet.body.height / 2);
+          if (Math.abs(centre) > 2) failures.push(`the focused checkbox is centred in the scrollport, as on main: ${centre} px off`);
+        }
+        await capture(page, name, { summary: `${feature} tall purpose loaded; target on screen ${sheet.targetOnScreen}; focus ${sheet.focus}`, sentenceText: feature === 'text' ? full : null, scrollAtOpen: start, ...sheet });
+        none(failures, `${name}: ${JSON.stringify({ start, sheet })}`);
+        assert.deepEqual(problems, []);
+      } finally { await page.close(); }
+    });
+  }
+}
+
+// AIT-603 PR-B r2 (gate Low): the oversized fallback. An eight-sentence DE host
+// sentence is taller than the phone settings body: on both load paths the sheet
+// anchors at the sentence top (12 px clear) and the sentence holds focus
+// (tabindex -1, a programmatic stop).
+export async function consentSheetOversizedCheck(t) {
+  const open = await harness(t);
+  const full = Array(8).fill('Ihre Nachrichten erreichen unseren Modellanbieter erst nach Ihrer Zustimmung.').join(' ');
+  for (const item of sheetCases.filter(({ width, locale }) => width < 1000 && locale === 'de')) for (const path of ['failed', 'loaded']) {
+    const name = `${item.width}x${item.height}-de-oversized-${path}`;
+    await t.test(name, async () => {
+      const problems = [];
+      const page = await open({ ...item, sentence: full, doc: path === 'loaded' ? documentFor('long', 'fixture-ait-603b-oversized') : null }, problems);
+      try {
+        const start = await openSheet(page);
+        await page.evaluate(() => globalThis.release());
+        if (path === 'failed') await page.waitForFunction(text => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings[open] .consent-status')?.textContent === text, {}, de.host.consentFailed);
+        else await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings[open] .consent-item--target'));
+        await settle(page);
+        const sheet = await page.$eval('aithema-session', readSheet, full);
+        const failures = [];
+        if (!(sheet.sentence?.width > 0 && sheet.sentence?.height > 0)) failures.push(`the sheet shows the full host sentence (exact text, positive box): ${JSON.stringify(sheet.sentence)}`);
+        if (!(sheet.body?.width > 0 && sheet.body?.height > 0)) failures.push(`the settings body positive box: ${JSON.stringify(sheet.body)}`);
+        if (sheet.sentence && sheet.body) {
+          if (sheet.sentence.height <= sheet.body.height - 2 * GAP) failures.push(`precondition: the sentence is taller than the settings body: ${sheet.sentence.height} vs ${sheet.body.height}`);
+          const offset = sheet.sentence.y - sheet.body.y;
+          if (Math.abs(offset - GAP) > 1) failures.push(`the sheet anchors at the sentence top, ${GAP} px clear: ${offset}`);
+        }
+        if (!sheet.focusSentence) failures.push(`the sentence holds focus: ${sheet.focus}`);
+        if (sheet.sentenceTabIndex !== -1) failures.push(`the sentence is a programmatic focus stop only (tabindex -1): ${sheet.sentenceTabIndex}`);
+        await capture(page, name, { summary: `oversized DE ${path}; sentence top offset ${sheet.sentence && sheet.body ? sheet.sentence.y - sheet.body.y : null}; focus ${sheet.focus}`, sentenceText: full, scrollAtOpen: start, ...sheet });
         none(failures, `${name}: ${JSON.stringify({ start, sheet })}`);
         assert.deepEqual(problems, []);
       } finally { await page.close(); }
