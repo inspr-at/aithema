@@ -65,6 +65,20 @@ async function harness(t) {
     await page.setRequestInterception(true);
     page.on('request', request => { void (new URL(request.url()).pathname === '/combined-fixture'
       ? request.respond({ status: 200, contentType: 'text/html', body: fixture }) : request.continue()); });
+    // `countries` (r6): from the first settings load on, every catalog model's
+    // providers are seated in these countries, and the best preset offers a
+    // 'default' model (as start2-display's provider-seat check).
+    if (countries) await page.evaluateOnNewDocument(countries => {
+      const prior = globalThis.fetch;
+      globalThis.fetch = async (url, options = {}) => {
+        if ((options.method ?? 'GET') !== 'GET' || !new URL(String(url?.url ?? url), location.href).pathname.endsWith('/settings')) return prior(url, options);
+        const catalog = await (await prior(url, options)).json();
+        for (const preset of Object.values(catalog.presets ?? {})) for (const model of preset.models ?? []) model.facts = { ...model.facts, hostCountries: countries, hostTraining: true };
+        if (catalog.presets?.best?.models?.[0]) catalog.presets.best.models.unshift({ ...catalog.presets.best.models[0], id: 'default' });
+        if (globalThis.countriesSession) catalog.settings = globalThis.countriesSession.settings;
+        return Response.json(catalog);
+      };
+    }, countries);
     await page.goto(`${server.url}/combined-fixture?locale=${locale}&passiveDenied`);
     await page.waitForFunction(() => globalThis.ready && document.querySelector('aithema-session').shadowRoot.querySelector('.composer-status').textContent.length > 0);
     await page.evaluate(() => addEventListener('error', event => { (globalThis.pageErrors ??= []).push(String(event.message)); }));
@@ -90,20 +104,7 @@ async function harness(t) {
       const prior = globalThis.fetch;
       globalThis.fetch = async (url, options = {}) => String(url).endsWith('/consent') && (options.method ?? 'GET') === 'GET'
         ? (await globalThis.releaseConsent, doc ? Response.json(doc) : new Response('unavailable', { status: 500 })) : prior(url, options);
-      // `countries` (r6): every catalog model's providers are seated in these
-      // countries (the privacy gauge shows hostCountries) and the host slots a
-      // privacy link, before the first settings load.
-      if (countries) {
-        const consentFetch = globalThis.fetch;
-        globalThis.fetch = async (url, options = {}) => {
-          if ((options.method ?? 'GET') !== 'GET' || !new URL(url, location.href).pathname.endsWith('/settings')) return consentFetch(url, options);
-          const catalog = await (await consentFetch(url, options)).json();
-          catalog.settings = globalThis.countriesSession?.settings ?? catalog.settings;
-          catalog.presets.best.models = [{ ...catalog.presets.best.models[0], id: 'default', facts: { ...catalog.presets.best.models[0].facts, hostCountries: countries, hostTraining: true } }];
-          return Response.json(catalog);
-        };
-        document.querySelector('aithema-session').insertAdjacentHTML('beforeend', '<nav slot="legal"><a data-aithema-privacy href="/host-privacy">Host document</a></nav>');
-      }
+      if (countries) document.querySelector('aithema-session').insertAdjacentHTML('beforeend', '<nav slot="legal"><a data-aithema-privacy href="/host-privacy">Host document</a></nav>');
       mount(JSON.parse(JSON.stringify(document.querySelector('aithema-session').session)));
     }, locale, sentence, doc, noFocusVisible, focusFails, hostCopy, countries);
     await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason[data-consent-feature="text"] .consent-action'));
