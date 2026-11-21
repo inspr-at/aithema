@@ -531,7 +531,7 @@ export async function consentKeyboardUpCheck(t) {
   for (const [width, height, viewport] of KEYBOARD) for (const locale of ['en', 'de']) {
     const name = `${width}x${height}-${locale}-keyboard-up`;
     await t.test(name, async () => {
-      const problems = [], failures = [];
+      const problems = [], failures = [], growth = [];
       for (const [actionName, action] of [...Object.entries(ACTIONS), ['granted', ACTIONS.stock]]) {
         const label = `${name}-${actionName === 'granted' ? 'granted' : `pending-${actionName}-action`}`;
         const page = await open({ width, height, locale, consent: { ...action(), text: stock[locale].text } }, problems);
@@ -585,13 +585,21 @@ export async function consentKeyboardUpCheck(t) {
           await typeLines(page, 8); await settleLong(page);
           const typed = await page.$eval('aithema-session', keyboardState);
           if (!typed.keyboard) failures.push(`${label}: the keyboard stays up while typing`);
-          if (!(typed.field?.height > up.field.height + 20)) failures.push(`${label}: the field grows: ${up.field?.height} -> ${typed.field?.height}`);
-          if (typed.composer && typed.composer.height > .4 * viewport + .5) failures.push(`${label}: the composer respects the visual viewport cap: ${typed.composer.height} > ${.4 * viewport}`);
+          // The field grows to its cap (layout.js ComposerSize): at most three lines
+          // with the keyboard up (short), and the composer at most 40 % of the
+          // visual viewport, never below the field's minimum (the cap is the
+          // minimum when the composer's other rows already take that room).
+          const chrome = up.composer.height - up.field.height, cap = Math.min(92.5, Math.max(up.field.height, .4 * viewport - chrome));
+          if (!(typed.field?.height >= cap - 1)) failures.push(`${label}: the field grows to its cap: ${up.field?.height} -> ${typed.field?.height} (cap ${cap})`);
+          if (typed.composer && typed.composer.height > Math.max(.4 * viewport, up.composer.height) + .5) failures.push(`${label}: the composer respects the visual viewport cap: ${typed.composer.height} > ${.4 * viewport}`);
+          growth.push(`${label}: field ${up.field.height} -> ${typed.field?.height} (cap ${cap.toFixed(2)}), composer ${up.composer.height} -> ${typed.composer?.height} of ${.4 * viewport}`);
           failures.push(...stableBoxes(`${label} typing`, up, typed, ['mic', 'send', ...(up.line ? ['line.box', 'action.box'] : [])]));
           if (Math.abs((up.feedback?.height ?? 0) - (typed.feedback?.height ?? 0)) > .5) failures.push(`${label}: the consent row keeps its height while typing`);
           await capture(page, `r3-k1-${label}-typed`, typed);
         } finally { await page.close(); }
       }
+      // The lane keeps lines with "Error:"; the growth numbers go to the log either way.
+      t.diagnostic(`k1 growth: ${growth.join(' | ')}`);
       none(failures, name);
       assert.deepEqual(problems, []);
     });
