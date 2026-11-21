@@ -14,6 +14,19 @@ let requestsInDeployment = 0;
 const MAX_PENDING_UPLOAD_REQUESTS = 3; // one running request, two pending
 let pendingUploadRequests = 0;
 const releasePendingRequest = () => { pendingUploadRequests--; };
+// AIT-610, LEAD option A (Desk 203dfe1c): original image bytes are never written
+// to SQLite, a file or any other persistent store. They wait in memory for the
+// server's local normalizer; only an accepted image's normalized output is stored.
+// Hard bound: at most MAX_PENDING_IMAGE_NORMALIZATIONS originals are held
+// process-wide. While that many wait, a new upload request is refused (429,
+// reason 'image-normalizations') before its body is read. One admitted request
+// adds at most maxFilesPerRequest originals, and MAX_PENDING_UPLOAD_REQUESTS
+// bounds the requests holding them, so held originals never exceed
+// MAX_PENDING_UPLOAD_REQUESTS x maxRequestBytes (63 MiB at the default ceilings).
+// A restart loses the held originals; their rows (no bytes) become
+// staged-refused 'unavailable', which the client shows as a refusal to retry.
+const MAX_PENDING_IMAGE_NORMALIZATIONS = 8;
+let pendingImageNormalizations = 0;
 // Process-wide FIFO: waiting jobs retain IDs/metadata only, never stored bytes.
 // This covers runtime admission as well as the single isolated extractor slot.
 const extractionWaiters = [];
@@ -60,6 +73,15 @@ export function sniffUploadDocument(bytes, filename, maxBytes = EXTRACTOR_LIMITS
 }
 export function createUploadHandlers({ storage, runtime, ownership, readBody, publish, onInput, onWithdraw, signal, limits: configured, opener, now = () => storage.now() }) {
   const limits = normalizeUploadLimits(configured), jobs = new Map(), expiryTimers = new Map();
+  // uploadId -> the owned copy of an image original awaiting normalization.
+  const originals = new Map();
+  function holdOriginal(uploadId, bytes) { originals.set(uploadId, Uint8Array.prototype.slice.call(bytes)); pendingImageNormalizations++; }
+  function releaseOriginal(uploadId) {
+    const bytes = originals.get(uploadId);
+    if (!bytes) return;
+    originals.delete(uploadId); pendingImageNormalizations--;
+    bytes.fill(0);
+  }
   function expire(id) {
     for (const event of storage.expireStagedUploads(id, now())) { jobs.get(event.data.id)?.controller.abort(); publish(id, event); }
     clearTimeout(expiryTimers.get(id)); expiryTimers.delete(id);
@@ -71,7 +93,7 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
   }
   function start(id, uploadId) {
     if (jobs.has(uploadId)) return jobs.get(uploadId).promise;
-    if (signal.aborted) return;
+    if (signal.aborted) { releaseOriginal(uploadId); return; }
     const controller = new AbortController(), job = { id, controller, promise: null };
     jobs.set(uploadId, job);
     job.promise = Promise.resolve().then(async () => {
@@ -84,7 +106,8 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
         scope.signal.throwIfAborted();
         const session = storage.get(id);
         if (session.tombstone || !session.uploads.some(u => u.id === uploadId && ['pending', 'staged-pending'].includes(u.state))) return;
-        const bytes = storage.uploadBytes(id, uploadId);
+        // Images: only the in-memory original exists. None after a restart.
+        const bytes = upload.kind === 'image' ? originals.get(uploadId) : storage.uploadBytes(id, uploadId);
         if (!bytes) result = { status: 'unreadable', reason: 'unavailable', truncated: false };
         else {
           if (upload.kind === 'image') result = await runtime.normalizeImageUpload({ session, uploadId, bytes, metadata: { filename: upload.filename, mediaType: upload.mediaType }, options: { signal: scope.signal, deadlineAt: upload.deadlineAt, now } });
@@ -109,7 +132,8 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
         for (const saved of storage.read(id, before)) publish(id, saved);
         if (!stagedImage(event.data)) onInput(id);
       }
-    }).finally(() => jobs.delete(uploadId));
+      // The normalized result is stored above; now drop and zero the original.
+    }).finally(() => { releaseOriginal(uploadId); jobs.delete(uploadId); });
     job.promise.catch(() => {});
     return job.promise;
   }
@@ -160,9 +184,10 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
       const active = requestsPerSession.get(id) ?? 0;
       if (active >= limits.maxConcurrentRequestsPerSession || requestsInDeployment >= limits.maxConcurrentRequestsPerDeployment) return json({ error: 'upload-rate-limit' }, 429);
       if (pendingUploadRequests >= MAX_PENDING_UPLOAD_REQUESTS) return json({ error: 'upload-rate-limit' }, 429);
+      if (pendingImageNormalizations >= MAX_PENDING_IMAGE_NORMALIZATIONS) return json({ error: 'upload-rate-limit', reason: 'image-normalizations' }, 429);
       pendingUploadRequests++;
       requestsPerSession.set(id, active + 1); requestsInDeployment++;
-      let retained = false;
+      let retained = false, files = [];
       try {
         const deadlineAt = now() + limits.requestBudgetMs;
         const bytes = await readBody(request, limits.maxRequestBytes);
@@ -178,7 +203,7 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
         const entries = [...fields.filter(f => f.key === 'file'), ...fields.filter(f => f.key === 'files')];
         if (!entries.length || entries.some(f => !(f.value instanceof File))) return json({ error: 'invalid-upload' }, 400);
         if (entries.length > limits.maxFilesPerRequest || entries.some(f => f.bytes.length > limits.maxBytes)) throw new RangeError('Upload file limit');
-        const files = entries.map(({ value: f, bytes }) => {
+        files = entries.map(({ value: f, bytes }) => {
           const detected = sniffUploadDocument(bytes, f.name, limits.maxBytes);
           const extension = /\.([a-z0-9]+)$/iu.exec(f.name)?.[1].toLowerCase();
           // Image bytes always win; a false client MIME cannot reclassify a named document.
@@ -213,6 +238,10 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
         }
         const result = storage.postUploads(id, clientEventId, digest, files, limits, { ...guard, revision, partialImages: true });
         if (!result.replayed) {
+          // Events follow the admitted files in order; hold each admitted image's original before its job starts.
+          const refusedIndexes = new Set(result.refused.map(record => record.index));
+          const admittedFiles = files.filter((file, index) => !refusedIndexes.has(index));
+          result.events.forEach((event, i) => { if (stagedImage(event.data)) holdOriginal(event.data.id, admittedFiles[i].bytes); });
           for (const event of result.events) publish(id, event);
           if (result.events.some(event => !stagedImage(event.data))) onInput(id, { pending: true });
           expire(id);
@@ -227,6 +256,9 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
         if (remaining) requestsPerSession.set(id, remaining); else requestsPerSession.delete(id);
         requestsInDeployment--;
         if (!retained) releasePendingRequest();
+        // Admitted originals were copied into the in-memory hold; zero the
+        // request's image views so no refused or copied original lingers.
+        for (const file of files) if (file.kind === 'image') file.bytes.fill(0);
       }
     },
     resume() {

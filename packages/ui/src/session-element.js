@@ -3742,8 +3742,9 @@ export class AithemaSession extends HTMLElement {
     // A successful receipt clears older feedback, including across consent.
     // Decoder events from this selection may already have arrived.
     refusalVersion ??= this.#images.refusalVersion;
-    // Best effort (AIT-610): one capability read per upload. A stale verdict can
-    // still send an image; the server decides again and drops refused bytes
+    // Best effort (AIT-610): the composer reads image capability here and reads
+    // it again before it plans the upload. A stale verdict can still send an
+    // image; the server decides again and drops refused bytes
     // (docs/plugins.md, "Image input: the server is authoritative").
     let needsImages = this.#imageInputEnabled() && files.some(this.#isImageFile);
     const image = this.#feature('imageInput', true), documents = this.#feature('uploads', true);

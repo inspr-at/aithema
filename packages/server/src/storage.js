@@ -876,7 +876,9 @@ export class SQLiteStorage {
         const uploadId = randomUUID(), event = this.#append(this.get(id), 'upload.state', { id: uploadId, state: file.kind === 'image' ? 'staged-pending' : 'pending',
           ...(file.kind === 'image' ? { kind: 'image', expiresAt: this.now() + 30 * 60 * 1000 } : {}),
           filename: file.filename, mediaType: file.mediaType, bytes: file.bytes.length, deadlineAt: file.deadlineAt, at: new Date(this.now()).toISOString() });
-        this.db.prepare('INSERT INTO uploads VALUES (?,?,?,?,?,NULL)').run(uploadId, id, file.bytes, file.bytes.length, event.data.contentRef);
+        // AIT-610 option A: an image original is never persisted. Its row holds
+        // no bytes until the normalizer's accepted output arrives.
+        this.db.prepare('INSERT INTO uploads VALUES (?,?,?,?,?,NULL)').run(uploadId, id, file.kind === 'image' ? null : file.bytes, file.bytes.length, event.data.contentRef);
         return event;
       });
       this.db.prepare('INSERT INTO receipts VALUES (?,?,?,?)').run(id, `upload:${clientId}`, digest, JSON.stringify({ uploadIds: events.map(e => e.data.id), refused }));
@@ -892,7 +894,11 @@ export class SQLiteStorage {
   completeUpload(id, uploadId, result, guard = {}) {
     // Removing original bytes uses the same secure-delete and WAL acknowledgement
     // boundary as withdrawal. Metadata/text stay erasable in the content store.
-    return this.#invalidationTransaction(() => {
+    // A staged image row never held its original (AIT-610), so there is nothing
+    // to erase: a concurrent reader (a backup) must not fail its state change.
+    const stored = this.db.prepare('SELECT bytes IS NOT NULL AS stored FROM uploads WHERE session_id=? AND id=?').get(id, uploadId)?.stored;
+    const image = this.get(id).uploads.find(u => u.id === uploadId)?.kind === 'image';
+    return (image && !stored ? fn => this.transaction(fn) : fn => this.#invalidationTransaction(fn))(() => {
       const session = this.get(id); this.#check(session, guard);
       const upload = session.uploads.find(u => u.id === uploadId);
       if (!upload || !['pending', 'staged-pending'].includes(upload.state)) return null;

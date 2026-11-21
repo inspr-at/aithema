@@ -318,30 +318,52 @@ hosts persist and audit their own decisions.
 
 ### Image input: the server is authoritative
 
-The browser's image admission (the composer reads the `imageInput` feature once
-before it plans an upload) is best effort. A stale verdict can still send image
-bytes, for example right after a consent, preset or verification change. The
-server decides again on every request and drops refused bytes:
+The browser's image admission is best effort: the composer reads the
+`imageInput` feature, and reads it again before it plans an upload. A stale
+verdict can still send image bytes, for example right after a consent, preset
+or verification change. The server decides again on every request and drops
+refused bytes. Scope: image input through the upload route (upload, paste and
+drop). Two other byte paths follow their own rules, listed below.
 
-- **Upload route** (`POST /api/sessions/:id/uploads`; upload, paste and drop;
-  a retry replays the same receipt by `clientEventId`). Consent, configuration,
-  verification, normalizer health, the image quota and a consent revision during
-  admission refuse the image in the receipt's `refused[]` with its reason. A
-  purpose pause (409), size or part limits (413), malformed multipart (400) and
-  unavailable documents (403) refuse the whole request. Refused bytes are never
-  written: no `uploads` row, no blob, no temp file, no cache. The receipt keeps
-  only positions, reasons and a SHA-256 digest of the request for replay.
-- **Staged normalization.** An admitted image waits as `staged-pending` for the
-  local normalizer, which is the server's own verifier (local, free,
-  credential-free). The runtime checks admission again before calling it. A
-  refusal at that point, or by the normalizer (type, size, dimensions,
-  malformed), records `staged-refused` with its reason and erases the original
-  bytes (`secure_delete`, WAL checkpoint).
-- **Turns** carry upload IDs, never bytes. A refused ID cannot be attached.
+- **Upload route** (`POST /api/sessions/:id/uploads`; a retry replays the same
+  receipt by `clientEventId`). Consent, configuration, verification, normalizer
+  health, the image quota and a consent revision during admission refuse the
+  image in the receipt's `refused[]` with its kind and reason. A purpose pause
+  (409), size or part limits (413), malformed multipart (400) and unavailable
+  documents (403) refuse the whole request. While eight image originals already
+  wait for normalization, a new request is refused (429,
+  `reason: 'image-normalizations'`) before its body is read. Refused bytes are
+  never written: no `uploads` row, no blob, no temp file, no cache. For
+  idempotent replay the receipt keeps the refused positions, kinds and reasons
+  plus a SHA-256 digest over the request's names and file digests, never the
+  bytes. A digest can confirm a guess of a predictable image when the other
+  request inputs are known.
+- **Staged normalization.** An admitted image's original stays in server memory
+  only, never in SQLite, its WAL, a backup or a file. Its `staged-pending` row
+  holds no bytes. The local normalizer is the server's own verifier (local,
+  free, credential-free); the runtime checks admission again before calling it.
+  Only an accepted image's normalized output is stored (`staged-ready`). A
+  refusal (admission, type, size, dimensions, malformed) records
+  `staged-refused` with its reason. The original is then dropped and zeroed. A
+  restart loses originals still waiting; their rows become `staged-refused`
+  with reason `unavailable`, which the client shows as a refusal, so the
+  visitor attaches the image again.
+- **Turns** carry upload IDs, never bytes. A refused or still pending ID cannot
+  be attached.
 
-On every path, refused bytes never reach a model, a plugin other than the
-normalizer, an event, a log or telemetry; logs carry at most a reason.
-`packages/server/test/refused-image-bytes.test.js` proves each path and reason.
+Out of scope, with their own rules:
+
+- **Composed-voice audio relay.** It accepts binary audio bodies for the audio
+  transport. It is not an image input path.
+- **Images embedded in PDF or Office documents.** A document is document
+  input. Its bytes are staged and read by the local text extractor under the
+  document rules. The extractor returns text only, so an embedded image never
+  becomes image input to a model lane (by construction; no dedicated test).
+
+`packages/server/test/refused-image-bytes.test.js` covers each listed path and
+reason: no stored row, database file, WAL or backup copy, temp file, log line,
+error message or stack, stdout/stderr write, event or model-lane request holds
+the refused bytes. Each channel has a positive control.
 
 ## Routing and health
 
