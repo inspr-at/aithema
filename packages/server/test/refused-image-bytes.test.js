@@ -31,10 +31,10 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createFacadeSecrets, createHandlers, createPluginRuntime, SQLiteStorage, SERVER_UPLOAD_LIMITS, mockPresets } from '../src/index.js';
 import { listen } from '../src/http.js';
-import { createMockReasoning, PluginRegistry, reasoningRequest } from '@inspr/aithema-core';
+import { createMockReasoning, imageReferences, PluginRegistry, reasoningRequest } from '@inspr/aithema-core';
 import { registerDemoExtractors } from '../../../demo/uploads.js';
 import { mockConsent, testToken, ownedRequest, temporaryDb } from '../../../test/helpers.js';
-import { bytes as textBytes, pdf } from '../../../test/extractor-fixtures.js';
+import { bytes as textBytes, docx, pdf } from '../../../test/extractor-fixtures.js';
 
 // A failing assertion must fail its test, never hang the file.
 const test = (name, fn) => nodeTest(name, { timeout: 60_000 }, fn);
@@ -316,10 +316,11 @@ test('AIT-610 P1 over HTTP: admission and size refusals leave no trace through t
 
 // JSON routes never accept image bytes: a body that is not JSON is refused
 // with 400 before any storage, and the error path logs nothing.
-for (const route of ['turns', 'concepts', 'focus-question', 'locale', 'voice/start']) {
+// `voice` is the voice start route (POST /api/sessions/:id/voice).
+for (const route of ['turns', 'concepts', 'focus-question', 'locale', 'voice']) {
   test(`AIT-610 non-byte route ${route}: image bytes posted as a body are refused without a trace`, async t => {
     // Voice is enabled for its route, so a 404 (route absent) can never pass as a refusal.
-    const f = await fixture(t, route === 'voice/start' ? { voice: { secrets: createFacadeSecrets() } } : {}), image = sentinelImage();
+    const f = await fixture(t, route === 'voice' ? { voice: { secrets: createFacadeSecrets() } } : {}), image = sentinelImage();
     const response = await f.handlers.handle(ownedRequest(`http://localhost/api/sessions/${f.session.id}/${route}`, { method: 'POST',
       headers: { 'content-type': 'application/json' }, body: image.bytes }));
     const body = await response.text();
@@ -449,4 +450,22 @@ test('AIT-610 option A: above the pending-normalization cap a request is refused
   release();
   await f.handlers.idle();
   for (const image of [...images, later]) await f.assertNoTrace(image, { responses: [firstBody, body] });
+});
+
+// Scope (gate M2): a document is document input. An image embedded in an Office
+// package goes to the local text extractor under the document rules; no model
+// lane receives it as image input, and the image normalizer never sees it.
+test('AIT-610 scope: an image embedded in an Office document never becomes image input to a model lane', async t => {
+  const f = await fixture(t), image = sentinelImage();
+  const file = docx('Quarterly report words.', { 'word/media/image1.png': image.bytes });
+  const response = await f.upload('embedded', [['report.docx', file, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']]);
+  const body = await response.text();
+  assert.equal(response.status, 202, body);
+  await f.handlers.idle();
+  const upload = f.storage.get(f.session.id).uploads[0];
+  assert.equal(upload.state, 'accepted', JSON.stringify({ state: upload.state, reason: upload.reason }));
+  assert.ok(f.admitted.length > 0, 'a model lane ran with the document');
+  for (const request of f.admitted) assert.equal(imageReferences(JSON.parse(request)).length, 0, 'no image input on a model lane');
+  assert.deepEqual(leaksIn(f.admitted.join('\n'), image), [], 'model lanes');
+  assert.equal(f.normalized.length, 0, 'the image normalizer never sees document content');
 });

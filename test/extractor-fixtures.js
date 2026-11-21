@@ -57,9 +57,10 @@ const xml = body => `<?xml version="1.0" encoding="UTF-8"?>${body}`;
 const office = (main, type, parts) => zip({
   '[Content_Types].xml': xml(`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/${main}" ContentType="application/vnd.openxmlformats-officedocument.${type}.main+xml"/></Types>`),
   '_rels/.rels': xml(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="${main}"/></Relationships>`), ...parts });
-export function docx(text = 'Document extraction fixture &amp; readable words.') {
+// `media` adds package parts such as an embedded image (word/media/image1.png).
+export function docx(text = 'Document extraction fixture &amp; readable words.', media = {}) {
   return office('word/document.xml', 'wordprocessingml.document', {
-    'word/document.xml': xml(`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:body></w:document>`) });
+    'word/document.xml': xml(`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:body></w:document>`), ...media });
 }
 export function xlsx(text = 'Spreadsheet extraction fixture') {
   const texts = Array.isArray(text) ? text : [text];
