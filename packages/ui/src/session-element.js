@@ -36,7 +36,7 @@ import { postJson, postForm, sameOrigin } from './post-json.js';
 import { UPLOAD_LIMITS, UPLOAD_ACCEPT, DOCUMENT_UPLOAD_ACCEPT, UPLOAD_ICONS, uploadLimits, uploadRetryDelay, unclassifiedUploads, planUploads, refusalText, uploadStateText, uploadStateTexts, uploadsPossible, formatBytes, limitsText, dropText } from './uploads.js';
 import { voiceJournal, tabStorage, closeVoiceCall, answerVoicePings, voiceCallAbandoned } from './voice-orphan.js';
 import { node, setText, reconcile, fill } from './dom.js';
-import { HostSurface } from './host-surface.js';
+import { HostSurface, hostSettled } from './host-surface.js';
 import { hostStyles } from './host-styles.js';
 import { entranceStyles } from './entrance-styles.js';
 import { combinedEntranceStyles } from './combined-entrance-styles.js';
@@ -299,6 +299,8 @@ export class AithemaSession extends HTMLElement {
     this.#pings?.close(); this.#pings = null;
   }
   reportVoicePlaybackBlocked() { this.#rail?.reportPlaybackBlocked(); }
+  // AIT-611: internal teardown drain for a host page (symbol-keyed, not package API); see HostSurface.
+  [hostSettled](options) { return this.#host?.[hostSettled](options) ?? Promise.resolve({ open: [] }); }
   get session() { return structuredClone(this.#session); }
   get openQuestionItems() { return openQuestionItems(this.#session); }
   /** Select an open point without creating a person turn. Refusals remain structured. */

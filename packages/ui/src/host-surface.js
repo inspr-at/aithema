@@ -19,6 +19,9 @@ import { formatCredits, wholeCredits } from './display.js';
 import { EmailAsk, lowCredit } from './email-ask.js';
 
 export const defaultCreditFormat = formatCredits;
+// AIT-611: internal teardown drain (not package API; this module is not exported by the package).
+// A host page awaits it before it tears down the page, so late answers land while the DOM still exists.
+export const hostSettled = Symbol('aithema.hostSettled');
 
 export class HostSurface {
   #erased = null; #request;
@@ -28,6 +31,7 @@ export class HostSurface {
   #credits = null; #creditsFailed = false; #creditsLoad = 0; #creditsReads = 0; #creditsTimer = null; #creditsPoll = null; #ended = null; #creditClosing = null;
   #menu = null; #openSettings; #onCredits; #creditEnding; #admissionDenied; #creditContext;
   #emailAsk = null; #emailOffer = null; #actorRole = null; #initialCreditScope;
+  #inFlight = new Set(); // AIT-611: open #call requests, bookkeeping for the teardown drain only
   /**
    * options: {library, verification, handover, credits: true | {format(micro, locale)}, locale()}.
    * session() returns the live session; adopt(session, reason) opens another conversation.
@@ -242,16 +246,41 @@ export class HostSurface {
   #sessionPath(path) { return `/api/sessions/${encodeURIComponent(this.#session().id)}/${path}`; }
   // Owner routes: same origin only; the owner cookie or the session token authenticates them.
   async #call(path, body, verb = 'POST') {
-    if (this.#erased && !path.startsWith('/api/library')) throw new DOMException('Conversation erased', 'AbortError');
-    const sessionId = this.#session().id, url = sameOrigin(this.#view, `${this.#base}${path}`);
-    const request = this.#request ?? ((url, body, options) => options ? postJson(url, body, options) : fetch(url, body));
-    const response = body === undefined
-      ? await request(url, { headers: this.#token ? { 'x-aithema-session-token': this.#token } : {}, cache: 'no-store' })
-      : await request(url, body, { sessionToken: this.#token, verb });
-    if (this.#erased && !path.startsWith('/api/library')) throw new DOMException('Conversation erased', 'AbortError');
-    let value = null; try { value = await response.json(); } catch { /* A body-less reply carries its status only. */ }
-    if (!this.#alive || sessionId !== this.#session().id) throw new Error('Conversation changed');
-    return { ok: response.ok, status: response.status, body: value };
+    // Bookkeeping only (AIT-611): a synchronous add/delete; what is returned or thrown, and when, is unchanged.
+    const open = { path, verb: body === undefined ? 'GET' : verb }; this.#inFlight.add(open);
+    try {
+      if (this.#erased && !path.startsWith('/api/library')) throw new DOMException('Conversation erased', 'AbortError');
+      const sessionId = this.#session().id, url = sameOrigin(this.#view, `${this.#base}${path}`);
+      const request = this.#request ?? ((url, body, options) => options ? postJson(url, body, options) : fetch(url, body));
+      const response = body === undefined
+        ? await request(url, { headers: this.#token ? { 'x-aithema-session-token': this.#token } : {}, cache: 'no-store' })
+        : await request(url, body, { sessionToken: this.#token, verb });
+      if (this.#erased && !path.startsWith('/api/library')) throw new DOMException('Conversation erased', 'AbortError');
+      let value = null; try { value = await response.json(); } catch { /* A body-less reply carries its status only. */ }
+      if (!this.#alive || sessionId !== this.#session().id) throw new Error('Conversation changed');
+      return { ok: response.ok, status: response.status, body: value };
+    } finally { this.#inFlight.delete(open); }
+  }
+  /**
+   * Internal teardown drain (AIT-611). Resolves { open: [] } once no #call is in flight, no credits read
+   * (including its continuation) is running, and the continuations queued by finished calls have run
+   * (each check follows a macrotask turn, after which the microtask queue is empty). It changes nothing
+   * that is applied or when: it only observes. Bounded: after `timeout` ms on the injected timer it
+   * resolves with the still-open calls ({ path, verb }) instead of hanging.
+   */
+  async [hostSettled]({ timeout = 5000, setTimer = globalThis.setTimeout, clearTimer = globalThis.clearTimeout } = {}) {
+    let expired = false; const timer = setTimer(() => { expired = true; }, timeout);
+    try {
+      for (;;) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+        if (!this.#inFlight.size && !this.#creditsReads) return { open: [] };
+        if (expired) {
+          const open = [...this.#inFlight].map(({ path, verb }) => ({ path, verb }));
+          // A credits read whose request answered but whose continuation still waits is open too.
+          return { open: open.length ? open : [{ path: this.#sessionPath('credits'), verb: 'GET (continuation)' }] };
+        }
+      }
+    } finally { clearTimer(timer); }
   }
   // Handover (START offer.ts): the host's offer copy in a slot, one action, its state in words.
   #mountHandover() {

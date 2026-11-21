@@ -1,4 +1,5 @@
 import '../packages/ui/src/session-element.js';
+import { hostSettled } from '../packages/ui/src/host-surface.js';
 import { createDeviceReasoning } from '../plugins/device/src/index.js';
 import { createVoiceControl } from '../packages/ui/src/voice-control.js';
 import { createElevenLabsClient } from '../plugins/elevenlabs/src/client.js';
@@ -21,10 +22,13 @@ async function hostWork(action) {
   const work = action(); pending.add(work);
   try { return await work; } finally { pending.delete(work); }
 }
-export async function stopHost() {
+export async function stopHost(settle) {
   page.removeEventListener('pagehide', pageHidden);
   lifetime.abort();
   await Promise.all([...pending]);
+  // AIT-611: the component's host reads in flight answer before the page goes away (bounded; see HostSurface).
+  const { open } = await (component?.[hostSettled]?.(settle) ?? { open: [] });
+  if (open.length) throw new Error(`Host teardown deadline passed with host calls still open: ${open.map(call => `${call.verb} ${call.path}`).join(', ')}`);
 }
 function pageHidden(event) {
   // A page kept in the back/forward cache still owns its DOM and may resume.
