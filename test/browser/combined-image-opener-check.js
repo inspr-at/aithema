@@ -385,13 +385,13 @@ export async function combinedImageOpenerFoldCheck(t) {
         await followRequest(page);
         const streamed = await foldState(page);
         await record(page, `stream-${locale}-${theme}-partial`, streamed);
-        positive('stream/reply', streamed.reply);
+        for (const key of ['reply', 'label']) positive(`stream/partial/${key}`, streamed[key]);
         assert.ok(streamed.scrollTop > .5, `the partial reply counts the reserve: ${JSON.stringify(streamed)}`);
         await page.evaluate(text => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'reply-1', role: 'assistant', content: text } }), shortReply[locale]);
         await page.waitForFunction(() => document.querySelector('aithema-session').session.transcript.some(turn => turn.id === 'reply-1'));
         const after = await foldState(page);
         await record(page, `stream-${locale}-${theme}-final`, after);
-        for (const key of ['shell', 'reply', 'composer', 'send']) positive(`stream/${key}`, after[key]);
+        for (const key of ['shell', 'reply', 'label', 'composer', 'send']) positive(`stream/${key}`, after[key]);
         // A final reply gains its listen / read actions (one 44 px row); that
         // growth is the only movement: the reply's end keeps its place, and the
         // reserve adds no jump of its own.
@@ -422,10 +422,16 @@ export async function combinedImageOpenerFoldCheck(t) {
         const wished = await foldState(page);
         await record(page, `wish-pointer-${locale}-${theme}-wish`, wished);
         assert.ok(wished.scrollTop <= .5, `while no label shows, the pointer keeps its reading place: ${JSON.stringify(wished)}`);
+        for (const key of ['shell', 'firstLine', 'visitor']) positive(`wish-pointer/wish/${key}`, wished[key]);
         await renderStarts(page);
         const after = await foldState(page);
         await record(page, `wish-pointer-${locale}-${theme}-pending`, after);
         for (const key of ['shell', 'opener', 'visitor', 'label', 'composer', 'send']) positive(`wish-pointer/${key}`, after[key]);
+        // r7 (gate5c Medium): the label override moves the transcript by the
+        // delta the last turn needs to clear the label, never more than the
+        // label's reserve (not to the native end with its Latest slot).
+        const delta = after.scrollTop - wished.scrollTop;
+        assert.ok(delta > 0 && delta <= RESERVE + .5, `the label override moves within the reserve: ${JSON.stringify({ delta, wished, after })}`);
         assert.ok(clearOfLabel(after), `the visitor turn is clear of the render label: ${JSON.stringify(after)}`);
         assert.equal(after.latestShown, false, `Latest is hidden at the end: ${JSON.stringify(after)}`);
         assert.deepEqual(problems, []);
@@ -452,6 +458,7 @@ export async function combinedImageOpenerFoldCheck(t) {
         await page.mouse.move(running.visitor.x + 20, running.visitor.y + running.visitor.height / 2, { steps: 4 });
         const resting = await foldState(page);
         await record(page, `long-reply-${locale}-${theme}-pending`, resting);
+        for (const key of ['shell', 'firstLine', 'visitor', 'label']) positive(`long-reply/pending/${key}`, resting[key]);
         assert.equal(resting.labelState, 'gen');
         await page.evaluate(text => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'reply-long', role: 'assistant', content: text } }),
           longWelcome[locale].slice(welcome[locale].length + 1));
