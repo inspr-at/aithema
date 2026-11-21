@@ -13,7 +13,7 @@ import { shadow, until, boxes, evidenceCommit } from './start2-display-helpers.j
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { compactStatusMaximum } from './overview-fade-check.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
-import { consentSheetFailedLoadCheck, consentSheetLoadedCheck, consentSheetFocusKeptCheck, consentSheetTallPurposeCheck, consentSheetOversizedCheck } from './consent-sheet-check.js';
+import { consentSheetFailedLoadCheck, consentSheetLoadedCheck, consentSheetFocusKeptCheck, consentSheetTallPurposeCheck, consentSheetOversizedCheck, consentSheetBodyHeightCheck } from './consent-sheet-check.js';
 
 const features = { imageInput: ['models-international', 'image-input'], uploads: ['models-international'], transcription: ['voice-elevenlabs'], images: ['models-international'], text: ['models-international'], html: ['drafts-anthropic'], voice: ['voice-elevenlabs'], analysis: ['models-international'] };
 const places = { html: '.concept-activity-text', voice: '.voice-state', analysis: '.notice' };
@@ -1616,3 +1616,4 @@ test('AIT-603 PR-B: a loaded consent document keeps the full host sentence on sc
 test('AIT-603 PR-B r2: focus the visitor moves while the consent document loads stays there after a successful load, 360 EN / 1440 DE', { timeout: 120_000 }, consentSheetFocusKeptCheck);
 test('AIT-603 PR-B r2: a tall target purpose: text scrolls the least for sentence + checkbox, other features centre the focused checkbox inside the scrollport, 360/390/1440 EN/DE', { timeout: 240_000 }, consentSheetTallPurposeCheck);
 test('AIT-603 PR-B r2: an oversized DE host sentence anchors at its top with focus on it, failed and loaded, 360/390', { timeout: 120_000 }, consentSheetOversizedCheck);
+test('AIT-603 PR-B r3: the settings body keeps its height for any host sentence length, no empty band above the footer, 70ch at 1440, 360/390/1440 EN/DE', { timeout: 300_000 }, consentSheetBodyHeightCheck);

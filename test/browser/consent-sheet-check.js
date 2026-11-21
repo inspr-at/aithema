@@ -104,7 +104,11 @@ const readSheet = (c, full) => {
   for (const n of dialog.querySelectorAll('*')) if (n.childElementCount === 0 && n.textContent === full && n.checkVisibility()) { holder = n; break; }
   const body = dialog.querySelector('.settings__body'), target = dialog.querySelector('.consent-item--target input'), row = target?.closest('.consent-item');
   const active = c.shadowRoot.activeElement;
-  return { open: true, sentence: box(holder), sentenceOnScreen: onScreen(holder), target: box(target), row: box(row), label: box(target?.closest('label')), targetOnScreen: onScreen(target),
+  // r3: 70ch in the sentence's own font (L2), the footer info row under the body (M1).
+  let ch70 = null;
+  if (holder) { const probe = document.createElement('span'); probe.textContent = '0'.repeat(70); probe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;max-width:none'; holder.after(probe); ch70 = probe.getBoundingClientRect().width; probe.remove(); }
+  const context = [...dialog.querySelectorAll('.settings-context, .settings__footer')].find(n => n.checkVisibility());
+  return { open: true, targetFocusVisible: Boolean(target?.matches(':focus-visible')) && active === target, ch70, below: box(context), sentence: box(holder), sentenceOnScreen: onScreen(holder), target: box(target), row: box(row), label: box(target?.closest('label')), targetOnScreen: onScreen(target),
     body: box(body), scrollTop: body.scrollTop, items: dialog.querySelectorAll('.consent-item').length,
     status: dialog.querySelector('.consent-status')?.textContent ?? null,
     focus: active ? `${active.tagName.toLowerCase()}${active.className ? `.${String(active.className).split(' ').join('.')}` : ''}` : null,
@@ -130,6 +134,8 @@ function leastScrollFailures(sheet, start) {
   if (sheet.label.bottom - sheet.sentence.y > sheet.body.height - 2 * GAP) failures.push(`the fixture fits the sentence and the target checkbox together: ${sheet.label.bottom - sheet.sentence.y} vs ${sheet.body.height}`);
   if (!sheet.targetOnScreen) failures.push('the target checkbox is on screen with the sentence (both fit)');
   if (!sheet.focusTarget) failures.push(`the target checkbox has focus (both fit): ${sheet.focus}`);
+  // r3 (TICK M2): the focused checkbox shows the focus ring, as in the voice cases.
+  else if (!sheet.targetFocusVisible) failures.push('the focused target checkbox matches :focus-visible (shows the ring, as the voice cases do)');
   const bottomAtStart = sheet.label.bottom + (sheet.scrollTop - start), least = Math.max(0, bottomAtStart - (sheet.body.y + sheet.body.height) + GAP);
   if (Math.abs(sheet.scrollTop - start - least) > 1) failures.push(`the sheet scrolls the least that shows the sentence and the target checkbox: ${sheet.scrollTop - start} vs ${least}`);
   return failures;
@@ -296,13 +302,14 @@ export async function consentSheetTallPurposeCheck(t) {
   }
 }
 
-// AIT-603 PR-B r2 (gate Low): the oversized fallback. An eight-sentence DE host
+// AIT-603 PR-B r2 (gate Low): the oversized fallback. A sixteen-sentence DE host
+// (r3: eight before; with the body at full height eight DE sentences fit at 360)
 // sentence is taller than the phone settings body: on both load paths the sheet
 // anchors at the sentence top (12 px clear) and the sentence holds focus
 // (tabindex -1, a programmatic stop).
 export async function consentSheetOversizedCheck(t) {
   const open = await harness(t);
-  const full = Array(8).fill('Ihre Nachrichten erreichen unseren Modellanbieter erst nach Ihrer Zustimmung.').join(' ');
+  const full = Array(16).fill('Ihre Nachrichten erreichen unseren Modellanbieter erst nach Ihrer Zustimmung.').join(' ');
   for (const item of sheetCases.filter(({ width, locale }) => width < 1000 && locale === 'de')) for (const path of ['failed', 'loaded']) {
     const name = `${item.width}x${item.height}-de-oversized-${path}`;
     await t.test(name, async () => {
@@ -329,6 +336,54 @@ export async function consentSheetOversizedCheck(t) {
         none(failures, `${name}: ${JSON.stringify({ start, sheet })}`);
         assert.deepEqual(problems, []);
       } finally { await page.close(); }
+    });
+  }
+}
+
+// AIT-603 PR-B r3 (TICK M1, L2): the sentence lives only in the scrolling body.
+// The settings body keeps the same height (+-1 px) for the stock, a long and an
+// oversized host sentence, and the gap between the body and the footer row
+// under it does not grow (no empty band). At 1440 the sentence wraps at about
+// 70ch. Failed load path (the body is the same on both paths); EN/DE, 360/390/1440.
+const oversized = locale => Array(16).fill(locale === 'de'
+  ? 'Ihre Nachrichten erreichen unseren Modellanbieter erst nach Ihrer Zustimmung.'
+  : 'Your messages reach our model provider only after you agree.').join(' ');
+export async function consentSheetBodyHeightCheck(t) {
+  const open = await harness(t);
+  for (const item of sheetCases) {
+    const name = `${item.width}x${item.height}-${item.locale}-body-height`;
+    await t.test(name, async () => {
+      const problems = [], seen = {};
+      for (const kind of ['short', 'long', 'oversized']) {
+        const full = kind === 'short' ? stock[item.locale] : kind === 'long' ? longSentence(item.locale) : oversized(item.locale);
+        const page = await open({ ...item, sentence: kind === 'short' ? undefined : full, doc: null }, problems);
+        try {
+          await openSheet(page);
+          await page.evaluate(() => globalThis.release());
+          await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings[open] .consent-status')?.textContent.length > 0);
+          await settle(page);
+          seen[kind] = await page.$eval('aithema-session', readSheet, full);
+          const sheet = seen[kind];
+          await capture(page, `${name}-${kind}`, { summary: `${kind} sentence; body height ${sheet.body?.height}; band ${sheet.below && sheet.body ? sheet.below.y - sheet.body.bottom : null}; footer top ${sheet.below?.y}`, sentenceText: full,
+            bodyHeight: sheet.body?.height ?? null, footerTop: sheet.below?.y ?? null, ...sheet });
+        } finally { await page.close(); }
+      }
+      const failures = [];
+      for (const [kind, sheet] of Object.entries(seen)) {
+        if (!(sheet.body?.width > 0 && sheet.body?.height > 0)) failures.push(`${kind}: the settings body positive box: ${JSON.stringify(sheet.body)}`);
+        if (!(sheet.below?.width > 0 && sheet.below?.height > 0)) failures.push(`${kind}: the footer row under the body positive box: ${JSON.stringify(sheet.below)}`);
+        if (!(sheet.sentence?.width > 0 && sheet.sentence?.height > 0)) failures.push(`${kind}: the sentence positive box: ${JSON.stringify(sheet.sentence)}`);
+      }
+      if (!failures.length) for (const kind of ['long', 'oversized']) {
+        const a = seen.short, b = seen[kind];
+        if (Math.abs(b.body.height - a.body.height) > 1) failures.push(`${kind}: the settings body keeps its height: ${b.body.height} vs ${a.body.height} (short)`);
+        const band = sheet => sheet.below.y - sheet.body.bottom;
+        if (band(b) - band(a) > 1) failures.push(`${kind}: no empty band between the body and the footer row: ${band(b)} vs ${band(a)} (short)`);
+        if (Math.abs(b.below.y - a.below.y) > 1) failures.push(`${kind}: the footer row stays in place: ${b.below.y} vs ${a.below.y} (short)`);
+        if (item.width === 1440 && !(b.ch70 > 0 && b.sentence.width <= b.ch70 + 1)) failures.push(`${kind}: at 1440 the sentence wraps at about 70ch: ${b.sentence.width} vs ${b.ch70}`);
+      }
+      none(failures, `${name}: ${JSON.stringify(Object.fromEntries(Object.entries(seen).map(([k, v]) => [k, { body: v.body, below: v.below, sentence: v.sentence, ch70: v.ch70 }])))}`);
+      assert.deepEqual(problems, []);
     });
   }
 }
