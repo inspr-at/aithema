@@ -545,7 +545,7 @@ const actionName_ = async page => {
 // r4, TICK M1: a host action too long for the row beside the short reason.
 // Long enough that the short reason must yield at 320 (narrow) and 390 (wide), short enough to fit the row.
 const LONG_ACTION = { en: { action: 'Review and agree to sending your messages now…', actionNarrow: 'Review and agree to message sending' },
-  de: { action: 'Verarbeitung prüfen und jetzt zustimmen…', actionNarrow: 'Verarbeitung prüfen, zustimmen' } };
+  de: { action: 'Verarbeitung prüfen und jetzt gleich zustimmen…', actionNarrow: 'Verarbeitung prüfen, zustimmen' } };
 export async function consentKeyboardUpCheck(t) {
   const { open, grant, capture } = await harness(t);
   for (const [width, height, viewport] of KEYBOARD) for (const locale of ['en', 'de']) {
