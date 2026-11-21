@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { Window } from 'happy-dom';
 import { startChild, temporaryDb } from '../../test/helpers.js';
 import { contrast, mix, tokens } from '../../test/contrast.js';
+import { hostDrain } from './host-drain.js';
 
 test('demo host creates owned sessions through postJson and combines consent, pause and settings controls', { timeout: 60_000 }, async t => {
   const running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb());
@@ -15,12 +16,17 @@ test('demo host creates owned sessions through postJson and combines consent, pa
   const lateRequest = Promise.withResolvers(), lateOutbox = Promise.withResolvers(), lateAdoption = Promise.withResolvers();
   const heldSignals = [];
   let holdSession = false, host;
+  // AIT-611: the device conversation's host reads answer only after teardown.
+  let holdHostReads = false; const hostReadGate = Promise.withResolvers(), hostReadsHeld = Promise.withResolvers();
+  // AIT-611: the harness drain (test-only, ./host-drain.js) tracks the page's requests; its first drain
+  // releases the held host reads, so they answer while teardown waits for them and the page still exists.
+  let harness;
   try {
     const html = await nativeFetch(running.url).then(response => response.text());
     window.document.write(html.replace(/<script[^>]*>[\s\S]*?<\/script>/gu, ''));
     for (const key of keys) globalThis[key] = window[key];
     localStorage.setItem('aithema-demo-locale', 'en');
-    globalThis.fetch = async (url, init = {}) => {
+    harness = hostDrain({ onDrain: () => hostReadGate.resolve(), fetch: async (url, init = {}) => {
       if (holdSession && (String(url) === '/api/sessions' || String(url).endsWith('/demo/outbox'))) {
         const held = String(url) === '/api/sessions' ? lateRequest : lateOutbox;
         heldSignals.push(init.signal);
@@ -29,12 +35,23 @@ test('demo host creates owned sessions through postJson and combines consent, pa
       }
       const headers = new Headers(init.headers);
       if (cookie) headers.set('cookie', cookie);
+      if (holdHostReads && !init.method && /\/(credits|identity|handover)$/u.test(String(url))) {
+        // The server answers now; the page receives the answer only after the test has torn down its DOM.
+        const held = Promise.withResolvers();
+        init.signal?.addEventListener('abort', () => held.reject(init.signal.reason), { once: true });
+        const answer = nativeFetch(new URL(url, running.url), { headers })
+          .then(async response => new Response(await response.arrayBuffer(), { status: response.status, headers: response.headers }));
+        answer.then(response => hostReadGate.promise.then(() => held.resolve(response)), held.reject);
+        if (String(url).endsWith('/credits')) answer.then(() => hostReadsHeld.resolve(), hostReadsHeld.reject);
+        return held.promise;
+      }
       if (init.method === 'POST') posts.push({ path: String(url), contentType: headers.get('content-type') });
       const response = await nativeFetch(new URL(url, running.url), { ...init, headers });
       const createdCookie = response.headers.get('set-cookie');
       if (createdCookie) cookie = createdCookie.split(';')[0];
       return response;
-    };
+    } });
+    globalThis.fetch = harness.fetch;
     host = await import('../host.js');
     const component = document.querySelector('aithema-session'), root = component.shadowRoot;
     const wait = async (step, predicate) => {
@@ -116,8 +133,10 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     dialog.querySelector('.preset-option[data-preset="device"]').click();
     await wait('device preset offers a new conversation', () => dialog.querySelector('.notice-body .notice-action:not([hidden])'));
     assert.equal(component.session.processingPreset, 'custom', 'a started conversation never becomes a device conversation in place');
+    holdHostReads = true;
     dialog.querySelector('.notice-body .notice-action').click();
     await wait('new device conversation created', () => component.session.processingPreset === 'device' && component.session.id !== previousId);
+    await hostReadsHeld.promise;
     assert.equal(component.shadowRoot.querySelector('.intro').dataset.mode, 'ready', 'the explicit device choice is confirmed');
     assert.equal(document.querySelector('#error').textContent, '');
     assert.ok(posts.some(post => post.path.endsWith('/settings')));
@@ -159,13 +178,18 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     component.dispatchEvent(new CustomEvent('aithema-new-conversation', { detail: {} }));
     assert.equal(heldSignals.length, count, 'a stopped host starts no new work');
     t.after(() => setImmediate(() => lateRequest.reject(new Error('fixture: page has closed'))));
+    t.after(() => setImmediate(() => hostReadGate.resolve()));
   } finally {
     lateAdoption.resolve();
     await host?.stopHost();
+    // AIT-611: host reads still in flight answer (and their continuations run) before the DOM globals go;
+    // an exceeded deadline fails the test naming the open requests (after the globals are restored).
+    const undrained = await harness?.drain().then(() => null, error => error);
     window.document.querySelector('aithema-session')?.remove();
     await running.kill(); await window.happyDOM.close();
     globalThis.fetch = nativeFetch;
     for (const key of keys) { if (originals[key] === undefined) delete globalThis[key]; else globalThis[key] = originals[key]; }
+    if (undrained) throw undrained;
   }
 });
 
