@@ -127,7 +127,9 @@ There is no merge freeze. Builders prepare only: no reviewer model, push, PR,
 tag creation/movement/push, forge release or publication. The coordinator owns
 gates, merge and marker; MAC-OPS owns the cut. START pins independently.
 Branch `release/ait-614-twenty-eighth-release`; worker session `AIT-614-r1`
-(`518f24b9-563c-4b6c-a507-dde0c81fec0d`, builder). History is append-only.
+(`518f24b9-563c-4b6c-a507-dde0c81fec0d`, builder), then `AIT-614-r2`
+(`88e09e1b-9ae8-4456-95e2-717926fd05ec`, builder) for the gate1 and Tick L2
+corrections to `notes.md` and this record. History is append-only.
 
 The previous release `v261120065345.0.0`, stable sequence 38, AIT-588,
 [forge release](https://github.com/inspr-at/aithema/releases/tag/v261120065345.0.0),
@@ -143,7 +145,7 @@ classification comes from each merge's diff against its first parent:
 | Merge | Commit | Content |
 | --- | --- | --- |
 | #485 | `2f1001c5` | AIT-585 test only: understanding-failure AIT-198 live voice notice flake; no shipped file; hidden from release notes |
-| #486 | `d24d320f` | AIT-584 flake fix: the footer width probe's cloned role radios lose their group name, so the probe can no longer uncheck the live role (`packages/ui/src/layout.js`, 3 lines). A real but invisible correctness fix inside the shadow DOM's offscreen probe; hidden from release notes |
+| #486 | `d24d320f` | AIT-584 flake fix: the footer width probe's cloned role radios lose their group name, so the probe can no longer uncheck the live role (`packages/ui/src/layout.js`, 3 lines). The fix preserves a visibly checked role radio in the open popover (the probe's clone could clear it); hidden from release notes |
 | #487 | `ddb1e06d` | AIT-582 release tooling: server release metadata reads only its own package; the pack-time cross-package import check; hidden from release notes |
 | #492 | `4d6e525c` | AIT-546 test only: AIT-411 on parallel pages; hidden from release notes |
 | #491 | `62ede4f5` | AIT-599 CI only: measured unit timings, a fourth unit shard; hidden from visitor notes |
@@ -152,7 +154,7 @@ classification comes from each merge's diff against its first parent:
 | #488 | `68ac4a37` | AIT-589 the "Show more notices" focus ring clears its own text and nearby text |
 | #493 | `5f607264` | AIT-598 test only: AIT-261 on parallel theme pages; hidden from release notes |
 | #495 | `0ffd97f6` | AIT-594 test only: the AIT-569 chooser settle point; hidden from release notes |
-| #494 | `1358cbb7` | AIT-601 product fix: pre-live welcome owns its height above readiness in the desktop image concept layout; no jump at the hand-off |
+| #494 | `1358cbb7` | AIT-601 product fix: pre-live welcome owns its height above readiness in the desktop image concept layout; fitting content does not scroll at the hand-off, real overflow still follows |
 | #496 | `96ec6f72` | AIT-587 polish: lower-case EN "credits", used-up copy, "Connected" footer with "Connected since" title, ready-card, fold, Pause, overview toggles and reserve, upload capability read |
 | #497 | `559eef02` = L | AIT-611 test only: the demo host test drains in-flight host requests before teardown (`demo/test/host-drain.js`); every shipped file is byte-identical to main; hidden from release notes |
 
@@ -163,11 +165,18 @@ combined entrance with a host's image concept layout on desktop; AIT-589's to
 host-enabled uploads. AIT-587 carries `hide_from_release_notes` in PPM at
 preparation time while the approved brief lists it as visible with its pill;
 this preparation follows the brief and names the difference in the handoff.
+r2 (gate1 Medium, Tick L2): AIT-601's EN/DE benefit now says that fitting
+content stays put at the hand-off and that a longer conversation still scrolls;
+AIT-587's EN/DE benefit is the new text PPM holds after Tick's L2, verbatim
+(pills unchanged: "Calmer footer and copy" / "Ruhigere Fußzeile und Texte").
 AIT-582, AIT-584, AIT-585, AIT-546, AIT-592, AIT-594, AIT-597, AIT-598, AIT-599
 and AIT-611 appear only in this technical record: AIT-582 and AIT-592 are
 release tooling, AIT-597 and AIT-599 CI only, AIT-546, AIT-585, AIT-594,
-AIT-598 and AIT-611 test only, and AIT-584's three-line probe fix changes no
-visible output (the live role stays checked, as it always should have).
+AIT-598 and AIT-611 test only. AIT-584 stays hidden as the approved set lists
+it, but its three-line probe fix is visible in one place: before it, the footer
+width probe's cloned role radios shared the live group's name, so a probe pass
+could uncheck the live role; the fix preserves a visibly checked role radio in
+the open popover.
 
 **Host record.** `release/next-notes.md` was already the stub
 `# Next release — unreleased`; no merge in the range touched it, so there were
@@ -178,9 +187,18 @@ the code-at-L host record. In short:
   600 px, the pre-live opener thread is an inline-size container, so the welcome
   owns its height above readiness; the transcript's 40 px render-label reserve
   becomes the shadow-internal `--aithema-render-reserve`, idle (not counted as
-  content) before the first reply and any visual wish; once a render label shows,
-  the transcript moves by at most that reserve so the label never covers the
-  visitor's turn. Phones and live keep their previous containers.
+  content) before the first reply and any visual wish, so fitting content stays
+  put at the hand-off. Real overflow still scrolls: it follows to the visitor's
+  message (the retained desktop capture
+  `dist/aitrc28-browser/ait-601-fold-boxes.json`, cases `overflow-*-live`,
+  records scrollTop 203 px with Latest hidden). The 40 px bound applies only to
+  the render-label adjustment (`#clearRenderLabel`): while a render label shows,
+  follow is suspended and the reader is still at the latest position, the
+  transcript moves by at most that reserve so the last item ends above the
+  label; an item that runs past the pane keeps D2's reading place. Phones and
+  live keep their previous containers. True on the default geometry of that
+  layout; the combined entrance and the image concept layout are both host
+  opt-ins (the default entrance stays `'choice'`).
 - AIT-589: `.upload-notices-more` keeps a constant 6 px inline padding; its
   focus ring stays inside the 44 px box vertically and extends sideways at most
   4 px, never beyond `--composer-actions-gap`.
@@ -230,8 +248,18 @@ wins, then the active locale, then English.
   `max` and `initAll` use lower-case "credits".
 
 **Behaviour changes without a key change:** AIT-587's footer without a running
-timer; AIT-601's pre-live welcome height in the desktop image layout and no jump
-at the hand-off; AIT-589's focus ring.
+timer; AIT-601's pre-live welcome height in the desktop image layout, with
+fitting content not scrolling at the hand-off (real overflow still follows);
+AIT-589's focus ring.
+
+**Erratum to RC27's record (gate1 Low).** RC27's AIT-559/AIT-561/AIT-563 entry
+says the feedback grid row sits "below the 44 px control row". That holds only
+in compact layouts: the default combined textarea minimum is `4.5rem` (72 px at
+a 16 px root font size; `packages/ui/src/combined-entrance-styles.js`, the
+`.workspace[data-entrance="combined"] textarea` rule), and `44px` applies in the
+short-desktop (`min-width:960px` and `max-height:700px`) and short-phone
+(`data-phone-short`) rules. The 44 px mic and send columns are unchanged. RC27's
+section stays as published; this erratum is the correction.
 
 **Known limitations (release copy describes shipped code):** carried from RC27
 and still open at preparation time: AIT-549, AIT-551, AIT-552, AIT-571, AIT-580,
@@ -251,10 +279,13 @@ affected). All open at preparation time; each worded “planned (AIT-nnn)” in
 `notes.md`.
 
 **Breaking for hosts:** **No, relative to RC27 (`v261120065345.0.0`).** The
-diff changes no public export, configuration key, HTTP status code, event, slot
-or host requirement. `connectedSince` is additive; the changed defaults are
-wording (case and one shortened sentence) with every placeholder kept, and host
-overrides keep winning. The mail template's EN line changes the case of one word
+diff changes or removes no existing public export, configuration key, HTTP
+status code, event, slot or host requirement. `clockTime` is an additive public
+export of `@inspr/aithema-ui`'s `./display` entry (`packages/ui/src/display.js`,
+new in #496 and shared by the daily-cap reset and "Connected since"); nothing
+that existed is renamed or changed, so non-breaking stands. `connectedSince` is
+additive; the changed defaults are wording (case and one shortened sentence)
+with every placeholder kept, and host overrides keep winning. The mail template's EN line changes the case of one word
 and keeps `{tier}`; subject, structure and DE text are unchanged. AIT-587's
 footer `title`/`aria-describedby` and hidden timer, AIT-601's container and
 scroll behaviour (`--aithema-render-reserve` is set inside the shadow DOM) and

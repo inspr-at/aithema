@@ -10,15 +10,15 @@ uploads.
 
 ## What visitors notice
 
-- **Welcome stays in place (AIT-601, #494).** The welcome no longer overlaps the readiness panel when a host uses image concepts. Applies on desktop widths in the combined entrance with a host's image concept layout; the conversation no longer jumps when the readiness panel hands over to the live conversation.
+- **Welcome stays in place (AIT-601, #494).** The welcome no longer overlaps the readiness panel when a host uses image concepts. Applies on desktop widths in the combined entrance (a host opt-in) with a host's image concept layout. When the readiness panel hands over to the live conversation, a conversation that fits stays where it is; a longer conversation still scrolls on to the visitor's message.
 - **Clear focus ring (AIT-589, #488).** With the keyboard, the focus ring on "Show more notices" no longer covers nearby text or its own label, on phones and desktops. Where the host enables uploads.
-- **Calmer footer and copy (AIT-587, #496).** Polished first-screen details and fewer known rough edges. The footer says "Connected" without a running number, with the connection's start time as its title; English writes "credits" in lower case mid-sentence; the used-up message no longer promises an export.
+- **Calmer footer and copy (AIT-587, #496).** The footer says "Connected" without a running number and shows when the connection started on hover or focus; English writes "credits" in lower case mid-sentence; the used-up message no longer promises an export.
 
 ## Was Besucher bemerken
 
-- **Begrüßung bleibt stehen (AIT-601, #494).** Die Begrüßung überdeckt das Bereitschaftsfeld nicht mehr, wenn ein Host Bildkonzepte nutzt. Gilt auf Desktopbreiten im kombinierten Einstieg mit dem Bildkonzept-Layout eines Hosts; beim Übergang vom Bereitschaftsfeld ins laufende Gespräch springt das Gespräch nicht mehr.
+- **Begrüßung bleibt stehen (AIT-601, #494).** Die Begrüßung überdeckt das Bereitschaftsfeld nicht mehr, wenn ein Host Bildkonzepte nutzt. Gilt auf Desktopbreiten im kombinierten Einstieg (vom Host aktiviert) mit dem Bildkonzept-Layout eines Hosts. Beim Übergang vom Bereitschaftsfeld ins laufende Gespräch bleibt ein Gespräch, das Platz hat, stehen; ein längeres Gespräch scrollt weiterhin bis zur Nachricht der Besucherin oder des Besuchers.
 - **Klarer Fokusrahmen (AIT-589, #488).** Mit der Tastatur verdeckt der Fokusrahmen von „Weitere Meldungen anzeigen“ weder benachbarten Text noch die eigene Beschriftung, auf Smartphone und Desktop. Bei vom Host aktivierten Uploads.
-- **Ruhigere Fußzeile und Texte (AIT-587, #496).** Ausgefeilte Details auf dem Startbildschirm und weniger bekannte Ecken und Kanten. Die Fußzeile zeigt „Verbunden“ ohne laufende Zahl, mit dem Beginn der Verbindung als Titel; die Meldung zu aufgebrauchten Credits verspricht keinen Export mehr.
+- **Ruhigere Fußzeile und Texte (AIT-587, #496).** Die Fußzeile zeigt „Verbunden“ ohne laufende Zahl und nennt beim Zeigen oder Fokussieren den Beginn der Verbindung; die Meldung zu aufgebrauchten Credits verspricht keinen Export mehr.
 
 ## For hosts
 
@@ -29,9 +29,14 @@ uploads.
   40 px render-label reserve is now the shadow-internal custom property
   `--aithema-render-reserve`; before the first reply and before any visual wish
   that reserve is idle and no longer counts as content, so fitting content does
-  not scroll at the readiness → live hand-off. Once a render label shows, the
-  transcript moves by at most that reserve so the label never covers the
-  visitor's turn. Fix only; no flag or option.
+  not scroll at the readiness → live hand-off. Real overflow still scrolls: the
+  transcript follows to the visitor's message at the hand-off. When a render
+  label shows while follow is suspended (for example a resting pointer) and the
+  reader is still at the latest position, the transcript moves by at most that
+  reserve so the label does not cover the last item; an item that runs past the
+  pane keeps the reading place. Fix only; no flag or option. Both the combined
+  entrance and the image concept layout are host opt-ins; the default
+  `'choice'` entrance is unchanged.
 - AIT-589: the "Show N more notices" control keeps a constant 6 px inline
   padding and draws its keyboard focus ring inside its 44 px box vertically,
   reaching sideways at most 4 px and never beyond the actions gap.
@@ -95,7 +100,8 @@ changes 29 EN defaults and 1 DE default:
 
 - AIT-587: the footer no longer shows a running connection timer.
 - AIT-601: the pre-live welcome's height in the combined image concept layout on
-  desktop, and no jump at the readiness → live hand-off.
+  desktop; fitting content no longer scrolls at the readiness → live hand-off
+  (real overflow still follows).
 - AIT-589: the "Show more notices" focus ring and its constant inline padding.
 
 German release prose is impersonal; quoted shipped defaults stay exact.
@@ -140,10 +146,12 @@ German release prose is impersonal; quoted shipped defaults stay exact.
 
 ## Breaking for hosts
 
-**No, relative to RC27 (`v261120065345.0.0`).** No public export, configuration
-key, HTTP status code, event, slot or host requirement changes. The one new copy
-key `connectedSince` is additive and host overrides keep winning. Changed
-defaults are wording only (EN "credits" lower case, the shorter EN/DE used-up
+**No, relative to RC27 (`v261120065345.0.0`).** No existing public export,
+configuration key, HTTP status code, event, slot or host requirement changes.
+The one new copy key `connectedSince` is additive and host overrides keep
+winning. The UI package's public `./display` module gains one additive export,
+`clockTime` (a local clock time in the page language); no export is removed or
+changed. Changed defaults are wording only (EN "credits" lower case, the shorter EN/DE used-up
 body) and keep every placeholder; hosts that override these keys are unaffected.
 The confirmation mail's EN explanation line changes one letter's case and keeps
 `{tier}`; its structure, subject and DE text are unchanged. The footer's new
