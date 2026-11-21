@@ -207,8 +207,10 @@ for (const locale of ['de', 'en']) {
     observer.observe(live, { childList: true, subtree: true, characterData: true });
     t.after(() => observer.disconnect());
     const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+    // AIT-587 r2 (TICK decision, item 2): connected, the title is "Connected since HH:MM" (see the AIT-587 test below).
     const check = key => {
-      assert.equal(r.querySelector('.status').title, copy[key]);
+      if (key === 'connected') assert.match(r.querySelector('.status').title, new RegExp(`^${copy.connectedSince.replace('{time}', '.+')}$`, 'u'));
+      else assert.equal(r.querySelector('.status').title, copy[key]);
       assert.equal(live.textContent, copy[key]);
       assert.equal(live.getAttribute('aria-live'), 'polite');
       assert.equal(r.querySelector('.status__label').textContent, copy.connectionLabels[key]);
@@ -223,3 +225,34 @@ for (const locale of ['de', 'en']) {
     await flush(); assert.deepEqual(announcements, [copy.connected, copy.reconnecting]);
   });
 }
+
+// AIT-587 r2 (TICK decision, item 2): a connection timer that restarts on reconnect reads as call time. The footer
+// shows "Connected" with the dot only; the connection's start is in the status's title and accessible description,
+// in the page's local time with the daily-cap time format. No number ticks.
+for (const locale of ['de', 'en']) test(`AIT-587: connected shows no running number; "since" lives in title and description, ${locale}`, async t => {
+  const copy = { en, de }[locale], start = Date.UTC(2026, 10, 20, 20, 4, 30);
+  t.mock.timers.enable({ apis: ['Date'], now: start });
+  const c = configure(locale), r = c.shadowRoot;
+  let stream;
+  t.mock.method(globalThis, 'fetch', url => url.endsWith('/events')
+    ? Promise.resolve(new Response(new ReadableStream({ start(controller) { stream = controller; } }))) : Promise.resolve(Response.json({})));
+  document.body.append(c); t.after(() => c.remove());
+  const flush = () => new Promise(resolve => setImmediate(resolve));
+  for (let i = 0; i < 20 && !r.querySelector('.status').hasAttribute('data-connected'); i++) await flush();
+  const status = r.querySelector('.status'), timer = r.querySelector('.connection-timer');
+  assert.ok(status.hasAttribute('data-connected'), 'the stream connected');
+  const time = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', ...(locale === 'de' ? { hour12: false } : {}) }).format(start);
+  const since = (locale === 'de' ? 'Verbunden seit {time}' : 'Connected since {time}').replace('{time}', time);
+  assert.equal(copy.connectedSince, locale === 'de' ? 'Verbunden seit {time}' : 'Connected since {time}');
+  assert.equal(status.title, since);
+  const described = status.getAttribute('aria-describedby');
+  assert.ok(described, 'the status has an accessible description');
+  assert.equal(r.getElementById(described)?.textContent, since);
+  assert.equal(r.querySelector('.status__label').textContent, copy.connectionLabels.connected);
+  assert.equal(timer.textContent, '0:00'); assert.equal(timer.getAttribute('aria-hidden'), 'true');
+  t.mock.timers.tick(65_000);
+  c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } }); await flush();
+  assert.equal(timer.textContent, '0:00', 'nothing ticks'); assert.equal(status.title, since, 'the start stays');
+  stream.close(); await flush();
+  assert.equal(status.title, copy.reconnecting); assert.equal(status.hasAttribute('aria-describedby'), false, 'no stale "since" while reconnecting');
+});

@@ -39,7 +39,7 @@ async function harness(t) {
   return { page, server };
 }
 async function open(page, server, variant, entrance = 'combined') {
-  await page.setViewport({ width: variant.width, height: variant.height ?? 1000 });
+  await page.setViewport({ width: variant.width, height: variant.height ?? 1000, deviceScaleFactor: variant.scale ?? 1 });
   await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: variant.theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.goto(`${server.url}/first-screen-fixture?locale=${variant.locale}&entrance=${entrance}${variant.opener ? '&opener' : ''}${variant.brand ? `&hostrow=${variant.brand}` : ''}${variant.query ? `&${variant.query}` : ''}`);
   await page.waitForFunction(() => globalThis.ready);
@@ -908,5 +908,135 @@ test('AIT-587: a ready-card check stays beside the first line of a wrapped value
       assert.deepEqual(restored.check, single.check, `restoring the value moves the check 0 px: ${where}`);
       assert.equal(restored.row, single.row, `restoring the value restores the row height: ${where}`);
     }
+  }
+});
+
+// AIT-587 r2 evidence for TICK: files under look/r2 (screenshots, crops and their JSON).
+async function retainR2(page, name, record, clip) {
+  if (!process.env.AITHEMA_EVIDENCE_DIR) return;
+  const dir = join(process.env.AITHEMA_EVIDENCE_DIR, 'look', 'r2'); await mkdir(dir, { recursive: true });
+  if (clip) await page.screenshot({ path: join(dir, `${name}.png`), clip });
+  await writeFile(join(dir, `${name}.json`), JSON.stringify(record, null, 2));
+}
+
+// AIT-587 r2 (TICK decision, item 2): a connection timer that restarts on reconnect reads as call time. The footer
+// shows "Connected" / "Verbunden" with the dot only; "Connected since HH:MM" is the status's title and accessible
+// description. The timer slot stays as an invisible, constant reservation: nothing in the footer moves.
+const footerVariants = ['en', 'de'].flatMap(locale => ['light', 'dark'].flatMap(theme => [1440, 390].map(width => ({ width, locale, theme }))));
+test('AIT-587: the footer shows Connected without a running number; since lives in title and description; 0 px', { timeout: 180_000 }, async t => {
+  const { page, server } = await harness(t), records = [];
+  const sample = () => page.evaluate(() => {
+    const r = c.shadowRoot, status = r.querySelector('.status'), timer = r.querySelector('.connection-timer'), row = r.querySelector('.display-foot__row');
+    const box = n => { const b = n.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
+    const described = status.getAttribute('aria-describedby'), style = getComputedStyle(timer);
+    return { title: status.title, describedBy: described, description: described ? r.getElementById(described)?.textContent ?? null : null,
+      label: r.querySelector('.status__label').textContent, dotLabel: r.querySelector('.status__dot').getAttribute('aria-label'), footerText: row.innerText,
+      timer: { text: timer.textContent, visibility: style.visibility, display: style.display, box: box(timer), inPopup: Boolean(timer.closest('.footer-popup')) },
+      zones: [...row.children].filter(zone => zone.checkVisibility()).map(zone => ({ zone: zone.className, box: box(zone) })),
+      group: box(r.querySelector('.status__group')), foot: box(r.querySelector('.display-foot')) };
+  });
+  for (const variant of footerVariants) {
+    const label = `${variant.width}-${variant.locale}-${variant.theme}`;
+    await open(page, server, variant);
+    await page.waitForFunction(() => c.shadowRoot.querySelector('.status').hasAttribute('data-connected'), { timeout: 10_000 });
+    await page.evaluate(async () => { await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
+    const after = await sample();
+    await new Promise(resolve => setTimeout(resolve, 1100));
+    const later = await sample();
+    const clip = { x: 0, y: after.foot[1], width: variant.width, height: after.foot[3] };
+    await retainR2(page, `footer-${label}-after`, after, clip);
+    // The old look in the same slot (the visible timer), for TICK's before/after and the 0 px proof.
+    await page.evaluate(() => { const style = document.createElement('style'); style.id = 'old-timer'; style.textContent = '.connection-timer{visibility:visible!important}'; c.shadowRoot.append(style); });
+    const before = await sample();
+    await retainR2(page, `footer-${label}-before`, before, clip);
+    await page.evaluate(() => c.shadowRoot.getElementById('old-timer').remove());
+    records.push({ label, variant, after, later, before });
+  }
+  await retainR2(page, 'footer-title-description', records.map(({ label, after }) => ({ label, title: after.title, description: after.description, describedBy: after.describedBy, label_: after.label, dotLabel: after.dotLabel, footerText: after.footerText })));
+  for (const { label, variant, after, later, before } of records) {
+    const where = `${label}: ${JSON.stringify(after)}`;
+    const [connected, since] = variant.locale === 'de' ? ['Verbunden', 'Verbunden seit'] : ['Connected', 'Connected since'];
+    assert.equal(after.label, connected, `the footer says ${connected}: ${where}`);
+    assert.match(after.title, new RegExp(`^${since} \\d{2}:\\d{2}(?: [AP]M)?$`, 'u'), `title: ${where}`);
+    assert.equal(after.description, after.title, `accessible description: ${where}`);
+    assert.doesNotMatch(after.footerText, /\d+:\d{2}/u, `no clock or timer is visible in the footer: ${where}`);
+    assert.equal(later.footerText, after.footerText, `nothing ticks: ${where}`);
+    assert.equal(later.title, after.title, `the start stays: ${where}`);
+    if (after.timer.display !== 'none') {
+      assert.equal(after.timer.visibility, 'hidden', `the timer slot is an invisible reservation: ${where}`);
+      if (!after.timer.inPopup) assert.ok(after.timer.box[2] > 0 && after.timer.box[3] > 0, `the reservation keeps its width: ${where}`);
+    }
+    assert.ok(after.zones.length > 0, `footer zones measured: ${where}`);
+    for (const { zone, box } of after.zones) assert.ok(box[2] > 0 && box[3] > 0, `${zone}: positive width and height: ${where}`);
+    assert.ok(after.group[2] > 0 && after.group[3] > 0, `status group: positive width and height: ${where}`);
+    assert.deepEqual(later.zones, after.zones, `footer zones 0 px over time: ${where}`);
+    assert.deepEqual(before.zones, after.zones, `the visible timer and its reservation occupy the same box (0 px): ${where}`);
+    assert.deepEqual(before.group, after.group, `status group 0 px against the old look: ${where}`);
+  }
+});
+
+// AIT-587 r2 (TICK M1, item 4): the fold icon's contrast, measured in the page from computed styles, in both themes.
+// The ready screen has nothing to fold: its fold is aria-disabled (WCAG 1.4.11 exempts inactive controls) and keeps
+// faint ink. Enabled (visuals available), the icon must keep 3:1 at rest, on hover and on keyboard focus.
+test('AIT-587: the fold icon keeps 3:1 when enabled at rest, hover and focus; the ready fold is disabled', { timeout: 120_000 }, async t => {
+  const { page, server } = await harness(t), records = [];
+  const measure = state => page.evaluate(state => {
+    const fold = c.shadowRoot.querySelector('.fold'), svg = fold.querySelector('svg'), b = fold.getBoundingClientRect();
+    const rgba = value => { const [r, g, bl, a = 1] = value.match(/[\d.]+/gu).map(Number); return [r, g, bl, a]; };
+    const lum = ([r, g, bl]) => { const f = v => { v /= 255; return v <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; }; return .2126 * f(r) + .7152 * f(g) + .0722 * f(bl); };
+    const over = (top, bottom, alpha) => top.slice(0, 3).map((v, i) => v * alpha + bottom[i] * (1 - alpha));
+    // The opaque background behind the fold: composite translucent layers up the composed tree over the page.
+    const layers = [];
+    for (let node = fold; node; node = node.parentElement ?? node.getRootNode().host) {
+      const value = rgba(getComputedStyle(node).backgroundColor); if (value[3] > 0) layers.push({ node: `${node.localName}.${[...node.classList].join('.')}`, value });
+      if (value[3] === 1) break;
+    }
+    let background = layers.at(-1)?.value[3] === 1 ? layers.at(-1).value : [255, 255, 255, 1];
+    for (const layer of layers.slice(0, -1).reverse()) background = [...over(layer.value, background, layer.value[3]), 1];
+    let opacity = 1; for (let node = svg; node && node !== c; node = node.parentElement ?? node.getRootNode().host) opacity *= Number(getComputedStyle(node).opacity);
+    const color = rgba(getComputedStyle(svg).color), effective = over(color, background, opacity * color[3]);
+    const [hi, lo] = [lum(effective), lum(background)].sort((x, y) => y - x);
+    return { state, ariaDisabled: fold.getAttribute('aria-disabled'), hover: fold.matches(':hover'), focusVisible: fold.matches(':focus-visible'),
+      color: getComputedStyle(svg).color, stroke: getComputedStyle(svg).stroke, opacity, background: `rgb(${background.slice(0, 3).map(Math.round).join(', ')})`,
+      backgroundLayers: layers.map(layer => layer.node), effective: `rgb(${effective.map(Math.round).join(', ')})`, ratio: Number(((hi + .05) / (lo + .05)).toFixed(2)),
+      box: [b.x, b.y, b.width, b.height] };
+  }, state);
+  const crop = record => ({ x: Math.max(0, record.box[0] - 12), y: Math.max(0, record.box[1] - 12), width: record.box[2] + 24, height: record.box[3] + 24 });
+  for (const theme of ['light', 'dark']) {
+    const variant = { width: 1440, locale: 'en', theme, scale: 2 }, label = `1440-en-${theme}`;
+    await open(page, server, variant);
+    await page.evaluate(async () => { await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
+    const states = [await measure('ready-disabled-rest')];
+    await retainR2(page, `fold-${label}-ready-disabled-rest`, states.at(-1), crop(states.at(-1)));
+    // Visuals available: the fold can fold the conversation and is enabled.
+    await page.evaluate(() => {
+      const prior = globalThis.fetch;
+      globalThis.fetch = async (url, options) => { const response = await prior(url, options);
+        if (!/\/api\/sessions\/[^/?]+$/u.test(String(url))) return response;
+        const snapshot = await response.json(); snapshot.featureMatrix.best.images = { available: true }; return Response.json(snapshot); };
+      const session = c.session; session.featureMatrix.best.images = { available: true }; c.configure({ session });
+    });
+    await page.waitForFunction(() => c.shadowRoot.querySelector('.fold').getAttribute('aria-disabled') === 'false', { timeout: 10_000 })
+      .catch(error => { throw new Error(`${label}: the fold did not become enabled`, { cause: error }); });
+    await page.mouse.move(1, 999);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    states.push(await measure('enabled-rest')); await retainR2(page, `fold-${label}-enabled-rest`, states.at(-1), crop(states.at(-1)));
+    const [x, y, w, h] = states.at(-1).box; await page.mouse.move(x + w / 2, y + h / 2);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    states.push(await measure('enabled-hover')); await retainR2(page, `fold-${label}-enabled-hover`, states.at(-1), crop(states.at(-1)));
+    await page.mouse.move(1, 999); await page.keyboard.press('Shift');
+    await page.evaluate(() => c.shadowRoot.querySelector('.fold').focus());
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    states.push(await measure('enabled-focus')); await retainR2(page, `fold-${label}-enabled-focus`, states.at(-1), crop(states.at(-1)));
+    records.push({ label, states });
+  }
+  await retainR2(page, 'fold-contrast', records);
+  for (const { label, states } of records) {
+    const [ready, rest, hover, focus] = states, where = `${label}: ${JSON.stringify(states)}`;
+    for (const state of states) assert.ok(state.box[2] > 0 && state.box[3] > 0, `${state.state}: positive width and height: ${where}`);
+    assert.equal(ready.ariaDisabled, 'true', `the ready screen's fold is disabled (nothing to fold): ${where}`);
+    assert.equal(rest.ariaDisabled, 'false', `enabled: ${where}`);
+    assert.equal(hover.hover, true, `hovered: ${where}`); assert.equal(focus.focusVisible, true, `keyboard focus: ${where}`);
+    for (const state of [rest, hover, focus]) assert.ok(state.ratio >= 3, `${state.state}: fold icon ${state.ratio}:1 >= 3:1: ${where}`);
   }
 });

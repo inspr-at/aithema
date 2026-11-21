@@ -21,12 +21,15 @@ test('motion defaults to the system and persists an explicit browser choice, inc
 test('connection time crosses minute and hour boundaries, pads fields and uses elapsed wall time', () => {
   for (const [ms, expected] of [[0, '0:00'], [999, '0:00'], [1000, '0:01'], [59_999, '0:59'], [60_000, '1:00'],
     [3_599_999, '59:59'], [3_600_000, '1:00:00'], [36_661_000, '10:11:01'], [-1, '0:00'], [NaN, '0:00']]) assert.equal(connectionTime(ms), expected);
+  // AIT-587 r2 (TICK decision, item 2): the footer shows no running number. The timer slot keeps a constant,
+  // invisible reservation ('0:00'); the timer only records when the connection started ("Connected since").
   const element = { textContent: '' }; let now = 1000;
   const timer = new ConnectionTimer(element, () => now);
-  timer.setConnected(true); assert.equal(element.textContent, '0:00');
-  now += 3_601_000; timer.setConnected(true); timer.paint(); assert.equal(element.textContent, '1:00:01', 'renders do not reset a live connection');
-  timer.setConnected(false); assert.equal(element.textContent, '0:00');
-  now += 1000; timer.setConnected(true); timer.paint(); assert.equal(element.textContent, '0:00', 'a reconnect starts a new interval'); timer.destroy();
+  timer.setConnected(true); assert.equal(element.textContent, '0:00'); assert.equal(timer.since, 1000);
+  now += 3_601_000; timer.setConnected(true); timer.paint();
+  assert.equal(element.textContent, '0:00', 'the reservation never ticks'); assert.equal(timer.since, 1000, 'renders do not reset a live connection');
+  timer.setConnected(false); assert.equal(element.textContent, '0:00'); assert.equal(timer.since, null);
+  now += 1000; timer.setConnected(true); timer.paint(); assert.equal(element.textContent, '0:00'); assert.equal(timer.since, now, 'a reconnect starts a new connection'); timer.destroy();
 });
 
 test('footer narrowing reserves the 1024 credit gap and keeps product identity down to 600px', () => {
