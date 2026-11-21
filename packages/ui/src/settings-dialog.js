@@ -58,12 +58,30 @@ const shortCountryNames = (countries, locale) => {
 // footer help line names it in at most HELP_REASON_CAP characters, so a long
 // host sentence no longer inflates the help cell's reserve (and shrinks the
 // settings body above it). The cap is above every stock sentence (EN/DE <= 39).
+// r4: the cap counts graphemes (an emoji or a letter with its combining mark is
+// one), so the cut never splits one; code points where Intl.Segmenter is missing.
 const HELP_REASON_CAP = 40;
-const helpReason = text => String(text ?? '').length > HELP_REASON_CAP ? `${String(text).slice(0, HELP_REASON_CAP - 1).trimEnd()}…` : String(text ?? '');
+const graphemes = text => typeof Intl.Segmenter === 'function'
+  ? Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text), part => part.segment) : [...text];
+export const helpReason = text => {
+  const value = String(text ?? ''), parts = graphemes(value);
+  return parts.length > HELP_REASON_CAP ? `${parts.slice(0, HELP_REASON_CAP - 1).join('').trimEnd()}…` : value;
+};
+// r4 (gate M1): the help cell's reserve holds the tallest RENDERING, not the
+// longest string: the consent-needed measure stacks one hidden copy per capped
+// feature reason in one grid cell (the cell takes the tallest), plus a run of
+// the widest Latin glyph at the cap, so no host sentence's prefix (wide or
+// narrow glyphs) can change the reserve or grow the row.
+const WIDEST_REASON = `${'W'.repeat(HELP_REASON_CAP - 1)}…`;
 const helpMeasurements = copy => {
-  const reason = ['text', 'uploads', 'images', 'html', 'voice', 'analysis'].map(feature => helpReason(featureConsentText(copy, feature)))
-    .reduce((longest, text) => text.length > longest.length ? text : longest, '');
-  return Object.entries(copy.help).map(([key, text]) => fill(text, { reason: key === 'consentNeeded' ? reason : '' }));
+  const reasons = [...['text', 'uploads', 'images', 'html', 'voice', 'analysis'].map(feature => helpReason(featureConsentText(copy, feature))), WIDEST_REASON];
+  return Object.entries(copy.help).map(([key, text]) => key === 'consentNeeded' ? reasons.map(reason => fill(text, { reason })) : fill(text, { reason: '' }));
+};
+// One measure node per help text; a list of variants stacks in that node.
+const paintMeasure = (node, text) => {
+  node.classList.toggle('context-measure--stack', Array.isArray(text));
+  if (!Array.isArray(text)) { node.textContent = text ?? ''; return; }
+  node.replaceChildren(...text.map(variant => { const span = document.createElement('span'); span.textContent = variant; return span; }));
 };
 
 const svg = (body, box = '0 0 24 24') => `<svg viewBox="${box}" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
@@ -207,7 +225,9 @@ export class SettingsDialog {
       const node = document.createElement('p'); node.className = className; node.setAttribute('aria-hidden', 'true'); node.textContent = text; return node;
     }));
     measure(this.#q('.general-consent-state'), Object.values(c.consentStates), 'status-line general-consent-measure');
-    measure(this.#q('.context-text'), helpMeasurements(this.#copy), 'context-measure');
+    const helps = helpMeasurements(this.#copy);
+    measure(this.#q('.context-text'), helps.map(() => ''), 'context-measure');
+    this.#all('.context-measure').forEach((n, i) => paintMeasure(n, helps[i]));
     measure(this.#q('.save-state'), [this.#copy.host.consentStale, this.#copy.host.consentPage.loading, this.#copy.host.consentPage.saving, this.#copy.host.consentFailed], 'consent-state-measure');
     measure(this.#q('.save-state'), SAVE_MESSAGES.map(key => c[key]), 'save-state-measure');
     const notices = [c.callActive, c.toDevice, c.fromDevice, c.consentRequired, c.running, c.conflict, fill(c.notAllowed, { reason: '' })];
@@ -228,7 +248,7 @@ export class SettingsDialog {
     this.#all('.general-consent-measure').forEach((n, i) => { n.textContent = Object.values(copy.settings.consentStates)[i]; });
     this.#all('.consent-state-measure').forEach((n, i) => { n.textContent = [copy.host.consentStale, copy.host.consentPage.loading, copy.host.consentPage.saving, copy.host.consentFailed][i]; });
     const measurements = helpMeasurements(copy);
-    this.#all('.context-measure').forEach((n, i) => { n.textContent = measurements[i] ?? ''; });
+    this.#all('.context-measure').forEach((n, i) => paintMeasure(n, measurements[i]));
     const c = copy.settings, notices = [c.callActive, c.toDevice, c.fromDevice, c.consentRequired, c.running, c.conflict, fill(c.notAllowed, { reason: '' })];
     this.#q('.notice-measure .notice-text').textContent = notices.reduce((a, b) => b.length > a.length ? b : a);
     this.#paintKeys.clear(); this.sync();

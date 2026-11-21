@@ -143,7 +143,13 @@ export class ConsentSettings {
     const shown = !view || box.width > 0 && box.height > 0 && box.top >= view.top - .5 && box.bottom <= view.bottom + .5;
     // r3: focusVisible, so the checkbox shows its ring as in the voice cases even
     // when the sheet was opened by pointer and held focus on the sentence first.
-    if (shown || reason.hidden) { target.focus({ preventScroll: true, focusVisible: true }); return; }
+    // r4 (gate M2): engines that ignore focusVisible may omit the ring after a
+    // pointer open; data-focus-ring draws the same ring until the checkbox blurs.
+    if (shown || reason.hidden) {
+      target.dataset.focusRing = '';
+      target.addEventListener('blur', () => { delete target.dataset.focusRing; }, { once: true });
+      target.focus({ preventScroll: true, focusVisible: true }); return;
+    }
     reason.tabIndex = -1; reason.focus({ preventScroll: true });
   }
   #status(text) {

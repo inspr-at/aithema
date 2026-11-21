@@ -20,7 +20,7 @@ dialog.settings { padding:0; margin:auto; border:1px solid var(--aithema-line); 
   font:.875rem/1.4 var(--aithema-font); }
 dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur(6px); }
 .settings__frame { position:relative; display:flex; flex-direction:column; height:100%; min-height:0; }
-.settings :is(button,input,select,textarea,summary,a,[tabindex]):focus-visible { outline:3px solid var(--aithema-accent); outline-offset:2px; }
+.settings :is(button,input,select,textarea,summary,a,[tabindex]):focus-visible, .settings .consent-item input[data-focus-ring]:focus { outline:3px solid var(--aithema-accent); outline-offset:2px; }
 /* The unavailable email section retains programmatic screen-reader focus. */
 .settings #email-heading:focus { outline:none; }
 .settings :is(button,select,summary,.select__button) { min-height:2.75rem; }
@@ -166,6 +166,8 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .context-text { flex:1; min-width:0; display:grid; align-items:center; }
 .context-text>p { grid-area:1/1; overflow-wrap:anywhere; }
 .context-measure { visibility:hidden; user-select:none; pointer-events:none; }
+.context-measure--stack { display:grid; }
+.context-measure--stack>span { grid-area:1/1; }
 .settings__footer { flex:none; position:relative; display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; gap:1rem; padding:.4rem 1.6rem 1rem; }
 .footer-links { display:flex; flex-wrap:wrap; align-items:center; gap:0 1rem; min-width:0; }
 .footer-links :is(summary,.link) { display:inline-flex; align-items:center; min-height:2.75rem; padding:0; border:0; background:none; cursor:pointer;
