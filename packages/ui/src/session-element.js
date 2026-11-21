@@ -35,7 +35,7 @@ import { LocalConnector } from './local-connector.js';
 import { postJson, postForm, sameOrigin } from './post-json.js';
 import { UPLOAD_LIMITS, UPLOAD_ACCEPT, DOCUMENT_UPLOAD_ACCEPT, UPLOAD_ICONS, uploadLimits, uploadRetryDelay, unclassifiedUploads, planUploads, refusalText, uploadStateText, uploadStateTexts, uploadsPossible, formatBytes, limitsText, dropText } from './uploads.js';
 import { voiceJournal, tabStorage, closeVoiceCall, answerVoicePings, voiceCallAbandoned } from './voice-orphan.js';
-import { node, setText, reconcile } from './dom.js';
+import { node, setText, reconcile, fill } from './dom.js';
 import { HostSurface } from './host-surface.js';
 import { hostStyles } from './host-styles.js';
 import { entranceStyles } from './entrance-styles.js';
@@ -43,7 +43,7 @@ import { combinedEntranceStyles } from './combined-entrance-styles.js';
 import { combinedNoticeMarkup, paintCombinedNotice } from './combined-composer.js';
 import { orbStyles, createOrb } from './orb.js';
 import { icon } from './icons.js';
-import { modelDisplayName, languageFlag, formatCredits } from './display.js';
+import { modelDisplayName, languageFlag, formatCredits, clockTime } from './display.js';
 import { bandStyles } from './band-styles.js';
 import { voiceSingleRowMinWidth, voiceRailMinWidth, voiceRailFlexMinWidth } from './first-paint.js';
 import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, FooterPopups, PhoneComposerViewport } from './layout.js';
@@ -814,7 +814,7 @@ export class AithemaSession extends HTMLElement {
             <p class="host-credits__next"></p><a class="credits-email" href="#email"></a>
             <p class="host-credits__daily-cap" hidden></p><span class="host-credits__deadline" hidden></span><span class="host-credits__limit" hidden><slot name="credits-limit"></slot><span class="host-credits__demo"></span></span><p class="host-credits__equivalence"></p></div></div>
         <div class="footer-right"><section class="preset-panel"><div class="engine" data-footer-popup><button class="engine-info" type="button" aria-describedby="model-info"><span class="engine__value"></span><span class="engine__flag"></span></button><span class="engine__detail footer-popup" id="model-info" role="tooltip"></span></div><ul class="features"></ul></section>
-          <span class="status" role="status" aria-live="off"><span class="status__group"><span class="status__dot" role="img"></span><span class="status__label" aria-hidden="true"></span><span class="status__placeholder" aria-hidden="true" hidden></span></span><span class="status__live visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span><span class="status__sizer" aria-hidden="true"></span><time class="connection-timer">0:00</time></span><div class="host-legal" data-footer-popup hidden><slot name="legal"></slot><button class="legal-toggle" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="legal-popup"><span id="legal-label" data-copy="legal"></span>${icon('chevron')}</button><div class="footer-popup legal-popup" id="legal-popup" role="dialog" aria-label="${this.#copy.legal}" hidden></div></div></div></div></footer></div>
+          <span class="status" role="status" aria-live="off"><span class="status__group"><span class="status__dot" role="img"></span><span class="status__label" aria-hidden="true"></span><span class="status__placeholder" aria-hidden="true" hidden></span></span><span class="status__live visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span><span class="status__sizer" aria-hidden="true"></span><span class="status__since visually-hidden" id="status-since"></span><time class="connection-timer">0:00</time></span><div class="host-legal" data-footer-popup hidden><slot name="legal"></slot><button class="legal-toggle" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="legal-popup"><span id="legal-label" data-copy="legal"></span>${icon('chevron')}</button><div class="footer-popup legal-popup" id="legal-popup" role="dialog" aria-label="${this.#copy.legal}" hidden></div></div></div></div></footer></div>
       <dialog class="settings"></dialog><dialog class="library"></dialog><dialog class="verify-dialog"></dialog>
       ${this.#voiceBound ? '' : `<dialog class="voice-reply-dialog" aria-labelledby="voice-reply-title" aria-describedby="voice-reply-note">
         <h2 id="voice-reply-title" tabindex="-1" autofocus data-copy="voiceLastReply"></h2><p class="voice-reply-note" id="voice-reply-note" data-copy="voiceReplayTextOnly"></p><p class="voice-reply-text"></p>
@@ -1305,6 +1305,7 @@ export class AithemaSession extends HTMLElement {
       status.querySelector('.status__dot').dataset.state = 'disconnected';
       status.querySelector('.status__dot').setAttribute('aria-label', this.#copy.conversationUnavailable);
       status.removeAttribute('data-connected'); status.removeAttribute('data-message');
+      setText(status.querySelector('.status__since'), ''); status.removeAttribute('aria-describedby');
       this.#timer?.setConnected(false); return;
     }
     const words = this.#rail?.moved ? this.#copy.voiceInAnotherTab : this.#notice || this.#connection || this.#copy.connecting;
@@ -1338,6 +1339,11 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.connection-timer').setAttribute('aria-hidden', 'true');
     // Late host replies can repaint after removal; they must not restart a clock.
     this.#timer?.setConnected(this.isConnected && connected);
+    // AIT-587 r2: the connection's start, as title and accessible description, only while plainly connected.
+    const since = connected && !message && !this.#rail?.moved && this.#timer?.since != null
+      ? fill(resolveCopy(this.#copy, 'connectedSince', undefined, this.#session?.locale), { time: clockTime(this.#timer.since, this.#session?.locale ?? 'en') }) : '';
+    setText(status.querySelector('.status__since'), since);
+    if (since) { status.title = since; status.setAttribute('aria-describedby', 'status-since'); } else status.removeAttribute('aria-describedby');
   }
   #followsTranscript() {
     return Boolean(!this.#longReply && (this.#navigation || this.#follow && !this.#onTranscript) && !this.#fold?.folded);

@@ -285,15 +285,14 @@ for (const hold of ['pointer', 'focus']) test(`AIT-299 r3: timer-to-identity at 
 });
 
 test('AIT-299 r2: five compact timer ticks perform zero layout reads; a new digit column remeasures', async t => {
-  t.mock.timers.enable({ apis: ['setInterval'] });
+  // AIT-587 r2: the product timer no longer ticks (TICK decision); hosts and tests still write timer digits,
+  // so the same five width-equivalent mutations are written directly.
   const f = heldFooter(t, 'connection-timer', '123:00');
-  let now = 0;
-  const timer = new ConnectionTimer(f.label, () => now); t.after(() => timer.destroy());
-  timer.setConnected(true); now = 123 * 60_000; timer.paint();
+  f.label.textContent = '123:00';
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(f.footer.dataset.fit, 'identity');
   f.resetCounts();
-  for (let i = 1; i <= 5; i++) { now += 1000; t.mock.timers.tick(1000); await new Promise(resolve => setImmediate(resolve)); }
+  for (let i = 1; i <= 5; i++) { f.label.textContent = `123:0${i}`; await new Promise(resolve => setImmediate(resolve)); }
   const counts = f.counts(); t.diagnostic(`compact 5s timer: ${counts.reads} layout reads, ${counts.probeReads} probe reads`);
   assert.equal(counts.probeReads, 0, 'tabular digit changes never clone and measure the hidden label');
   assert.equal(counts.reads, 0, 'width-equivalent timer mutations do not trigger a viewport paint');

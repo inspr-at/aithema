@@ -365,7 +365,7 @@ export const de = {
   shortcut: '{key} + Enter zum Senden', shortcutKeys: { mac: '⌘', other: 'Strg' }, summary: 'Bisher verstanden',
   summaryMore: 'Mehr anzeigen', showLess: 'Weniger anzeigen', signals: 'Signale', questions: 'Was noch offen ist',
   missing: 'Was noch fehlt', clarified: 'Schon geklärt', expand: 'Alle aufklappen', collapse: 'Alle zuklappen',
-  export: 'Gesprächsdaten herunterladen', createProject: 'Projekt erstellen', retry: 'Erneut versuchen', connecting: 'Verbindung wird aufgebaut …', connected: 'Verbunden',
+  export: 'Gesprächsdaten herunterladen', createProject: 'Projekt erstellen', retry: 'Erneut versuchen', connecting: 'Verbindung wird aufgebaut …', connected: 'Verbunden', connectedSince: 'Verbunden seit {time}',
   connectionLabels: { connecting: 'Verbindet …', connected: 'Verbunden', reconnecting: 'Verbindet …', paused: 'Pausiert', voiceInAnotherTab: 'Anderer Tab' },
   reconnecting: 'Verbindung wird wiederhergestellt …', sending: 'Wird gespeichert …', saved: 'Gespeichert', failed: 'Nicht gespeichert. Senden Sie die Nachricht erneut.', failedShort: 'Nicht gespeichert.',
   understandingFailed: 'Der Überblick konnte gerade nicht erstellt werden', understandingRetry: 'Erneut versuchen',

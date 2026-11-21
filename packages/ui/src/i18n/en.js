@@ -364,7 +364,7 @@ export const en = {
   shortcut: '{key} + Enter to send', shortcutKeys: { mac: '⌘', other: 'Ctrl' }, summary: 'Understood so far',
   summaryMore: 'Read more', showLess: 'Show less', signals: 'Signals', questions: 'Open questions',
   missing: 'What is still missing', clarified: 'Already clarified', expand: 'Expand all', collapse: 'Collapse all',
-  export: 'Download conversation data', createProject: 'Create project', retry: 'Retry', connecting: 'Connecting…', connected: 'Connected',
+  export: 'Download conversation data', createProject: 'Create project', retry: 'Retry', connecting: 'Connecting…', connected: 'Connected', connectedSince: 'Connected since {time}',
   connectionLabels: { connecting: 'Connecting …', connected: 'Connected', reconnecting: 'Reconnecting …', paused: 'Paused', voiceInAnotherTab: 'Other tab' },
   reconnecting: 'Reconnecting…', sending: 'Saving…', saved: 'Saved', failed: 'Could not save. Retry your message.', failedShort: 'Not saved.',
   understandingFailed: "The overview couldn't be built just now", understandingRetry: 'Try again',

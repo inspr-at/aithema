@@ -203,6 +203,8 @@ export const bandStyles = `
 .status__sizer { display:grid; grid-area:1/2; visibility:hidden; pointer-events:none; }
 .status__sizer > span { grid-area:1/1; }
 .connection-timer { grid-column:3; display:inline-block; min-width:8ch; flex:none; text-align:start; font-variant-numeric:tabular-nums; white-space:nowrap; }
+/* AIT-587 r2: an invisible, constant reservation (separator included); the start is in the status's title. */
+.connection-timer { visibility:hidden; }
 .status[data-message] .status__label, .composer-dock > .status__label { display:block; position:absolute; right:12px; bottom:calc(100% + 6px); z-index:15;
   max-width:min(320px,calc(100vw - 24px)); padding:9px 12px; background:var(--aithema-ink); color:var(--aithema-paper);
   border-radius:10px; white-space:normal; overflow:visible; overflow-wrap:anywhere; }
