@@ -597,3 +597,149 @@ for (const copy of [en, de]) test(`AIT-587: ${copy.display.locale} a binding swi
   assert.deepEqual(state.posts, [['notes.pdf', 'photo.png'], ['notes.pdf']], 'the retry sends only what the current binding allows');
   assertRefusedImage(f, copy);
 });
+
+// AIT-587 r3 (Codex gate2c B5): admission is robust, not path-by-path. A settings change makes the verdict in hand
+// the OLD choice's until the snapshot for the new settings arrives, so every test below releases the upload INSIDE
+// that window (the snapshot read is held) and only then lets the snapshot land.
+function admissionWindow(t, f) {
+  const originalFetch = globalThis.fetch, originalTimeout = globalThis.setTimeout;
+  const state = { mode: null, posts: [], retries: [], gate: null, post: null, limits: null };
+  // Rate-limit retry delays (5 s, 10 s) are released by the test, one at a time.
+  t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => callback?.name === 'finish' && [5000, 10000].includes(delay)
+    ? (state.retries.push(callback), originalTimeout(() => {}, 0)) : originalTimeout(callback, delay, ...args));
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    if (url.endsWith('/uploads') && options.method === 'POST') {
+      state.posts.push(options.body.getAll('files').map(file => file.name));
+      return state.post ? state.post(url, options, originalFetch) : originalFetch(url, options);
+    }
+    if (url.endsWith('/uploads') && state.limits) return Response.json({ limits: state.limits });
+    if (!String(url).endsWith(`/api/sessions/${f.c.session.id}`) || !state.mode) return originalFetch(url, options);
+    const gate = state.gate; if (gate) await gate.promise;
+    const snapshot = await (await originalFetch(url, options)).json();
+    snapshot.featureMatrix.best.imageInput = state.mode === 'imageless' ? { available: false, reason: 'image input not supported' }
+      : state.mode === 'consent' ? { available: false, reason: 'current processing consent required' } : { available: true, reason: null };
+    return Response.json(snapshot);
+  });
+  // A same-preset model change; the snapshot for it is held until release().
+  state.change = (mode, { hold = true } = {}) => {
+    state.mode = mode;
+    if (hold) { let resolve; state.gate = { promise: new Promise(r => { resolve = r; }) }; state.gate.resolve = resolve; }
+    f.c.receive({ sessionId: f.c.session.id, seq: f.c.session.seq + 1, type: 'settings.changed',
+      data: { processingPreset: 'best', settings: { ...f.c.session.settings, model: mode === 'imageless' ? 'text-only' : 'vision', revision: (f.c.session.settings?.revision ?? 0) + 1 } } });
+  };
+  state.release = async () => {
+    const gate = state.gate; state.gate = null; gate?.resolve();
+    const expected = state.mode === 'imageless' ? 'image input not supported' : state.mode === 'consent' ? 'current processing consent required' : null;
+    for (let i = 0; i < 100 && f.c.session.featureMatrix.best.imageInput.reason !== expected; i++) await tick();
+    assert.equal(f.c.session.featureMatrix.best.imageInput.reason, expected, `the snapshot for the new settings landed (${state.mode})`);
+    for (let i = 0; i < 20; i++) await tick();
+  };
+  state.retry = async () => { assert.ok(state.retries.length, 'a rate-limit retry waits'); state.retries.shift()(); for (let i = 0; i < 20; i++) await tick(); };
+  state.until = async predicate => { for (let i = 0; i < 100 && !predicate(); i++) await tick(); };
+  return state;
+}
+const rateLimited = () => Response.json({ error: 'upload-rate-limit' }, { status: 429 });
+const sentImage = state => state.posts.some(post => post.includes('photo.png'));
+
+// (a) A later batch released while the snapshot for a same-preset model change is still out waits for it.
+for (const copy of [en, de]) test(`AIT-587 r3 (a): ${copy.display.locale} a later batch released before the new settings' snapshot waits for it`, async t => {
+  const f = fixture(t, copy, true), state = admissionWindow(t, f);
+  let release; const held = new Promise(resolve => { release = resolve; });
+  state.limits = { maxFilesPerRequest: 1 };
+  state.post = async (url, options, originalFetch) => { if (state.posts.length === 1) await held; return originalFetch(url, options); };
+  await choose(f.root, pick());
+  await state.until(() => state.posts.length);
+  assert.deepEqual(state.posts, [['notes.pdf']], 'the first batch is in flight');
+  state.change('imageless');
+  release(); for (let i = 0; i < 30; i++) await tick();
+  assert.equal(sentImage(state), false, 'the image is not sent on the old choice\'s verdict');
+  await state.release();
+  assert.deepEqual(state.posts, [['notes.pdf']], 'the new verdict refuses the image');
+  assertRefusedImage(f, copy);
+});
+// (a) The same for a rate-limit retry fired inside the window.
+for (const copy of [en, de]) test(`AIT-587 r3 (a): ${copy.display.locale} a rate-limit retry fired before the new settings' snapshot waits for it`, async t => {
+  const f = fixture(t, copy, true), state = admissionWindow(t, f);
+  state.post = async (url, options, originalFetch) => state.posts.length === 1 ? rateLimited() : originalFetch(url, options);
+  await choose(f.root, pick());
+  await state.until(() => state.retries.length);
+  assert.deepEqual(state.posts, [['notes.pdf', 'photo.png']], 'the first attempt carried both files');
+  state.change('imageless');
+  await state.retry();
+  assert.deepEqual(state.posts, [['notes.pdf', 'photo.png']], 'the retry waits for the current verdict');
+  await state.release();
+  assert.deepEqual(state.posts, [['notes.pdf', 'photo.png'], ['notes.pdf']], 'the retry sends only what the current binding allows');
+  assertRefusedImage(f, copy);
+});
+
+// (b) A fresh consent-required verdict at attempt time holds the image locally, exactly like a fresh pick; the documents continue.
+for (const copy of [en, de]) test(`AIT-587 r3 (b): ${copy.display.locale} a consent-required verdict at retry time holds the image and sends the document`, async t => {
+  const f = fixture(t, copy, true), state = admissionWindow(t, f);
+  state.post = async (url, options, originalFetch) => state.posts.length === 1 ? rateLimited() : originalFetch(url, options);
+  await choose(f.root, pick());
+  await state.until(() => state.retries.length);
+  state.change('consent');
+  await state.retry();
+  assert.deepEqual(state.posts, [['notes.pdf', 'photo.png']], 'nothing is sent before the current verdict');
+  await state.release();
+  assert.deepEqual(state.posts, [['notes.pdf', 'photo.png'], ['notes.pdf']], 'no image bytes leave under a consent-required verdict');
+  assert.deepEqual(f.c.session.uploads.map(upload => upload.filename), ['notes.pdf']);
+  assert.equal(f.root.querySelector('.staged-image'), null);
+  assert.ok(f.asks.some(ask => ask.intent === 'attach' && ask.features.includes('imageInput')), 'the image asks for consent like a fresh pick');
+  // The grant releases the held image, as for a fresh pick.
+  state.mode = 'capable'; f.grantImages();
+  await state.until(() => state.posts.length === 3);
+  assert.deepEqual(state.posts.at(-1), ['photo.png'], 'the held image is sent after the grant');
+});
+
+// (c) A dropped image never comes back: not when the capability returns before a later retry of the same upload.
+for (const copy of [en, de]) test(`AIT-587 r3 (c): ${copy.display.locale} an image dropped from a retry stays out when the capability returns`, async t => {
+  const f = fixture(t, copy, true), state = admissionWindow(t, f);
+  state.post = async (url, options, originalFetch) => state.posts.length <= 2 ? rateLimited() : originalFetch(url, options);
+  await choose(f.root, pick());
+  await state.until(() => state.retries.length);
+  state.change('imageless'); await state.release();
+  await state.retry();
+  assert.deepEqual(state.posts, [['notes.pdf', 'photo.png'], ['notes.pdf']], 'the second attempt drops the image');
+  state.change('capable'); await state.release();
+  await state.retry();
+  assert.deepEqual(state.posts, [['notes.pdf', 'photo.png'], ['notes.pdf'], ['notes.pdf']], 'the third attempt does not resurrect the refused image');
+  assertRefusedImage(f, copy);
+});
+
+// (d) Error notices name only the files that were in the failing request.
+for (const [label, failing] of [['413', () => Response.json({ error: 'too-large' }, { status: 413 })], ['network', () => { throw new TypeError('network'); }]])
+  for (const copy of [en, de]) test(`AIT-587 r3 (d): ${copy.display.locale} a ${label} failure after the image was dropped does not name the image`, async t => {
+    const f = fixture(t, copy, true), state = admissionWindow(t, f);
+    state.post = async () => state.posts.length === 1 ? rateLimited() : failing();
+    await choose(f.root, pick());
+    await state.until(() => state.retries.length);
+    state.change('imageless'); await state.release();
+    await state.retry();
+    assert.deepEqual(state.posts, [['notes.pdf', 'photo.png'], ['notes.pdf']]);
+    const reason = f.root.querySelector('.composer-reason').textContent, error = label === '413' ? copy.uploads.overLimit : copy.uploads.failed;
+    assert.ok(reason.includes(`notes.pdf: ${error}`), `the failing document is named: ${reason}`);
+    assert.equal(reason.includes(`photo.png: ${error}`), false, `the dropped image is not named with the error: ${reason}`);
+    assert.ok(reason.includes(typeRefusal(copy, 'photo.png')), 'the image keeps its own refusal');
+  });
+
+// (e) A consent-held selection re-entering #attach while the verdict is stale goes through the current verdict.
+test('AIT-587 r3 (e): a held image released while a settings change is unconfirmed waits for the current verdict', async t => {
+  const f = fixture(t, en, false), state = admissionWindow(t, f);
+  let release; const held = new Promise(resolve => { release = resolve; });
+  state.post = async (url, options, originalFetch) => { await held; return originalFetch(url, options); };
+  await choose(f.root, [new window.File(['pixels'], 'photo.png', { type: 'image/png' })]);
+  assert.ok(f.asks.some(ask => ask.features.includes('imageInput')), 'the image is held for consent');
+  await choose(f.root, [new window.File(['%PDF-1.4 fixture'], 'notes.pdf', { type: 'application/pdf' })]);
+  await state.until(() => state.posts.length);
+  assert.deepEqual(state.posts, [['notes.pdf']], 'a document upload is in flight');
+  // The grant lands while the document uploads, so the held image waits for that upload to finish.
+  state.mode = 'capable'; f.grantImages(); await state.until(() => f.c.session.featureMatrix.best.imageInput.available);
+  assert.equal(f.c.session.featureMatrix.best.imageInput.available, true);
+  state.change('imageless');
+  release(); for (let i = 0; i < 30; i++) await tick();
+  assert.equal(sentImage(state), false, 'the held image is not sent on the old choice\'s verdict');
+  await state.release();
+  assert.equal(sentImage(state), false, 'the current verdict decides the held image');
+  assert.equal(f.root.querySelector('.staged-image'), null);
+});
