@@ -158,24 +158,25 @@ async function harness(t) {
   // Mount (again) with the locale's copy and the host's featureConsent overrides.
   // r4: `intake` adds document ('document') or image ('image') intake; `granted`
   // mounts with text and voice already allowed (the fixture's analysis value).
-  const mountWith = async (page, locale, consent = {}, start = false, { intake = null, granted = false } = {}) => {
-    await page.evaluate(async (locale, overrides, start, intake, granted) => {
+  // r8: `copy` overrides top-level copy keys (e.g. a two-line imagePreparing).
+  const mountWith = async (page, locale, consent = {}, start = false, { intake = null, granted = false, copy = {} } = {}) => {
+    await page.evaluate(async (locale, overrides, start, intake, granted, copy) => {
       const base = (await import(`/packages/ui/src/i18n/${locale}.js`))[locale];
-      globalThis.fixtureCopy = { ...base, featureConsent: { ...base.featureConsent, ...overrides } };
+      globalThis.fixtureCopy = { ...base, ...copy, featureConsent: { ...base.featureConsent, ...overrides } };
       globalThis.snapshot603a ??= JSON.parse(JSON.stringify(document.querySelector('aithema-session').session));
       const snapshot = JSON.parse(JSON.stringify(globalThis.snapshot603a)), best = snapshot.featureMatrix.best;
       if (start || intake === 'image') best.imageInput = { available: true };
       if (intake === 'document') best.uploads = { available: true };
       if (granted) { best.text = structuredClone(best.analysis); best.voice = structuredClone(best.analysis); }
       mount(snapshot);
-    }, locale, consent, start, intake, granted);
+    }, locale, consent, start, intake, granted, copy);
     await page.waitForFunction(granted => {
       const root = document.querySelector('aithema-session').shadowRoot;
       return granted ? root.querySelector('.composer-reason[data-shortcut]') : root.querySelector('.composer-reason[data-consent-feature="text"] .consent-action');
     }, {}, granted);
     await settle(page);
   };
-  const open = async ({ width, height, locale, start = false, consent = {}, intake = null, granted = false }, problems) => {
+  const open = async ({ width, height, locale, start = false, consent = {}, intake = null, granted = false, copy = {} }, problems) => {
     const page = await browser.newPage();
     page.on('pageerror', error => problems.push(error.message));
     await page.setViewport({ width, height });
@@ -185,7 +186,7 @@ async function harness(t) {
       ? request.respond({ status: 200, contentType: 'text/html', body: fixture }) : request.continue()); });
     await page.goto(`${server.url}/combined-fixture?locale=${locale}&passiveDenied`);
     await page.waitForFunction(() => globalThis.ready && document.querySelector('aithema-session').shadowRoot.querySelector('.composer-status').textContent.length > 0);
-    await mountWith(page, locale, consent, start, { intake, granted });
+    await mountWith(page, locale, consent, start, { intake, granted, copy });
     return page;
   };
   const grant = async page => {
@@ -988,6 +989,107 @@ export async function consentKeyboardFitActionCheck(t) {
         painted(up, 'keyboard-up');
         if (up.line && down.line && Math.abs(up.line.width - down.line.width) > .5) t.diagnostic(`${name}: row width down ${down.line.width} vs up ${up.line.width}`);
         await capture(page, `r6-fit-${name}-up`, up);
+      } finally { await page.close(); }
+      none(failures, name);
+      assert.deepEqual(problems, []);
+    });
+  }
+}
+
+// r8 (Codex gatepra7 Medium, TICK r7 binding): the kept row holds the LARGEST
+// height it had since the latch. (a) 320 EN/DE, keyboard up: a two-line notice
+// in the row (a two-line "Preparing…" copy) clears (the image turns ready):
+// Send/Mic/row/dock identical at ready and ready + 2 s; after the keyboard
+// closes and reopens the row starts at 0 px with no held height. (b) Codex
+// gatepra7 Low: discarding a pending image with the keyboard up, with a
+// viewport paint before the withdrawal acknowledgment, leaves no kept row.
+const twoLine = { en: 'Preparing your image. This takes a moment, you can keep typing meanwhile.', de: 'Dein Bild wird vorbereitet. Das dauert einen Moment, du kannst weiterschreiben.' };
+const pasteImage = page => page.$eval('aithema-session', c => { const transfer = new DataTransfer(); transfer.items.add(new File([window.k1PNG], 'k1.png', { type: 'image/png' }));
+  c.shadowRoot.querySelector('textarea').dispatchEvent(new ClipboardEvent('paste', { bubbles: true, clipboardData: transfer })); });
+const rowState = c => { const feedback = c.shadowRoot.querySelector('.composer-feedback'), reason = feedback.querySelector(':scope > .composer-reason');
+  return { kept: feedback.hasAttribute('data-keyboard-kept'), minHeight: feedback.style.minHeight, lineHeight: parseFloat(getComputedStyle(reason).lineHeight) || 1.4 * parseFloat(getComputedStyle(reason).fontSize),
+    reasonHeight: reason.getBoundingClientRect().height, text: reason.textContent.trim(), images: c.shadowRoot.querySelectorAll('.staged-images:not([hidden]) .staged-image').length }; };
+export async function consentKeyboardKeptHeightCheck(t) {
+  const { open, capture } = await harness(t);
+  const [width, height, viewport] = KEYBOARD[0];
+  for (const locale of ['en', 'de']) {
+    const name = `${width}x${height}-${locale}-keyboard-up-two-line-clears`;
+    await t.test(name, async () => {
+      const problems = [], failures = [];
+      const page = await open({ width, height, locale, intake: 'image', granted: true, consent: { text: stock[locale].text }, copy: { imagePreparing: twoLine[locale] } }, problems);
+      try {
+        await mockIntake(page);
+        await keyboardUp(page, viewport); await settleLong(page);
+        await pasteImage(page);
+        await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.staged-images:not([hidden]) .staged-image'), { timeout: 15_000 });
+        await settleLong(page);
+        const shown = await page.$eval('aithema-session', savedState), shownRow = await page.$eval('aithema-session', rowState);
+        if (!shown.keyboard) failures.push(`${name}: the keyboard flag is set`);
+        if (!(shown.feedback?.width > 0 && shown.feedback?.height > 0)) failures.push(`${name}: the notice takes its row: ${JSON.stringify(shown.feedback)}`);
+        if (!(shownRow.reasonHeight > 1.5 * shownRow.lineHeight)) failures.push(`${name}: fixture: the notice wraps to two lines: ${JSON.stringify(shownRow)}`);
+        await capture(page, `r8-two-line-${name}-shown`, { ...shown, row: shownRow });
+        await page.$eval('aithema-session', c => { const image = c.session.uploads.find(u => u.kind === 'image');
+          c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'upload.state', data: { ...image, state: 'staged-ready', reason: undefined, digest: 'fixture', w: 1, h: 1 } }); });
+        await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason[data-shortcut]'), { timeout: 15_000 });
+        await settleLong(page);
+        const cleared = await page.$eval('aithema-session', savedState);
+        await capture(page, `r8-two-line-${name}-cleared`, { ...cleared, row: await page.$eval('aithema-session', rowState) });
+        await wait(page, 2000); await settleLong(page);
+        const later = await page.$eval('aithema-session', savedState);
+        await capture(page, `r8-two-line-${name}-cleared-plus-2s`, later);
+        for (const [when, state] of [['cleared', cleared], ['cleared + 2 s', later]]) {
+          if (!state.keyboard) failures.push(`${name} ${when}: the keyboard stays up`);
+          if (state.reasonPainted) failures.push(`${name} ${when}: the kept row is empty (no hint painted)`);
+          failures.push(...stableBoxes(`${name} two-line notice -> ${when}`, shown, state, ['mic', 'send', 'feedback', 'dock']));
+        }
+        await keyboardDown(page); await settleLong(page);
+        await keyboardUp(page, viewport); await settleLong(page);
+        const reopened = await page.$eval('aithema-session', savedState), reopenedRow = await page.$eval('aithema-session', rowState);
+        if (!reopened.keyboard) failures.push(`${name}: the keyboard reopens`);
+        if (reopened.feedback.height > .5 || reopenedRow.kept || reopenedRow.minHeight) failures.push(`${name}: after the keyboard closes and reopens the row starts at 0 px with no held height: ${JSON.stringify({ feedback: reopened.feedback, row: reopenedRow })}`);
+        await capture(page, `r8-two-line-${name}-reopened`, reopened);
+      } finally { await page.close(); }
+      none(failures, name);
+      assert.deepEqual(problems, []);
+    });
+  }
+  for (const locale of ['en', 'de']) {
+    const name = `${width}x${height}-${locale}-keyboard-up-discard-pending`;
+    await t.test(name, async () => {
+      const problems = [], failures = [];
+      const page = await open({ width, height, locale, intake: 'image', granted: true, consent: { text: stock[locale].text } }, problems);
+      try {
+        await mockIntake(page);
+        // The withdrawal acknowledgment waits until the test releases it.
+        await page.evaluate(() => { const c = document.querySelector('aithema-session'), previous = window.fetch;
+          window.fetch = async (url, options) => {
+            if (!/\/withdraw$/u.test(String(url))) return previous(url, options);
+            await new Promise(resolve => { window.k1Withdraw = resolve; });
+            const image = c.session.uploads.find(u => u.kind === 'image');
+            return Response.json({ event: { sessionId: c.session.id, seq: c.session.seq + 1, type: 'upload.state', data: { ...image, state: 'withdrawn' } } });
+          }; });
+        await keyboardUp(page, viewport); await settleLong(page);
+        await pasteImage(page);
+        await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.staged-images:not([hidden]) .staged-image'), { timeout: 15_000 });
+        await settleLong(page);
+        const pending = await page.$eval('aithema-session', rowState);
+        if (!pending.kept || !pending.text) failures.push(`${name}: fixture: "Preparing…" is shown and its row kept: ${JSON.stringify(pending)}`);
+        await capture(page, `r8-discard-${name}-preparing`, { ...await page.$eval('aithema-session', savedState), row: pending });
+        await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.staged-image__remove').click());
+        // A viewport paint before the acknowledgment (the still-visible "Preparing…").
+        await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+        const between = await page.$eval('aithema-session', rowState);
+        await capture(page, `r8-discard-${name}-before-ack`, { ...await page.$eval('aithema-session', savedState), row: between });
+        await page.waitForFunction(() => typeof window.k1Withdraw === 'function', { timeout: 15_000 });
+        await page.evaluate(() => window.k1Withdraw());
+        await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.staged-images:not([hidden]) .staged-image'), { timeout: 15_000 });
+        await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+        const after = await page.$eval('aithema-session', savedState), afterRow = await page.$eval('aithema-session', rowState);
+        await capture(page, `r8-discard-${name}-after-ack`, { ...after, row: afterRow });
+        if (!after.keyboard) failures.push(`${name}: the keyboard stays up`);
+        if (afterRow.images) failures.push(`${name}: the image is discarded`);
+        if (afterRow.kept || afterRow.minHeight || after.feedback.height > .5) failures.push(`${name}: no empty kept row after the discard: ${JSON.stringify({ feedback: after.feedback, row: afterRow })}`);
+        for (const part of ['field', 'send', 'mic']) if (!(after[part]?.width > 0 && after[part]?.height > 0)) failures.push(`${name}: ${part} positive box: ${JSON.stringify(after[part])}`);
       } finally { await page.close(); }
       none(failures, name);
       assert.deepEqual(problems, []);
