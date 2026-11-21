@@ -677,7 +677,7 @@ const mockIntake = page => page.evaluate(() => {
       const files = options.body.getAll('files');
       if (files.some(file => file.type !== 'image/png')) return Response.json({ error: 'upload-rate-limit' }, { status: 429, headers: { 'Retry-After': '1' } });
       return Response.json({ events: files.map((file, index) => ({ sessionId: c.session.id, seq: c.session.seq + index + 1, type: 'upload.state', data: {
-        id: `k1-${++window.k1Seq}`, filename: file.name, kind: 'image', state: 'staged-pending', bytes: file.size, mediaType: 'image/png', at: new Date(0).toISOString() } })) }, { status: 202 });
+        id: `k1-${++window.k1Seq}`, filename: file.name, kind: 'image', state: window.k1Ready ? 'staged-ready' : 'staged-pending', bytes: file.size, mediaType: 'image/png', at: new Date(0).toISOString() } })) }, { status: 202 });
     }
     if (/\/uploads\/[^/]+\/image$/u.test(path)) return new Response(window.k1PNG, { headers: { 'content-type': 'image/png' } });
     return original(url, options);
@@ -689,18 +689,20 @@ export async function consentKeyboardIntakeCheck(t) {
     const name = `${width}x${height}-${locale}-${intake}-keyboard-up`;
     await t.test(name, async () => {
       const problems = [], failures = [];
-      for (const state of ['pending', 'granted', intake === 'image' ? 'staged' : 'rate-limited']) {
+      for (const state of ['pending', 'granted', ...(intake === 'image' ? ['staged', 'staged-ready'] : ['rate-limited'])]) {
         const label = `${name}-${state}`;
         const page = await open({ width, height, locale, intake, granted: state !== 'pending', consent: { text: stock[locale].text } }, problems);
         try {
           await mockIntake(page);
+          // r5: 'staged-ready' stages an image that is ready at once (no longer preparing).
+          if (state === 'staged-ready') await page.evaluate(() => { window.k1Ready = true; });
           await keyboardUp(page, viewport); await settleLong(page);
-          if (state === 'staged') {
+          if (state.startsWith('staged')) {
             await page.$eval('aithema-session', c => { const transfer = new DataTransfer(); transfer.items.add(new File([window.k1PNG], 'k1.png', { type: 'image/png' }));
               c.shadowRoot.querySelector('textarea').dispatchEvent(new ClipboardEvent('paste', { bubbles: true, clipboardData: transfer })); });
             await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.staged-images:not([hidden]) .staged-image'), { timeout: 15_000 });
             // r5: ready (no longer preparing): the reason is the idle shortcut hint again.
-            await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason[data-shortcut]'), { timeout: 15_000 }).catch(() => {});
+            if (state === 'staged-ready') await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason[data-shortcut]'), { timeout: 15_000 }).catch(() => {});
           }
           if (state === 'rate-limited') {
             await page.$eval('aithema-session', c => { const input = c.shadowRoot.querySelector('.attach-input'), transfer = new DataTransfer();
@@ -714,19 +716,19 @@ export async function consentKeyboardIntakeCheck(t) {
           if (intake === 'image' && !up.imageInput) failures.push(`${label}: the dock is image-enabled`);
           for (const part of ['composer', 'field', 'send']) if (!(up[part]?.width > 0 && up[part]?.height > 0)) failures.push(`${label}: ${part} positive box: ${JSON.stringify(up[part])}`);
           // Nothing staged: no image reserve above the field (the short-phone image slot's padding).
-          if (state !== 'staged' && up.composer && up.field && up.field.y - up.composer.y > 12) failures.push(`${label}: no reserve above the field: ${up.field.y - up.composer.y} px`);
+          if (!state.startsWith('staged') && up.composer && up.field && up.field.y - up.composer.y > 12) failures.push(`${label}: no reserve above the field: ${up.field.y - up.composer.y} px`);
           if (state === 'pending') {
             if (!(up.line?.box?.width > 0 && up.line?.box?.height > 0)) failures.push(`${label}: the consent line positive box: ${JSON.stringify(up.line)}`);
             else if (!(up.feedback?.height > 0) || up.feedback.height > up.line.lineHeight + .5) failures.push(`${label}: the consent row is one row: ${JSON.stringify(up.feedback)} vs ${up.line.lineHeight}`);
           } else if (state === 'granted') {
             if (up.feedback && up.feedback.height > .5) failures.push(`${label}: nothing staged, the feedback row takes 0 px: ${JSON.stringify(up.feedback)}`);
-          } else if (state === 'staged') {
+          } else if (state.startsWith('staged')) {
             if (!(up.images?.width > 0 && up.images?.height > 0)) failures.push(`${label}: the staged image keeps its row: ${JSON.stringify(up.images)}`);
             else if (up.images.y + up.images.height > up.field.y + .5) failures.push(`${label}: the staged row sits above the field: ${JSON.stringify({ images: up.images, field: up.field })}`);
             // r5 (Codex gatepra4 Low, KEYBOARD): a READY staged image leaves no blank
             // feedback row under the field: the row holds only the shortcut hint, so it takes 0 px.
-            if (!up.idle) failures.push(`${label}: the staged image becomes ready (the row holds only the shortcut hint): ${JSON.stringify(up.reasonState)}`);
-            else if (up.feedback && up.feedback.height > .5) failures.push(`${label}: a ready staged image leaves no blank feedback row: ${JSON.stringify(up.feedback)}`);
+            if (state === 'staged-ready' && !up.idle) failures.push(`${label}: the staged image becomes ready (the row holds only the shortcut hint): ${JSON.stringify(up.reasonState)}`);
+            else if (state === 'staged-ready' && up.feedback && up.feedback.height > .5) failures.push(`${label}: a ready staged image leaves no blank feedback row: ${JSON.stringify(up.feedback)}`);
           } else {
             if (up.controls.length !== 2) failures.push(`${label}: Try again and Discard are present: ${JSON.stringify(up.controls)}`);
             if (!(up.feedback?.width > 0 && up.feedback?.height > 0)) failures.push(`${label}: the feedback row keeps a positive box: ${JSON.stringify(up.feedback)}`);
