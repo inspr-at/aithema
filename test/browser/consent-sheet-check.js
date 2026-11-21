@@ -439,10 +439,19 @@ const readHelp = async (c, locale, full) => {
   const line = parseFloat(getComputedStyle(message).lineHeight);
   const before = cell.getBoundingClientRect();
   const help = fill(base.help.consentNeeded, { reason: helpReason(full) }), unclamped = probe(help);
-  message.textContent = help; await frames();
+  // The dialog writes its own help on every render, so the help goes in through
+  // its own path: a consent term (as a consent-needed option carries) under the
+  // pointer; #showHelp writes the consent-needed help for the host sentence.
+  const { CONSENT_REASON } = await import('/packages/core/src/settings.js');
+  const term = document.createElement('span'); term.textContent = 'consent term';
+  Object.assign(term.dataset, { help: 'consent', kind: 'consent', reason: CONSENT_REASON, feature: 'text' });
+  dialog.querySelector('.settings__body').append(term);
+  term.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, composed: true }));
+  await frames();
+  const written = message.textContent;
   const after = cell.getBoundingClientRect(), shown = message.getBoundingClientRect();
   return { stockMax, line, cell: { width: before.width, height: before.height }, cellAfter: { width: after.width, height: after.height },
-    message: { width: shown.width, height: shown.height }, unclamped, lineClamp: getComputedStyle(message).webkitLineClamp, help };
+    message: { width: shown.width, height: shown.height }, unclamped, lineClamp: getComputedStyle(message).webkitLineClamp, help, written };
 };
 const helpFailures = (kind, h, width, locale) => {
   const failures = [];
@@ -450,6 +459,7 @@ const helpFailures = (kind, h, width, locale) => {
     return [`${kind}: help cell, help line, line height and stock probe positive: ${JSON.stringify(h)}`];
   }
   const lines = Math.round(h.stockMax / h.line);
+  if (h.written !== h.help) failures.push(`${kind}: precondition: the help line shows the consent-needed help for this sentence: ${JSON.stringify(h.written)}`);
   if (Math.abs(h.cell.height - h.stockMax) > 1) failures.push(`${kind}: the help cell reserves exactly the tallest stock help (no sample): ${h.cell.height} vs ${h.stockMax}`);
   if (Math.abs(h.cellAfter.height - h.cell.height) > 1) failures.push(`${kind}: the help cell keeps its height with this reason in the help line: ${h.cellAfter.height} vs ${h.cell.height}`);
   if (h.message.height > lines * h.line + 1) failures.push(`${kind}: the help line shows at most N=${lines} lines: ${h.message.height} vs ${lines * h.line}`);
