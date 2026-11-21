@@ -17,8 +17,12 @@ import { en } from '../../packages/ui/src/i18n/en.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 
 const stock = { en: en.featureConsent.text, de: de.featureConsent.text };
-// A host override far longer than a phone line (several lines in the sheet).
-const longSentence = locale => Array(8).fill(locale === 'de'
+// A host override far longer than the dock's two-line cap (several lines in
+// the sheet). Three sentences, not eight: the footer's help cell reserves the
+// longest feature-consent sentence (helpMeasurements), so at eight DE sentences
+// the settings body on phones is shorter than the sentence itself; that reserve
+// is AIT-603 PR-A's layout scope.
+const longSentence = locale => Array(3).fill(locale === 'de'
   ? 'Ihre Nachrichten erreichen unseren Modellanbieter erst nach Ihrer Zustimmung.'
   : 'Your messages reach our model provider only after you agree.').join(' ');
 const sizes = [[360, 740], [390, 664], [1440, 900]];
