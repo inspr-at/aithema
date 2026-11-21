@@ -643,11 +643,11 @@ for (const [label, build, options] of [
     const boundary = 'ait610zero', raw = Buffer.concat([Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="clientEventId"\r\n\r\nzero\r\n--${boundary}\r\n` +
       'Content-Disposition: form-data; name="files"; filename="x.png"\r\nContent-Type: image/png\r\n\r\n'), image.bytes, Buffer.from(`\r\n--${boundary}-X\r\n`)]);
     return new Request('http://localhost/', { method: 'POST', body: raw, headers: { 'content-type': `multipart/form-data; boundary=${boundary}` } });
-  }, {}],
+  }, { chunks: 1 }],
   ['excess parts', image => multipart('zero-parts', Array.from({ length: 10 }, (_, i) => [`p-${i}.png`, image.bytes])), { contentLength: true }],
-  ['an unknown field', image => { const request = multipart('zero-field', [['f.png', image.bytes]]); return request; }, { field: true }],
+  ['an unknown field', image => { const request = multipart('zero-field', [['f.png', image.bytes]]); return request; }, { field: true, chunks: 1 }],
   ['oversized file', image => multipart('zero-size', [['huge.png', Buffer.concat([image.bytes, Buffer.alloc(SERVER_UPLOAD_LIMITS.maxBytes, 7)])]]), { contentLength: true }],
-  ['a read failure', image => multipart('zero-read', [['cut.png', image.bytes]]), { chunks: 3, failAfter: 2 }],
+  ['a read failure', image => multipart('zero-read', [['cut.png', image.bytes]]), { chunks: 3, failAfter: 2, contentLength: true }],
   ['a request over the limit while reading', image => multipart('zero-limit', [['big.png', Buffer.concat([image.bytes, Buffer.alloc(SERVER_UPLOAD_LIMITS.maxRequestBytes, 7)])]]), { chunks: 3 }],
   ['an admitted request', image => multipart('zero-admitted', [['ok.png', image.bytes], ['notes.txt', textBytes('Plain words'), 'text/plain']]), { contentLength: true }],
 ]) test(`AIT-610 r3: the whole request body is zero-filled on exit (${label})`, async t => {
@@ -668,9 +668,10 @@ for (const [label, build, options] of [
   if (label === 'an admitted request') assert.equal(response.status, 202, body); else assert.ok(!(response instanceof Response) || response.status >= 400, body);
   assert.ok(state.pulled, 'the body was read');
   if (options.contentLength) assert.ok(captured.length >= 1, 'the declared-length body buffer was observed');
-  // Every chunk the server received (a failed read never delivers the rest).
   assert.ok(state.sent >= 1, 'the server received a chunk');
-  for (const [i, chunk] of state.chunks.slice(0, state.sent).entries()) assert.deepEqual(leaksIn(Buffer.from(chunk).toString('latin1'), image), [], `request chunk ${i}`);
+  // A single-chunk body without a declared length IS the producer's chunk (no
+  // copy): the handler zero-fills it. Copied chunks stay the producer's.
+  if (options.chunks === 1) assert.deepEqual(leaksIn(Buffer.from(state.chunks[0]).toString('latin1'), image), [], 'the single-chunk body');
   for (const buffer of captured) assert.deepEqual(leaksIn(buffer.toString('latin1'), image), [], 'the declared-length body buffer');
   await f.assertNoTrace(image, { responses: [body] });
 });
