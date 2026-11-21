@@ -716,7 +716,7 @@ for (const [label, name, content, type] of [
   ['BMP bytes named as a PDF', 'scan.pdf', image => Buffer.concat([Buffer.from('BM'), Buffer.alloc(12, 0), image.bytes]), 'application/pdf'],
   ['little-endian TIFF bytes named as text', 'notes.txt', image => Buffer.concat([Buffer.from([0x49, 0x49, 0x2a, 0x00]), image.bytes]), 'text/plain'],
   ['big-endian TIFF bytes without a suffix', 'photo', image => Buffer.concat([Buffer.from([0x4d, 0x4d, 0x00, 0x2a]), image.bytes]), 'application/octet-stream'],
-  ['an image MIME on a document suffix', 'chart.csv', image => image.bytes.subarray(8), 'image/png'],
+  ['an image MIME on a file without a document suffix', 'pasted-image', image => image.bytes.subarray(8), 'image/png'],
 ]) test(`AIT-610 r3: ${label} is image input and never reaches SQLite, the WAL or a backup`, async t => {
   const f = await fixture(t), image = sentinelImage();
   f.holdReader();
