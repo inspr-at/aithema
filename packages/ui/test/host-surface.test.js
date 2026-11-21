@@ -815,3 +815,24 @@ test('AIT-611: the identity and visitor-email reads of a stale-question restore,
   emailRead.resolve({ visitor: { address: 'reader@example.test', tier: 'emailGiven' }, notice: { version: 'ait-611-v1' } }); await tick(12);
   assert.equal(root.querySelector('.host-verify .m-addr').textContent, 'reader@example.test', 'the visitor email painted');
 });
+
+// AIT-611: the teardown drain is bounded. A host read that never answers hits the deadline (injected clock),
+// and the drain names the still-open call instead of hanging.
+test('AIT-611: the host-surface drain reports a read still open at its deadline', async t => {
+  const { hostSettled } = await import('../src/host-surface.js');
+  let held = false; const credits = Promise.withResolvers();
+  const { c } = setup(t, { routes: { 'GET /credits': () => held ? credits.promise : Response.json({ balance, limitSlot: null }) } });
+  t.after(() => credits.resolve(Response.json({}, { status: 503 })));
+  await tick(12);
+  assert.deepEqual(await c[hostSettled](), { open: [] }, 'nothing in flight: the drain settles');
+  held = true;
+  await moved(c);
+  const timers = []; let report;
+  const settling = c[hostSettled]({ timeout: 5000, setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, clearTimer() {} })
+    .then(value => { report = value; });
+  await tick(12);
+  assert.equal(report, undefined, 'an open read keeps the drain waiting');
+  assert.deepEqual(timers.map(timer => timer.ms), [5000], 'one bounded deadline');
+  timers[0].fn(); await settling;
+  assert.deepEqual(report, { open: [{ path: `/api/sessions/${encodeURIComponent(c.session.id)}/credits`, verb: 'GET' }] });
+});
