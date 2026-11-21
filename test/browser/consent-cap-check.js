@@ -1003,11 +1003,14 @@ export async function consentKeyboardFitActionCheck(t) {
 // closes and reopens the row starts at 0 px with no held height. (b) Codex
 // gatepra7 Low: discarding a pending image with the keyboard up, with a
 // viewport paint before the withdrawal acknowledgment, leaves no kept row.
-const twoLine = { en: 'Preparing your image. This takes a moment, you can keep typing meanwhile.', de: 'Dein Bild wird vorbereitet. Das dauert einen Moment, du kannst weiterschreiben.' };
+// r8b: four lines, taller than the image dock's 44 px row (two lines fit inside it).
+const twoLine = { en: 'Preparing your image. This takes a moment, you can keep typing meanwhile. Your text stays as it is and is sent together with the image once it is ready.', de: 'Dein Bild wird vorbereitet. Das dauert einen Moment, du kannst weiterschreiben. Dein Text bleibt erhalten und geht zusammen mit dem Bild hinaus, sobald es bereit ist.' };
 const pasteImage = page => page.$eval('aithema-session', c => { const transfer = new DataTransfer(); transfer.items.add(new File([window.k1PNG], 'k1.png', { type: 'image/png' }));
   c.shadowRoot.querySelector('textarea').dispatchEvent(new ClipboardEvent('paste', { bubbles: true, clipboardData: transfer })); });
 const rowState = c => { const feedback = c.shadowRoot.querySelector('.composer-feedback'), reason = feedback.querySelector(':scope > .composer-reason');
-  return { kept: feedback.hasAttribute('data-keyboard-kept'), minHeight: feedback.style.minHeight, lineHeight: parseFloat(getComputedStyle(reason).lineHeight) || 1.4 * parseFloat(getComputedStyle(reason).fontSize),
+  // r8b: an EMPTY kept row: kept while it shows nothing (no Saved, only the idle hint, no control).
+  const empty = feedback.hasAttribute('data-keyboard-kept') && !feedback.hasAttribute('data-saved') && Boolean(reason?.matches('[data-shortcut],:empty')) && !feedback.querySelector('button, a, input, [tabindex]');
+  return { kept: feedback.hasAttribute('data-keyboard-kept'), empty, minHeight: feedback.style.minHeight, lineHeight: parseFloat(getComputedStyle(reason).lineHeight) || 1.4 * parseFloat(getComputedStyle(reason).fontSize),
     reasonHeight: reason.getBoundingClientRect().height, text: reason.textContent.trim(), images: c.shadowRoot.querySelectorAll('.staged-images:not([hidden]) .staged-image').length }; };
 export async function consentKeyboardKeptHeightCheck(t) {
   const { open, capture } = await harness(t);
@@ -1026,7 +1029,7 @@ export async function consentKeyboardKeptHeightCheck(t) {
         const shown = await page.$eval('aithema-session', savedState), shownRow = await page.$eval('aithema-session', rowState);
         if (!shown.keyboard) failures.push(`${name}: the keyboard flag is set`);
         if (!(shown.feedback?.width > 0 && shown.feedback?.height > 0)) failures.push(`${name}: the notice takes its row: ${JSON.stringify(shown.feedback)}`);
-        if (!(shownRow.reasonHeight > 1.5 * shownRow.lineHeight)) failures.push(`${name}: fixture: the notice wraps to two lines: ${JSON.stringify(shownRow)}`);
+        if (!(shownRow.reasonHeight > 2.5 * shownRow.lineHeight && shown.feedback?.height > 44.5)) failures.push(`${name}: fixture: the notice wraps to more lines than the 44 px row holds: ${JSON.stringify({ row: shownRow, feedback: shown.feedback })}`);
         await capture(page, `r8-two-line-${name}-shown`, { ...shown, row: shownRow });
         await page.$eval('aithema-session', c => { const image = c.session.uploads.find(u => u.kind === 'image');
           c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'upload.state', data: { ...image, state: 'staged-ready', reason: undefined, digest: 'fixture', w: 1, h: 1 } }); });
@@ -1088,7 +1091,7 @@ export async function consentKeyboardKeptHeightCheck(t) {
         await capture(page, `r8-discard-${name}-after-ack`, { ...after, row: afterRow });
         if (!after.keyboard) failures.push(`${name}: the keyboard stays up`);
         if (afterRow.images) failures.push(`${name}: the image is discarded`);
-        if (afterRow.kept || afterRow.minHeight || after.feedback.height > .5) failures.push(`${name}: no empty kept row after the discard: ${JSON.stringify({ feedback: after.feedback, row: afterRow })}`);
+        if (afterRow.empty || afterRow.minHeight) failures.push(`${name}: no empty kept row after the discard: ${JSON.stringify({ feedback: after.feedback, row: afterRow })}`);
         for (const part of ['field', 'send', 'mic']) if (!(after[part]?.width > 0 && after[part]?.height > 0)) failures.push(`${name}: ${part} positive box: ${JSON.stringify(after[part])}`);
       } finally { await page.close(); }
       none(failures, name);
