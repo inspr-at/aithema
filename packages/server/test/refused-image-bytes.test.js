@@ -370,8 +370,10 @@ test('AIT-610 P1 over HTTP: admission and size refusals leave no trace through t
     const form = new FormData(); form.append('clientEventId', clientEventId); form.append('files', new File([content], name, { type: 'image/png' }));
     // A transport failure names its request (diagnostics only).
     return fetch(`${url}/api/sessions/${f.session.id}/uploads`, { method: 'POST', body: form, headers: { 'x-aithema-session-token': testToken } })
-      .catch(error => { throw new Error(`${clientEventId}: ${error.message} (${error.cause?.code ?? error.cause?.message})`, { cause: error }); });
+      .then(response => { seen.push(`${clientEventId} ${response.status} connection=${response.headers.get('connection')}`); return response; })
+      .catch(error => { throw new Error(`${clientEventId}: ${error.message} (${error.cause?.code ?? error.cause?.message}); before: ${seen.join(', ')}`, { cause: error }); });
   };
+  const seen = [];
   const refused = await send('http-refusal', 'wire.png', image.bytes), body = await refused.text();
   assert.equal(refused.status, 202, body);
   assert.deepEqual(JSON.parse(body).refused, [{ index: 0, name: 'wire.png', kind: 'image', reason: 'consent expired' }]);
