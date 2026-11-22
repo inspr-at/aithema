@@ -453,8 +453,8 @@ export function heldRegressionCheck() {
               // Grid items stretch to the reserve's height: a candidate's own height is its content's (a row's tallest
               // child, the document notice's stacked children), with the text column's width.
               tallest: rows.map(row => {
-                const parts = [...row.children].map(box), document = row.classList.contains('image-feedback-document-reserve');
-                const content = document ? parts.reduce((sum, part) => sum + part.height, 0) : Math.max(0, ...parts.map(part => part.height));
+                const parts = [...row.children].map(box), notice = row.classList.contains('image-feedback-document-reserve');
+                const content = notice ? parts.reduce((sum, part) => sum + part.height, 0) : Math.max(0, ...parts.map(part => part.height));
                 const column = row.querySelector('.image-refusals__list') ?? row;
                 // The rendered lines of the text column (one string per line box), so a wrap names its words.
                 const lines = [], text = column.querySelector('.image-refusal__reason') ?? column;
