@@ -76,7 +76,7 @@ export function intakeNoticeCheck() {
             return { text: node.textContent, width: box.width, height: box.height };
           });
           assert.ok(notice.width > 0 && notice.height > 0, `a visible notice box ${JSON.stringify(notice)}`);
-          const expected = copy.uploads.refused.replace('{list}', copy.uploads.typeReason.replace('{name}', name).replace('{reason}', copy.uploads.reasons[reason]));
+          const expected = copy.uploads.refused.replace('{list}', `${name} (${copy.uploads.reasons[reason]})`);
           assert.ok(notice.text.startsWith(expected), notice.text);
           await shot(`intake-${reason}`);
         });
