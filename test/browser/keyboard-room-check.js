@@ -278,11 +278,13 @@ const bandState = c => {
     orbVoice: root.querySelector('.band-orb .orb')?.dataset.voice ?? null,
     pause: box(pause), pauseName: pause ? (pause.getAttribute('aria-label') || pause.textContent).trim() : '', pausePressed: pause?.getAttribute('aria-pressed') ?? null,
     pauseHit: pause ? (() => { const r = pause.getBoundingClientRect(); const hit = c.shadowRoot.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return hit === pause || pause.contains(hit); })() : false,
+    pauseHitBy: pause ? (() => { const r = pause.getBoundingClientRect(); const hit = c.shadowRoot.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return hit ? `${hit.tagName.toLowerCase()}.${String(hit.className?.baseVal ?? hit.className).split(' ').join('.')}` : null; })() : null,
+    pauseInert: Boolean(pause?.closest('[inert]')), pauseDisabled: Boolean(pause?.disabled),
     gear: box(root.querySelector('.settings-open')), gearPainted: painted(root.querySelector('.settings-open')),
     gearName: (root.querySelector('.settings-open')?.textContent ?? '').trim(),
     outputPainted: output.filter(painted).map(n => n.className.baseVal ?? n.className),
     outputFocusable: [...root.querySelectorAll('.voice-cell--output > button')].filter(n => n.checkVisibility({ visibilityProperty: true }) && !n.disabled && n.tabIndex >= 0).map(n => n.className),
-    status: status ? { inTree: status.checkVisibility({ visibilityProperty: true }) || getComputedStyle(status).display !== 'none' && getComputedStyle(status).visibility !== 'hidden', role: status.getAttribute('role') } : null,
+    status: status ? { text: status.textContent.trim(), inTree: status.checkVisibility({ visibilityProperty: true }) || getComputedStyle(status).display !== 'none' && getComputedStyle(status).visibility !== 'hidden', role: status.getAttribute('role') } : null,
     notice: box(notice), noticeLines, noticeLineHeight: notice ? parseFloat(getComputedStyle(notice).lineHeight) || 0 : 0, more: box(more), moreTarget,
     mic: box(root.querySelector('.composer-mic')), send: box(root.querySelector('.send')), dock: box(root.querySelector('.composer-dock')),
   };
@@ -337,9 +339,12 @@ export async function keyboardBandCheck(t) {
           }
           if (!band.orbPainted) failures.push(`${tag}: the small orb is painted`);
           if (!band.gearPainted || !band.gearName) failures.push(`${tag}: the gear is painted and keeps its name: ${band.gearName}`);
-          if (!band.pauseName || !band.pauseHit) failures.push(`${tag}: pause/resume keeps its name and is reachable: ${JSON.stringify([band.pauseName, band.pauseHit])}`);
+          // Reachable as with the keyboard down: the same hit-test result, inert and disabled state (this ready-stage fixture's
+          // rail answers its own way before a conversation; the keyboard must not change it).
+          if (!band.pauseName || band.pauseHit !== down.pauseHit || band.pauseInert !== down.pauseInert || band.pauseDisabled !== down.pauseDisabled)
+            failures.push(`${tag}: pause/resume keeps its name and its keyboard-down reachability: ${JSON.stringify([band.pauseName, [down.pauseHit, down.pauseHitBy, down.pauseInert, down.pauseDisabled], [band.pauseHit, band.pauseHitBy, band.pauseInert, band.pauseDisabled]])}`);
           if (band.outputPainted.length || band.outputFocusable.length) failures.push(`${tag}: the volume control and level line are hidden and out of the focus order: ${JSON.stringify([band.outputPainted, band.outputFocusable])}`);
-          if (band.status && !band.status.inTree) failures.push(`${tag}: the rail's status stays in the accessibility tree: ${JSON.stringify(band.status)}`);
+          if (band.status?.text && !band.status.inTree) failures.push(`${tag}: the rail's status stays in the accessibility tree: ${JSON.stringify(band.status)}`);
           if (band.noticeLines !== 1 || !(band.notice?.height > 0) || band.notice.height > band.noticeLineHeight * 1.5 + .5) failures.push(`${tag}: the AI notice is one text line: ${JSON.stringify([band.noticeLines, band.notice, band.noticeLineHeight])}`);
           if (!band.moreTarget || Math.max(band.moreTarget.height, band.more?.height ?? 0) < 44 - .5 || !(band.more?.width > 0 && band.more?.height > 0)) failures.push(`${tag}: "More" keeps a 44 px target over its line: ${JSON.stringify([band.more, band.moreTarget])}`);
           failures.push(...stableBoxes(`${tag} vs pending-playing`, first, band, ['band', 'orb', 'pause', 'gear', 'mic', 'send', 'notice', 'more']));
