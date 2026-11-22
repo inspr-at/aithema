@@ -40,6 +40,11 @@ export const bandStyles = `
 .band .audio-rail:focus-visible { outline:none; }
 .audio-rail[data-moved] .pause:disabled { opacity:1; }
 .audio-rail .voice-pause { visibility:hidden; }
+/* AIT-618 r3 (Codex gate1c Medium 1): its icons too. A paused call presses the
+   rail's own pause (audio-rail.js), and the pressed rule paints its resume icon
+   (styles.js sets that icon's own visibility), which then covered the session's
+   visible pause in the same cell and took its taps. */
+.audio-rail .voice-pause[aria-pressed] .voice-icon { visibility:hidden; }
 .voice-signal { height:44px; container-type:inline-size; }
 /* Leave 8px of fully clear space outside the text before each 8px fade.
    The measured centre also follows off-centre consent and reconciliation copy. */

@@ -65,6 +65,14 @@ export const combinedEntranceStyles = `
 .workspace[data-entrance="combined"] .composer[data-image-input] .composer-feedback { min-height:max(var(--feedback-held,0px),44px); }
 .workspace[data-entrance="combined"] .composer-feedback .composer-reason { font-size:inherit; }
 .workspace[data-entrance="combined"] .composer-feedback .composer-reason[data-shortcut] { position:static; visibility:visible; width:auto; }
+/* AIT-618: a touch phone without a hardware keyboard or pointer has no
+   ⌘/Ctrl + Enter, so the hint is not painted there. Its box stays (static, auto
+   width), so the row lays out exactly as before; the query is static, so the
+   hint never appears or disappears while the visitor types. A hardware
+   keyboard with a fine pointer or hover (desktop, tablet with keyboard) keeps it. */
+@media(hover:none) and (pointer:coarse) {
+  .workspace[data-entrance="combined"] .composer-feedback .composer-reason[data-shortcut] { visibility:hidden; }
+}
 .composer-notice-slot { grid-area:notice; position:relative; min-width:0; }
 .composer-notice-reserve { display:grid; visibility:hidden; pointer-events:none; font-size:.75rem; line-height:1.45; }
 .composer-notice-reserve > * { grid-area:1/1; }
@@ -286,9 +294,9 @@ export const combinedEntranceStyles = `
      alike (r4, Codex KEYBOARD). r5 (Codex gatepra4 Low): a READY staged image
      keeps its own row above the field and leaves no blank row below it. */
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.composer-feedback > .composer-reason:is([data-shortcut],:empty)):not(:has(.composer-feedback[data-saved])):not(:has(.composer-feedback[data-keyboard-kept])):not(:has(.composer-feedback :is(button, a, input, [tabindex]))) {
-    grid-template-areas:"message mic send" "status status status" "notice notice notice"; }
+    grid-template-areas:"message mic send" "notice notice notice"; }
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.staged-images:not([hidden])):has(.composer-feedback > .composer-reason:is([data-shortcut],:empty)):not(:has(.composer-feedback[data-saved])):not(:has(.composer-feedback[data-keyboard-kept])):not(:has(.composer-feedback :is(button, a, input, [tabindex]))) {
-    grid-template-areas:"images images images" "message mic send" "status status status" "notice notice notice"; }
+    grid-template-areas:"images images images" "message mic send" "notice notice notice"; }
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.composer-feedback > .composer-reason:is([data-shortcut],:empty)):not(:has(.composer-feedback[data-saved])):not(:has(.composer-feedback[data-keyboard-kept])):not(:has(.composer-feedback :is(button, a, input, [tabindex]))) .composer-feedback {
     grid-area:auto; position:absolute; width:1px; height:0; min-height:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
   /* r6/r7 (TICK r5/r6 M1): with the keyboard up the feedback row only grows.
@@ -329,6 +337,22 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"][data-phone-short] .composer:has(.staged-images:not([hidden])) {
     grid-template-areas:"images images images" "message mic send" "feedback feedback feedback" "status status status" "notice notice notice"; }
   .workspace[data-entrance="combined"][data-phone-short] .composer[data-image-input] .composer-feedback { grid-area:auto; }
+  /* AIT-618 (LEAD's decision after PR-A: the transcript's keyboard-up room comes
+     from other chrome, never from moving controls). While the phone keyboard is
+     up typing is the task, so the status row ("Microphone blocked", "Call
+     ended") leaves the grid with its row gap: it takes 0 px and its words stay
+     in the accessibility tree, as the idle feedback row's do (above). It
+     returns when the keyboard closes, at its reserved height. It changes only
+     when the keyboard opens or closes, never while typing; the feedback row's
+     latch and floor (PR-A r6..r10) are untouched. The AI notice stays (a
+     required disclosure). After the short-phone areas, at their specificity;
+     the idle collapse rules above drop the status row themselves. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer {
+    grid-template-areas:"message mic send" "feedback feedback feedback" "notice notice notice"; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.staged-images:not([hidden])) {
+    grid-template-areas:"images images images" "message mic send" "feedback feedback feedback" "notice notice notice"; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-status-slot {
+    grid-area:auto; position:absolute; width:1px; height:0; min-height:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
   /* r4 (Codex KEYBOARD): with the keyboard up an image-enabled dock keeps no
      image slot above the field: its feedback is the ordinary feedback row
      under the field (one row while consent is pending, 0 px when idle; the
@@ -352,5 +376,77 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"][data-phone-short] .composer-reason { position:static; width:auto; height:auto; clip-path:none; }
   .workspace[data-entrance="combined"] .composer-dock { position:fixed; z-index:9; left:var(--aithema-gutter); right:var(--aithema-gutter); bottom:calc(var(--phone-bottom,0px) + var(--phone-footer,57px) + 12px); }
   .workspace[data-entrance="combined"] .phone-dock-backdrop { display:block; position:fixed; z-index:8; left:0; right:0; bottom:var(--phone-bottom,0px); height:calc(var(--phone-dock,250px) + var(--phone-footer,57px) + 24px); background:var(--aithema-paper); mask-image:linear-gradient(to bottom,transparent,#000 12px); }
+  /* AIT-618 r2 (TICK (a)): while the keyboard is up the AI notice is ONE text
+     line. Its first sentence yields with "…" (the full text stays in the
+     node), "More" keeps its 44 px target as an overlap that starts in the
+     8 px row gap above it and grows down over the dock's own padding, as k1's
+     consent action does; it never reaches the feedback row's target. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-notice__phone { display:flex; align-items:baseline; gap:.3em; min-width:0; white-space:nowrap; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-notice__first { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-notice__more { flex:none; position:relative; min-height:0; height:auto; padding-block:0; line-height:inherit; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-notice__more::after { content:''; position:absolute; left:0; right:0; top:-8px; height:44px; }
+  /* r3 (TICK r2 M1, Codex gate1c Medium 3): the notice line keeps a real inset
+     from the dock's rounded bottom edge (12 px with the border, at least the
+     field text's 11 px top inset; the text starts at the field text's left
+     inset), and "More"'s 44 px target stays inside the dock: it overlaps
+     16 px UP (the 8 px row gap and 8 px of the row above, which the image
+     floor row's consent target leaves free: it ends 8 px above the row's
+     bottom), then the line (1lh, 17.4 px) and 10.6 of the 11 px padding. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer { padding-bottom:11px; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-notice__more::after { top:-16px; }
+  /* The document floor (3.75em, 43.2 px) leaves 7.2 px under its consent target: 1 px more above the line. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer[data-document-input] .composer-notice-slot { padding-top:1px; }
+  /* Where the row above has no free 8 px the slot gives them: the feedback row
+     collapsed (the field's row is directly above), or a row with its own
+     controls (Try again, Discard): 8 px, as the overlap takes 8. r4 (Codex
+     gate2c M2): latched with the kept row ([data-keyboard-controls]). */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.composer-feedback > .composer-reason:is([data-shortcut],:empty)):not(:has(.composer-feedback[data-saved])):not(:has(.composer-feedback[data-keyboard-kept])):not(:has(.composer-feedback :is(button, a, input, [tabindex]))) .composer-notice-slot,
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.composer-feedback :is(button, a[href]):not(.composer-reason[data-consent-feature="text"] *)) .composer-notice-slot,
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.composer-feedback[data-keyboard-controls]) .composer-notice-slot { padding-top:8px; }
+  /* A pending consent row without a floor (a plain dock) stays one line (k1),
+     but its action's 44 px target runs from the 8 px gap above it to 36 px
+     below its top. The slot holds the rest of that target, so "More" starts
+     where the consent target ends: 44 px minus the row's line (.72rem at the
+     reason's 1.3 line height, 14.98 px). It stays while the keyboard is up
+     after consent clears (layout.js latches [data-keyboard-consent] with the
+     kept row), so clearing moves nothing; the row's box stays one line.
+     r4 (Codex gate2c Low): 1/16 px more, so layout's 1/64 px snapping can
+     never leave a fractional overlap (More's top was 1/64 px above the
+     consent target's bottom); a whole 1 px cost transcript lines at vv308. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:not([data-image-input]):not([data-document-input]):has(.composer-feedback[data-keyboard-consent]) .composer-notice-slot,
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:not([data-image-input]):not([data-document-input]):has(.composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action) .composer-notice-slot { padding-top:calc(44px + 1px / 16 - .72rem * 1.3); }
+}
+/* AIT-618 r2 (TICK (b)): while the phone keyboard is up the voice band is ONE
+   44 px row. The rail moves up into the band's first row, so the small orb
+   (start), pause/resume and the gear keep their keyboard-down horizontal
+   positions and sizes; the volume control, the level line, the mic and end
+   cells are hidden (visibility: out of the tree's focus order, their cells
+   keep the columns, so pause never shifts). The rail's status leaves the
+   paint but stays in the accessibility tree (its live region still speaks).
+   The row is 44 px whether a reply plays or is paused; it changes only when
+   the keyboard opens or closes (layout.js measures the band after the flag).
+   r4 (TICK Q1 (a)): [data-phone-keyboard-band] always toggles with
+   [data-phone-keyboard], from ONE keyboard-up state (layout.js). */
+@media(max-width:599px) {
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band:has(> .audio-rail) { --band-height:44px; grid-template-rows:44px; height:44px; min-height:44px; }
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band > .audio-rail { grid-row:1; height:44px; min-height:44px; pointer-events:none; }
+  /* The identity is auto-placed: pin it to the one row, or the rail's row would push it into an implicit second row. */
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band:has(> .audio-rail) > .band-identity { grid-row:1; grid-column:1; }
+  /* Descendants too: the wave and revealed controls set their own visibility. */
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band > .audio-rail > :is(.voice-cell--output, .voice-signal, .voice-cell--mic, .voice-cell--end),
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band > .audio-rail > :is(.voice-cell--output, .voice-signal, .voice-cell--mic, .voice-cell--end) :not(.voice-state, .voice-state *) { visibility:hidden; }
+  /* r3 (Codex gate1c Medium 4): a host's header controls reach the pause
+     column (layout.js sets [data-keyboard-rail-row]): the rail keeps its own
+     44 px row under the header, exactly where it sits with the keyboard down,
+     and stays compact (the same cells hidden), so no targets intersect. */
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band[data-keyboard-rail-row]:has(> .audio-rail) { --band-height:88px; grid-template-rows:44px 44px; row-gap:0; height:88px; min-height:88px; }
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band[data-keyboard-rail-row] > .audio-rail { grid-row:2; }
+  /* r6 (TICK M4 (b)): a host control added while the keyboard is up takes the
+     header's left end (the pause column the 88 px row frees), so every other
+     header control keeps its x; only Pause moves. */
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band > .header-actions > [data-keyboard-late] { order:-1; }
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band > .audio-rail > .voice-cell--pause { pointer-events:auto; }
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band > .audio-rail .voice-state {
+    visibility:visible; position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 }
 `;

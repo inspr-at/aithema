@@ -663,9 +663,21 @@ test('AIT-188 r3 keyboard: fine-pointer desktop resize keeps footer', async t =>
   assert.notEqual(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.display-foot')).display), 'none', 'desktop window shrink is not an on-screen keyboard');
 });
 
+// AIT-618 r4: the keyboard settle runs on an injected clock (code-health rule 6), fired by the test.
+const settleClock = page => page.evaluate(async () => {
+  const { keyboardSettle } = await import('/packages/ui/src/layout.js');
+  globalThis.settleQueue = [];
+  if (!keyboardSettle) return false;
+  keyboardSettle.set = (fn, ms) => { const entry = { fn, ms }; globalThis.settleQueue.push(entry); return entry; };
+  keyboardSettle.clear = entry => { const i = globalThis.settleQueue.indexOf(entry); if (i >= 0) globalThis.settleQueue.splice(i, 1); };
+  return true;
+});
+const settleKeyboard = page => page.evaluate(() => { const queue = (globalThis.settleQueue ?? []).splice(0); for (const entry of queue) entry.fn(); return queue.length; });
+
 test('AIT-188 r3 keyboard: touch width/orientation reset and blur never stick footer hidden', async t => {
   const page = await fixture(t);
   await voiceScene(page, 'de', 'dark', 390);
+  assert.equal(await settleClock(page), true, 'the keyboard settle clock is injectable (AIT-618 r4)');
   const footer = () => shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.display-foot')).display);
   await shadow(page, c => c.shadowRoot.querySelector('textarea').focus({ preventScroll: true }));
   await setViewport(page, { width: 390, height: 480 }); await frame(page);
@@ -686,7 +698,14 @@ test('AIT-188 r3 keyboard: touch width/orientation reset and blur never stick fo
   assert.ok(outside, 'a visible control outside the composer took focus');
   // AIT-608 r2: the premise of the next assertion is that focus really left the composer.
   assert.equal(await shadow(page, c => Boolean(c.shadowRoot.activeElement?.matches('textarea,input,[contenteditable="true"]') || c.shadowRoot.activeElement?.closest('.composer'))), false, 'focus left the composer');
-  assert.notEqual(await footer(), 'none', 'leaving composer clears keyboard state without resize');
+  // AIT-618 r4 (TICK Q1 (a)): ONE keyboard-up state; focus outside the composer ends it at the settle (~1 s,
+  // the injected clock below), in one reflow, not at once. Was: 'leaving composer clears keyboard state without resize' at once.
+  assert.equal(await footer(), 'none', 'leaving composer keeps the keyboard-up state until the settle');
+  assert.ok(await settleKeyboard(page) > 0, 'a keyboard settle was pending'); await frame(page);
+  // AIT-618 r5 (TICK r4 M1): the settle ends the state only when the viewport is no longer keyboard-small (here it is
+  // still 400 against the 600 baseline), so the state is kept until the viewport grows (the next step). Was: 'leaving
+  // composer clears keyboard state after the settle without resize'.
+  assert.equal(await footer(), 'none', 'leaving composer keeps the keyboard-up state after the settle while the viewport stays keyboard-small');
   await setViewport(page, { width: 500, height: 600, isLandscape: true }); await frame(page);
   assert.notEqual(await footer(), 'none', 'keyboard closed');
   await shadow(page, c => c.shadowRoot.querySelector('textarea').focus({ preventScroll: true })); await frame(page);

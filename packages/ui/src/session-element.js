@@ -3229,9 +3229,19 @@ export class AithemaSession extends HTMLElement {
     const contact = root.querySelector('slot[name="sidebar-contact"]').assignedElements().length > 0;
     const launcher = root.querySelector('slot[name="contact-launcher"]').assignedElements().length > 0;
     root.querySelector('.sidebar-contact').hidden = !contact;
-    root.querySelector('.contact-launcher').hidden = !launcher;
+    const cell = root.querySelector('.contact-launcher'), appears = launcher && cell.hidden;
+    cell.hidden = !launcher;
     root.querySelector('.workspace').toggleAttribute('data-contact', contact);
     this.toggleAttribute('data-contact-launcher', launcher);
+    // AIT-618 r6 (Codex gate4c Medium, TICK M4 (a)+(b)): a host control that
+    // appears while the keyboard-up state is open takes the left end of the
+    // header controls (the pause column, which the grow-only row frees), so
+    // no other header control moves; only Pause does (y 0 -> 44, x kept).
+    // The keyboard-layout paint runs here at once, not at the next resize.
+    // layout.js clears the mark when the keyboard-up state ends or opens.
+    if (!root.querySelector('.workspace').hasAttribute('data-phone-keyboard-band')) return;
+    if (appears) cell.setAttribute('data-keyboard-late', '');
+    this.#phoneViewport?.paint();
   };
   #observePanes() {
     this.#paneObserver?.disconnect();

@@ -12,6 +12,8 @@ export const provisionalSplitFiles = new Set([
   'test/browser/host-surface.test.js', 'test/browser/host-surface-email.test.js',
   // AIT-603 PR-A r15: PR-A's checks moved out of demo.test.js (seed in its weight file).
   'test/browser/phone-dock.test.js',
+  // AIT-618 r6: the settle and late-add checks moved out of phone-dock.test.js (seed in its weight file).
+  'test/browser/phone-keyboard-settle.test.js',
 ]);
 
 export function readBrowserTestWeights(files = discoverBrowserTests(), root = repositoryRoot) {
