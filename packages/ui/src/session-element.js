@@ -4690,6 +4690,42 @@ export class AithemaSession extends HTMLElement {
       } catch { fail(); }
     } catch { fail(); }
   }
+  async #restore() {
+    const sessionId = this.#session.id, requestedCursor = this.#cursor;
+    try {
+      const response = await this.#api(`${this.#base}/api/sessions/${sessionId}`, { sessionToken: this.#sessionToken });
+      if (this.#erased) return;
+      if (!response.ok) throw new Error();
+      const session = await response.json();
+      if (this.#erased || sessionId !== this.#session.id) return;
+      // A restore already in flight cannot overwrite a newer locale acknowledgement or first
+      // turn, any more than it may restore withdrawn content. Resume from the newer cursor.
+      if (session.seq < this.#invalidatedAt) {
+        // Reconnect only when another event advanced us during this fetch. Repeating a gap
+        // against the same stale snapshot must not create a synchronous restore loop.
+        if (this.#cursor > requestedCursor && this.isConnected) this.#connect();
+        return;
+      }
+      this.#applySnapshot(session);
+      if (this.isConnected) {
+        this.#connect();
+        if (this.#consentRefresh) void this.#refreshFeatures();
+      }
+    } catch {
+      if (this.#erased || sessionId !== this.#session.id) return;
+      this.#connectionStatus(this.#copy.reconnecting);
+      const controller = new AbortController(); this.#abort?.abort(); this.#abort = controller;
+      await reconnectDelay(controller.signal);
+      if (this.#erased) return;
+      if (!controller.signal.aborted && sessionId === this.#session.id && this.isConnected) this.#connect();
+    }
+  }
+  #connect() {
+    if (this.#erased) return;
+    if (this.#session.processingPreset === 'device') return;
+    this.#abort?.abort(); const controller = new AbortController(); this.#abort = controller;
+    void this.#events(controller.signal);
+  }
   // AIT-610 r7 (LEAD (1)): the ONE reconciliation path for staged images. A
   // server restart loses held originals; their rows are REPORTED as
   // staged-refused 'unavailable' on read and no event carries that. Every stream
@@ -4782,42 +4818,6 @@ export class AithemaSession extends HTMLElement {
     const read = this.#uploadsReconcile; this.#uploadsReconcile = null;
     if (read) { read.cancelled = true; read.controller.abort(); }
     clearTimeout(this.#uploadsRetryTimer); this.#uploadsRetryTimer = null;
-  }
-  async #restore() {
-    const sessionId = this.#session.id, requestedCursor = this.#cursor;
-    try {
-      const response = await this.#api(`${this.#base}/api/sessions/${sessionId}`, { sessionToken: this.#sessionToken });
-      if (this.#erased) return;
-      if (!response.ok) throw new Error();
-      const session = await response.json();
-      if (this.#erased || sessionId !== this.#session.id) return;
-      // A restore already in flight cannot overwrite a newer locale acknowledgement or first
-      // turn, any more than it may restore withdrawn content. Resume from the newer cursor.
-      if (session.seq < this.#invalidatedAt) {
-        // Reconnect only when another event advanced us during this fetch. Repeating a gap
-        // against the same stale snapshot must not create a synchronous restore loop.
-        if (this.#cursor > requestedCursor && this.isConnected) this.#connect();
-        return;
-      }
-      this.#applySnapshot(session);
-      if (this.isConnected) {
-        this.#connect();
-        if (this.#consentRefresh) void this.#refreshFeatures();
-      }
-    } catch {
-      if (this.#erased || sessionId !== this.#session.id) return;
-      this.#connectionStatus(this.#copy.reconnecting);
-      const controller = new AbortController(); this.#abort?.abort(); this.#abort = controller;
-      await reconnectDelay(controller.signal);
-      if (this.#erased) return;
-      if (!controller.signal.aborted && sessionId === this.#session.id && this.isConnected) this.#connect();
-    }
-  }
-  #connect() {
-    if (this.#erased) return;
-    if (this.#session.processingPreset === 'device') return;
-    this.#abort?.abort(); const controller = new AbortController(); this.#abort = controller;
-    void this.#events(controller.signal);
   }
   async #events(signal) {
     let attempt = 0;
