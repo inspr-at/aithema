@@ -855,7 +855,8 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .create-project { margin-inline-start:auto; padding:0; border-radius:0; text-align:start; text-decoration:underline; }
 /* Reserve the action slot until the overview can become a project. */
 .understanding:not([data-overview="current"]) > .foot > .create-project { visibility:hidden; }
-.export:hover, .create-project:hover { color:var(--aithema-accent); background:transparent; }
+/* AIT-637 r2 (TICK F1): accent on hover says "this works", so a disabled control keeps its muted ink. */
+.export:not([aria-disabled="true"]):hover, .create-project:hover { color:var(--aithema-accent); background:transparent; }
 .export svg, .create-project svg { flex:none; width:1rem; height:1rem; } .retry { font-size:.75rem; white-space:nowrap; }
 
 /* Neutral scrollbars only during interaction. A stable gutter prevents hover from changing line wraps. */
