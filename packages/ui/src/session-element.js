@@ -33,7 +33,7 @@ import { settingsStyles } from './settings-styles.js';
 import { SettingsDialog, ICONS, PRESET_ORDER, reasonText, engineView, catalogLabel } from './settings-dialog.js';
 import { LocalConnector } from './local-connector.js';
 import { postJson, postForm, sameOrigin } from './post-json.js';
-import { ownerFetch } from './owner-request.js';
+import { anySignal, ownerFetch } from './owner-request.js';
 import { UPLOAD_LIMITS, UPLOAD_ACCEPT, DOCUMENT_UPLOAD_ACCEPT, UPLOAD_ICONS, uploadLimits, uploadRetryDelay, unclassifiedUploads, planUploads, refusalText, uploadStateText, uploadStateTexts, uploadsPossible, formatBytes, limitsText, dropText } from './uploads.js';
 import { voiceJournal, tabStorage, closeVoiceCall, answerVoicePings, voiceCallAbandoned } from './voice-orphan.js';
 import { node, setText, reconcile, fill } from './dom.js';
@@ -98,7 +98,7 @@ const START_INTENT_KEY = 'aithema-start-intent';
 const startIntentTTL = mode => mode === 'voice' ? 60_000 : 180_000;
 
 export class AithemaSession extends HTMLElement {
-  #erased = null; #erasedIds = new Map(); #confirmations = new Map(); #anchorDepth = 0; #erasureJournal = null; #erasedCreating = false;
+  #erased = null; #erasedIds = new Map(); #inflight = new Map(); #confirmations = new Map(); #anchorDepth = 0; #erasureJournal = null; #erasedCreating = false;
   #consentRefresh; #consentRequestId = null;
   #startIntent = null; #startIntentTimer; #startRetryTimer; #startFromNavigation = false; #checkingStartRestore = null;
   #featureRead = null;
@@ -1705,11 +1705,18 @@ export class AithemaSession extends HTMLElement {
     // guarded helper (AIT-625): page origin only, resolved once, redirect:'error', deadline.
     const route = this.#sessionRoute(url), view = this.ownerDocument.defaultView;
     if (route && this.#erasedIds.has(route.id)) throw new DOMException('Conversation erased', 'AbortError');
+    // A finite request for a conversation ends when that conversation is erased (with its deadline
+    // timer). The event stream has its own lifetime; a keepalive request is left to the browser.
+    const init = options ?? bodyOrInit, own = route && !init.stream && !init.keepalive ? new AbortController() : null;
+    const signal = own ? (init.signal ? anySignal([init.signal, own.signal]) : own.signal) : init.signal;
+    if (own) { if (!this.#inflight.has(route.id)) this.#inflight.set(route.id, new Set()); this.#inflight.get(route.id).add(own); }
     let response;
-    if (options) {
-      const post = bodyOrInit instanceof FormData ? postForm : postJson;
-      response = await post(url, bodyOrInit, { ...options, view });
-    } else response = await ownerFetch(view, url, { ...bodyOrInit, ...(route?.snapshot ? { cache: 'no-store' } : {}) });
+    try {
+      if (options) {
+        const post = bodyOrInit instanceof FormData ? postForm : postJson;
+        response = await post(url, bodyOrInit, { ...options, view, ...(signal ? { signal } : {}) });
+      } else response = await ownerFetch(view, url, { ...bodyOrInit, ...(signal ? { signal } : {}), ...(route?.snapshot ? { cache: 'no-store' } : {}) });
+    } finally { if (own) this.#inflight.get(route.id)?.delete(own); }
     await this.#observeResponse(url, response);
     return response;
   }
@@ -1742,6 +1749,9 @@ export class AithemaSession extends HTMLElement {
       folded: workspace.hasAttribute('data-folded'), panel: root.querySelector('.composer-shell').hasAttribute('data-used-up'),
       focus: Boolean(root.activeElement?.closest('form.composer,.audio-rail,.understanding,.intro,.qcard,.composer-out,.purpose-new,dialog,.fold-strip,.fold,.concept-bar,.email-ask,.concept-access,.drafts-canvas,.settings-open')), painted: false, holds: [] };
     this.#erasedIds.set(id, remembered ?? { via, announced: false });
+    // In-flight finite requests for the erased conversation end now, deadline timers included.
+    for (const controller of this.#inflight.get(id) ?? []) controller.abort(new DOMException('Conversation erased', 'AbortError'));
+    this.#inflight.delete(id);
     // Hold boxes before teardown can change a rail, question or composer reservation.
     for (const selector of ['.intro__card', '.composer-dock', '.composer-shell', 'form.composer', '.qcard', '.audio-rail', '.fold-strip', '.transcript-shell']) {
       const element = root.querySelector(selector); if (!element) continue;
