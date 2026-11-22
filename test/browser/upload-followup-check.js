@@ -456,7 +456,18 @@ export function heldRegressionCheck() {
                 const parts = [...row.children].map(box), document = row.classList.contains('image-feedback-document-reserve');
                 const content = document ? parts.reduce((sum, part) => sum + part.height, 0) : Math.max(0, ...parts.map(part => part.height));
                 const column = row.querySelector('.image-refusals__list') ?? row;
-                return { className: row.className, ...box(row), content, columnWidth: column.getBoundingClientRect().width, lineHeight: getComputedStyle(row).lineHeight, text: row.textContent };
+                // The rendered lines of the text column (one string per line box), so a wrap names its words.
+                const lines = [], text = column.querySelector('.image-refusal__reason') ?? column;
+                const walker = document.createTreeWalker(text, NodeFilter.SHOW_TEXT);
+                for (let node = walker.nextNode(); node; node = walker.nextNode())
+                  for (let i = 0; i < node.length; i++) {
+                    const range = document.createRange(); range.setStart(node, i); range.setEnd(node, i + 1);
+                    const top = Math.round(range.getBoundingClientRect().top);
+                    if (lines.at(-1)?.top !== top) lines.push({ top, text: '' });
+                    lines.at(-1).text += node.data[i];
+                  }
+                return { className: row.className, ...box(row), content, columnWidth: column.getBoundingClientRect().width, lineHeight: getComputedStyle(row).lineHeight,
+                  text: row.textContent, lines: lines.map(line => line.text) };
               }).sort((a, b) => b.content - a.content).slice(0, 4) };
           }));
           assert.ok(Math.abs(before['.composer'].height - expected) <= .5, `idle composer matches main within 0.5 px: ${before['.composer'].height} vs ${expected}${reserveRows && ` ${reserveRows}`}`);
