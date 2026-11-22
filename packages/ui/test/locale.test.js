@@ -24,6 +24,7 @@ function fixture(t, { startGate, startError, host } = {}) {
     voiceClient: { manifest, async start() { calls.push('start'); if (startGate) await startGate.promise; if (startError) throw startError; return call; } } });
   const posts = [];
   t.mock.method(globalThis, 'fetch', async (url, init = {}) => {
+    url = String(url).replace(/^http:\/\/localhost(?=\/)/u, ''); // AIT-610 r9: owner routes arrive resolved
     if (String(url).startsWith('/api/library')) return Response.json({ items: [
       { id: 'cached', title: 'Saved conversation', updatedAt: '2026-10-12T10:00:00Z' },
     ], total: 1 });

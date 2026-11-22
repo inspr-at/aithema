@@ -233,6 +233,7 @@ function fixture464(t, options = {}) {
   const original = globalThis.fetch, reads = { snapshot: 0, consent: 0 };
   let erased = false;
   t.mock.method(globalThis, 'fetch', (url, options = {}) => {
+    url = String(url).replace(/^http:\/\/localhost(?=\/)/u, ''); // AIT-610 r9: owner routes arrive resolved
     const path = String(url), get = (options.method ?? 'GET') === 'GET';
     const resource = path === '/api/sessions/conversation-a' ? 'snapshot'
       : path === '/api/sessions/conversation-a/consent' ? 'consent' : null;
@@ -255,6 +256,7 @@ function fixture484(t, options = {}) {
   let erased = false, stream, streamClosed = false;
   const state = { snapshot: null, body: { error: 'session-not-found' } };
   t.mock.method(globalThis, 'fetch', async (url, init = {}) => {
+    url = String(url).replace(/^http:\/\/localhost(?=\/)/u, ''); // AIT-610 r9: owner routes arrive resolved
     const path = String(url), isA = /^\/api\/sessions\/conversation-a(?:[/?]|$)/u.test(path);
     if (erased && isA) {
       raw.push({ path, init });

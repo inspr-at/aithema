@@ -33,6 +33,8 @@ function setup(t, { copy = en, host = { library: true, verification: true, hando
   Object.assign(session, extra);
   const calls = [];
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    // AIT-610 r9: owner routes are fetched at their resolved absolute URL; the fixture routes by path.
+    url = String(url).replace(/^http:\/\/localhost(?=\/)/u, '');
     const path = String(url).replace(`/api/sessions/${c.session.id}`, '').replace(/^\/api/u, ''), method = options.method ?? 'GET';
     const body = options.body ? JSON.parse(options.body) : undefined;
     if (path === '/events') return new Response(new ReadableStream({ start(controller) { if (options.signal?.aborted) controller.close();
