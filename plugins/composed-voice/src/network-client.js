@@ -3,7 +3,7 @@
  * AIT-625 r6 (gate3c M1): in a browser this module has no network check of its own. Every
  * credential-bearing request goes through THE guarded owner-request helper
  * (@inspr/aithema-ui/owner-request `ownerFetch`: the page origin, the URL resolved once
- * against document.baseURI and checked there, redirect:'error', a deadline over headers and
+ * against the document base and checked there, redirect:'error', a deadline over headers and
  * body), injected by the caller as `ownerFetch` (this package does not depend on the UI
  * package). Without it, a browser context (a window, self, document or WorkerGlobalScope
  * global, or an explicit view) fails closed before anything is sent. Only the frame long poll
