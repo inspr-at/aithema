@@ -32,7 +32,8 @@ import { actorRoleStyles } from './actor-role-styles.js';
 import { settingsStyles } from './settings-styles.js';
 import { SettingsDialog, ICONS, PRESET_ORDER, reasonText, engineView, catalogLabel } from './settings-dialog.js';
 import { LocalConnector } from './local-connector.js';
-import { postJson, postForm, sameOrigin } from './post-json.js';
+import { sameOrigin } from './post-json.js';
+import { ownerFetch, ownerForm, ownerJson } from './owner-request.js';
 import { UPLOAD_LIMITS, UPLOAD_ACCEPT, DOCUMENT_UPLOAD_ACCEPT, UPLOAD_ICONS, uploadLimits, uploadRetryDelay, unclassifiedUploads, planUploads, refusalText, uploadStateText, uploadStateTexts, uploadsPossible, formatBytes, limitsText, dropText } from './uploads.js';
 import { voiceJournal, tabStorage, closeVoiceCall, answerVoicePings, voiceCallAbandoned } from './voice-orphan.js';
 import { node, setText, reconcile, fill } from './dom.js';
@@ -56,6 +57,7 @@ import { overviewStatusText, featureReasonText } from './overview-status-copy.js
 import { emailAskStyles } from './email-ask-styles.js';
 import { buildPaimosPayload, paimosImportUrl } from './paimos-import.js';
 
+const UPLOAD_DEADLINE_MS = 300_000; // a 21 MiB batch on a slow link; other owner requests use the 30 s default
 const PANES = '.transcript-shell, .analysis-content';
 // START's understanding reveal: 560 ms of column, 100–620 ms of the pane fading in (styles.js), with a margin.
 const REVEAL_MS = 700;
@@ -409,7 +411,7 @@ export class AithemaSession extends HTMLElement {
       return session.operations?.inputRevision === focus.inputRevision && Array.isArray(session.operations.running) && !session.operations.running.includes('reaction');
     };
     try {
-      const response = await this.#api(`${this.#base}/api/sessions/${focus.sessionId}`, { headers: this.#headers(), cache: 'no-store' });
+      const response = await this.#api(`${this.#base}/api/sessions/${focus.sessionId}`, { sessionToken: this.#sessionToken, cache: 'no-store' });
       if (!response.ok || !this.#activeClarify(focus)) return false;
       const session = await response.json();
       if (!this.#activeClarify(focus) || session.id !== focus.sessionId || !Number.isSafeInteger(session.seq) ||
@@ -894,7 +896,7 @@ export class AithemaSession extends HTMLElement {
         consent: this.#consentState() }),
       consentPresentation: this.#options.consentPresentation ?? this.#options.voicePresentation,
       consentDocument: async () => {
-        const response = await this.#api(`${this.#base}/api/sessions/${this.#session.id}/consent`, { headers: this.#headers() });
+        const response = await this.#api(`${this.#base}/api/sessions/${this.#session.id}/consent`, { sessionToken: this.#sessionToken });
         if (!response.ok) throw new Error('Consent document unavailable');
         return response.json();
       },
@@ -1697,14 +1699,15 @@ export class AithemaSession extends HTMLElement {
     return match ? { id: decodeURIComponent(match[1]), snapshot: !match[2] } : null;
   }
   async #api(url, bodyOrInit = {}, options) {
-    // Uploads, concept and host routes enforce their existing origin policy at the caller.
-    const route = this.#sessionRoute(url);
+    // Every owner request, here and from the concept view and host surface, goes through the
+    // guarded helper (AIT-625): page origin only, resolved once, redirect:'error', deadline.
+    const route = this.#sessionRoute(url), view = this.ownerDocument.defaultView;
     if (route && this.#erasedIds.has(route.id)) throw new DOMException('Conversation erased', 'AbortError');
     let response;
     if (options) {
-      const post = bodyOrInit instanceof FormData ? postForm : postJson;
-      response = await post(url, bodyOrInit, options);
-    } else response = await fetch(url, { ...bodyOrInit, ...(route?.snapshot ? { cache: 'no-store' } : {}) });
+      const post = bodyOrInit instanceof FormData ? ownerForm : ownerJson;
+      response = await post(view, url, bodyOrInit, options);
+    } else response = await ownerFetch(view, url, { ...bodyOrInit, ...(route?.snapshot ? { cache: 'no-store' } : {}) });
     await this.#observeResponse(url, response);
     return response;
   }
@@ -1721,7 +1724,7 @@ export class AithemaSession extends HTMLElement {
     // The demo owner is an HttpOnly cookie: fetch reads its current value, including
     // rotations by another tab. Explicit-token hosts retain their current configure token.
     confirmation.promise = this.#api(`${this.#base}/api/sessions/${encodeURIComponent(route.id)}`,
-      { headers: this.#headers(), cache: 'no-store' }).catch(() => {}).finally(() => { confirmation.promise = null; });
+      { sessionToken: this.#sessionToken, cache: 'no-store' }).catch(() => {}).finally(() => { confirmation.promise = null; });
     await confirmation.promise;
   }
   #enterErased(id, via) {
@@ -1848,14 +1851,11 @@ export class AithemaSession extends HTMLElement {
     catch { /* Keep the end action available for another deliberate attempt. */ }
     finally { if (id === this.#session.id) this.#erasedCreating = false; }
   }
-  #headers(headers = {}) {
-    return { ...headers, ...(this.#sessionToken ? { 'x-aithema-session-token': this.#sessionToken } : {}) };
-  }
   async #export() {
     const sessionId = this.#session.id;
     let url;
     try {
-      const response = await this.#api(`${this.#base}/api/sessions/${sessionId}/export`, { headers: this.#headers() });
+      const response = await this.#api(`${this.#base}/api/sessions/${sessionId}/export`, { sessionToken: this.#sessionToken });
       if (!response.ok) throw new Error();
       const blob = await response.blob();
       if (sessionId !== this.#session.id) return;
@@ -1962,7 +1962,7 @@ export class AithemaSession extends HTMLElement {
   }
   async #loadCatalog() {
     const sessionId = this.#session.id;
-    const response = await this.#api(`${this.#base}/api/sessions/${sessionId}/settings`, { headers: this.#headers() });
+    const response = await this.#api(`${this.#base}/api/sessions/${sessionId}/settings`, { sessionToken: this.#sessionToken });
     if (!response.ok) throw new Error('Settings unavailable');
     const catalog = await response.json();
     if (sessionId !== this.#session.id) throw new Error('Session changed');
@@ -2008,7 +2008,7 @@ export class AithemaSession extends HTMLElement {
     if (!response.ok) throw Object.assign(new Error('Consent save failed'), { code: response.status === 409 ? ack.error : undefined });
     if (sessionId !== this.#session.id || ack.granted !== body.granted) throw new Error('Consent acknowledgement missing');
     // The current server document confirms the exact decision; HTTP success alone is not consent.
-    const current = await this.#api(`${this.#base}/api/sessions/${sessionId}/consent`, { headers: this.#headers() });
+    const current = await this.#api(`${this.#base}/api/sessions/${sessionId}/consent`, { sessionToken: this.#sessionToken });
     if (this.#erased) return;
     if (!current.ok) throw new Error('Consent confirmation unavailable');
     const doc = await current.json(), items = body.granted ? body.processing.items : [];
@@ -2077,7 +2077,7 @@ export class AithemaSession extends HTMLElement {
       const active = () => !this.#erased && this.#laneStatusRead === read && this.#session.id === sessionId && inputRevision(this.#session) === revision;
       // One read, never a Retry or reconnect: this barrier cannot schedule paid work.
       try {
-        const response = await this.#api(`${this.#base}/api/sessions/${sessionId}`, { headers: this.#headers(), signal: AbortSignal.timeout(2000) });
+        const response = await this.#api(`${this.#base}/api/sessions/${sessionId}`, { sessionToken: this.#sessionToken, signal: AbortSignal.timeout(2000) });
         const snapshot = response.ok ? await response.json() : null;
         if (!active()) return;
         if (snapshot?.id === sessionId && Number.isSafeInteger(snapshot.seq) && snapshot.seq >= this.#invalidatedAt) {
@@ -3629,7 +3629,7 @@ export class AithemaSession extends HTMLElement {
     const root = this.shadowRoot, input = root.querySelector('.attach-input'), zone = root.querySelector('.conversation');
     this.#images = new ImageInputView({ form: root.querySelector('.composer'), copy: this.#copy, session: () => this.#session, canRead: () => this.#feature('imageInput').available === true,
       changed: () => { if (this.isConnected) { this.#render('composer'); this.#render('transcript'); } },
-      fetchImage: id => this.#api(sameOrigin(this.ownerDocument.defaultView, `${this.#base}/api/sessions/${this.#session.id}/uploads/${encodeURIComponent(id)}/image`), { headers: this.#headers(), cache: 'no-store' }),
+      fetchImage: id => this.#api(sameOrigin(this.ownerDocument.defaultView, `${this.#base}/api/sessions/${this.#session.id}/uploads/${encodeURIComponent(id)}/image`), { sessionToken: this.#sessionToken, cache: 'no-store' }),
       remove: id => { const row = root.querySelector(`.staged-image[data-id="${id}"]`); if (row) void this.#removeImage(id); } });
     root.querySelector('.attach__label').textContent = this.#copy.uploads.attach;
     root.querySelector('.drop-overlay strong').textContent = this.#copy.uploads.dropActive;
@@ -3725,7 +3725,7 @@ export class AithemaSession extends HTMLElement {
     // Started on the next microtask, so a refusal before sending (another origin) can clear it.
     const load = Promise.resolve().then(async () => {
       try {
-        const response = await this.#api(sameOrigin(this.ownerDocument.defaultView, path), { headers: this.#headers(), cache: 'no-store', signal: AbortSignal.timeout(5000) });
+        const response = await this.#api(sameOrigin(this.ownerDocument.defaultView, path), { sessionToken: this.#sessionToken, cache: 'no-store', signal: AbortSignal.timeout(5000) });
         if (!response.ok) throw new Error();
         const body = await response.json();
         if (sessionId === this.#session.id && this.isConnected) { this.#limits = uploadLimits(body.limits); this.#render('composer'); }
@@ -3926,7 +3926,7 @@ export class AithemaSession extends HTMLElement {
       // Keep the uploading state and notice unchanged until a retry succeeds or all attempts fail.
       for (let attempt = 0; attempt < 3; attempt++) {
         if (!current()) return '';
-        response = await this.#api(sameOrigin(this.ownerDocument.defaultView, path), form, { sessionToken: this.#sessionToken, signal });
+        response = await this.#api(sameOrigin(this.ownerDocument.defaultView, path), form, { sessionToken: this.#sessionToken, signal, deadline: UPLOAD_DEADLINE_MS });
         body = await response.json().catch(() => null);
         if (!current()) return '';
         if (response.status !== 429 || body?.error !== 'upload-rate-limit' || attempt === 2) break;
@@ -4306,7 +4306,7 @@ export class AithemaSession extends HTMLElement {
       this.#repeatFeatures();
     };
     try {
-      const response = await this.#api(`${this.#base}/api/sessions/${sessionId}`, { headers: this.#headers() });
+      const response = await this.#api(`${this.#base}/api/sessions/${sessionId}`, { sessionToken: this.#sessionToken });
       if (!active()) return;
       if (!response.ok) {
         // A live consent window still owns failure handling, but its edge must
@@ -4361,7 +4361,7 @@ export class AithemaSession extends HTMLElement {
       // Feature refusals redact immediately. A slow consent read must never
       // keep a refused artifact alive while the host document is refreshed.
       try {
-        const consent = await this.#api(`${this.#base}/api/sessions/${sessionId}/consent`, { headers: this.#headers() });
+        const consent = await this.#api(`${this.#base}/api/sessions/${sessionId}/consent`, { sessionToken: this.#sessionToken });
         const doc = consent.ok ? await consent.json() : null;
         if (!active()) return;
         if (revision !== this.#session.consentRevision || session.seq !== this.#cursor) {
@@ -4389,7 +4389,7 @@ export class AithemaSession extends HTMLElement {
   async #restore() {
     const sessionId = this.#session.id, requestedCursor = this.#cursor;
     try {
-      const response = await this.#api(`${this.#base}/api/sessions/${sessionId}`, { headers: this.#headers() });
+      const response = await this.#api(`${this.#base}/api/sessions/${sessionId}`, { sessionToken: this.#sessionToken });
       if (this.#erased) return;
       if (!response.ok) throw new Error();
       const session = await response.json();
@@ -4430,7 +4430,7 @@ export class AithemaSession extends HTMLElement {
         this.#signalLiveSeq = null; this.#signals?.quiet();
         this.#connectionStatus(attempt ? this.#copy.reconnecting : this.#copy.connecting);
         const response = await this.#api(`${this.#base}/api/sessions/${this.#session.id}/events`, {
-          signal, headers: this.#headers({ 'Last-Event-ID': String(this.#cursor) }),
+          signal, sessionToken: this.#sessionToken, headers: { 'Last-Event-ID': String(this.#cursor) },
         });
         if (signal.aborted) return;
         if (response.status === 400) { await this.#restore(); return; }

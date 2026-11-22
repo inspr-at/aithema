@@ -9,7 +9,8 @@ import { reasonSeparator } from './consent-line.js';
 // understanding pane, the handover band and the host's legal and footer slots. Each part
 // appears only when the host enables it in configure({host}); all facts come from the server.
 import { inputRevision } from '../../core/src/session.js';
-import { postJson, sameOrigin } from './post-json.js';
+import { sameOrigin } from './post-json.js';
+import { ownerFetch, ownerJson } from './owner-request.js';
 import { node, setText, fill } from './dom.js';
 import { clockTime } from './display.js';
 import { Verification } from './verification.js';
@@ -244,9 +245,9 @@ export class HostSurface {
   async #call(path, body, verb = 'POST') {
     if (this.#erased && !path.startsWith('/api/library')) throw new DOMException('Conversation erased', 'AbortError');
     const sessionId = this.#session().id, url = sameOrigin(this.#view, `${this.#base}${path}`);
-    const request = this.#request ?? ((url, body, options) => options ? postJson(url, body, options) : fetch(url, body));
+    const request = this.#request ?? ((url, body, options) => options ? ownerJson(this.#view, url, body, options) : ownerFetch(this.#view, url, body));
     const response = body === undefined
-      ? await request(url, { headers: this.#token ? { 'x-aithema-session-token': this.#token } : {}, cache: 'no-store' })
+      ? await request(url, { sessionToken: this.#token, cache: 'no-store' })
       : await request(url, body, { sessionToken: this.#token, verb });
     if (this.#erased && !path.startsWith('/api/library')) throw new DOMException('Conversation erased', 'AbortError');
     let value = null; try { value = await response.json(); } catch { /* A body-less reply carries its status only. */ }
