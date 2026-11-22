@@ -921,7 +921,7 @@ test('a reconnect re-reads feature verdicts, so a host restart that dropped cons
     const root = c.shadowRoot;
     assert.equal(refreshed, 1); assert.equal(root.querySelector('.send').disabled, true);
     assert.equal([...root.querySelectorAll('.composer-reason .consent-wide')].map(n => n.textContent).join(''), `${en.featureConsent.text}\u00a0· ${en.featureConsent.action}`);
-    assert.equal(root.querySelector('.composer-reason .consent-action .consent-wide').getAttribute('aria-label'), `${en.featureConsent.action}: ${en.featureConsent.textActionReason}`);
+    assert.equal(root.querySelector('.composer-reason .consent-action').getAttribute('aria-describedby') && root.querySelector(`#${root.querySelector('.composer-reason .consent-action').getAttribute('aria-describedby')}`).textContent, en.featureConsent.text);
     assert.equal(root.querySelector('.notice').textContent, 'The overview needs your consentGive consent…');
     assert.equal(root.querySelector('.status__label').textContent, en.connected);
   } finally { c.remove(); await new Promise(resolve => setImmediate(resolve)); globalThis.fetch = originalFetch; }
@@ -939,7 +939,7 @@ test('the German bundle covers every English key and renders the component in Ge
   const root = c.shadowRoot;
   assert.equal(root.querySelector('.send').textContent, 'Senden');
   assert.equal([...root.querySelectorAll('.composer-reason .consent-wide')].map(n => n.textContent).join(''), `${de.featureConsent.text}\u00a0· ${de.featureConsent.action}`);
-    assert.equal(root.querySelector('.composer-reason .consent-action .consent-wide').getAttribute('aria-label'), `${de.featureConsent.action}: ${de.featureConsent.textActionReason}`);
+    assert.equal(root.querySelector('.composer-reason .consent-action').getAttribute('aria-describedby') && root.querySelector(`#${root.querySelector('.composer-reason .consent-action').getAttribute('aria-describedby')}`).textContent, de.featureConsent.text);
   assert.match(root.querySelector('.features').textContent, /Auswertung/);
 });
 test('every text pair reaches WCAG AA in light and dark, placeholder, bubbles, cards and tints included (AIT-116 D9, AIT-118)', () => {
@@ -1440,20 +1440,22 @@ test('AIT-286: shared failure sentence uses warning ink; composer consent keeps 
 
 
 test('AIT-290: consent opener keeps its full name and node across repaints, then clears when available', () => {
-  for (const [copy, name] of [[de, 'Einwilligen…: Nachrichten brauchen Ihre Einwilligung'],
-    [en, 'Give consent…: messages need your consent']]) {
+  // AIT-603 r5 (Codex gate4c M3): the button is named by its visible action
+  // alone (wide and narrow); the host's full sentence is its description, from
+  // one hidden node, so it is the same at every width and never repeated.
+  for (const [copy, name] of [[de, 'Einwilligen…'], [en, 'Give consent…']]) {
     const line = document.createElement('small'); line.className = 'composer-reason';
     let opened;
     const options = { copy, feature: 'text', verdict: { available: false, rawReason: 'current processing consent required' }, open: action => { opened = action; } };
     assert.equal(paintConsentLine(line, options), true);
     const action = line.querySelector('button');
     assert.equal(action.hasAttribute('aria-label'), false);
-    assert.equal(action.querySelector('.consent-wide').getAttribute('aria-label'), name);
-    assert.equal(action.querySelector('.consent-narrow').getAttribute('aria-label'), `${copy.featureConsent.actionNarrow}: ${copy.featureConsent.textActionReason}`);
-    for (const label of action.querySelectorAll('[aria-label]')) {
-      assert.equal(label.getAttribute('role'), 'group', 'a named responsive label needs a role that permits naming');
-    }
-    assert.equal(line.querySelector('.consent-line-copy').id, action.getAttribute('aria-describedby'));
+    assert.equal(action.querySelector('.consent-wide').textContent, name);
+    assert.equal(action.querySelector('.consent-narrow').textContent, copy.featureConsent.actionNarrow);
+    assert.equal(action.querySelectorAll('[aria-label], [role]').length, 0, 'the visible action names the button; no responsive label overrides it');
+    const description = line.querySelector(`#${action.getAttribute('aria-describedby')}`);
+    assert.equal(description?.textContent, copy.featureConsent.text, 'the description is the full sentence');
+    assert.equal(description.hidden, true, 'the description node is not painted (the visible label is)');
     paintConsentLine(line, options);
     assert.equal(line.querySelector('button'), action, 'live repaint preserves the opener');
     action.click(); assert.equal(opened, action, 'same action opens consent');

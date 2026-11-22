@@ -671,7 +671,8 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: composer consent act
         : getComputedStyle(child).display === 'none' ? '' : visibleText(child)).join('');
       const narrow = innerWidth <= 340;
       return { text: visibleText(line), expected: `${narrow ? copy.featureConsent.textNarrow : copy.featureConsent.text}\u00a0· ${narrow ? copy.featureConsent.actionNarrow : copy.featureConsent.action}`,
-        expectedName: `${narrow ? copy.featureConsent.actionNarrow : copy.featureConsent.action}: ${copy.featureConsent.textActionReason}`,
+        // AIT-603 r5 (Codex gate4c M3): the action alone names the button; the full sentence is its description.
+        expectedName: narrow ? copy.featureConsent.actionNarrow : copy.featureConsent.action, expectedDescription: copy.featureConsent.text,
         underlined: getComputedStyle(action).textDecorationLine.includes('underline'),
         lineCount: Math.round(ink.height / lineHeight), fontSize, target,
         overlapAttach: overlap('.attach'), overlapSend: overlap('.send'),
@@ -682,13 +683,15 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: composer consent act
     });
     assert.equal(state.text, state.expected); assert.equal(state.action, state.expectedAction);
     const opener = await page.$('aithema-session >>> .composer-reason .consent-action');
-    state.accessibleName = (await page.accessibility.snapshot({ root: opener })).name;
+    const named = await page.accessibility.snapshot({ root: opener });
+    state.accessibleName = named.name; state.accessibleDescription = named.description;
     assert.equal(state.accessibleName, state.expectedName); assert.equal(state.underlined, true);
-    assert.ok(state.accessibleName.startsWith(`${state.action}: `), 'accessible name starts with the visible action at every width');
-    t.diagnostic(`PASS AIT-290 ${evidenceCommit} ${locale}/${width}: label-first name ${state.accessibleName}`);
+    assert.equal(state.accessibleName, state.action, 'accessible name is the visible action at every width');
+    assert.equal(state.accessibleDescription, state.expectedDescription, 'the full sentence is the description at every width');
+    t.diagnostic(`PASS AIT-290 ${evidenceCommit} ${locale}/${width}: name ${state.accessibleName}; description ${state.accessibleDescription}`);
     const tree = await page.accessibility.snapshot({ interestingOnly: false });
     const findButton = n => n.role === 'button' && n.name === state.expectedName || n.children?.some(findButton);
-    assert.ok(findButton(tree), `${locale}/${width}: full consent sentence is the accessible button name`);
+    assert.ok(findButton(tree), `${locale}/${width}: the visible action is the accessible button name`);
     assert.equal(state.inputDisabled, true); assert.equal(state.sendDisabled, true);
     const selectors = ['.composer-shell', '.composer', 'textarea', '.send'];
     const before = await boxes(page, selectors);

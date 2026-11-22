@@ -46,7 +46,7 @@ import { icon } from './icons.js';
 import { modelDisplayName, languageFlag, formatCredits, clockTime } from './display.js';
 import { bandStyles } from './band-styles.js';
 import { voiceSingleRowMinWidth, voiceRailMinWidth, voiceRailFlexMinWidth } from './first-paint.js';
-import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, FooterPopups, PhoneComposerViewport } from './layout.js';
+import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, FooterPopups, PhoneComposerViewport, latchFeedback, releaseFeedback, endDiscard } from './layout.js';
 import { createReveal } from './reveal.js';
 import { mountVersionDetails, renderHostVersion } from './version-display.js';
 import { QuestionCard, questionCardMarkup, questionCardStyles } from './question-card.js';
@@ -100,6 +100,15 @@ export class AithemaSession extends HTMLElement {
   #consentRefresh; #consentRequestId = null;
   #startIntent = null; #startIntentTimer; #startRetryTimer; #startFromNavigation = false; #checkingStartRestore = null;
   #featureRead = null;
+  // AIT-603 r4 (AIT-506): the offer row the phone reveal last brought into view.
+  #revealedOffer = null;
+  // AIT-603 r5 (Codex gatepra4 Low, AIT-506): the pane size at that reveal, and
+  // an explicit Latest jump; either a resize or Latest realigns as on main.
+  #revealedPane = ''; #latestJump = false;
+  // AIT-603 r6b (AIT-543): where that reveal left the pane (its scrollTop) and
+  // the offer (its top in the pane's content). A re-reveal keeps the reading
+  // position only while both are unchanged.
+  #revealedScroll = NaN; #revealedY = NaN;
   #signals; #signalState; #signalLiveSeq = null; #signalReplay = new WeakSet();
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #clarifyWaitTimer; #clarifyRefresh = 0;
@@ -121,7 +130,7 @@ export class AithemaSession extends HTMLElement {
   #introOrb = null; #reveal = null; #fold; #phoneViewport; #timer; #popups; #motion = true; #motionMedia; #motionListener;
   #orb = null; #started = false; #inputMode = null; #microphone = 'unknown'; #permission = null;
   #localeChanging = Promise.resolve(); #copyLocale;
-  #paneObserver; #scrollTimers = new Map();
+  #paneObserver; #scrollTimers = new Map(); #openerFit = ''; #openerFitFor = null;
   #savedTimer; #saved = false; #savedAnnouncement = false; #savedAnnouncedAt = -Infinity; #sendFailed = false;
   #overviewStatusSize; #summaryView; #summaryExpanded = false;
   #questionCard; #disposeVersion; #footerMedia; #footerListener; #brandObserver;
@@ -296,6 +305,7 @@ export class AithemaSession extends HTMLElement {
     this.#phoneViewport?.destroy(); this.#popups?.destroy(); this.#motionMedia?.removeEventListener?.('change', this.#motionListener);
     clearTimeout(this.#creditEndTimer); this.#host?.disconnect(); this.#watchPage(false); this.#concept?.suspend(); this.#rail?.disconnect(); this.#orb?.destroy(); this.#introOrb?.destroy(); this.#abort?.abort(); this.#deviceController?.abort();
     this.#paneObserver?.disconnect(); for (const timer of this.#scrollTimers.values()) clearTimeout(timer); this.#scrollTimers.clear();
+    this.ownerDocument.fonts?.removeEventListener?.('loadingdone', this.#readyFonts);
     this.#pings?.close(); this.#pings = null;
   }
   reportVoicePlaybackBlocked() { this.#rail?.reportPlaybackBlocked(); }
@@ -937,7 +947,8 @@ export class AithemaSession extends HTMLElement {
       const latest = [...root.querySelectorAll('.transcript-shell .turn')].at(-1)?.dataset.id;
       this.#tailReply = this.#longReply === latest ? latest : null;
       this.#longReply = null;
-      this.#scrollToLatest();
+      this.#latestJump = true;
+      try { this.#scrollToLatest(); } finally { this.#latestJump = false; }
     });
     root.querySelector('textarea').setAttribute('aria-describedby', 'composer-reason ai-notice');
     root.querySelector('.scale').setAttribute('aria-label', `${this.#copy.talk} — ${this.#copy.build}`);
@@ -956,6 +967,14 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.composer-out__upgrade').addEventListener('click', event => this.openSettings(event.currentTarget, { tab: 'general', anchor: '#email' }));
     root.querySelector('.composer-out__export').addEventListener('click', event => { event.preventDefault(); if (this.#session.processingPreset !== 'device') void this.#export(); });
     root.querySelector('.purpose-new').addEventListener('click', () => this.#newConversation({ processingPreset: this.#session.processingPreset, settings: this.#session.settings }));
+    // r7: discarding is the visitor's own action: release the kept keyboard-up
+    // feedback row before the discard repaints (capture phase, ahead of the handlers).
+    // r8: the release holds until the discarded content has left the row
+    // (r9: a staged image's remove button scopes it to that image's id).
+    root.querySelector('.composer').addEventListener('click', e => {
+      const discard = e.target.closest?.('.upload-discard, .staged-image__remove, .image-refusals__dismiss');
+      if (discard) releaseFeedback(root, { discard });
+    }, true);
     root.querySelector('form').addEventListener('submit', e => { e.preventDefault(); if (this.#composerPaused) void this.#resumeComposer(); else void this.#send(); });
     root.querySelector('.composer-resume').addEventListener('click', () => { void this.#resumeComposer(); });
     root.querySelector('textarea').addEventListener('keydown', e => {
@@ -1417,7 +1436,30 @@ export class AithemaSession extends HTMLElement {
     // Scroll only this conversation pane, even when a previous gesture disabled
     // ordinary bottom-follow. Never focus the capture field or scroll the page.
     shell.scrollTop += box.top - pane.top - padding;
+    this.#revealedOffer = row; this.#revealedPane = `${pane.width}x${pane.height}`;
+    this.#revealedScroll = shell.scrollTop;
+    this.#revealedY = row.getBoundingClientRect().top - shell.getBoundingClientRect().top + shell.scrollTop;
     this.#recordTranscriptScroll(before);
+  }
+  // AIT-603 r13: the transcript shell shows the host welcome and nothing else:
+  // the list's visible rows are all the welcome, no voice notice paints text,
+  // and no other shell child (reply-failure recovery, any later row) has a
+  // visible box. Latest and empty notice reservations are no content.
+  #painted(node) {
+    if (node.hidden || ['hidden', 'collapse'].includes(this.ownerDocument.defaultView.getComputedStyle(node).visibility)) return false;
+    const box = node.getBoundingClientRect(); return box.width > 0 && box.height > 0;
+  }
+  // A voice notice in the transcript shell paints text (e.g. "please repeat").
+  #noticeShown(shell) {
+    return [...shell.children].filter(child => child.classList.contains('voice-notices')).flatMap(child => [...child.querySelectorAll('.voice-notice')])
+      .some(notice => this.#painted(notice) && (notice.innerText ?? notice.textContent).trim());
+  }
+  #onlyWelcomeVisible(shell) {
+    const list = shell.querySelector('ol');
+    const rows = [...(list?.children ?? [])].filter(row => !row.hidden && row.getClientRects().length);
+    if (!rows.length || !rows.every(row => row.hasAttribute('data-host-opener'))) return false;
+    return !this.#noticeShown(shell) && [...shell.children].every(child => child === list
+      || child.classList.contains('transcript-latest') || child.classList.contains('voice-notices') || !this.#painted(child));
   }
   #scrollToLatest() {
     if (this.#fold?.folded || this.#longReply) return;
@@ -1477,12 +1519,28 @@ export class AithemaSession extends HTMLElement {
       if (pane.width > 0 && pane.height > 0 && (measured || !listElement.children.length)
         && contentEnd + padding - idle <= shell.clientHeight + .5) end = 0;
     }
+    // AIT-603 r11 (Spec 4: nothing has arrived, so nothing follows): on the
+    // combined phone image layout a transcript holding only the host welcome
+    // keeps its reading position, also when the clamped welcome is taller
+    // than a short reading pane (CI Linux metrics at 390x664 DE 125 %).
+    // r12: the image CONCEPT layout (a bound image visual, the welcome clamp's
+    // layout), read from the workspace; #imageLayout means image INPUT is
+    // available and did not hold here, so r11's guard never applied. An
+    // explicit Latest jump still goes to the end.
+    // r13 (Codex gatepra12 M1): positive condition: nothing but the welcome is
+    // visible anywhere the follow would reveal. A voice recovery notice ("please
+    // repeat"), a reply-failure row or any other visible shell content outside
+    // the list is new content, so a following reader follows to it.
+    if (this.#combined && !this.#latestJump && this.shadowRoot.querySelector('.workspace')?.dataset.conceptLayout === 'image'
+      && this.ownerDocument.defaultView.matchMedia('(max-width:600px)').matches && this.#onlyWelcomeVisible(shell)) end = before;
     shell.scrollTop = end;
     // An inline capture can be taller than the combined phone's reading pane.
     // Reveal its entry controls before native focus; bottom-follow alone can
     // leave them above the sticky header and make focus scroll the whole page.
     if (offer) {
       const pane = shell.getBoundingClientRect(), box = offer.getBoundingClientRect();
+      // The offer's top in the pane's content (independent of the scroll position).
+      const offerY = box.top - pane.top + shell.scrollTop;
       const padding = parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).paddingTop);
       const fits = box.height <= pane.height;
       const target = fits ? box : offer.querySelector('.email-offer__row').getBoundingClientRect();
@@ -1490,7 +1548,30 @@ export class AithemaSession extends HTMLElement {
       // the usual top padding. Taller offers retain the complete entry row.
       const room = Math.max(0, pane.height - target.height);
       const inset = Math.min(room, fits ? padding : Math.max(padding, room / 2));
-      shell.scrollTop += target.top - pane.top - inset;
+      // AIT-603 r4 (Codex Low, AIT-506 root fix): a re-reveal of the offer row
+      // already revealed (saving an address re-renders the same row) keeps the
+      // reading position while its target is still whole in the pane there; a
+      // fresh inset (room / 2 is fractional) must not move a visible row by a
+      // rounding. Any other reveal, or a row no longer whole, takes the goal
+      // exactly (no pixel tolerance).
+      const goal = shell.scrollTop + target.top - pane.top - inset;
+      const atBefore = target.top - pane.top + shell.scrollTop - before;
+      // r5 (Codex gatepra4 Low): only the save re-reveal of the same offer keeps
+      // the row: an explicit Latest jump or a resized pane realigns as on main.
+      const size = `${pane.width}x${pane.height}`;
+      // r6b (AIT-543): "whole in the pane" alone is not enough. A re-render can
+      // move the pane or the offer between reveals (e.g. a scrollTop clamped
+      // while the list end is briefly shorter); keeping that position left a sent
+      // offer 27 px below where main puts it. So the row is kept only where the
+      // last reveal left it: the same scrollTop and the same offer position in
+      // the content. Anything else realigns to the goal, as on main.
+      // r7 (Codex gatepra6 Low): compared in content coordinates (the offer's
+      // top plus the scroll offset, so independent of the sampled scrollTop)
+      // with a 0.5 px epsilon against fractional sampling.
+      const unmoved = Math.abs(before - this.#revealedScroll) <= .5 && Math.abs(offerY - this.#revealedY) <= .5;
+      const kept = !this.#latestJump && unmoved && this.#revealedPane === size && this.#revealedOffer === offer && atBefore >= 0 && atBefore + target.height <= pane.height;
+      shell.scrollTop = kept ? before : goal;
+      this.#revealedOffer = offer; this.#revealedPane = size;
     }
     if (this.#combined && this.#imageLayout) {
       const pane = shell.getBoundingClientRect(), scroll = this.shadowRoot.querySelector('.conversation-scroll').getBoundingClientRect();
@@ -1522,9 +1603,13 @@ export class AithemaSession extends HTMLElement {
     if (mini) mini.hidden = true;
     signal?.removeAttribute('data-read-full');
     let held = false;
+    // AIT-603 r13: on the combined entrance a recovery notice painted after the
+    // host welcome is the newest content; following it does not hold the
+    // welcome (already read) at its start, which would leave the notice below.
+    const welcomeThenNotice = this.#combined && latest?.hasAttribute('data-host-opener') && this.#noticeShown(shell);
     // Until the send receipt appends its turn, an offer can still be the last
     // item. Keep its entry visible instead of holding the previous reply.
-    if (latest && !(offer && this.#sending) && latest.dataset.id !== this.#tailReply && (!this.shadowRoot.querySelector('.qcard').hidden || this.#navigation && !latest.classList.contains('user'))) {
+    if (latest && !welcomeThenNotice && !(offer && this.#sending) && latest.dataset.id !== this.#tailReply && (!this.shadowRoot.querySelector('.qcard').hidden || this.#navigation && !latest.classList.contains('user'))) {
       const top = shell.getBoundingClientRect().top + parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).paddingTop);
       const room = shell.getBoundingClientRect().bottom - top;
       if (latest.getBoundingClientRect().height > room) {
@@ -1561,6 +1646,15 @@ export class AithemaSession extends HTMLElement {
           this.#follow = false; held = true;
         }
       }
+    }
+    // r7 (Codex gatepra6 Low): the reveal snapshot is taken after the
+    // image-layout pass, which can scroll again, so the next re-reveal compares
+    // against where this one really left the pane. r8 (Codex gatepra7 Low): and
+    // after the long-reply branch, which scrolls too when a question card and a
+    // trailing offer coexist.
+    if (offer) {
+      this.#revealedScroll = shell.scrollTop;
+      this.#revealedY = offer.getBoundingClientRect().top - shell.getBoundingClientRect().top + shell.scrollTop;
     }
     this.#latestScrollTop = held ? null : shell.scrollTop;
     this.#recordTranscriptScroll(before);
@@ -2201,6 +2295,11 @@ export class AithemaSession extends HTMLElement {
     const composer = part === 'composer' && this.#imageLayout ? this.shadowRoot.querySelector('.composer') : null;
     const following = composer && this.#followsTranscript(), height = composer?.getBoundingClientRect().height;
     this.#paint(part);
+    // r6/r7 (TICK r5/r6 M1): with the phone keyboard up the feedback row only
+    // grows: once it has shown anything (Saved, "Preparing…", a notice, a
+    // control) it stays, empty after the feedback clears by itself, until the
+    // keyboard closes (layout.js) or the visitor sends or discards.
+    if (part === 'composer') latchFeedback(this.shadowRoot);
     if (composer && composer.getBoundingClientRect().height !== height) {
       // Retain follow before a growing composer can clamp the scroll offset.
       this.#phoneViewport?.paint();
@@ -2408,7 +2507,9 @@ export class AithemaSession extends HTMLElement {
         const enter = node('kbd', '', 'Enter'), suffix = (parts[1] ?? '').split('Enter');
         reason.replaceChildren(parts[0] ?? '', modifier, suffix[0], enter, suffix.slice(1).join('Enter'));
       }
-      reason.title = !text.available || this.#rail?.moved ? unavailable : '';
+      // AIT-603 r6 (Codex gate5c M3): the text-consent line's sentence is the
+      // action's description only; a title would name the status region with it again.
+      reason.title = (!text.available || this.#rail?.moved) && reason.dataset.consentFeature !== 'text' ? unavailable : '';
       input.toggleAttribute('data-purpose-paused', this.#session.pauseReason === 'purpose');
       const purposePause = root.querySelector('.purpose-pause-copy');
       purposePause.hidden = this.#session.pauseReason !== 'purpose'; setText(purposePause, copy.purposePaused);
@@ -2949,11 +3050,119 @@ export class AithemaSession extends HTMLElement {
     const flag = root.querySelector('.engine__flag');
     if (flag.dataset.kind !== kind) { flag.dataset.kind = kind; flag.innerHTML = languageFlag(kind); }
   }
+  // AIT-603: on phones the combined ready stage fits the welcome to the scroll
+  // area: the largest whole-line count (2..6) that keeps the label, the lines,
+  // Read full reply and one-row readiness visible together. The count belongs
+  // to the viewport (width, scroll height, text metrics, welcome) and is never
+  // recomputed at the hand-off, while the keyboard is up or once live.
+  #fitOpener() {
+    const root = this.shadowRoot, workspace = root.querySelector('.workspace'), view = this.ownerDocument.defaultView;
+    if (!this.#combined || !workspace || !view?.matchMedia('(max-width:600px)').matches) {
+      if (this.#openerFit) { workspace?.style.removeProperty('--opener-lines'); workspace?.style.removeProperty('--opener-fade'); this.#openerFit = ''; }
+      return;
+    }
+    const row = root.querySelector('[data-host-opener]'), ready = root.querySelector('.ready'), scroll = root.querySelector('.conversation-scroll');
+    const shown = node => Boolean(node) && (typeof node.checkVisibility === 'function' ? node.checkVisibility() : !node.hidden);
+    if (!row || !scroll || workspace.dataset.stage === 'live' || workspace.hasAttribute('data-phone-keyboard') || !shown(ready)) return;
+    const text = row.querySelector('.turn-text'), more = row.querySelector('.host-opener-more'), style = view.getComputedStyle(text);
+    const line = parseFloat(style.lineHeight);
+    // configure() rebuilds the workspace and drops its inline count: a new
+    // workspace always fits again (Codex M2), as do readiness and font changes.
+    const key = `${view.innerWidth}/${scroll.clientHeight}/${text.clientWidth}/${style.fontSize}/${style.fontFamily}/${line}/${ready.getBoundingClientRect().height}/${text.textContent}`;
+    if (!line || !scroll.clientHeight || (key === this.#openerFit && workspace === this.#openerFitFor)) return;
+    const lines = count => { workspace.style.setProperty('--opener-lines', String(count)); if (more) more.hidden = text.scrollHeight <= text.clientHeight; };
+    // The end of what must stay visible, in scroll coordinates.
+    const end = () => {
+      const top = scroll.getBoundingClientRect().top - scroll.scrollTop;
+      return Math.max(...[text, more, ready].filter(shown).map(node => node.getBoundingClientRect().bottom)) - top;
+    };
+    let count = 6; lines(count);
+    while (count > 2 && end() > scroll.clientHeight + .5) lines(--count);
+    // The fallback's soft bottom fade (about 24 px) starts below Read full reply
+    // where the link would otherwise sit in it: at least 12 px, unless the
+    // link in view leaves less room; then it takes only that room (0 = none),
+    // so it never covers the link (Codex gate2c Low).
+    this.#openerFit = key; this.#openerFitFor = workspace;
+    this.#fadeExtent();
+  }
+  // The fade's extent follows the link in view, also while scrolling (gate3c
+  // Low): a link fully in view keeps at least the room below it clear (up to
+  // 24 px); a link out of view (or none) leaves the full 24 px.
+  #fadeExtent() {
+    const root = this.shadowRoot, workspace = root.querySelector('.workspace'), scroll = root.querySelector('.conversation-scroll');
+    if (!workspace || !scroll || !this.#openerFit || workspace !== this.#openerFitFor) return;
+    const more = root.querySelector('[data-host-opener] .host-opener-more');
+    const shown = Boolean(more) && (typeof more.checkVisibility === 'function' ? more.checkVisibility() : !more.hidden);
+    const view = scroll.getBoundingClientRect(), link = shown ? more.getBoundingClientRect() : null;
+    const room = link && link.top >= view.top - .5 ? Math.floor(scroll.clientHeight - (link.bottom - view.top)) : -1;
+    const fade = `${room < 0 ? 24 : Math.min(24, room)}px`;
+    if (workspace.style.getPropertyValue('--opener-fade') !== fade) workspace.style.setProperty('--opener-fade', fade);
+  }
+  // TICK M1 (AIT-603): the one-row readiness joins title, consent state and
+  // Change settings with generated "·" separators. No separator may start a
+  // wrapped line: an item that starts a new line keeps its separator laid out
+  // (so the wrap itself cannot change), hides it, and moves back by its width,
+  // so the line starts flush with the text. Relative offsets do not affect layout.
+  // A font swap can move the wraps without resizing the card (Codex gate2c Low).
+  // (The phone consent cap is pure CSS, AIT-603 PR-A: nothing to re-measure.)
+  #readyFonts = () => { this.#fitReady(); this.#markReadyWraps(); };
+  #readyItems(ready) {
+    return [...ready.querySelectorAll(':scope > h3, :scope > dl > .ready__row, :scope > .ready__actions')].filter(item => item.getClientRects().length);
+  }
+  // AIT-603 r11 (CI Linux metrics): the phone's one-row readiness keeps title,
+  // consent state and Change settings on at most two rows with any font
+  // metrics. Rows are counted from the items' boxes; only when they take a
+  // third row does the form tighten: first the separators lose their margins,
+  // then the readiness loses its inline padding. Metrics that already fit in
+  // two rows (macOS) never tighten, so their look is unchanged. Runs before the
+  // welcome fit, which sizes the welcome to the space readiness leaves.
+  #fitReady() {
+    const ready = this.#combined && this.shadowRoot.querySelector('.ready'), view = this.ownerDocument.defaultView;
+    if (!ready || !view) return;
+    const rows = () => {
+      let count = 0, lineBottom = -Infinity;
+      for (const item of this.#readyItems(ready)) {
+        const box = item.getBoundingClientRect();
+        if (!count || box.top >= lineBottom - .5) { count += 1; lineBottom = box.bottom; } else lineBottom = Math.max(lineBottom, box.bottom);
+      }
+      return count;
+    };
+    ready.removeAttribute('data-ready-tight');
+    // Only the one-row form (a flex row); the full readiness card is a grid of rows.
+    if (view.getComputedStyle(ready).display !== 'flex') return;
+    for (const step of ['separator', 'padding']) {
+      if (rows() <= 2) return;
+      ready.setAttribute('data-ready-tight', step);
+    }
+  }
+  #markReadyWraps() {
+    const ready = this.shadowRoot.querySelector('.ready'), view = this.ownerDocument.defaultView;
+    if (!ready || !view) return;
+    const items = this.#readyItems(ready);
+    let lineBottom = -Infinity;
+    for (const [index, item] of items.entries()) {
+      const box = item.getBoundingClientRect(), starts = index === 0 || box.top >= lineBottom - .5;
+      lineBottom = starts ? box.bottom : Math.max(lineBottom, box.bottom);
+      const separated = !['none', 'normal'].includes(view.getComputedStyle(item, '::before').content);
+      const child = starts && separated && [...item.children].find(n => n.getClientRects().length && view.getComputedStyle(n).position !== 'absolute');
+      if (child) {
+        const inner = child.getBoundingClientRect(), shift = view.getComputedStyle(item).direction === 'rtl' ? box.right - inner.right : inner.left - box.left;
+        item.style.setProperty('--ready-separator', `${Math.max(0, shift)}px`); item.setAttribute('data-line-start', '');
+      } else if (item.hasAttribute('data-line-start')) { item.removeAttribute('data-line-start'); item.style.removeProperty('--ready-separator'); }
+    }
+  }
   #syncPanes() {
+    this.#fitReady();
+    this.#fitOpener();
     for (const row of this.shadowRoot.querySelectorAll('[data-host-opener]')) {
       const text = row.querySelector('.turn-text'), more = row.querySelector('.host-opener-more');
       if (more) more.hidden = text.scrollHeight <= text.clientHeight;
     }
+    // AIT-603: the phone ready stage scrolls only when even two welcome lines
+    // and readiness do not fit; a bottom fade shows while content is below.
+    const scroll = this.#combined && this.shadowRoot.querySelector('.conversation-scroll');
+    if (scroll) scroll.toggleAttribute('data-bottom', scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop >= 1);
+    this.#markReadyWraps();
     for (const pane of this.shadowRoot.querySelectorAll(PANES)) {
       let top = pane.scrollTop > 4, bottom = pane.scrollTop + pane.clientHeight < pane.scrollHeight - 4;
       // A pinned contact can put a heading at the reading boundary. Fade body
@@ -3039,6 +3248,23 @@ export class AithemaSession extends HTMLElement {
       for (const pane of this.shadowRoot.querySelectorAll(PANES)) {
         this.#paneObserver.observe(pane); for (const child of pane.children) this.#paneObserver.observe(child);
       }
+      // AIT-603: viewport, orientation and text-size changes resize the phone scroll area.
+      const scroll = this.shadowRoot.querySelector('.conversation-scroll');
+      if (scroll) this.#paneObserver.observe(scroll);
+      // TICK M1: readiness re-wraps when its card resizes.
+      const card = this.shadowRoot.querySelector('.intro__card');
+      if (card) this.#paneObserver.observe(card);
+      // Codex gate2c Low: a font swap can move the wraps without resizing the card.
+      // Only while connected (gate3c Low): configure() on a detached element
+      // registers nothing that disconnectedCallback would never remove;
+      // connectedCallback observes again and registers it then.
+      if (this.isConnected) this.ownerDocument.fonts?.addEventListener?.('loadingdone', this.#readyFonts);
+    }
+    const scroll = this.shadowRoot.querySelector('.conversation-scroll');
+    if (scroll && !scroll.dataset.scrollBound) {
+      scroll.dataset.scrollBound = 'true';
+      // Content is below until the exact end (one CSS px absorbs sub-pixel scroll offsets).
+      scroll.addEventListener('scroll', () => { scroll.toggleAttribute('data-bottom', scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop >= 1); this.#fadeExtent(); }, { passive: true });
     }
     for (const pane of this.shadowRoot.querySelectorAll(PANES)) {
       if (pane.dataset.scrollBound) continue;
@@ -3093,7 +3319,7 @@ export class AithemaSession extends HTMLElement {
     // The card is built once per mode and its controls are keyed and updated in place, so a
     // live update keeps the hovered and focused nodes, and #anchored keeps them still (AIT-116 D2).
     if (card.firstElementChild?.className !== mode) card.replaceChildren(mode === 'ready' ? this.#readyCard() : this.#chooserCard());
-    if (mode === 'ready') this.#paintReady(card.firstElementChild); else this.#paintChooser(card.firstElementChild);
+    if (mode === 'ready') { this.#paintReady(card.firstElementChild); if (this.#combined) { this.#fitReady(); this.#markReadyWraps(); } } else this.#paintChooser(card.firstElementChild);
     if (focus && !intro.contains(root.activeElement)) intro.querySelector(`[data-focus-key="${focus}"]`)?.focus();
   }
   // AIT-140's 40 px orb stays the first band item. START's entrance retains its large, quiet object.
@@ -3880,7 +4106,11 @@ export class AithemaSession extends HTMLElement {
       const response = await this.#api(sameOrigin(this.ownerDocument.defaultView, `${this.#base}/api/sessions/${sessionId}/uploads/${encodeURIComponent(id)}/withdraw`), {}, { sessionToken: this.#sessionToken });
       if (!response.ok) throw new Error();
       const body = await response.json(); if (sessionId === this.#session.id) this.receive(body.event);
-    } catch { this.#status(this.#copy.uploads.withdrawFailed); }
+    } catch {
+      this.#status(this.#copy.uploads.withdrawFailed);
+      // r10 (AIT-603, Codex gatepra9 Low): the tile stays; its feedback latches again.
+      endDiscard(this.shadowRoot);
+    }
   }
   #consumeImageIntent() {
     const pending = this.#imageIntent;
@@ -3974,6 +4204,8 @@ export class AithemaSession extends HTMLElement {
       ...(voiceSession ? { voiceCallId: voiceSession.callId, providerSessionId: voiceSession.providerSessionId } : {}) };
     if (this.#navigation) this.#navigation.userId = this.#pending.clientEventId;
     clearTimeout(this.#savedTimer); this.#saved = false; this.#savedAnnouncement = false;
+    // r7: sending is the visitor's own action: the kept keyboard-up row may shrink.
+    releaseFeedback(this.shadowRoot);
     this.#sending = true; button.disabled = true; this.#render('composer'); this.#status(this.#copy.sending);
     try {
       const response = await this.#api(`${this.#base}/api/sessions/${sessionId}/turns`, this.#pending, { sessionToken: this.#sessionToken });

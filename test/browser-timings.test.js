@@ -307,6 +307,24 @@ process.stdout.write(sources[key.slice(prefix.length)]);
     assert.match(rejected.stderr, /incomplete or mixed 15-shard/u);
     assert.equal(readFileSync(weightPath, 'utf8'), before, 'invalid fifteen-shard input writes no weights');
   });
+  const sixteen = Array.from({ length: 16 }, (_, i) => ({ ...artifacts[0], name: `browser-timings-${i + 1}-of-16` }));
+  await t.test('AIT-624: imports a complete sixteen-shard run', () => {
+    const success = invoke({ artifacts: sixteen });
+    assert.equal(success.status, 0, success.stderr);
+    assert.equal(JSON.parse(readFileSync(weightPath)).seconds, 2.5);
+  });
+  for (const [name, invalid] of [
+    ['missing index', sixteen.slice(1)],
+    ['duplicate index', [...sixteen.slice(1), sixteen[1]]],
+    ['out-of-range index', sixteen.map((a, i) => i ? a : { ...a, name: 'browser-timings-17-of-16' })],
+    ['mixed counts', [...sixteen, fifteen[0]]],
+    ['expired artifact', sixteen.map((a, i) => i ? a : { ...a, expired: true })],
+  ]) await t.test(`AIT-624: rejects sixteen-shard artifacts with ${name}`, () => {
+    const rejected = invoke({ artifacts: invalid });
+    assert.notEqual(rejected.status, 0, rejected.stdout);
+    assert.match(rejected.stderr, /incomplete or mixed 16-shard/u);
+    assert.equal(readFileSync(weightPath, 'utf8'), before, 'invalid sixteen-shard input writes no weights');
+  });
   await t.test('imports a complete nine-shard run', () => {
     const success = invoke({ artifacts: nine });
     assert.equal(success.status, 0, success.stderr);

@@ -87,8 +87,12 @@ test('the real candidate release set has no cross-package import in any tarball'
   try { packRelease({ root: fileURLToPath(root), output: directory }); } catch (error) { packError = error; }
   try { verifyRelease(directory, { onImportScan: scan => scans.push(scan) }); } catch (error) { verifyError = error; }
   for (const scan of scans) t.diagnostic(`import check: ${scan.tarball} scanned ${scan.scanned} files, ${scan.escapes} cross-package imports`);
-  if (process.env.AITHEMA_EVIDENCE_DIR) writeFileSync(join(process.env.AITHEMA_EVIDENCE_DIR, 'release-import-scan.json'),
-    JSON.stringify({ scans, error: (packError ?? verifyError)?.message ?? null }, null, 2) + '\n');
+  // AIT-621: no other test may be relied on to create the evidence directory first.
+  if (process.env.AITHEMA_EVIDENCE_DIR) {
+    mkdirSync(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+    writeFileSync(join(process.env.AITHEMA_EVIDENCE_DIR, 'release-import-scan.json'),
+      JSON.stringify({ scans, error: (packError ?? verifyError)?.message ?? null }, null, 2) + '\n');
+  }
   assert.ifError(packError); assert.ifError(verifyError);
   const manifest = JSON.parse(readFileSync(join(directory, 'release-set.json')));
   assert.deepEqual(scans.map(scan => scan.tarball), manifest.artifacts.map(artifact => artifact.path));

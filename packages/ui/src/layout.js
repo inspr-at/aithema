@@ -110,9 +110,11 @@ export class ConversationFold {
   setCopy(copy) { this.copy = copy; this.paint(); }
   paint() {
     const c = this.copy.layout;
-    // Keep this edge control focusable: leaving the phone composer must still
-    // dismiss its keyboard layout even when folding is unavailable.
-    this.button.setAttribute('aria-disabled', String(!this.canFold()));
+    // AIT-608 (TICK): with nothing to fold the control is hidden (band styles keep its slot) and inert, so it is
+    // out of the tab order and the accessibility tree; it appears unchanged once foldable.
+    const foldable = this.canFold();
+    this.button.setAttribute('aria-disabled', String(!foldable));
+    this.button.inert = !foldable;
     this.button.setAttribute('aria-expanded', String(!this.folded));
     this.button.setAttribute('aria-label', this.folded ? c.unfold : c.fold);
     this.button.title = this.folded ? c.unfold : c.fold;
@@ -379,6 +381,78 @@ class ComposerSize {
 
 /** Keep the phone dock in the visual viewport, including keyboards that resize
  * only that viewport. Geometry comes from the existing band, footer and dock. */
+// r7 (AIT-603, TICK r6 M1): the phone feedback row SHOWS something when the
+// keyboard-up collapse rule (combined-entrance-styles.js) would not take it:
+// a visible Saved, a reason other than the idle shortcut hint, or a control.
+export const feedbackShows = feedback => Boolean(feedback) && (feedback.hasAttribute('data-saved')
+  || !feedback.querySelector(':scope > .composer-reason')?.matches('[data-shortcut],:empty')
+  || Boolean(feedback.querySelector('button, a, input, [tabindex]')));
+// While the keyboard is up, a row that has shown anything stays (data-keyboard-kept)
+// until the keyboard closes or the visitor sends or discards (session-element).
+// r8 (Codex gatepra7 Medium, TICK r7): the kept row also holds the LARGEST
+// height it rendered since the latch (a two-line notice that clears leaves a
+// two-line empty row, not a one-line one), recorded at every latch, every
+// keyboard-up paint and every resize of the row; released with the latch.
+// r9 (Codex gatepra8 Medium x2): the held height is the custom property
+// --feedback-held, which the row's CSS combines with the dock's own minimum
+// (max(), combined-entrance-styles.js), so it never undercuts the image dock's
+// 44 px row. It is read in LAYOUT px (the used height, not the transformed
+// rect), so a scaled host ancestor cannot feed it back larger on every
+// ResizeObserver delivery.
+const heldHeight = new WeakMap(), observed = new WeakSet(), discarded = new WeakMap();
+// What a discard was about: the row's reason text and its controls (a
+// document retry or an image refusal; r9: a staged image is scoped by its id).
+const shownContent = feedback => `${feedback.hasAttribute('data-saved')}|${feedback.querySelector(':scope > .composer-reason')?.textContent ?? ''}|${feedback.querySelectorAll('button, a, input, [tabindex]').length}`;
+const holdHeight = feedback => {
+  // The used height is in layout px and in the box min-height applies to (content or border box).
+  const rendered = parseFloat(feedback.ownerDocument.defaultView.getComputedStyle(feedback).height) || 0;
+  const height = Math.max(heldHeight.get(feedback) ?? 0, rendered);
+  heldHeight.set(feedback, height);
+  if (height > 0 && feedback.style.getPropertyValue('--feedback-held') !== `${height}px`) feedback.style.setProperty('--feedback-held', `${height}px`);
+};
+// r9 (Codex gatepra8 Low): discarding a staged image suppresses the latch only
+// while THAT image is still staged (another pending image shows the same
+// "Preparing…" and latches again once the discarded one has left).
+const discardScope = (feedback, target) => {
+  const image = target?.closest?.('.staged-image[data-id]');
+  return image ? { id: image.dataset.id } : { content: shownContent(feedback) };
+};
+const stillDiscarding = (root, feedback, scope) => scope.id
+  ? [...root.querySelectorAll('.staged-image[data-id]')].some(image => image.dataset.id === scope.id)
+  : scope.content === shownContent(feedback);
+// The visitor's own action (send, discard) or the keyboard closing releases the
+// kept row and its held height. r8 (Codex gatepra7 Low): a discard also keeps the
+// row from latching again on the content being discarded (a viewport paint
+// before the withdrawal acknowledgment would otherwise latch the still-visible
+// "Preparing…") until that content has left the row. r9: `discard` is the
+// clicked control; a staged image's remove button scopes it to that image.
+export const releaseFeedback = (root, { discard = null } = {}) => {
+  const feedback = root.querySelector('.composer-feedback');
+  if (!feedback) return;
+  feedback.removeAttribute('data-keyboard-kept'); feedback.style.removeProperty('--feedback-held'); heldHeight.delete(feedback);
+  if (discard) discarded.set(feedback, discardScope(feedback, discard)); else discarded.delete(feedback);
+};
+// r10 (Codex gatepra9 Low): a discard that FAILED (its error shows, the tile
+// stays staged) ends the suppression at once; the row latches again.
+export const endDiscard = root => {
+  const feedback = root.querySelector('.composer-feedback');
+  if (feedback && discarded.delete(feedback)) latchFeedback(root);
+};
+export const latchFeedback = (root, keyboardUp = root.querySelector('.workspace')?.hasAttribute('data-phone-keyboard')) => {
+  const feedback = root.querySelector('.composer-feedback');
+  if (!feedback) return;
+  if (!keyboardUp) { if (feedback.hasAttribute('data-keyboard-kept') || feedback.style.getPropertyValue('--feedback-held') || discarded.has(feedback)) releaseFeedback(root); return; }
+  if (discarded.has(feedback)) {
+    if (stillDiscarding(root, feedback, discarded.get(feedback))) return;
+    discarded.delete(feedback);
+  }
+  if (feedbackShows(feedback)) feedback.setAttribute('data-keyboard-kept', '');
+  if (!feedback.hasAttribute('data-keyboard-kept')) return;
+  holdHeight(feedback);
+  // A row that grows between paints (a notice painted by a feature poll) is held too.
+  const Observer = feedback.ownerDocument.defaultView?.ResizeObserver;
+  if (Observer && !observed.has(feedback)) { observed.add(feedback); new Observer(() => latchFeedback(root)).observe(feedback); }
+};
 export class PhoneComposerViewport {
   constructor(root, { onNoticesChange = () => {}, onCompactChange = () => {}, followsTranscript = () => true,
     resizeComposer = update => update(), onComposerResize = () => {}, questionPending = () => false } = {}) {
@@ -390,7 +464,19 @@ export class PhoneComposerViewport {
       const view = this.view, viewport = view?.visualViewport;
       const height = viewport?.height ?? view?.innerHeight ?? 0;
       // Pinch zoom is a reading gesture; do not move controls while zooming.
-      if (viewport && viewport.scale !== 1) return;
+      // r9 (Codex gatepra8 Low): the keyboard closing while zoomed still
+      // releases the kept feedback row and its held height. r10 (Codex
+      // gatepra9 Low): only the keyboard's actual close does (the zoomed
+      // viewport covers the whole layout height again), not focus loss while
+      // it is still hiding; the keyboard flag clears with it, so a later
+      // composer render cannot latch the row again while still zoomed.
+      if (viewport && viewport.scale !== 1) {
+        if ((this.fullHeight ?? 0) - height * viewport.scale < 150) {
+          root.querySelector('.workspace')?.removeAttribute('data-phone-keyboard');
+          latchFeedback(root, false);
+        }
+        return;
+      }
       const workspace = root.querySelector('.workspace');
       const footer = root.querySelector('.display-foot');
       const geometry = footerGeometry(footer, this);
@@ -428,7 +514,14 @@ export class PhoneComposerViewport {
         this.fullHeight = Math.max(view?.innerHeight ?? height, height);
         this.viewportWidth = width; this.viewportOrientation = orientation;
       } else this.fullHeight = Math.max(this.fullHeight ?? 0, view?.innerHeight ?? height, height);
-      workspace.toggleAttribute('data-phone-keyboard', Boolean(phone && touch && editing && this.fullHeight - height >= 150));
+      const keyboardUp = Boolean(phone && touch && editing && this.fullHeight - height >= 150);
+      workspace.toggleAttribute('data-phone-keyboard', keyboardUp);
+      // r6/r7 (AIT-603, TICK r5/r6 M1): with the keyboard up the feedback row
+      // only grows. The keyboard-open transition (and every keyboard-up paint)
+      // latches whatever the row shows now, so feedback that clears by itself
+      // later leaves its row in place, empty. Closing the keyboard releases it,
+      // so the next keyboard opens at 0 px again.
+      latchFeedback(root, keyboardUp);
       this.composerSize.fit();
       const outBody = root.querySelector('.composer-out__body');
       // Only clipped copy needs its own keyboard scroll target. Fitting copy
