@@ -136,7 +136,8 @@ export function dropText(copy, limits, locale) {
 export function refusalText(copy, { refused, blocked, limits }, locale) {
   const u = copy.uploads, sentences = [];
   if (refused.length && !uploadsPossible(limits)) return u.impossible;
-  if (refused.length) sentences.push(fill(u.refused, { list: refused.map(r => fill(r.reason === 'type' ? u.type : DOCUMENT_INTAKE_REASONS.includes(r.reason) && u.typeReason && u.reasons?.[r.reason] ? u.typeReason : u.tooLarge,
+  if (refused.length) sentences.push(fill(u.refused, { list: refused.map(r => fill(r.reason === 'type' ? u.type
+    : DOCUMENT_INTAKE_REASONS.includes(r.reason) ? u.typeReason && u.reasons?.[r.reason] ? u.typeReason : u.type : u.tooLarge,
     { name: r.name, size: formatBytes(r.limit ?? 0, locale), reason: u.reasons?.[r.reason] })).join(', ') }));
   if (blocked === 'images') sentences.push(resolveCopy(copy, 'imageRefusals.limit', undefined, locale));
   if (blocked === 'count') sentences.push(fill(u.tooMany, { files: limits.maxDocumentsPerSession }));
