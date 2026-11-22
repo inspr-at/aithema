@@ -21,6 +21,8 @@ const allowed={available:true},blocked={available:false,reason:'current processi
 const c=document.createElement('aithema-session');document.body.append(c);globalThis.c=c;
 const nativeFetch=fetch;
 globalThis.fetch=async(url,options={})=>{
+ // AIT-610 r9: owner routes arrive at their resolved absolute URL; route by path.
+ if(String(url).startsWith(location.origin+'/'))url=String(url).slice(location.origin.length);
  if(!String(url).startsWith('/api/sessions/'))return nativeFetch(url,options);
  if(String(url).endsWith('/events'))return new Response(new ReadableStream({start(controller){options.signal?.addEventListener('abort',()=>controller.close(),{once:true})}}));
  if(String(url).endsWith('/consent'))return Response.json({consentRevision:c.session.consentRevision,selected:[],features:{}});
