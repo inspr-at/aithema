@@ -109,7 +109,7 @@ test('demo rejects foreign Hosts and non-JSON POSTs before session creation', { 
 // Any mention of the word "method" outside postJson fails (quoted keys, bracket
 // access and shorthand included); a false alarm in a comment is the safe side.
 // The guarded owner helper (AIT-625) fails closed without a page origin; Node tests give it one.
-const page = { location: new URL('http://localhost/'), document: { baseURI: 'http://localhost/' } };
+const page = { origin: 'http://localhost', location: new URL('http://localhost/'), document: { baseURI: 'http://localhost/' } };
 const sendsMethod = source => /\bmethod\b|new\s+Request\s*\(|navigator\.sendBeacon|XMLHttpRequest/u.test(source);
 async function clientFiles() {
   const { readdir } = await import('node:fs/promises');

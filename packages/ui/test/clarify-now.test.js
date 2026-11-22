@@ -506,10 +506,15 @@ test('RC24 a direct one-hour refusal keeps its specific reason and hides the act
   assert.ok(f.rows().every(row => row.querySelector('button').hidden));
   assert.equal(f.calls.length, 1);
 });
+// AIT-625 r3: the guarded helper hands callers a re-wrapped finite body (every read races its
+// deadline), so a json() mocked on the stub's own Response is never called. The held reply lives
+// in the body instead: its bytes arrive when `held` settles.
+const heldJson = (held, init) => new Response(new ReadableStream({ async start(controller) {
+  controller.enqueue(new TextEncoder().encode(JSON.stringify(await held))); controller.close();
+} }), { ...init, headers: { 'content-type': 'application/json' } });
 test('RC24 a different peer focus never inherits a pending local acceptance or stays pending', async t => {
   const f = fixture(t), body = Promise.withResolvers(), warnings = [], local = f.accept();
-  const response = Response.json({}, { status: 202 });
-  t.mock.method(response, 'json', () => body.promise);
+  const response = heldJson(body.promise, { status: 202 });
   t.mock.method(console, 'warn', (...args) => warnings.push(args));
   f.post(() => response);
   const request = f.c.focusQuestion(f.c.openQuestionItems[1].id);
@@ -598,8 +603,8 @@ test('RC24 choosing another point after a reaction failure keeps the new row req
   assert.equal(f.rows()[0].dataset.state, 'requesting', 'a new accepted focus cannot inherit the old reaction failure');
 });
 test('RC24 a newer HTTP focus event supersedes a peer event and retains its actual acceptance', async t => {
-  const f = fixture(t), body = Promise.withResolvers(), warnings = [], response = Response.json({}, { status: 202 });
-  t.mock.method(response, 'json', () => body.promise); t.mock.method(console, 'warn', (...args) => warnings.push(args));
+  const f = fixture(t), body = Promise.withResolvers(), warnings = [], response = heldJson(body.promise, { status: 202 });
+  t.mock.method(console, 'warn', (...args) => warnings.push(args));
   f.post(() => response); const item = f.c.openQuestionItems[1];
   const request = f.c.focusQuestion(item.id);
   t.after(async () => { body.resolve(f.accept()); await request.catch(() => {}); });
