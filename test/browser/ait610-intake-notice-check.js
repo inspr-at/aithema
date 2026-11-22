@@ -1,9 +1,10 @@
-// AIT-610 r6 (LEAD 03:0x; gate5c defect b): viewport evidence for TICK.
+// AIT-610 r6 (LEAD 03:0x; gate5c defect b), r7: viewport evidence for TICK.
 // 1. A document refused at intake with a reason the server is certain of
 //    (password-protected, an older Office format, damaged) is named with that
-//    reason in the composer notice.
+//    reason in the composer notice; r7 (TICK r6): the legacy line names the one
+//    format of the suffix used (.docx, .xlsx, .pptx).
 // 2. A browser that consumed the pending event of an image reconnects after a
-//    server restart; the reconnect refresh shows the derived 'unavailable'.
+//    server restart; the reconnection (GET /uploads) shows the derived 'unavailable'.
 // Light theme, 390 and 1440, EN and DE. Screenshots only with AITHEMA_EVIDENCE_DIR.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -56,14 +57,16 @@ export function intakeNoticeCheck() {
       });
       await startTyping(page);
       const { [locale]: copy } = await import(`../../packages/ui/src/i18n/${locale}.js`);
-      const evidence = process.env.AITHEMA_EVIDENCE_DIR, prefix = `ait610-r6-${width}-${locale}-light`;
+      const evidence = process.env.AITHEMA_EVIDENCE_DIR, prefix = `ait610-r7-${width}-${locale}-light`;
       if (evidence) await mkdir(evidence, { recursive: true });
       const shot = async state => {
         await inShadow(page, c => c.shadowRoot.activeElement?.blur()); await page.mouse.move(0, 0);
         await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
         if (evidence) await page.screenshot({ path: join(evidence, `${prefix}-${state}.png`) });
       };
-      for (const [reason, name] of [['encrypted', 'secret.docx'], ['legacy', 'old-letter.docx'], ['malformed', 'cut.xlsx']]) {
+      const legacyKeys = { docx: 'legacyWord', xlsx: 'legacyExcel', pptx: 'legacyPowerPoint' };
+      for (const [reason, name] of [['encrypted', 'secret.docx'], ['legacy', 'old-letter.docx'], ['legacy', 'old-budget.xlsx'], ['legacy', 'old-deck.pptx'], ['malformed', 'cut.xlsx']]) {
+        const suffix = name.split('.').pop(), key = reason === 'legacy' ? legacyKeys[suffix] : reason;
         await t.test(`${reason}: ${name} is named with its reason`, async () => {
           await inShadow(page, (c, reason, name) => {
             window.intakeReason = reason;
@@ -76,9 +79,10 @@ export function intakeNoticeCheck() {
             return { text: node.textContent, width: box.width, height: box.height };
           });
           assert.ok(notice.width > 0 && notice.height > 0, `a visible notice box ${JSON.stringify(notice)}`);
-          const expected = copy.uploads.refused.replace('{list}', `${name} (${copy.uploads.reasons[reason]})`);
+          assert.equal(typeof copy.uploads.reasons[key], 'string', key);
+          const expected = copy.uploads.refused.replace('{list}', `${name} (${copy.uploads.reasons[key]})`);
           assert.ok(notice.text.startsWith(expected), notice.text);
-          await shot(`intake-${reason}`);
+          await shot(reason === 'legacy' ? `intake-legacy-${suffix}` : `intake-${reason}`);
         });
       }
       await t.test("reconnect after the pending event shows 'unavailable'", async () => {
