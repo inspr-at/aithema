@@ -387,8 +387,25 @@ export async function phoneReadyFitCheck(t) {
         await page.evaluate(`globalThis.boxes603 = ${boxesInPage}`);
         await page.evaluate(() => {
           const host = document.querySelector('aithema-session'), root = host.shadowRoot, frames = globalThis.liveFrames603 = [];
+          // r12: a hand-off move names its scroll writers: every scrollTop write,
+          // scroll call and focus() from here to the live stage, with the
+          // transcript's scroll position before it and the calling frames.
+          const shell = root.querySelector('.transcript-shell'), trap = globalThis.scrollTrap603 = [];
+          const top = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
+          const state = () => `${root.querySelector('.workspace')?.dataset.stage}:${Math.round(top.get.call(shell))}/${shell.scrollHeight - shell.clientHeight}`;
+          const where = () => new Error().stack.split('\n').slice(3, 8)
+            .map(line => { const m = /at (?:async )?(?:(\S+) \()?.*\/([^/:]+):(\d+):\d+\)?$/u.exec(line); return m ? `${m[1] ?? ''}@${m[2]}:${m[3]}` : ''; }).join('<');
+          const log = entry => { if (trap.length < 24) trap.push(`${entry} [${state()}] ${where()}`); };
+          Object.defineProperty(shell, 'scrollTop', { configurable: true, get() { return top.get.call(this); }, set(value) { log(`${this === shell ? 'shell' : this.className}.scrollTop=${Math.round(value)}`); top.set.call(this, value); } });
+          for (const name of ['scrollTo', 'scrollBy', 'scrollIntoView']) {
+            const original = Element.prototype[name];
+            Element.prototype[name] = function (...args) { log(`${this.className || this.tagName}.${name}(${JSON.stringify(args)})`); return original.apply(this, args); };
+          }
+          const focus = HTMLElement.prototype.focus;
+          HTMLElement.prototype.focus = function (...args) { log(`${this.className || this.tagName}.focus(${JSON.stringify(args)})`); return focus.apply(this, args); };
           const observer = new MutationObserver(() => {
             if (root.querySelector('.workspace')?.dataset.stage !== 'live') return;
+            log('observer');
             observer.disconnect();
             frames.push({ at: 'stage', ...globalThis.boxes603(host) });
             requestAnimationFrame(() => { frames.push({ at: 'frame1', ...globalThis.boxes603(host) });
@@ -415,6 +432,8 @@ export async function phoneReadyFitCheck(t) {
           }
           if (frame.clamp !== settled.clamp) failures.push(`first live paint (${frame.at}): the clamp is fixed: ${settled.clamp} -> ${frame.clamp}`);
         }
+        // r12: the scroll writers lead the message (the lane summary keeps its first 1500 characters).
+        if (failures.some(failure => failure.startsWith('first live paint'))) failures.unshift(`scroll trap: ${(await page.evaluate(() => globalThis.scrollTrap603)).join(' ; ')}`);
         await page.evaluate(() => { const release = globalThis.releaseTurns; globalThis.releaseTurns = null; release(); });
         await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason').hasAttribute('data-send-failed'));
         await page.evaluate(() => {
