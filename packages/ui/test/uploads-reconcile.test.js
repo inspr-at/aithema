@@ -217,15 +217,17 @@ test('AIT-610 r8: a foreign baseUrl receives no reconciliation GET /uploads (the
 // checked against the page origin, and exactly that resolved URL is fetched with
 // redirect: 'error', so neither a foreign <base href> nor a redirect from the
 // own origin carries the owner header elsewhere.
-const { sameOrigin } = await import('../src/post-json.js');
+// AIT-610 r10: since the AIT-625 merge the resolution lives in main's ownerURL (owner-request.js),
+// which every owner request goes through; sameOrigin only checks early and returns its input.
+const { ownerURL } = await import('../src/owner-request.js');
 const stagedImage = (id = 'img-1') => ({ id, kind: 'image', state: 'staged-pending', filename: 'photo.png', mediaType: 'image/png', bytes: 2048, expiresAt: Date.now() + 600_000, at: at(10) });
 test('AIT-610 r9: sameOrigin resolves against the document base and returns exactly the resolved URL', () => {
-  const view = baseURI => ({ location: { origin: 'http://localhost', href: 'http://localhost/page/' }, document: { baseURI } });
-  assert.equal(sameOrigin(view('http://localhost/app/'), 'api/x'), 'http://localhost/app/api/x');
-  assert.equal(sameOrigin(view('http://localhost/app/'), '/api/x'), 'http://localhost/api/x');
-  assert.throws(() => sameOrigin(view('https://other.example/'), '/api/x'), /same origin/u, 'a foreign <base href>');
-  assert.throws(() => sameOrigin(view('http://localhost/'), 'https://other.example/api/x'), /same origin/u);
-  assert.throws(() => sameOrigin(view('http://localhost/'), '//other.example/api/x'), /same origin/u);
+  const view = baseURI => ({ origin: 'http://localhost', location: { origin: 'http://localhost', protocol: 'http:', href: 'http://localhost/page/' }, document: { baseURI } });
+  assert.equal(ownerURL(view('http://localhost/app/'), 'api/x').href, 'http://localhost/app/api/x');
+  assert.equal(ownerURL(view('http://localhost/app/'), '/api/x').href, 'http://localhost/api/x');
+  assert.throws(() => ownerURL(view('https://other.example/'), '/api/x'), /same origin/u, 'a foreign <base href>');
+  assert.throws(() => ownerURL(view('http://localhost/'), 'https://other.example/api/x'), /same origin/u);
+  assert.throws(() => ownerURL(view('http://localhost/'), '//other.example/api/x'), /same origin/u);
 });
 test('AIT-610 r9: a foreign <base href> receives no owner-authenticated upload request: reconcile, limits, attach and withdraw', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] }); // no retry timer outlives the test
