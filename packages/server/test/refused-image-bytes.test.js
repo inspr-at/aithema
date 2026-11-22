@@ -999,16 +999,28 @@ for (const [label, name, build, type, outcome, encode] of [
 });
 
 // The bounded scan: a large prolog of repeated malformed doctypes is linear
-// (gate4c: the r4 prolog scan could be quadratic).
+// (gate4c: the r4 prolog scan could be quadratic). r11 (LEAD): no wall clock.
+// The sniffer counts the units it visits: `bytes` for the whole-file passes
+// (control-byte scan, UTF-8 validation), `prefix` for the prolog scan of the
+// decoded prefix, including every indexOf span. Linear means each pass visits
+// each unit a bounded number of times; bounded means the prolog scan does not
+// grow with the file once the file is longer than the prefix.
 test('AIT-610 r5: the SVG/text recognizer reads a bounded prefix and stays linear on repeated malformed doctypes', () => {
+  const prefix = uploadModule.UPLOAD_SNIFF_PREFIX_BYTES;
   // 60,000 doctypes without a subset: the r4 scan searched the rest of the file
-  // for '[' once per doctype. Then an unterminated subset over 19 MiB.
-  for (const hostile of [Buffer.from('<!DOCTYPE a>'.repeat(60_000)), Buffer.from('<!DOCTYPE x ['.repeat(1_500_000))]) {
-    const started = performance.now();
-    const detected = uploadModule.sniffUploadDocument(hostile, 'hostile.xml');
-    const elapsed = performance.now() - started;
-    assert.equal(detected.reason, 'unsupported', JSON.stringify(detected));
-    assert.ok(elapsed < 500, `bounded (${Math.round(elapsed)} ms for ${hostile.length} bytes)`);
+  // for '[' once per doctype (about 60,000 x 720 KB visits). Then an
+  // unterminated subset over 19 MiB. Each also at a quarter of its size.
+  for (const [unit, count] of [['<!DOCTYPE a>', 60_000], ['<!DOCTYPE x [', 1_500_000]]) {
+    const runs = [count / 4, count].map(n => {
+      const hostile = Buffer.from(unit.repeat(n)), steps = { bytes: 0, prefix: 0 };
+      const detected = uploadModule.sniffUploadDocument(hostile, 'hostile.xml', undefined, steps);
+      assert.equal(detected.reason, 'unsupported', JSON.stringify(detected));
+      assert.ok(hostile.length > prefix, 'the input is longer than the prefix');
+      assert.ok(steps.bytes > 0 && steps.bytes <= 2 * hostile.length, `whole-file passes are linear (${steps.bytes} visits for ${hostile.length} bytes)`);
+      assert.ok(steps.prefix > 0 && steps.prefix <= 3 * prefix, `the prolog scan stays in the prefix (${steps.prefix} visits, prefix ${prefix})`);
+      return steps;
+    });
+    assert.equal(runs[1].prefix, runs[0].prefix, `${unit}: the prolog scan does not grow with the file`);
   }
 });
 
