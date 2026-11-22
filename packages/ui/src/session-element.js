@@ -743,6 +743,9 @@ export class AithemaSession extends HTMLElement {
       this.#dialog.setCopy(copy); this.#connector?.setCopy(copy); this.#concept.setCopy(copy); this.#host?.setCopy(copy);
       this.#mountReveal();
       this.#paint('features'); this.#paint('transcript'); this.#paint('aside'); this.#paint('composer');
+      // AIT-637 r2 (gate1c M4): the export reason line, tip and description in the new locale (the
+      // [data-copy] pass above wrote the device line into the reason slot whatever the state).
+      this.#paintExport();
     });
     this.dispatchEvent(new CustomEvent('aithema-locale', { detail: { locale: this.#session.locale }, bubbles: true, composed: true }));
   }
@@ -965,15 +968,17 @@ export class AithemaSession extends HTMLElement {
     // AIT-625 r6 (gate3c M2): neither export control has an href, in token AND cookie mode, so no
     // native link action (middle click, new tab, drag, keyboard) can send the owner cookie around
     // the helper; click and Enter export through #export() (the guarded helper) only.
-    const exportAction = (event, guard) => {
+    const exportAction = event => {
       if (event.type === 'keydown' && event.key !== 'Enter') return;
       event.preventDefault();
-      if (this.#session.processingPreset === 'device' || !guard(event.currentTarget)) return;
+      // AIT-637 r2 (gate1c M3): re-check availability live (the page origin now, not at the last
+      // paint) and repaint both controls, so a removed foreign <base> exports and an added one blocks.
+      if (this.#erased || this.#paintExport()) return;
       void this.#export();
     };
     for (const type of ['click', 'keydown']) {
-      root.querySelector('.export').addEventListener(type, event => exportAction(event, control => control.getAttribute('aria-disabled') !== 'true'));
-      root.querySelector('.composer-out__export').addEventListener(type, event => exportAction(event, control => control.getAttribute('aria-disabled') !== 'true'));
+      root.querySelector('.export').addEventListener(type, exportAction);
+      root.querySelector('.composer-out__export').addEventListener(type, exportAction);
     }
     root.querySelector('.composer-out__upgrade').addEventListener('click', event => this.openSettings(event.currentTarget, { tab: 'general', anchor: '#email' }));
     root.querySelector('.purpose-new').addEventListener('click', () => this.#newConversation({ processingPreset: this.#session.processingPreset, settings: this.#session.settings }));
@@ -1969,17 +1974,30 @@ export class AithemaSession extends HTMLElement {
     catch { /* Keep the end action available for another deliberate attempt. */ }
     finally { if (id === this.#session.id) this.#erasedCreating = false; }
   }
-  // AIT-637: why neither export control can export, or null when they can.
+  // AIT-637: why neither export control can export, or null when they can. r2 (gate1c M2): through
+  // the shipped locale fallback, so a host copy bundle without the key still yields a reason.
   #exportUnavailableReason() {
-    if (this.#session.processingPreset === 'device') return this.#copy.deviceExportUnavailable;
-    return this.#exportAvailable() ? null : this.#copy.exportUnavailable;
+    const key = this.#session.processingPreset === 'device' ? 'deviceExportUnavailable' : this.#exportAvailable() ? null : 'exportUnavailable';
+    return key && resolveCopy(this.#copy, key, null, this.#session.locale);
   }
-  #paintComposerExport() {
-    const control = this.shadowRoot.querySelector('.composer-out__export'), description = this.shadowRoot.querySelector('#composer-export-reason');
+  // AIT-637 r2 (gate1c M3/M4): ONE paint for both export controls (disabled state, description,
+  // the footer's reason line and tip), from one reason, at the same moments: a mode change, the
+  // used-up paint, a locale change, and every click or Enter (a live origin re-check). Erasure
+  // owns both controls (inert, disabled), so nothing repaints them then. Returns the reason.
+  #paintExport() {
     const why = this.#exportUnavailableReason();
+    if (this.#erased) return why;
+    const root = this.shadowRoot, footer = root.querySelector('.export'), reason = root.querySelector('.export-reason');
+    const composer = root.querySelector('.composer-out__export'), description = root.querySelector('#composer-export-reason');
+    setText(reason, why ?? resolveCopy(this.#copy, 'deviceExportUnavailable', null, this.#session.locale));
+    reason.style.visibility = why ? 'visible' : 'hidden'; reason.setAttribute('aria-hidden', String(!why));
     setText(description, why ?? '');
-    if (why) { control.setAttribute('aria-disabled', 'true'); control.setAttribute('aria-describedby', description.id); }
-    else { control.removeAttribute('aria-disabled'); control.removeAttribute('aria-describedby'); }
+    for (const [control, described] of [[footer, reason], [composer, description]]) {
+      if (why) { control.setAttribute('aria-disabled', 'true'); control.setAttribute('aria-describedby', described.id); }
+      else { control.removeAttribute('aria-disabled'); control.removeAttribute('aria-describedby'); }
+    }
+    footer.title = why ?? '';
+    return why;
   }
   // r6: whether the export URL resolves to the page's own origin (the controls carry no href).
   #exportAvailable() {
@@ -2084,18 +2102,12 @@ export class AithemaSession extends HTMLElement {
     const create = this.shadowRoot.querySelector('.create-project');
     // Keep the footer's space while removing the device handoff from sight and interaction.
     if (create) { create.style.visibility = device ? 'hidden' : ''; create.inert = device || this.shadowRoot.querySelector('.understanding').dataset.overview !== 'current'; }
-    const reason = this.shadowRoot.querySelector('.export-reason');
     // r6: no href in any mode. AIT-637: a control that cannot export (device preset; a foreign
     // <base> or no page origin) says why, in place: the footer's reason line and tip, and the
-    // composer control's accessible description.
-    const why = this.#exportUnavailableReason();
-    setText(reason, why ?? this.#copy.deviceExportUnavailable);
-    reason.style.visibility = why ? 'visible' : 'hidden'; reason.setAttribute('aria-hidden', String(!why));
+    // composer control's accessible description (#paintExport).
     exported.setAttribute('aria-label', this.#copy.export);
     exported.setAttribute('role', 'link'); exported.tabIndex = 0; exported.removeAttribute('href');
-    if (why) { exported.setAttribute('aria-disabled', 'true'); exported.setAttribute('aria-describedby', reason.id); exported.title = why; }
-    else { exported.removeAttribute('aria-disabled'); exported.removeAttribute('aria-describedby'); exported.title = ''; }
-    this.#paintComposerExport();
+    this.#paintExport();
     if (this.#rail) { const client = this.#voiceClientFor(); if (!this.#rail.session && this.#rail.client !== client) { this.#rail.client = client; this.#renderVoice(); } }
   }
   async #loadCatalog() {
@@ -2661,7 +2673,7 @@ export class AithemaSession extends HTMLElement {
         exportAction.dataset.short = resolveCopy(copy, 'usedUpExportShort', undefined, this.#session.locale);
         exportAction.setAttribute('aria-label', u.export);
       } else { delete exportAction.dataset.short; exportAction.removeAttribute('aria-label'); }
-      this.#paintComposerExport();
+      this.#paintExport();
       for (const node of out.querySelectorAll('[data-next]')) { const shown = node.dataset.next === kind && !node.hidden; node.setAttribute('aria-hidden', String(!shown)); node.inert = !shown; }
       const exportLink = out.querySelector('.composer-out__export'), exportShown = !noAction && (this.#combined || kind === 'none' || newConversationEnabled || ['host-limit', 'session'].includes(this.#host?.endReason));
       exportLink.toggleAttribute('data-export', exportShown); exportLink.inert = !exportShown; exportLink.setAttribute('aria-hidden', String(!exportShown));
