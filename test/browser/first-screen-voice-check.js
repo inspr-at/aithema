@@ -982,7 +982,8 @@ test('AIT-587: the footer shows Connected without a running number; since lives 
     const where = `${label}: ${JSON.stringify(after)}`;
     const [connected, since] = variant.locale === 'de' ? ['Verbunden', 'Verbunden seit'] : ['Connected', 'Connected since'];
     assert.equal(after.label, connected, `the footer says ${connected}: ${where}`);
-    assert.match(after.title, new RegExp(`^${since} \\d{2}:\\d{2}(?: [AP]M)?$`, 'u'), `title: ${where}`);
+    // AIT-609 (TICK decision): clockTime is the locale short time without a leading zero (EN "8:00 AM", DE "8:00").
+    assert.match(after.title, new RegExp(`^${since} \\d{1,2}:\\d{2}(?: [AP]M)?$`, 'u'), `title: ${where}`);
     assert.equal(after.description, after.title, `accessible description: ${where}`);
     if (variant.width === 390) {
       // AIT-587 r3 (Codex gate2c Low): the phone element itself, not the clipped desktop status.
