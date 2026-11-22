@@ -94,6 +94,8 @@ const lockedIdentity = identity => identity?.verificationRequired === true && id
 const REPEAT_LIMIT = 5;
 // AIT-610 r8: the one bounded retry after a failed reconciliation read.
 const UPLOADS_RECONCILE_RETRY_MS = 1000;
+// AIT-610 r9: a reconcile read that has not answered by then is aborted (a failed read).
+const UPLOADS_RECONCILE_TIMEOUT_MS = 10_000;
 const START_INTENT_KEY = 'aithema-start-intent';
 const startIntentTTL = mode => mode === 'voice' ? 60_000 : 180_000;
 
@@ -106,6 +108,7 @@ export class AithemaSession extends HTMLElement {
   #uploadsReconcile = null;
   #uploadsGeneration = 0;
   #uploadsRetried = -1;
+  #uploadsRetryTimer = null;
   #signals; #signalState; #signalLiveSeq = null; #signalReplay = new WeakSet();
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #clarifyWaitTimer; #clarifyRefresh = 0;
@@ -205,7 +208,7 @@ export class AithemaSession extends HTMLElement {
     const reopen = this.#dialog?.element.open;
     clearTimeout(this.#consentRefresh?.timer); clearTimeout(this.#consentRefresh?.retryTimer); clearTimeout(this.#consentRefresh?.documentTimer); this.#consentRefresh = null;
     this.#concept?.destroy(); this.#rail?.destroy(); this.#rail = null; this.#orb?.destroy(); this.#orb = null; this.#introOrb?.destroy(); this.#introOrb = null;
-    this.#abort?.abort(); this.#deviceController?.abort(); this.#deviceReasoning = deviceReasoning; this.#copy = copy; this.#base = baseUrl.replace(/\/$/u, '');
+    this.#abort?.abort(); this.#cancelReconcile(); this.#deviceController?.abort(); this.#deviceReasoning = deviceReasoning; this.#copy = copy; this.#base = baseUrl.replace(/\/$/u, '');
     // The local connection belongs to this tab, not to a conversation: it survives a new session.
     if (deviceConnector !== this.#createDevice || deviceEndpoint !== this.#deviceEndpoint) {
       this.#connector?.clear();
@@ -292,7 +295,7 @@ export class AithemaSession extends HTMLElement {
       focus.waiting = null;
     }
     clearTimeout(this.#clarifyNoticeTimer); this.#clearLaneStatusPending();
-    this.#cancelUploads();
+    this.#cancelUploads(); this.#cancelReconcile();
     this.#stopReconciling();
     this.#disposeVersion?.(); this.#disposeVersion = null;
     this.#footerMedia?.removeEventListener?.('change', this.#footerListener); this.#brandObserver?.disconnect();
@@ -1754,7 +1757,7 @@ export class AithemaSession extends HTMLElement {
     this.setAttribute('data-aithema-erased', ''); this.setAttribute('data-aithema-mounted', '');
     this.#abort?.abort(); this.#stopReconciling(); this.#clearLaneStatusPending();
     clearTimeout(this.#consentRefresh?.timer); clearTimeout(this.#consentRefresh?.retryTimer); clearTimeout(this.#consentRefresh?.documentTimer); this.#consentRefresh = null;
-    this.#featureRead = null; clearTimeout(this.#creditEndTimer); this.#cancelUploads();
+    this.#featureRead = null; clearTimeout(this.#creditEndTimer); this.#cancelUploads(); this.#cancelReconcile();
     clearTimeout(this.#clarifyWaitTimer); clearTimeout(this.#clarifyNoticeTimer); clearTimeout(this.#savedTimer); this.#timer?.setConnected(false);
     this.#deviceController?.abort(); this.#questionCard?.freeze();
     this.#host?.erased(id); this.#concept?.erased();
@@ -4431,6 +4434,14 @@ export class AithemaSession extends HTMLElement {
   //   next connect or apply reads again;
   // - the read goes through the same-origin guard of the existing GET on this
   //   route (#loadLimits): no owner-authenticated request to a foreign baseUrl.
+  //
+  // AIT-610 r9 (gate8c):
+  // - a response is applied only while its generation AND session are still
+  //   current; a stale one is dropped (the queued follow-up reads again);
+  // - a read is aborted after UPLOADS_RECONCILE_TIMEOUT_MS (a failed read), so
+  //   a stalled GET never holds its follow-up;
+  // - a session switch (configure), teardown (disconnect) and erasure cancel
+  //   the in-flight read, its queued follow-up and the retry timer.
   #reconcileUploads() {
     const sessionId = this.#session.id, generation = this.#uploadsGeneration;
     if (this.#erased || this.#session.processingPreset === 'device' || this.#session.tombstone) return Promise.resolve();
@@ -4441,19 +4452,23 @@ export class AithemaSession extends HTMLElement {
     const current = this.#uploadsReconcile;
     if (current?.sessionId === sessionId) {
       if (current.generation === generation) return current.promise;
-      return current.followUp ??= current.promise.then(() => this.#reconcileUploads());
+      return current.followUp ??= current.promise.then(() => current.cancelled ? undefined : this.#reconcileUploads());
     }
     if (!images().some(upload => upload.state === 'staged-pending')) return Promise.resolve();
     let url;
     try { url = sameOrigin(this.ownerDocument.defaultView, `${this.#base}/api/sessions/${sessionId}/uploads`); } catch { return Promise.resolve(); }
-    const read = { sessionId, generation, promise: null, followUp: null };
+    const controller = new AbortController();
+    const read = { sessionId, generation, promise: null, followUp: null, controller, cancelled: false };
+    const deadline = setTimeout(() => controller.abort(), UPLOADS_RECONCILE_TIMEOUT_MS);
+    deadline?.unref?.();
+    const fresh = () => !read.cancelled && !this.#erased && this.isConnected && this.#session.id === sessionId && this.#uploadsGeneration === generation;
     read.promise = (async () => {
       let failed = false;
       try {
-        const response = await this.#api(url, { headers: this.#headers(), cache: 'no-store', redirect: OWNER_REDIRECT });
+        const response = await this.#api(url, { headers: this.#headers(), cache: 'no-store', redirect: OWNER_REDIRECT, signal: controller.signal });
         failed = !response.ok;
         const body = response.ok ? await response.json() : null;
-        if (this.#erased || this.#session.id !== sessionId || !Array.isArray(body?.uploads)) return;
+        if (!fresh() || !Array.isArray(body?.uploads)) return;
         const reported = new Map(body.uploads.filter(upload => upload?.kind === 'image' && upload.state === 'staged-refused').map(upload => [upload.id, upload]));
         let changed = false;
         this.#session.uploads = (this.#session.uploads ?? []).map(local => {
@@ -4465,8 +4480,9 @@ export class AithemaSession extends HTMLElement {
         if (changed) { this.#render('composer'); this.#host?.update(); }
       } catch { failed = true; }
       finally {
+        clearTimeout(deadline);
         if (this.#uploadsReconcile === read) this.#uploadsReconcile = null;
-        if (failed) this.#retryReconcile(sessionId, generation);
+        if (failed && !read.cancelled) this.#retryReconcile(sessionId, generation);
       }
     })();
     this.#uploadsReconcile = read;
@@ -4476,10 +4492,18 @@ export class AithemaSession extends HTMLElement {
   #retryReconcile(sessionId, generation) {
     if (this.#uploadsRetried === generation || generation !== this.#uploadsGeneration) return;
     this.#uploadsRetried = generation;
-    const timer = setTimeout(() => {
+    clearTimeout(this.#uploadsRetryTimer);
+    const timer = this.#uploadsRetryTimer = setTimeout(() => {
+      if (this.#uploadsRetryTimer === timer) this.#uploadsRetryTimer = null;
       if (!this.#erased && this.isConnected && this.#session.id === sessionId && this.#uploadsGeneration === generation) void this.#reconcileUploads();
     }, UPLOADS_RECONCILE_RETRY_MS);
     timer?.unref?.();
+  }
+  // Session switch, teardown and erasure: the read, its follow-up and the retry timer end here.
+  #cancelReconcile() {
+    const read = this.#uploadsReconcile; this.#uploadsReconcile = null;
+    if (read) { read.cancelled = true; read.controller.abort(); }
+    clearTimeout(this.#uploadsRetryTimer); this.#uploadsRetryTimer = null;
   }
   async #restore() {
     const sessionId = this.#session.id, requestedCursor = this.#cursor;
