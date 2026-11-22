@@ -14,7 +14,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { browserForFile } from './shared-browser.js';
 import { startChild } from '../helpers.js';
-import { fixture } from './combined-entrance-check.js';
+import { fixture as combinedFixture } from './combined-entrance-check.js';
+
+// r10: globalThis.fixtureEntrance mounts another entrance. r11: a local replace of
+// the shared fixture's entrance:'combined' hook, never an edit of the shared
+// fixture: rc26-look-check, rc26-look-r2-check and first-screen-voice-check
+// replace that same literal for their choice cases.
+const fixture = combinedFixture.replace("entrance:'combined'", "entrance:globalThis.fixtureEntrance??'combined'");
+if (fixture === combinedFixture) throw new Error("the shared combined fixture lost its entrance:'combined' hook");
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 
