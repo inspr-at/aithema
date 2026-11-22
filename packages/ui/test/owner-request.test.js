@@ -423,3 +423,105 @@ test('AIT-625 r4 element: in cookie mode a foreign <base> yields no export link;
   }
   assert.equal(foreign.shadowRoot.querySelector('.export').getAttribute('aria-disabled'), 'true');
 });
+
+// r6 (gate3c M4): the helper releases the erasure controller at the body's end, before blob()
+// resolves; erasure keeps the session id, so the export must check the erasure state itself.
+test('AIT-625 r6 element: erasure between the export body end and blob() resolving starts no download', async t => {
+  const { createSession } = await import('@inspr/aithema-core');
+  const { en } = await import('../src/i18n/en.js');
+  const window = elementPage();
+  const { calls } = guardFetch(t, url => String(url).endsWith('/events') ? new Response(new ReadableStream({ start() {} }))
+    : String(url).endsWith('/export') ? new Response('PK-fixture', { headers: { 'content-type': 'application/zip' } }) : Response.json({}), [window]);
+  const downloads = t.mock.method(URL, 'createObjectURL', () => 'blob:fixture');
+  t.mock.method(URL, 'revokeObjectURL', () => {});
+  await import('../src/session-element.js');
+  const tick = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)); };
+  const component = window.document.createElement('aithema-session');
+  component.configure({ copy: structuredClone(en), session: createSession({ demo: true }), sessionToken: 'tok' });
+  window.document.body.append(component); await tick();
+  t.after(() => component.remove());
+  const blob = Response.prototype.blob;
+  let gap = 0;
+  // The body is fully read (the helper has settled) when the erasure lands; blob() resolves after it.
+  t.mock.method(Response.prototype, 'blob', async function () {
+    const value = await blob.call(this); gap++;
+    component.receive({ seq: component.session.seq + 1, type: 'session.erased', data: { at: '2026-11-22T12:00:00.000Z' } });
+    return value;
+  });
+  component.shadowRoot.querySelector('.export').click(); await tick();
+  assert.ok(calls.some(call => String(call.url).endsWith('/export')), 'the export was requested');
+  assert.equal(gap, 1, 'the erasure landed after the body was consumed');
+  assert.equal(component.hasAttribute('data-aithema-erased'), true, 'the conversation is erased');
+  assert.equal(downloads.mock.callCount(), 0, 'no object URL and no download after erasure');
+});
+
+// r6 (gate3c M2): no owner-credential export request outside the helper, in cookie mode too.
+// Neither export control exposes a navigable href (middle click, open in new tab, drag and
+// keyboard would bypass a click handler); both export only through #export().
+test('AIT-625 r6 element: cookie mode exports through the helper only; no export control has an href', async t => {
+  const { createSession } = await import('@inspr/aithema-core');
+  const { en } = await import('../src/i18n/en.js');
+  const window = elementPage();
+  let redirecting = false;
+  const { calls, strays } = guardFetch(t, (url, init) => String(url).endsWith('/events') ? new Response(new ReadableStream({ start() {} }))
+    : String(url).endsWith('/export') ? (redirecting && init.redirect === 'error' ? Promise.reject(new TypeError('redirect mode is set to error'))
+      : new Response('PK-cookie', { headers: { 'content-type': 'application/zip' } }))
+      : Response.json({}), [window]);
+  const blobs = [];
+  t.mock.method(URL, 'createObjectURL', value => { blobs.push(value); return 'blob:cookie-fixture'; });
+  t.mock.method(URL, 'revokeObjectURL', () => {});
+  const downloaded = [], nativeClick = window.HTMLAnchorElement.prototype.click;
+  t.mock.method(window.HTMLAnchorElement.prototype, 'click', function () {
+    if (this.download) downloaded.push({ href: this.href, download: this.download }); else nativeClick.call(this);
+  });
+  await import('../src/session-element.js');
+  const tick = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)); };
+  const mount = async () => {
+    const component = window.document.createElement('aithema-session');
+    component.configure({ copy: structuredClone(en), session: createSession({ demo: true }) });
+    window.document.body.append(component); await tick();
+    t.after(() => component.remove());
+    return component;
+  };
+  const controls = component => ['.export', '.composer-out__export'].map(selector => component.shadowRoot.querySelector(selector));
+  const exports = () => calls.filter(call => String(call.url).endsWith('/export'));
+  const activate = async (control, how = 'click') => {
+    const event = how === 'click' ? new window.MouseEvent('click', { bubbles: true, cancelable: true }) : new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    control.dispatchEvent(event); await tick();
+    return event;
+  };
+  const same = await mount();
+  for (const control of controls(same)) {
+    assert.equal(control.hasAttribute('href'), false, `${control.className}: no navigable href`);
+    assert.equal(control.getAttribute('role'), 'link', `${control.className}: keeps the link role`);
+    assert.equal(control.tabIndex, 0, `${control.className}: keyboard reachable`);
+  }
+  const [footer, composer] = controls(same);
+  assert.equal((await activate(footer)).defaultPrevented, true, 'the footer click is handled, not navigated');
+  assert.equal(exports().length, 1, 'exactly one export request');
+  assert.equal(exports()[0].url, `http://app.test/api/sessions/${same.session.id}/export`);
+  assert.equal(exports()[0].init.redirect, 'error'); assert.ok(exports()[0].init.signal instanceof AbortSignal);
+  assert.equal(new Headers(exports()[0].init.headers).get(HEADER), null, 'cookie mode names no owner header');
+  assert.deepEqual(downloaded, [{ href: 'blob:cookie-fixture', download: 'aithema-session.zip' }]);
+  assert.equal(await blobs[0].text(), 'PK-cookie', 'the download is the fetched blob');
+  await activate(composer);
+  assert.equal(exports().length, 2, 'the composer export goes through the helper too');
+  assert.equal(downloaded.length, 2);
+  await activate(footer, 'Enter');
+  assert.equal(exports().length, 3, 'Enter activates the footer export');
+  assert.equal(downloaded.length, 3);
+  redirecting = true;
+  await activate(footer);
+  assert.equal(exports().length, 4, 'the redirecting export was requested once');
+  assert.equal(exports()[3].init.redirect, 'error');
+  assert.equal(downloaded.length, 3, 'a redirected export is rejected and downloads nothing');
+  redirecting = false;
+  const base = window.document.createElement('base'); base.href = 'https://evil.example/'; window.document.head.append(base);
+  t.after(() => base.remove());
+  const foreign = await mount(), before = calls.length;
+  for (const control of controls(foreign)) { assert.equal(control.hasAttribute('href'), false); await activate(control); }
+  assert.equal(calls.length, before, 'a foreign <base> sends zero requests');
+  assert.equal(downloaded.length, 3);
+  assert.equal(foreign.shadowRoot.querySelector('.export').getAttribute('aria-disabled'), 'true');
+  assert.deepEqual(strays, [], 'nothing but the helper read fetch');
+});
