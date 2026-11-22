@@ -17,7 +17,7 @@ function scrollBetween(scroller, top, bottom, gap = 12) {
 
 /** The host's current, versioned consent document, edited inside Settings. */
 export class ConsentSettings {
-  #button; #root; #copy; #ports; #document; #epoch = 0; #busy = false; #feature; #item; #statusText = ''; #stale = false; #savingLabel = null; #placed = null;
+  #button; #root; #copy; #ports; #document; #epoch = 0; #busy = false; #feature; #item; #statusText = ''; #stale = false; #savingLabel = null; #placed = null; #loadFailed = false;
   constructor({ root, copy, ports }) {
     this.#root = root; this.#copy = copy; this.#ports = ports;
     root.setAttribute('role', 'form');
@@ -26,7 +26,8 @@ export class ConsentSettings {
     else root.querySelector('.consent-status').setAttribute('aria-live', 'polite');
     this.#button = ports.saveButton ?? root.querySelector('.consent-save');
     this.#button.addEventListener('click', event => {
-      if (ports.saveButton && root.hidden) return;
+      // AIT-612 r3 (TICK (b)): after a failed load in Settings, Done is Done again: it closes the sheet.
+      if (ports.saveButton && (root.hidden || this.#loadFailed)) return;
       if (ports.saveButton) { event.preventDefault(); event.stopImmediatePropagation(); }
       void this.#save();
     }, { capture: true });
@@ -42,16 +43,18 @@ export class ConsentSettings {
   get busy() { return this.#busy; }
   get status() { return this.#statusText; }
   get stale() { return this.#stale; }
+  /** AIT-612 r3: in Settings, the document failed to load and Done is the next step (close, open again). */
+  get loadFailed() { return Boolean(this.#ports.saveButton) && this.#loadFailed; }
   get saveLabel() { return this.#savingLabel ?? (this.#document && consentSaveEndsConversation(this.#document, this.#selected()) ? this.#copy.featureConsent.withdraw : this.#copy.featureConsent.save); }
   #selected() { return [...this.#root.querySelectorAll('input:checked')].map(box => box.value); }
   get active() { return !this.#root.hidden; }
   close() {
-    this.#epoch++; this.#root.hidden = true; this.#stale = false; this.#status(''); this.#savingLabel = null;
+    this.#epoch++; this.#root.hidden = true; this.#stale = false; this.#loadFailed = false; this.#status(''); this.#savingLabel = null;
     for (const row of this.#root.querySelectorAll('.consent-item--target')) row.classList.remove('consent-item--target');
     if (this.#ports.saveButton) { this.#button.classList.remove('consent-save'); this.#button.disabled = false; }
   }
   async open(feature, { reload = false, item } = {}) {
-    const epoch = ++this.#epoch; this.#feature = feature; if (!reload) this.#item = item; this.#busy = true;
+    const epoch = ++this.#epoch; this.#feature = feature; if (!reload) this.#item = item; this.#busy = true; this.#loadFailed = false;
     if (!reload) { this.#document = null; this.#stale = false; this.#savingLabel = null; this.#root.querySelector('.consent-items').replaceChildren(); }
     this.#root.hidden = false; this.#button.classList.add('consent-save'); this.#paintReason();
     this.#status(this.#copy.host.consentPage.loading); this.#paintBusy();
@@ -99,14 +102,29 @@ export class ConsentSettings {
       this.#document = null; this.#savingLabel = null; this.#root.querySelector('.consent-items').replaceChildren();
       // AIT-612: a document that cannot be loaded or used is a failed load, not a failed save.
       // r2: a failed reload is no longer the stale-but-loaded state, so a language switch keeps the error.
-      this.#stale = false; this.#busy = false; this.#status(consentLoadFailed(this.#copy)); this.#paintBusy();
+      // r3 (TICK decision (b)): in Settings there is no list for the host sentence to head, so it hides, and focus
+      // moves to Done, the next step ("close and open it again"); Done is described by the footer status.
+      const reason = this.#root.querySelector('.consent-reason'), ours = this.#focusIsOurs();
+      this.#loadFailed = true; this.#stale = false; this.#busy = false; this.#status(consentLoadFailed(this.#copy)); this.#paintBusy();
+      if (this.#ports.saveButton) {
+        if (ours) this.#focusDone();
+        this.#paintReason(); reason.removeAttribute('tabindex');
+      }
     }
   }
   // AIT-603: the sheet opened for the text feature shows the host's text-consent
   // sentence in full (the dock may shorten it on phones); other features show none.
   #paintReason() {
     const reason = this.#root.querySelector('.consent-reason'), sentence = this.#feature === 'text' ? featureConsentText(this.#copy, 'text') ?? '' : '';
-    setText(reason, sentence); reason.hidden = !sentence;
+    setText(reason, sentence); reason.hidden = !sentence || this.loadFailed;
+  }
+  // AIT-612 r3: Done takes focus with a visible ring; engines that ignore focusVisible get data-focus-ring until blur.
+  #focusDone() {
+    const done = this.#button;
+    done.dataset.focusRing = '';
+    done.addEventListener('blur', () => { delete done.dataset.focusRing; }, { once: true });
+    done.focus({ preventScroll: true, focusVisible: true });
+    if ((done.getRootNode?.() ?? done.ownerDocument).activeElement !== done) delete done.dataset.focusRing;
   }
   /** On open: a host sentence not wholly in `scroller`'s view anchors at its top, so the status and items follow it. */
   revealReason(scroller) {
@@ -141,9 +159,12 @@ export class ConsentSettings {
   // the reveal shows it; otherwise (the sentence anchors, the target is below)
   // the host sentence does, as a programmatic stop (tabindex -1: the Tab order
   // is unchanged), and Tab moves on into the items.
-  // While the document loads, and after it fails, Save is disabled and focus
-  // would fall to the page; with the host sentence shown, it takes focus instead
-  // (the same programmatic stop). Focus the visitor moved elsewhere stays.
+  // While the document loads, Save is disabled and focus would fall to the page;
+  // with the host sentence shown, it takes focus instead (the same programmatic
+  // stop). Focus the visitor moved elsewhere stays.
+  // AIT-612 r3 (TICK decision (b), an intended change of AIT-603's failed-load
+  // target): in Settings, after the load fails, the sentence hides and focus
+  // moves from it to Done (see open()); standalone keeps the sentence.
   #holdFocus() {
     const reason = this.#root.querySelector('.consent-reason'), active = this.#root.getRootNode().activeElement;
     if (reason.hidden || active && active !== this.#button && active !== this.#root.ownerDocument.body) return;
@@ -178,8 +199,10 @@ export class ConsentSettings {
     fieldset.disabled = this.#busy || !this.#document; fieldset.inert = this.#busy;
     this.#root.setAttribute('aria-busy', String(this.#busy));
     // aria-disabled keeps keyboard focus on Save during the asynchronous reload.
-    this.#button.disabled = !this.#document;
-    this.#button.setAttribute('aria-disabled', String(this.#busy || !this.#document));
+    // AIT-612 r3: after a failed load in Settings, Done stays enabled: it closes the sheet.
+    const closes = this.loadFailed && !this.#busy;
+    this.#button.disabled = !this.#document && !closes;
+    this.#button.setAttribute('aria-disabled', String(!closes && (this.#busy || !this.#document)));
     if (!this.#ports.saveButton) setText(this.#button, this.saveLabel);
     this.#ports.changed?.();
   }

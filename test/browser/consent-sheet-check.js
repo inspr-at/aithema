@@ -66,7 +66,7 @@ async function harness(t) {
     await page.goto(`${server.url}/combined-fixture?locale=${locale}&passiveDenied`);
     await page.waitForFunction(() => globalThis.ready && document.querySelector('aithema-session').shadowRoot.querySelector('.composer-status').textContent.length > 0);
     await page.evaluate(() => addEventListener('error', event => { (globalThis.pageErrors ??= []).push(String(event.message)); }));
-    await page.evaluate(async (locale, sentence, doc, noFocusVisible, focusFails) => {
+    await page.evaluate(async (locale, sentence, doc, noFocusVisible, focusFails, saveFails) => {
       if (focusFails) {
         const focus = HTMLElement.prototype.focus;
         HTMLElement.prototype.focus = function (options) { if (this.matches('.consent-item input')) return undefined; return focus.call(this, options); };

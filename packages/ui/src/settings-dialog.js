@@ -191,7 +191,7 @@ export class SettingsDialog {
       <footer class="settings__footer"><div class="footer-links"><details class="disclosure"><summary data-help="providers"><span data-text="providers"></span>${ICONS.disclosureChevron}</summary>
           <div class="disclosure__body"><p class="disclosure-processing"></p><div class="disclosure-provider"><p class="disclosure-recipient"></p><p class="disclosure-geography"></p></div><p data-text="gaugeNote"></p><p data-text="history"></p></div></details>
           <button type="button" class="link footer-consent" data-help="consent" data-text="manageConsent"></button></div>
-        <div class="save-state"><span class="save-check">${ICONS.check}</span><span class="save-info" aria-hidden="true">${icon('info')}</span><p class="save-status" role="status" aria-live="polite"></p>
+        <div class="save-state"><span class="save-check">${ICONS.check}</span><span class="save-info" aria-hidden="true">${icon('info')}</span><p class="save-status" id="settings-save-status" role="status" aria-live="polite"></p>
           <button type="button" class="save-retry" data-text="retry" data-visible="false"></button></div>
         <button type="button" class="done">${ICONS.check}<span class="done-label"></span><span class="consent-save-sizer" aria-hidden="true"></span></button></footer></div>`;
     this.#dialog.setAttribute('aria-labelledby', 'settings-title');
@@ -892,7 +892,7 @@ export class SettingsDialog {
     this.#dialog.dataset.consentStale = String(Boolean(consentActive && this.#consentEditor.stale));
     this.#q('.save-status').textContent = consentActive ? this.#consentEditor.status : this.#status || c.autosave;
     this.#q('.save-retry').dataset.visible = String(this.#failed && !this.#saving);
-    this.#q('.done-label').textContent = this.#consentEditor?.active ? this.#consentEditor.saveLabel : this.#continue ? c.continue : c.done;
+    this.#q('.done-label').textContent = this.#consentEditor?.active ? this.#consentEditor.loadFailed ? c.done : this.#consentEditor.saveLabel : this.#continue ? c.continue : c.done;
     this.#q('.done').dataset.withdraw = String(Boolean(this.#consentEditor?.active && this.#consentEditor.saveLabel === this.#copy.featureConsent.withdraw));
     this.#q('.consent-save-sizer').textContent = this.#copy.featureConsent.withdraw;
     const done = this.#q('.done');
@@ -900,6 +900,8 @@ export class SettingsDialog {
     if (!this.#consentEditor?.active) done.disabled = Boolean(this.#pendingPreset);
     done.setAttribute('aria-disabled', String(done.disabled || consentActive && this.#consentEditor.busy));
     if (this.#pendingPreset) done.setAttribute('aria-describedby', 'settings-notice');
+    // AIT-612 r3 (TICK (b)): after a failed load, Done carries the reason (the footer status) with the action.
+    else if (consentActive && this.#consentEditor.loadFailed) done.setAttribute('aria-describedby', 'settings-save-status');
     else done.removeAttribute('aria-describedby');
     this.#dialog.setAttribute('aria-busy', String(this.#busy || Boolean(this.#pendingPreset) || consentActive && this.#consentEditor.busy));
     this.#dialog.dataset.saveState = this.#failed ? 'failed' : this.#busy ? 'saving' : this.#status === c.saved ? 'saved' : 'idle';
