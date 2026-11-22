@@ -902,15 +902,26 @@ test('AIT-234: a failed catalog retains Custom for explicit reload without savin
 });
 
 // Done is also the consent editor's save button; rendering Custom must respect that owner.
-test('AIT-234: an invalid consent document keeps the shared Done button disabled', async t => {
+// AIT-612 r3 (TICK r2 decision (b)): after a failed load, Done is the next step ("close and open it again"): it is
+// enabled, reads Done, holds focus, is described by the footer status, and closes; the empty host sentence hides.
+test('AIT-234 / AIT-612 r3: an invalid consent document never saves; Done closes the sheet and carries the reason', async t => {
   const h = fixture(t, { matrix: { best: { text: refused('current processing consent required') } } });
   h.root.querySelector('.composer-reason .consent-action').click(); await tick(10);
   // AIT-612: one message, once, next to Save (the shared footer); a failed load says it could not be loaded.
   assert.equal(h.q('.consent-status').textContent, '');
   assert.equal(h.q('.save-status').textContent, en.host.consentPage.loadFailed);
-  assert.equal(h.q('.done').disabled, true);
-  assert.equal(h.q('.done').getAttribute('aria-disabled'), 'true');
-  assert.equal(h.q('.done').hasAttribute('aria-describedby'), false, 'consent failure is not catalog loading');
+  const done = h.q('.done');
+  assert.equal(done.disabled, false, 'Done closes the sheet after a failed load');
+  assert.equal(done.getAttribute('aria-disabled'), 'false');
+  assert.equal(h.q('.done-label').textContent, en.settings.done);
+  assert.equal(done.getAttribute('aria-describedby'), 'settings-save-status', 'Done carries the reason (the footer status)');
+  assert.equal(h.root.getElementById('settings-save-status'), h.q('.save-status'));
+  assert.ok(h.root.activeElement === done, 'focus moves to Done');
+  assert.equal(h.q('.consent-reason').hidden, true, 'no empty heading over a missing list');
+  const before = h.posts.length;
+  done.click(); await tick(10);
+  assert.equal(h.dialog.open, false, 'Done closes the sheet');
+  assert.ok(h.posts.every(body => !('processing' in body)) && h.posts.length >= before, 'nothing saves consent');
 });
 
 for (const copy of [de, en]) test(`AIT-266 ${copy.display.locale}: unavailable Custom agrees at entrance and Settings and arrow keys skip it`, async t => {

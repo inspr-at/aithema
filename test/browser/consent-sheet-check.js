@@ -81,7 +81,7 @@ async function harness(t) {
       const prior = globalThis.fetch;
       globalThis.fetch = async (url, options = {}) => String(url).endsWith('/consent') && (options.method ?? 'GET') === 'GET'
         ? (await globalThis.releaseConsent, doc ? Response.json(doc) : new Response('unavailable', { status: 500 }))
-        : saveFails && String(url).endsWith('/consent') ? Response.json({ error: 'unavailable' }, { status: 500 }) : prior(url, options);
+        : saveFails && String(url).endsWith('/consent') ? (globalThis.consentSaveStub = 500, Response.json({ error: 'unavailable' }, { status: 500 })) : prior(url, options);
       mount(JSON.parse(JSON.stringify(document.querySelector('aithema-session').session)));
     }, locale, sentence, doc, noFocusVisible, focusFails, saveFails);
     await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason[data-consent-feature="text"] .consent-action'));
@@ -135,8 +135,29 @@ const readSheet = (c, full) => {
     status: dialog.querySelector('.consent-status')?.textContent ?? null,
     focus: active ? `${active.tagName.toLowerCase()}${active.className ? `.${String(active.className).split(' ').join('.')}` : ''}` : null,
     focusTarget: Boolean(target) && active === target, focusSentence: Boolean(holder) && active === holder, focusOnScreen: onScreen(active),
-    sentenceTabIndex: holder?.tabIndex ?? null };
+    sentenceTabIndex: holder?.tabIndex ?? null, ...doneFocus(c, dialog, active, box, onScreen) };
 };
+// AIT-612 r3 (TICK r2 decision (b)): Done holds focus after a failed load, with a visible ring, and is described by the footer status.
+const doneFocus = (c, dialog, active, box, onScreen) => {
+  const done = dialog.querySelector('.done'), ids = (done?.getAttribute('aria-describedby') ?? '').split(/\s+/u).filter(Boolean);
+  const ring = done && getComputedStyle(done);
+  return { done: box(done), focusDone: Boolean(done) && active === done, doneOnScreen: onScreen(done), doneFocusVisible: Boolean(done?.matches(':focus-visible')) || done?.hasAttribute('data-focus-ring') && active === done,
+    doneRing: ring ? { style: ring.outlineStyle, width: ring.outlineWidth } : null, doneDisabled: done?.disabled ?? null,
+    doneDescription: ids.map(id => c.shadowRoot.getElementById(id)).map(n => n ? { className: n.className, text: n.textContent } : null),
+    reasonShown: [...dialog.querySelectorAll('.consent-reason')].some(n => n.checkVisibility()) };
+};
+// Failed load in Settings: no empty heading; focus on Done (on screen, ring drawn, enabled), described by the footer status.
+function doneFocusFailures(sheet, failed) {
+  const failures = [];
+  if (sheet.reasonShown) failures.push('the empty host sentence hides when there is no list to head');
+  if (!(sheet.done?.width > 0 && sheet.done?.height > 0)) failures.push(`Done positive box: ${JSON.stringify(sheet.done)}`);
+  if (!sheet.focusDone) failures.push(`focus moves to Done: ${sheet.focus}`);
+  else if (!sheet.doneOnScreen) failures.push('Done is on screen');
+  if (sheet.doneDisabled !== false) failures.push(`Done is enabled (it closes the sheet): ${sheet.doneDisabled}`);
+  if (!sheet.doneFocusVisible || sheet.doneRing?.style !== 'solid' || sheet.doneRing?.width !== '3px') failures.push(`Done shows the focus ring: ${JSON.stringify([sheet.doneFocusVisible, sheet.doneRing])}`);
+  if (JSON.stringify(sheet.doneDescription) !== JSON.stringify([{ className: 'save-status', text: failed }])) failures.push(`Done is described by the footer status: ${JSON.stringify(sheet.doneDescription)}`);
+  return failures;
+}
 
 async function openSheet(page) {
   await page.click('aithema-session >>> .composer-reason[data-consent-feature="text"] .consent-action');
@@ -189,9 +210,13 @@ export async function consentSheetFailedLoadCheck(t) {
         await page.waitForFunction(text => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings[open] .save-status')?.textContent === text, {}, failed);
         await settle(page);
         const sheet = await page.$eval('aithema-session', readSheet, full);
-        const failures = sentenceFailures(sheet);
+        // AIT-612 r3 (TICK r2 decision (b)): was sentenceFailures(sheet) (the sentence on screen holding focus);
+        // now the empty heading hides and focus is on Done, described by the footer status.
+        const failures = doneFocusFailures(sheet, failed);
+        if (!(sheet.body?.width > 0 && sheet.body?.height > 0)) failures.push(`the settings body positive box: ${JSON.stringify(sheet.body)}`);
+        if (!sheet.focusOnScreen) failures.push(`keyboard focus is on screen (${sheet.focus})`);
         if (sheet.items !== 0) failures.push(`the failed load shows no items: ${sheet.items}`);
-        await capture(page, name, { summary: `failed load; sentence on screen ${sheet.sentenceOnScreen}; focus ${sheet.focus} on screen ${sheet.focusOnScreen}`, sentenceText: full, ...sheet });
+        await capture(page, name, { summary: `failed load; sentence hidden ${!sheet.reasonShown}; focus ${sheet.focus} on screen ${sheet.focusOnScreen}`, sentenceText: full, ...sheet });
         none(failures, `${name}: ${JSON.stringify(sheet)}`);
         assert.deepEqual(problems, []);
       } finally { await page.close(); }
@@ -429,6 +454,9 @@ export async function consentSheetErrorOnceCheck(t) {
               .catch(error => { throw new Error(`${name}: the footer never said the save failed`, { cause: error }); });
           }
           await settle(page);
+          // gate2c Medium: the save-failed case must reach the stub and get its 500 (not a ReferenceError).
+          const saveStub = await page.evaluate(() => globalThis.consentSaveStub ?? null);
+          const sheet = state === 'load-failed' ? await page.$eval('aithema-session', readSheet, '') : null;
           const read = await page.$eval('aithema-session', (c, texts) => {
             const dialog = c.shadowRoot.querySelector('dialog.settings[open]');
             const box = n => { const r = n?.getBoundingClientRect(); return r ? [r.x, r.y, r.width, r.height] : null; };
@@ -437,8 +465,10 @@ export async function consentSheetErrorOnceCheck(t) {
             return { saved: visible(texts.saved), loaded: visible(texts.loaded), consentStatus: dialog.querySelector('.consent-status')?.textContent ?? null,
               saveStatus: dialog.querySelector('.save-status')?.textContent ?? null, footer: box(dialog.querySelector('.save-state')), done: box(dialog.querySelector('.done')) };
           }, { saved: copy.host.consentFailed, loaded: copy.host.consentPage.loadFailed });
-          await capture(page, name, { summary: `${state}; saved-error ${read.saved.length}x, load-error ${read.loaded.length}x; footer ${JSON.stringify(read.footer)}`, ...read });
+          await capture(page, name, { summary: `${state}; saved-error ${read.saved.length}x, load-error ${read.loaded.length}x; footer ${JSON.stringify(read.footer)}${sheet ? `; focus ${sheet.focus}` : ''}`, ...read, ...(sheet ? { focus: sheet.focus, focusDone: sheet.focusDone, doneFocusVisible: sheet.doneFocusVisible, doneRing: sheet.doneRing, doneDescription: sheet.doneDescription, reasonShown: sheet.reasonShown } : {}), saveStub });
           const failures = [], expect = { normal: [0, 0], 'load-failed': [0, 1], 'save-failed': [1, 0] }[state];
+          if (state === 'save-failed' && saveStub !== 500) failures.push(`the consent POST reached the stub and got HTTP 500: ${saveStub}`);
+          if (state === 'load-failed') failures.push(...doneFocusFailures(sheet, copy.host.consentPage.loadFailed));
           if (read.saved.length !== expect[0]) failures.push(`"${copy.host.consentFailed}" shows ${read.saved.length}x, expected ${expect[0]}`);
           if (read.loaded.length !== expect[1]) failures.push(`"${copy.host.consentPage.loadFailed}" shows ${read.loaded.length}x, expected ${expect[1]}`);
           for (const shown of [...read.saved, ...read.loaded]) {
