@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 for (const [label, count, args] of [
@@ -38,6 +38,7 @@ for (const [label, count, args] of [
     const testCount = Number(/(?:ℹ|#) tests (\d+)/u.exec(output)?.[1] ?? 0);
     results.push({ run: i, durationMs, testCount, ...status });
     if (process.env.AITHEMA_EVIDENCE_DIR) {
+      mkdirSync(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
       writeFileSync(join(process.env.AITHEMA_EVIDENCE_DIR, `${label.replaceAll(' ', '-')}.json`), JSON.stringify({ node: process.version, results }, null, 2));
       writeFileSync(join(process.env.AITHEMA_EVIDENCE_DIR, `${label.replaceAll(' ', '-')}-${i}.log`), output);
     }

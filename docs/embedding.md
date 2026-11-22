@@ -343,7 +343,7 @@ but session-scoped receipts can offer `emailConfirmed` while `current` is still
 verification, collection, end-reason and daily-cap gates
 (`packages/ui/src/host-surface.js:106-116`). In that case, the UI shows the
 confirmation action and confirmed-tier line, with no email-given upgrade line
-(`packages/ui/test/host-credits.test.js:485-486`). After the visitor gives an
+(`packages/ui/test/host-credits-tiers.test.js:302-304`). After the visitor gives an
 address, the payload's `current: 'emailGiven'` can offer
 `next: 'emailConfirmed'` if qualified confirmation raises the allowance.
 Set `privacyDocumentConfigured` only after validating the host's document, otherwise the server suppresses collection
