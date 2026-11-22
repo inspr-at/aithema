@@ -33,7 +33,7 @@ import { settingsStyles } from './settings-styles.js';
 import { SettingsDialog, ICONS, PRESET_ORDER, reasonText, engineView, catalogLabel } from './settings-dialog.js';
 import { LocalConnector } from './local-connector.js';
 import { postJson, postForm, sameOrigin } from './post-json.js';
-import { anySignal, ownerFetch, ownerURL } from './owner-request.js';
+import { anySignal, OWNER_EXPORT_MAX_BYTES, ownerFetch, ownerURL } from './owner-request.js';
 import { UPLOAD_LIMITS, UPLOAD_ACCEPT, DOCUMENT_UPLOAD_ACCEPT, UPLOAD_ICONS, uploadLimits, uploadRetryDelay, unclassifiedUploads, planUploads, refusalText, uploadStateText, uploadStateTexts, uploadsPossible, formatBytes, limitsText, dropText } from './uploads.js';
 import { voiceJournal, tabStorage, closeVoiceCall, answerVoicePings, voiceCallAbandoned } from './voice-orphan.js';
 import { node, setText, reconcile, fill } from './dom.js';
@@ -1808,8 +1808,8 @@ export class AithemaSession extends HTMLElement {
     const route = this.#sessionRoute(url), view = this.ownerDocument.defaultView;
     if (route && this.#erasedIds.has(route.id)) throw new DOMException('Conversation erased', 'AbortError');
     // A finite request for a conversation ends when that conversation is erased (with its deadline
-    // timer), through its body: it stays tracked until the helper reports the body consumed,
-    // cancelled, failed or timed out (r4), so an export still reading cannot download after erasure.
+    // timer), through its body: it stays tracked until the helper reports the body buffered,
+    // failed or timed out (r4; r8 native buffering), so an export still reading cannot download after erasure.
     // The event stream has its own lifetime; a keepalive request is left to the browser.
     const init = options ?? bodyOrInit, own = route && !init.stream && !init.keepalive ? new AbortController() : null;
     const signal = own ? (init.signal ? anySignal([init.signal, own.signal]) : own.signal) : init.signal;
@@ -1978,11 +1978,12 @@ export class AithemaSession extends HTMLElement {
     const sessionId = this.#session.id;
     let url;
     try {
-      const response = await this.#api(`${this.#base}/api/sessions/${sessionId}/export`, { sessionToken: this.#sessionToken });
+      const response = await this.#api(`${this.#base}/api/sessions/${sessionId}/export`, { sessionToken: this.#sessionToken, maxBytes: OWNER_EXPORT_MAX_BYTES });
       if (!response.ok) throw new Error();
       const blob = await response.blob();
-      // r6 (gate3c M4): the helper settles at the body's end, before blob() resolves, and erasure
-      // keeps the session id; so check the erasure state itself once the body is consumed.
+      // r6 (gate3c M4): the helper settles at the body's end (r8: once its native buffer is
+      // complete, before it returns), and erasure keeps the session id; so check the erasure state
+      // itself once the body is consumed.
       if (sessionId !== this.#session.id || this.#erased || this.#erasedIds.has(sessionId)) return;
       url = URL.createObjectURL(blob);
       const link = document.createElement('a'); link.href = url; link.download = 'aithema-session.zip'; link.click();
