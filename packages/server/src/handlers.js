@@ -125,7 +125,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       const session = storage.get(id), featureMatrix = await pluginRuntime.matrix(session);
       const current = storage.get(id), { ownerHash, ...publicSession } = current;
       if (current.tombstone || current.ownerHash !== session.ownerHash) throw new NotFoundError('Session not found');
-      if (current.seq === session.seq) return { ...publicSession,
+      // AIT-610 r5: a lost staged image reads as 'unavailable' (derived, no write).
+      if (current.seq === session.seq) return { ...publicSession, uploads: uploadHandlers.reportUploads(id, publicSession.uploads),
         ...(host?.emailOffer ? { emailOffer: emailOfferPolicy(host.emailOffer) } : {}),
         ...(resolveOpener(opener, current.locale) ? { opener: resolveOpener(opener, current.locale) } : {}), ...(voiceHandlers ? { voiceLifecycle: voiceHandlers.snapshot(id) } : {}),
         ...(host?.identity?.chooseRole === true ? { roleChoice: hostHandlers.roleChoice(id) } : {}),
@@ -502,7 +503,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         request.signal.addEventListener('abort', abort, { once: true });
         stop.signal.addEventListener('abort', abort, { once: true });
         // Synchronous replay + subscription cannot interleave with a publication.
-        for (const event of storage.read(id, Number(raw))) send(event);
+        for (const event of storage.read(id, Number(raw))) send(uploadHandlers.reportEvent(id, event));
         if (!closed) set.add(send);
         if (request.signal.aborted || stop.signal.aborted) abort();
         else if (!closed) {

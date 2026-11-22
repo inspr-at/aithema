@@ -79,8 +79,9 @@ const chunkText = chunk => typeof chunk === 'string' ? chunk : chunk instanceof 
 // natively and is covered by the database file scans.
 function hookFsWrites(t, writes) {
   const mocks = [];
-  // Vectored writes (writev) pass an array of buffers.
-  const record = (api, data) => { for (const chunk of Array.isArray(data) ? data : [data]) writes.push(`${api}:${chunkText(chunk)}`); };
+  // Vectored writes (writev) pass an array of buffers. They are joined first,
+  // so a sentinel split across two vectors is still one string (r5, gate4c Low).
+  const record = (api, data) => { writes.push(`${api}:${(Array.isArray(data) ? data : [data]).map(chunkText).join('')}`); };
   const wrapStream = stream => {
     for (const method of ['write', 'end']) {
       const original = stream[method];

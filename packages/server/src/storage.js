@@ -864,8 +864,10 @@ export class SQLiteStorage {
       // Only HTTP intake opts into partial image admission. Keep direct storage
       // callers' existing RangeError contract and enforce the quota atomically.
       for (const [index, file] of files.entries()) {
-        const reason = guard.partialImages && file.kind === 'image' && (file.refusal || (imageSlots === 0 ? 'limit' : null));
-        if (reason) refused.push({ index, kind: 'image', reason });
+        // AIT-610 r5: HTTP intake also refuses a document that is not an
+        // allowlisted extraction type (file.refusal); it is never inserted.
+        const reason = guard.partialImages && (file.kind === 'image' ? file.refusal || (imageSlots === 0 ? 'limit' : null) : file.refusal);
+        if (reason) refused.push({ index, kind: file.kind === 'image' ? 'image' : 'document', reason });
         else { admitted.push(file); if (file.kind === 'image') imageSlots--; }
       }
       const addingImages = admitted.filter(file => file.kind === 'image').length;
@@ -911,10 +913,7 @@ export class SQLiteStorage {
       const event = this.#append(this.get(id), 'upload.state', { ...upload, contentRef: undefined, hash: undefined,
         state: result.status, reason: result.reason, text: result.status === 'accepted' ? result.text : undefined,
         truncated: result.truncated, extractor: result.extractor,
-        ...(image && result.status === 'staged-ready' ? { digest: hash(result.bytes), w: result.w, h: result.h, mediaType: result.mediaType } : {}),
-        // A refusal for a lost original (restart) may open a fresh staging window
-        // so the visitor sees it before expiry removes the row (AIT-610 r3).
-        ...(image && result.status === 'staged-refused' && Number.isSafeInteger(result.expiresAt) ? { expiresAt: result.expiresAt } : {}) });
+        ...(image && result.status === 'staged-ready' ? { digest: hash(result.bytes), w: result.w, h: result.h, mediaType: result.mediaType } : {}) });
       this.db.prepare('UPDATE uploads SET bytes=?,content_ref=? WHERE session_id=? AND id=?').run(image && result.status === 'staged-ready' ? result.bytes : null, event.data.contentRef, id, uploadId);
       return event;
     });

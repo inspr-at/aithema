@@ -338,20 +338,36 @@ drop). Two other byte paths follow their own rules, listed below.
   reason `image-normalizations` and never held. On every exit,
   refusal or admission, the request body is zero-filled (only the parts of
   admitted documents stay, which the document rules store), and a failed read
-  zero-fills its partial buffers. Request and image bytes in memory, every live
-  copy counted, at the default ceilings: in the server process three retained
-  request bodies (3 × 21 MiB), their held originals (3 × 21 MiB, at most
-  eight), one IPC message to the normalizer (20 MiB) and its result
-  (2 × 8 MiB), 162 MiB; in the normalizer child (one at a time) the received
-  message (2 × 20 MiB; the decoder reads a view of it, not another copy) and
-  its result (2 × 8 MiB), 56 MiB. 218 MiB in total. Classification runs before
-  any persistence. A file is image input when its signature says image (PNG,
-  JPEG, WebP, GIF, BMP, TIFF, HEIC/AVIF, JPEG XL), it is a standalone SVG (root
-  `<svg>` after an optional XML declaration, comments and doctype, whatever the
-  suffix), its name has an image suffix, or its client MIME says image and its
-  name has no document suffix (AIT-510: a false image MIME on a named document
-  keeps document admission; such a file follows the document rules; an XML
-  document whose root is not `svg` stays a document). Refused bytes are
+  zero-fills its partial buffers. Request, image and document bytes in memory,
+  every live copy counted, at the default ceilings, for the deployed Node 24
+  (IPC `serialization: 'advanced'`: one serialized send buffer; the receiver
+  concatenates the chunks once and reads a `Uint8Array` as a view): in the
+  server process three retained request bodies (3 × 21 MiB), their held
+  originals (3 × 21 MiB, at most eight), the one running job (an image's IPC
+  message with one serializer growth copy, 2 × 20 MiB; a document adds its
+  SQLite read-back, 60 MiB) and its result (2 × 8 MiB), 202 MiB; in the child
+  (one at a time) the received message (2 × 20 MiB; the decoder reads a view of
+  it) and its result (3 × 8 MiB), 64 MiB. 267 MiB in total, plus under 0.5 MiB
+  for intake classification, which never copies a whole file (see below).
+  Classification runs before any persistence. A file is image input when its
+  signature says image (PNG, JPEG, WebP, GIF, BMP, TIFF, HEIC/AVIF, JPEG XL,
+  Netpbm), it is a standalone SVG (root `<svg>` after an optional XML
+  declaration, comments and doctype, whatever the suffix), its name has an
+  image suffix, or its client MIME says image and its name has no document
+  suffix (AIT-510: a false image MIME on a named document keeps document
+  admission; an XML document whose root is not `svg` stays a document).
+  Documents are an allowlist: a file is stored as a document only when it is
+  positively one of the types the text extraction supports today
+  (`EXTRACTABLE_MEDIA_TYPES` in `@inspr/aithema-core/extractor`: PDF, DOCX,
+  XLSX, PPTX, and UTF-8 text, CSV, Markdown, JSON or XML). Everything else
+  (UTF-16 or other non-UTF-8 text, unknown binaries, other archives, a suffix
+  that contradicts the content) is refused in the receipt with kind
+  `document` and reason `unsupported` before anything is stored. Text is
+  checked over the whole file without a copy (no control bytes, valid UTF-8),
+  and its XML root and subtype are read from at most the first 64 KiB
+  (`UPLOAD_SNIFF_PREFIX_BYTES`), in one linear pass. If the XML prolog or the
+  root name does not end within that prefix, the file is refused as
+  `unsupported`. Refused bytes are
   never written: no `uploads` row, no blob, no temp file, no cache. For
   idempotent replay the receipt keeps the refused positions, kinds and reasons
   plus a SHA-256 digest over the request's names and file digests, never the
@@ -366,12 +382,14 @@ drop). Two other byte paths follow their own rules, listed below.
   `staged-refused` with its reason. The original is then dropped and zeroed.
   Ownership and the job are registered before anything that can throw, so an
   exception cannot strand an original; shutdown zeroes every original it still
-  holds. A restart loses originals still waiting. Recovery runs at boot, before
-  boot expiry: such a row becomes `staged-refused` with reason `unavailable`
-  (never `deadline`, never silently discarded) and a fresh staging window. If
-  that write fails, the session's expiry waits and is retried, and the row's
-  own job records `unavailable`; a pending image row is never expired. The
-  client tells the visitor to attach the image again (EN and DE copy).
+  holds. A restart loses originals still waiting. Nothing is written for them:
+  a `staged-pending` image row whose original no handler in the process holds
+  is reported as `staged-refused` with reason `unavailable` (never `deadline`)
+  whenever the session, its uploads or its events are read. The answer is the
+  same on every read and covers only the rows of the session being read.
+  Expiry removes the row at its normal staging deadline, like any refusal
+  record. The client tells the visitor to attach the image again (EN and DE
+  copy).
 - **Turns** carry upload IDs, never bytes. A refused or still pending ID cannot
   be attached.
 

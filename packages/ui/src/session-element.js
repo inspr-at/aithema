@@ -3815,6 +3815,9 @@ export class AithemaSession extends HTMLElement {
           }
           for (const record of result.refused ?? []) {
             const file = batch[record.index];
+            // AIT-610 r5: the server refuses a file that is not positively a
+            // supported document before storing it; name it with the file-type copy.
+            if (file && record.kind === 'document') { documentPlan.refused.push({ name: file.name, reason: 'type' }); continue; }
             if (!file || record.kind !== 'image') continue;
             this.#detectedImages.add(file);
             if (!images) documentPlan.refused.push({ name: file.name, reason: 'type' });

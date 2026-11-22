@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
+import { isUtf8 } from 'node:buffer';
 import { inputRevision, PluginError, operationScope, stagedImage, isConsentReason } from '@inspr/aithema-core';
-import { sniffDocument, EXTRACTOR_LIMITS, TEXT_MEDIA_TYPES, EXTRACTOR_MEDIA_TYPES } from '@inspr/aithema-core/extractor';
+import { sniffDocument, EXTRACTOR_LIMITS, TEXT_MEDIA_TYPES, EXTRACTOR_EXTENSIONS, EXTRACTABLE_MEDIA_TYPES } from '@inspr/aithema-core/extractor';
 import { normalizeUploadLimits } from './upload-limits.js';
 import { scanUploadMultipart } from './upload-multipart.js';
 
@@ -28,37 +29,53 @@ const releasePendingRequest = () => { pendingUploadRequests--; };
 // body read is not possible: the server cannot know a request's image count
 // before reading it, and AIT-219 requires three concurrent document requests to
 // be admitted. Each original returns its slot when its job ends (or at shutdown).
-// Memory bound, every live copy counted (AIT-610 r4; default ceilings:
+// Memory bound, every live copy counted (AIT-610 r5), for the deployed runtime:
+// the Dockerfile's node:24 image, IPC to both children with serialization
+// 'advanced'. Checked against Node 24 lib/internal/child_process/serialization.js
+// in both forms the 24.x line ships: the JS ChildProcessSerializer (24.15/24.16)
+// and the native ipc_serdes codec (24.22). In both the sender serializes ONCE
+// into one buffer; the receiver keeps the received chunks until it has the
+// whole message, concatenates them once, and deserializes a Uint8Array as a VIEW
+// of that buffer (no further copy; probed on 24.16 and 24.22). Default ceilings:
 // maxRequestBytes 21 MiB, maxBytes 20 MiB, MAX_PENDING_UPLOAD_REQUESTS 3
-// retained requests, one normalization at a time through the extraction slot):
+// retained requests, one job at a time in the extraction slot (images and
+// documents share it).
 //   server process
 //   - request bodies being read or parsed: at most 3 x 21 MiB (readBody's one
 //     buffer; multipart parts are views of it, the metadata copy holds headers
 //     only); zero-filled and dropped when the handler returns;
+//   - intake classification: no full-file copy. One control-byte pass and
+//     buffer.isUtf8 run over the bytes in place; text is decoded from at most
+//     UPLOAD_SNIFF_PREFIX_BYTES (64 KiB) twice (the root scan and the subtype),
+//     plus a 512-byte Netpbm header: < 0.5 MiB per file, synchronous, so one
+//     file at a time;
 //   - held originals (owned copies): at most 8 slots and at most 3 x 21 MiB (a
 //     request stays retained until its jobs end, so its originals count against
 //     the same 3 requests);
-//   - IPC to the normalizer child: one serialized message (<= 20 MiB original);
-//   - the child's result: <= 8 MiB normalized output, received buffers plus the
-//     deserialized message (<= 2 x 8 MiB);
-//   normalizer child (one at a time; RSS capped at 384 MiB by its watchdog)
-//   - the received message: receive buffers plus the deserialized message
-//     (<= 2 x 20 MiB); the decoder reads a VIEW of it (normalize-input.js), not
-//     another copy;
-//   - its result: the encoded output plus its serialized message (<= 2 x 8 MiB).
-// So at most 3 x 21 + 3 x 21 + 20 + 16 = 162 MiB in the server process and
-// 40 + 16 = 56 MiB in the child: 218 MiB of request/image bytes in total.
-// Bytes already dropped wait for the garbage collector; the bound counts live copies.
-// A restart loses the held originals; their rows (no bytes) become
-// staged-refused 'unavailable', which the client shows with an instruction to
-// attach the image again.
+//   - the running job: an image sends its original (<= 20 MiB) as one
+//     serialized message; the serializer's buffer can be reallocated once while
+//     it grows, so count 2 x 20 MiB. A document job also reads its stored bytes
+//     back from SQLite (+20 MiB): <= 60 MiB;
+//   - the child's result: <= 8 MiB, received chunks plus their concatenation
+//     (<= 2 x 8 MiB);
+//   normalizer or extractor child (one at a time; RSS capped at 384 MiB by its
+//   watchdog)
+//   - the received message: chunks plus their concatenation (<= 2 x 20 MiB);
+//     the decoder reads a VIEW of it (normalize-input.js), not another copy;
+//   - its result: the output plus its serialized message, with one growth
+//     reallocation (<= 3 x 8 MiB).
+// So at most 63 + 63 + 60 + 16 = 202 MiB in the server process (plus < 0.5 MiB
+// of intake prefix) and 40 + 24 = 64 MiB in the child: 267 MiB of request,
+// image and document bytes in total. Arithmetic, not an RSS measurement; bytes
+// already dropped wait for the garbage collector, the bound counts live copies.
+// A restart loses the held originals. Their rows (no bytes) stay as stored and
+// are REPORTED as staged-refused 'unavailable' on every read (reportUploads);
+// the client shows that with an instruction to attach the image again.
 const MAX_PENDING_IMAGE_NORMALIZATIONS = 8;
 let imageSlots = 0; // held originals
-// Upload IDs whose original some handler set in this process holds: recovery
-// never treats those as lost, whichever handler set runs it.
+// Upload IDs whose original some handler set in this process holds: reads
+// never report those as lost, whichever handler set serves the read.
 const heldInProcess = new Set();
-const STAGING_MS = 30 * 60 * 1000;
-const RECOVERY_RETRY_MS = 1000;
 /** Admission counters, for tests and diagnostics (counts only, never bytes). */
 export const uploadAdmissionState = () => ({ pendingUploadRequests, imageSlots });
 // Process-wide FIFO: waiting jobs retain IDs/metadata only, never stored bytes.
@@ -97,30 +114,90 @@ function zeroExcept(buffer, views) {
   }
   buffer.fill(0, offset);
 }
-// A standalone SVG: the root element is <svg> (optionally prefixed) after an
-// optional BOM, XML declaration, processing instructions, comments and doctype
-// (AIT-610 r4). The whole prolog is scanned, so padding cannot hide the root.
-// An XML document with any other root stays a document (AIT-510).
-function standaloneSvg(bytes) {
-  const text = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('latin1');
+// AIT-610 r5: text recognition reads at most this prefix of a file. Beyond it
+// the only full passes are allocation-free: a control-byte scan and
+// buffer.isUtf8 (a native validator over the bytes in place). No full-file
+// string or Latin-1 copy is made at intake.
+export const UPLOAD_SNIFF_PREFIX_BYTES = 64 * 1024;
+const unsupported = { mediaType: 'application/octet-stream', reason: 'unsupported' };
+// The decoded prefix, cut at a UTF-8 character boundary (the caller validated
+// the whole file as UTF-8). At most UPLOAD_SNIFF_PREFIX_BYTES bytes.
+function prefixBytes(bytes) {
+  let end = Math.min(bytes.length, UPLOAD_SNIFF_PREFIX_BYTES);
+  if (end < bytes.length) while (end > 0 && (bytes[end] & 0xc0) === 0x80) end--;
+  return bytes.subarray(0, end);
+}
+// The XML root of a UTF-8 text prefix (AIT-610 r5). One forward pass, so the
+// work is linear in the prefix: whitespace, processing instructions, comments
+// and a doctype whose internal subset may hold quoted strings (a quoted ']' or
+// '>' does not end it), comments and PIs. `whole` says the prefix is the whole
+// file. Returns
+//   null          not an XML document (plain text, CSV, JSON, Markdown, or
+//                 markup no XML parser accepts as a document)
+//   'incomplete'  a prolog item or the root name runs past a truncated prefix
+//                 (fail closed: the caller refuses the file)
+//   <name>        the root element's name, e.g. 'svg', 'svg:svg', 'note'.
+function xmlRoot(text, whole) {
   const space = code => code === 0x20 || code === 0x09 || code === 0x0a || code === 0x0d;
-  let i = text.startsWith('\xef\xbb\xbf') ? 3 : 0;
+  const open = () => whole ? null : 'incomplete';
+  const until = (at, token) => { const end = text.indexOf(token, at); return end < 0 ? -1 : end + token.length; };
+  const name = /[A-Za-z_][\w.:-]*/uy;
+  let i = text.charCodeAt(0) === 0xfeff ? 1 : 0;
   for (;;) {
     while (i < text.length && space(text.charCodeAt(i))) i++;
+    if (i >= text.length) return open();
+    if (text[i] !== '<') return null;
     let end;
-    if (text.startsWith('<?', i)) end = text.indexOf('?>', i + 2) + 2;
-    else if (text.startsWith('<!--', i)) end = text.indexOf('-->', i + 4) + 3;
-    else if (text.startsWith('<!DOCTYPE', i)) {
-      const close = text.indexOf('>', i), subset = text.indexOf('[', i);
-      end = (subset >= 0 && subset < close ? text.indexOf('>', text.indexOf(']', subset)) : close) + 1;
-    } else break;
-    if (end <= i) return false; // an unterminated prolog item
+    if (text.startsWith('<?', i)) end = until(i + 2, '?>');
+    else if (text.startsWith('<!--', i)) end = until(i + 4, '-->');
+    else if (/^<!doctype/iu.test(text.slice(i, i + 9))) {
+      end = -1;
+      for (let j = i + 9, subset = false; j >= 0 && j < text.length;) {
+        const c = text[j];
+        if (c === '"' || c === "'") { const close = text.indexOf(c, j + 1); j = close < 0 ? -1 : close + 1; }
+        else if (subset && text.startsWith('<!--', j)) j = until(j + 4, '-->');
+        else if (subset && text.startsWith('<?', j)) j = until(j + 2, '?>');
+        else if (c === '[' && !subset) { subset = true; j++; }
+        else if (c === ']' && subset) { subset = false; j++; }
+        else if (c === '>' && !subset) { end = j + 1; break; }
+        else j++;
+      }
+    } else {
+      name.lastIndex = i + 1;
+      const root = name.exec(text);
+      if (!root) return null;
+      // The name ends inside the prefix, or the prefix is the whole file.
+      return i + 1 + root[0].length < text.length || whole ? root[0] : 'incomplete';
+    }
+    if (end < 0) return open();
     i = end;
   }
-  return /^<(?:[A-Za-z_][\w.-]*:)?svg[\t\n\r />]/u.test(text.slice(i, i + 256));
 }
-const extensions = { pdf: EXTRACTOR_MEDIA_TYPES.pdf, docx: EXTRACTOR_MEDIA_TYPES.docx, xlsx: EXTRACTOR_MEDIA_TYPES.xlsx,
-  pptx: EXTRACTOR_MEDIA_TYPES.pptx, txt: 'text/plain', md: 'text/markdown', csv: 'text/csv', json: 'application/json', xml: 'application/xml' };
+const startsWith = (bytes, signature) => bytes.length >= signature.length && signature.every((value, index) => value === undefined || bytes[index] === value);
+// Signatures sniffDocument decides from the whole file without decoding text.
+const binarySignatures = [[37, 80, 68, 70, 45], [80, 75, 3, 4], [80, 75, 5, 6], [137, 80, 78, 71, 13, 10, 26, 10], [255, 216, 255],
+  [82, 73, 70, 70, undefined, undefined, undefined, undefined, 87, 69, 66, 80]];
+// Netpbm (PBM/PGM/PPM 'P1'..'P6' with width and height, PAM 'P7'): image
+// formats, never documents, even in their ASCII forms (AIT-610 r5).
+const netpbm = bytes => /^(?:P[1-6](?:\s+(?:#[^\n]*\n\s*)*\d+){2}\s|P7\s)/u.test(Buffer.from(bytes.subarray(0, 512)).toString('latin1'));
+const extensions = EXTRACTOR_EXTENSIONS;
+// PDF, Office and the sniffer's own image signatures go to sniffDocument with
+// the whole file (it returns before any text decoding). Everything else must be
+// UTF-8 text without control bytes; its root decides SVG versus document, and
+// its subtype comes from the bounded prefix.
+function sniffText(bytes, maxBytes) {
+  const limits = { ...EXTRACTOR_LIMITS, maxBytes };
+  if (bytes.length > maxBytes || binarySignatures.some(signature => startsWith(bytes, signature))) return sniffDocument(bytes, limits);
+  for (let i = 0; i < bytes.length; i++) {
+    const byte = bytes[i];
+    if (byte < 32 && byte !== 9 && byte !== 10 && byte !== 12 && byte !== 13) return unsupported;
+  }
+  if (!isUtf8(bytes)) return unsupported; // UTF-16 and legacy encodings included
+  const head = prefixBytes(bytes), root = xmlRoot(new TextDecoder('utf-8').decode(head), head.length === bytes.length);
+  if (root === 'incomplete') return unsupported;
+  if (root && /^(?:[^:]*:)?svg$/iu.test(root)) return { mediaType: 'image/svg+xml', reason: 'unsupported' };
+  return sniffDocument(head, limits);
+}
 export function sniffUploadDocument(bytes, filename, maxBytes = EXTRACTOR_LIMITS.maxBytes) {
   const gif = bytes.length >= 6 && /^GIF8[79]a$/u.test(Buffer.from(bytes.subarray(0, 6)).toString('ascii'));
   // Raster signatures that sniffDocument does not name (AIT-610 r3). BMP: 'BM'
@@ -137,7 +214,7 @@ export function sniffUploadDocument(bytes, filename, maxBytes = EXTRACTOR_LIMITS
   const excluded = /^(?:heic|heix|hevc|hevx|heim|heis|hevm|hevs|mif1|msf1|avif|avis)$/u.test(brand);
   const detected = excluded ? { mediaType: /^avi/u.test(brand) ? 'image/avif' : 'image/heic', reason: 'unsupported' }
     : gif ? { mediaType: 'image/gif', reason: 'unsupported' } : other ? { mediaType: other, reason: 'unsupported' }
-      : standaloneSvg(bytes) ? { mediaType: 'image/svg+xml', reason: 'unsupported' } : sniffDocument(bytes, { ...EXTRACTOR_LIMITS, maxBytes });
+      : netpbm(bytes) ? { mediaType: 'image/x-portable-anymap', reason: 'unsupported' } : sniffText(bytes, maxBytes);
   const extension = /\.([a-z0-9]+)$/iu.exec(filename)?.[1].toLowerCase(), expected = extensions[extension];
   if (detected.reason) return detected;
   // Text subtypes are heuristic: an empty markdown/CSV/JSON file still belongs
@@ -157,40 +234,8 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
     originals.delete(uploadId); imageSlots--; heldInProcess.delete(uploadId);
     bytes.fill(0);
   }
-  // A staged image whose original this process does not hold (lost to a
-  // restart): staged-refused 'unavailable' with a fresh staging window, so the
-  // visitor sees the instruction to attach it again before expiry removes it.
-  const lost = () => ({ status: 'staged-refused', reason: 'unavailable', expiresAt: now() + STAGING_MS });
-  // Boot recovery (resume): a staged-pending image with neither a job nor an
-  // original held in this process was lost to a restart and becomes
-  // staged-refused 'unavailable'. Returns false if a recovery write failed
-  // (AIT-610 r4): the session stays in `unrecovered` and its expiry does not run
-  // until a retry succeeds, so the pending row is never discarded before the
-  // visitor sees the instruction to attach it again.
-  const unrecovered = new Set();
-  function recover(id) {
-    if (signal.aborted) return true;
-    let recovered = true;
-    for (const upload of storage.get(id).uploads) {
-      if (upload.kind !== 'image' || upload.state !== 'staged-pending' || upload.erased || jobs.has(upload.id) || heldInProcess.has(upload.id)) continue;
-      try {
-        const before = storage.get(id).seq, event = storage.completeUpload(id, upload.id, lost(), { opener });
-        if (event) for (const saved of storage.read(id, before)) publish(id, saved);
-      } catch { recovered = false; }
-    }
-    return recovered;
-  }
+  const lost = upload => upload?.kind === 'image' && upload.state === 'staged-pending' && !upload.erased && !heldInProcess.has(upload.id);
   function expire(id) {
-    if (unrecovered.has(id)) {
-      if (!recover(id)) {
-        // Keep the rows; try again shortly. Nothing expires in this session
-        // until every lost image is recorded as 'unavailable'.
-        clearTimeout(expiryTimers.get(id));
-        if (!signal.aborted) { const timer = setTimeout(() => expire(id), RECOVERY_RETRY_MS); timer.unref?.(); expiryTimers.set(id, timer); }
-        return;
-      }
-      unrecovered.delete(id);
-    }
     for (const event of storage.expireStagedUploads(id, now())) { jobs.get(event.data.id)?.controller.abort(); publish(id, event); }
     clearTimeout(expiryTimers.get(id)); expiryTimers.delete(id);
     const pending = storage.get(id).uploads.filter(upload => stagedImage(upload) && !upload.erased);
@@ -207,9 +252,10 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
     job.promise = Promise.resolve().then(async () => {
       const upload = storage.get(id).uploads.find(u => u.id === uploadId);
       if (!upload || !['pending', 'staged-pending'].includes(upload.state)) return;
-      let result = upload.kind === 'image' && !originals.has(uploadId) ? lost() : null, release;
-      // A missing original is decided first: after a restart it is
-      // 'unavailable', never 'deadline', whatever the clock says.
+      // A missing original is decided first: 'unavailable', never 'deadline'.
+      // (Intake holds every admitted original before its job starts, and
+      // resume starts no image jobs, so this is a guard only.)
+      let result = upload.kind === 'image' && !originals.has(uploadId) ? { status: 'staged-refused', reason: 'unavailable' } : null, release;
       if (!result) {
         const scope = operationScope({ signal: AbortSignal.any([signal, controller.signal]), deadlineAt: upload.deadlineAt, now });
         try {
@@ -261,7 +307,25 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
     job.controller.abort(new DOMException('Upload processing revoked', 'AbortError'));
     await job.promise;
   }
-  return { cancelSession, cancelUpload,
+  // AIT-610 r5 (LEAD condition 2): a staged-pending image whose original no
+  // handler set in this process holds was lost to a restart. It is REPORTED
+  // as staged-refused 'unavailable' whenever the session or its uploads are
+  // read; nothing is written. The answer depends only on the row and this
+  // process's holds, so it is the same on every read, and it maps only the
+  // rows of the session being read. Expiry removes the row at its normal
+  // deadline like any refusal record. No write-through on read: a write would
+  // add a failure mode and a published event to every read, for a state that
+  // expiry removes anyway.
+  function reportUpload(id, upload) {
+    return lost(upload) && lost(storage.get(id).uploads.find(current => current.id === upload.id))
+      ? { ...upload, state: 'staged-refused', reason: 'unavailable' } : upload;
+  }
+  const reportUploads = (id, uploads) => {
+    const current = new Map(storage.get(id).uploads.map(upload => [upload.id, upload]));
+    return uploads.map(upload => lost(upload) && lost(current.get(upload.id)) ? { ...upload, state: 'staged-refused', reason: 'unavailable' } : upload);
+  };
+  const reportEvent = (id, event) => event?.type === 'upload.state' ? { ...event, data: reportUpload(id, event.data) } : event;
+  return { cancelSession, cancelUpload, reportUploads, reportEvent,
     async cancelImages(id) {
       clearTimeout(expiryTimers.get(id)); expiryTimers.delete(id);
       const ids = new Set(storage.get(id).uploads.filter(upload => upload.kind === 'image').map(upload => upload.id));
@@ -287,7 +351,7 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
         await Promise.all([jobs.get(uploadId)?.promise, stagedImage(event.data) ? Promise.resolve(publish(id, event)) : onWithdraw(id, event)]);
         return json({ withdrawn: uploadId, event, providerDeletion: 'not-confirmed' });
       }
-      if (request.method === 'GET' && !uploadId) return json({ uploads: session.uploads, limits });
+      if (request.method === 'GET' && !uploadId) return json({ uploads: reportUploads(id, session.uploads), limits });
       if (request.method !== 'POST' || uploadId) return json({ error: 'method-not-allowed' }, 405);
       if (session.pauseReason === 'purpose') return json({ error: 'conversation-paused', reason: 'purpose' }, 409);
       if (!/^multipart\/form-data\s*;/iu.test(request.headers.get('content-type') ?? '')) return json({ error: 'multipart-required' }, 415);
@@ -318,7 +382,7 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
         files = entries.map(({ value: f, bytes }) => {
           const detected = sniffUploadDocument(bytes, f.name, limits.maxBytes);
           // Image signatures always win (BMP, TIFF and JPEG XL included since
-          // AIT-610 r3, a standalone SVG since r4), whatever the name or client
+          // AIT-610 r3, a standalone SVG since r4, Netpbm since r5), whatever the name or client
           // MIME. This runs before storage.postUploads: a disguised image is
           // held in memory only and never reaches the database. An image suffix also
           // makes the file image input. An image client MIME does so only without
@@ -327,7 +391,11 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
           const extension = /\.([a-z0-9]+)$/iu.exec(f.name)?.[1].toLowerCase();
           const image = /^image\//u.test(detected.mediaType) || /\.(?:png|jpe?g|webp|gif|heic|heif|avif|bmp|tiff?|jxl|svg)$/iu.test(f.name) ||
             !Object.hasOwn(extensions, extension) && /^image\//u.test(f.type);
-          return { bytes, ...(image ? { kind: 'image' } : {}), filename: f.name.slice(0, 200), originalName: f.name, mediaType: detected.mediaType, deadlineAt };
+          // AIT-610 r5, allowlist: a document is persisted ONLY when it is
+          // positively one of the types the text extraction supports today.
+          // Everything else is refused here, before storage, as 'unsupported'.
+          const refusal = !image && (detected.reason || !EXTRACTABLE_MEDIA_TYPES.includes(detected.mediaType)) ? { refusal: 'unsupported' } : {};
+          return { bytes, ...(image ? { kind: 'image' } : {}), ...refusal, filename: f.name.slice(0, 200), originalName: f.name, mediaType: detected.mediaType, deadlineAt };
         });
         // Multipart boundary and the untrusted client MIME are transport details.
         // The receipt binds exact filenames, order, content bytes and base revision.
@@ -338,7 +406,7 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
         const named = result => ({ ...result, refused: (result.refused ?? []).map(record => ({ ...record, name: files[record.index].originalName })) });
         if (storage.get(id).pauseReason === 'purpose') return json({ error: 'conversation-paused', reason: 'purpose' }, 409);
         const replay = storage.uploadReceipt(id, clientEventId, digest, guard);
-        if (replay) return json({ accepted: true, ...named(replay), uploads: replay.events.map(e => e.data), limits });
+        if (replay) return json({ accepted: true, ...named(replay), uploads: replay.events.map(e => reportUpload(id, e.data)), events: replay.events.map(e => reportEvent(id, e)), limits });
         for (const image of [false, true]) {
           if (!files.some(file => (file.kind === 'image') === image)) continue;
           const availability = await (image ? runtime.imageInputAvailability : runtime.uploadAvailability)(session, { signal: request.signal, deadlineAt, now });
@@ -395,15 +463,13 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
       }
     },
     resume() {
-      // Recovery before boot expiry: a staged image whose original is gone
-      // becomes staged-refused 'unavailable', so expiry never discards it
-      // silently. If that write fails, the session's expiry waits (retried in
-      // expire), and the row's fallback job below records 'unavailable'.
-      for (const id of storage.list()) if (!recover(id)) unrecovered.add(id);
+      // No recovery write (AIT-610 r5): a staged image whose original is gone
+      // is reported 'unavailable' on read (reportUploads) and expires at its
+      // normal deadline. Only documents have durable work to resume; an image
+      // job exists only while intake holds its original.
       for (const id of storage.list()) expire(id);
       for (const id of storage.list()) for (const upload of storage.get(id).uploads) {
-        // An image another handler set in this process holds is that set's job.
-        if (!['pending', 'staged-pending'].includes(upload.state) || jobs.has(upload.id) || heldInProcess.has(upload.id) || signal.aborted) continue;
+        if (upload.kind === 'image' || upload.state !== 'pending' || jobs.has(upload.id) || signal.aborted) continue;
         // Old durable backlogs may exceed today's admission budget. Drain their
         // metadata through the same FIFO and refuse new bodies until it clears.
         pendingUploadRequests++;
