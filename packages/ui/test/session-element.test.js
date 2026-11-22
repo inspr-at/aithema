@@ -42,7 +42,8 @@ test('host copy, multiline composer, safe transcript bubbles, export and respons
   const c = setup(), root = c.shadowRoot; turn(c, 't1', '<img src=x onerror=alert(1)>\nHello');
   assert.equal(root.querySelector('ol img'), null); assert.match(root.querySelector('ol').textContent, /<img/);
   assert.equal(root.querySelector('textarea').getAttribute('maxlength'), '8000');
-  assert.equal(root.querySelector('.export').getAttribute('href'), `/api/sessions/${c.session.id}/export`);
+  // AIT-625 r4 (gate2c M2): resolved through the owner-origin check, so absolute on the page origin.
+  assert.equal(root.querySelector('.export').getAttribute('href'), `${c.ownerDocument.defaultView.location.origin}/api/sessions/${c.session.id}/export`);
   assert.match(root.querySelector('style').textContent, /min-width:60rem/); assert.match(root.querySelector('style').textContent, /--aithema-accent/);
 });
 test('readiness/aside uses draft truth, five missing rows plus overflow and preserved clarified expansion', () => {
