@@ -283,12 +283,14 @@ test('AIT-625 r2 helper: a stalled body that ignores the signal still ends at th
 });
 
 // One page for the element tests: the custom element registers once per module graph.
+// r4: the page closes after the file's last test. Registered inside a test, the hook ran when
+// that first element test ended, so every later element test met a closed page.
 let elementWindow;
+after(() => elementWindow?.happyDOM.close());
 function elementPage() {
   if (elementWindow) return elementWindow;
   elementWindow = page('http://app.test/');
   for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = elementWindow[key];
-  after(() => elementWindow.happyDOM.close());
   return elementWindow;
 }
 
