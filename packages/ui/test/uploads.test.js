@@ -993,8 +993,11 @@ for (const copy of [en, de]) test(`AIT-610 r6: ${copy.display.locale} a reconnec
       if (++streams === 1) return new Response(new ReadableStream({ start(controller) { controller.close(); } }));
       return new Response(new ReadableStream({ start(controller) { options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
     }
-    if (url.endsWith('/uploads') && !options.method) return Response.json({ uploads: c.session.uploads.map(u => u.id === staged.id ? { ...u, state: 'staged-refused', reason: 'unavailable' } : u), limits: UPLOAD_LIMITS });
-    if (/\/api\/sessions\/[^/]+$/u.test(url)) return Response.json({ ...c.session, uploads: c.session.uploads.map(u => u.id === staged.id ? { ...u, state: 'staged-refused', reason: 'unavailable' } : u) });
+    // The server restarts after the first stream (AIT-610 r7: the first stream
+    // itself reconciles, so it must still see the row pending).
+    const lost = uploads => streams < 2 ? uploads : uploads.map(u => u.id === staged.id ? { ...u, state: 'staged-refused', reason: 'unavailable' } : u);
+    if (url.endsWith('/uploads') && !options.method) return Response.json({ uploads: lost(c.session.uploads), limits: UPLOAD_LIMITS });
+    if (/\/api\/sessions\/[^/]+$/u.test(url)) return Response.json({ ...c.session, uploads: lost(c.session.uploads) });
     return Response.json({});
   });
   c.configure({ copy, copyForLocale: locale => ({ en, de })[locale], session, sessionToken: 'owner-fixture', entrance: 'choice' }); document.body.append(c); t.after(() => c.remove());
