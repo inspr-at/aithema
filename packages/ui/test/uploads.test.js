@@ -1261,3 +1261,18 @@ test('AIT-610 r9: the normal same-origin path fetches exactly the resolved URL w
   }
   assert.equal(c.session.uploads.find(u => u.id === 'u1').state, 'withdrawn');
 });
+
+// AIT-610 r9 (LEAD's r8 pre-decision): no specific Office reasons. Any document
+// refused at intake is named with the generic file-type wording, whatever
+// reason a server sends; the legacy copy keys are gone.
+for (const copy of [en, de]) for (const reason of ['encrypted', 'legacy', 'malformed', 'unsupported']) test(`AIT-610 r9: ${copy.display.locale} a document refused at intake as '${reason}' gets the generic file-type wording`, async t => {
+  const { c, root } = setup(t, { copy, post: () => Response.json({ accepted: true, events: [], uploads: [],
+    refused: [{ index: 0, name: 'report.docx', kind: 'document', reason }] }, { status: 202 }) });
+  await choose(root, [new window.File(['x'], 'report.docx')]);
+  assert.deepEqual(c.session.uploads, []);
+  const notice = root.querySelector('.composer-reason')?.textContent ?? '';
+  assert.ok(notice.startsWith(copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'report.docx'))), notice);
+});
+test('AIT-610 r9: the legacy Office copy keys are removed in EN and DE', () => {
+  for (const copy of [en, de]) for (const key of ['legacyWord', 'legacyExcel', 'legacyPowerPoint']) assert.equal(copy.uploads.reasons[key], undefined, `${copy.display.locale} ${key}`);
+});

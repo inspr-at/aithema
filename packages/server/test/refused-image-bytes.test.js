@@ -1266,3 +1266,38 @@ test('AIT-610 r6: the CFB directory read is bounded (a directory chain that loop
   assert.equal(uploadModule.CFB_DIRECTORY_SECTORS_MAX, 64, 'the stated bound');
   assert.equal(uploadModule.uploadIntakeReason(cfb(['EncryptionInfo', 'EncryptedPackage']), 'ok.docx'), 'encrypted');
 });
+
+// AIT-610 r9 (LEAD's r8 pre-decision, gate8c found another CFB/ZIP edge): the
+// specific Office intake reasons are gone. EVERY refused Office file is refused
+// with the generic 'unsupported' ("file type not accepted"), never stored; the
+// CFB directory walk and the ZIP-feature intake classification are deleted.
+for (const [label, name, build] of [
+  ['an encrypted .docx (a CFB with EncryptionInfo and EncryptedPackage)', 'secret.docx', encryptedOffice],
+  ['an encrypted .xlsx', 'secret.xlsx', () => cfb(['EncryptedPackage', 'EncryptionInfo'])],
+  ['a legacy .doc renamed .docx', 'old.docx', () => cfb(['WordDocument', '1Table'])],
+  ['a CFB with only one of the encryption streams', 'half.docx', () => cfb(['EncryptionInfo', 'WordDocument'])],
+  ['a CFB whose encryption streams are orphans', 'orphans.docx', () => cfb(['EncryptionInfo', 'EncryptedPackage'], { orphans: true })],
+  ['a damaged .docx (a truncated zip)', 'cut.docx', () => docx().subarray(0, docx().length - 40)],
+  ['a .pptx zip without [Content_Types].xml', 'bare.pptx', () => Buffer.from(extractorFixtureZip({ 'notes/readme.txt': 'plain words' }))],
+  ['an intact .docx in ZIP64 form', 'big.docx', () => zipPatched((bytes, end) => { bytes.writeUInt16LE(0xffff, end + 8); bytes.writeUInt16LE(0xffff, end + 10); })],
+  ['a .docx whose local header uses ZIP64 size sentinels', 'local64.docx', () => zip64LocalSizes()],
+  ['an unknown binary named .docx', 'blob.docx', () => Buffer.concat([Buffer.from([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1, 0]), Buffer.alloc(64, 7)])],
+]) test(`AIT-610 r9: ${label} is refused before persistence with the generic reason`, async t => {
+  const f = await fixture(t);
+  const postUploads = f.storage.postUploads.bind(f.storage), admittedDocuments = [];
+  t.mock.method(f.storage, 'postUploads', (id, eventId, digest, files, ...rest) => {
+    admittedDocuments.push(...files.filter(file => file.kind !== 'image' && !file.refusal).map(file => file.filename));
+    return postUploads(id, eventId, digest, files, ...rest);
+  });
+  const response = await f.upload(`r9-generic-${name.replace(/[^a-zA-Z0-9_-]/gu, '-')}`, [[name, build(), 'application/octet-stream']]), body = await response.text();
+  assert.equal(response.status, 202, body);
+  assert.deepEqual(admittedDocuments, [], 'no document admission reached storage');
+  assert.deepEqual(JSON.parse(body).refused, [{ index: 0, name, kind: 'document', reason: 'unsupported' }]);
+  await f.handlers.idle();
+  assert.equal(f.storage.get(f.session.id).uploads.length, 0, 'no row');
+  assert.equal(f.storage.db.prepare('SELECT COUNT(*) AS n FROM uploads').get().n, 0, 'nothing stored');
+});
+test('AIT-610 r9: the Office intake classification is deleted (no CFB walk, no specific reason export)', () => {
+  assert.equal(uploadModule.uploadIntakeReason, undefined);
+  assert.equal(uploadModule.CFB_DIRECTORY_SECTORS_MAX, undefined);
+});
