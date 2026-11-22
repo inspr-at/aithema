@@ -642,7 +642,11 @@ export async function consentKeyboardUpCheck(t) {
           // with the keyboard up (short), and the composer at most 40 % of the
           // visual viewport, never below the field's minimum (the cap is the
           // minimum when the composer's other rows already take that room).
-          const chrome = up.composer.height - up.field.height, cap = Math.min(92.5, Math.max(up.field.height, .4 * viewport - chrome));
+          // AIT-618: the three-line short cap is ComposerSize's own (3 line heights + the field's
+          // padding, layout.js), measured, not a constant: with the status row collapsed it binds.
+          const threeLines = await page.$eval('aithema-session', c => { const css = getComputedStyle(c.shadowRoot.querySelector('textarea'));
+            return c.shadowRoot.querySelector('.workspace').hasAttribute('data-phone-short') ? 3 * parseFloat(css.lineHeight) + parseFloat(css.paddingTop) + parseFloat(css.paddingBottom) : Infinity; });
+          const chrome = up.composer.height - up.field.height, cap = Math.min(threeLines, Math.max(up.field.height, .4 * viewport - chrome));
           if (!(typed.field?.height >= cap - 1)) failures.push(`${label}: the field grows to its cap: ${up.field?.height} -> ${typed.field?.height} (cap ${cap})`);
           if (typed.composer && typed.composer.height > Math.max(.4 * viewport, up.composer.height) + .5) failures.push(`${label}: the composer respects the visual viewport cap: ${typed.composer.height} > ${.4 * viewport}`);
           growth.push(`${label}: field ${up.field.height} -> ${typed.field?.height} (cap ${cap.toFixed(2)}), composer ${up.composer.height} -> ${typed.composer?.height} of ${.4 * viewport}`);
