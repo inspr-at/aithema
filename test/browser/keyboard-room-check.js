@@ -447,7 +447,9 @@ export async function keyboardBandCheck(t) {
         for (const paused of [true, false]) {
           await togglePause(page, paused); await settleLong(page);
           const toggled = await readBand(page), tag = `${name} keyboard up, conversation ${paused ? 'paused' : 'resumed'} by the real toggle`;
-          if (!toggled.keyboard) failures.push(`${tag}: the keyboard stays up`);
+          // Pausing the conversation disables the composer, so focus leaves the field (AIT-188: the keyboard flag clears);
+          // the viewport is still short, so the compact band stays and Pause with it.
+          if (!toggled.bandUp) failures.push(`${tag}: the keyboard-up band stays`);
           if (toggled.pausePressed !== String(paused) || !toggled.pauseHitLive) failures.push(`${tag}: the visible pause is pressed as toggled and takes the hit: ${JSON.stringify([toggled.pausePressed, toggled.pauseClass, toggled.pauseHitLiveBy])}`);
           failures.push(...stableBoxes(`${tag} vs pending-playing`, first, toggled, ['band', 'pause', 'gear']));
         }
