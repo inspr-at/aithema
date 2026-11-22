@@ -65,6 +65,14 @@ export const combinedEntranceStyles = `
 .workspace[data-entrance="combined"] .composer[data-image-input] .composer-feedback { min-height:max(var(--feedback-held,0px),44px); }
 .workspace[data-entrance="combined"] .composer-feedback .composer-reason { font-size:inherit; }
 .workspace[data-entrance="combined"] .composer-feedback .composer-reason[data-shortcut] { position:static; visibility:visible; width:auto; }
+/* AIT-618: a touch phone without a hardware keyboard or pointer has no
+   ⌘/Ctrl + Enter, so the hint is not painted there. Its box stays (static, auto
+   width), so the row lays out exactly as before; the query is static, so the
+   hint never appears or disappears while the visitor types. A hardware
+   keyboard with a fine pointer or hover (desktop, tablet with keyboard) keeps it. */
+@media(hover:none) and (pointer:coarse) {
+  .workspace[data-entrance="combined"] .composer-feedback .composer-reason[data-shortcut] { visibility:hidden; }
+}
 .composer-notice-slot { grid-area:notice; position:relative; min-width:0; }
 .composer-notice-reserve { display:grid; visibility:hidden; pointer-events:none; font-size:.75rem; line-height:1.45; }
 .composer-notice-reserve > * { grid-area:1/1; }
@@ -286,9 +294,9 @@ export const combinedEntranceStyles = `
      alike (r4, Codex KEYBOARD). r5 (Codex gatepra4 Low): a READY staged image
      keeps its own row above the field and leaves no blank row below it. */
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.composer-feedback > .composer-reason:is([data-shortcut],:empty)):not(:has(.composer-feedback[data-saved])):not(:has(.composer-feedback[data-keyboard-kept])):not(:has(.composer-feedback :is(button, a, input, [tabindex]))) {
-    grid-template-areas:"message mic send" "status status status" "notice notice notice"; }
+    grid-template-areas:"message mic send" "notice notice notice"; }
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.staged-images:not([hidden])):has(.composer-feedback > .composer-reason:is([data-shortcut],:empty)):not(:has(.composer-feedback[data-saved])):not(:has(.composer-feedback[data-keyboard-kept])):not(:has(.composer-feedback :is(button, a, input, [tabindex]))) {
-    grid-template-areas:"images images images" "message mic send" "status status status" "notice notice notice"; }
+    grid-template-areas:"images images images" "message mic send" "notice notice notice"; }
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.composer-feedback > .composer-reason:is([data-shortcut],:empty)):not(:has(.composer-feedback[data-saved])):not(:has(.composer-feedback[data-keyboard-kept])):not(:has(.composer-feedback :is(button, a, input, [tabindex]))) .composer-feedback {
     grid-area:auto; position:absolute; width:1px; height:0; min-height:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
   /* r6/r7 (TICK r5/r6 M1): with the keyboard up the feedback row only grows.
@@ -329,6 +337,22 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"][data-phone-short] .composer:has(.staged-images:not([hidden])) {
     grid-template-areas:"images images images" "message mic send" "feedback feedback feedback" "status status status" "notice notice notice"; }
   .workspace[data-entrance="combined"][data-phone-short] .composer[data-image-input] .composer-feedback { grid-area:auto; }
+  /* AIT-618 (LEAD's decision after PR-A: the transcript's keyboard-up room comes
+     from other chrome, never from moving controls). While the phone keyboard is
+     up typing is the task, so the status row ("Microphone blocked", "Call
+     ended") leaves the grid with its row gap: it takes 0 px and its words stay
+     in the accessibility tree, as the idle feedback row's do (above). It
+     returns when the keyboard closes, at its reserved height. It changes only
+     when the keyboard opens or closes, never while typing; the feedback row's
+     latch and floor (PR-A r6..r10) are untouched. The AI notice stays (a
+     required disclosure). After the short-phone areas, at their specificity;
+     the idle collapse rules above drop the status row themselves. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer {
+    grid-template-areas:"message mic send" "feedback feedback feedback" "notice notice notice"; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.staged-images:not([hidden])) {
+    grid-template-areas:"images images images" "message mic send" "feedback feedback feedback" "notice notice notice"; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-status-slot {
+    grid-area:auto; position:absolute; width:1px; height:0; min-height:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
   /* r4 (Codex KEYBOARD): with the keyboard up an image-enabled dock keeps no
      image slot above the field: its feedback is the ordinary feedback row
      under the field (one row while consent is pending, 0 px when idle; the
