@@ -6,13 +6,19 @@
  * and must share the document's actual origin (window.origin; "null" fails closed);
  * every request uses redirect:'error'; finite actions end at a deadline that covers
  * the body. Only the frame long poll is left to the call lifetime, as /events is.
- * Without a document (a server-side runtime with an injected fetch) there is no page
- * origin to protect; the URL is used as given, still with redirect:'error'. */
+ * A worker is checked against its own origin and location. Only a runtime with no browser
+ * global at all (no window, self, document or WorkerGlobalScope: a server-side runtime with
+ * an injected fetch) has no page origin to protect; there the URL is used as given, still
+ * with redirect:'error'. In any browser context view:null fails closed (AIT-625 r4). */
 export const RELAY_REQUEST_DEADLINE_MS = 30_000;
-const pageView = () => (globalThis.document ? globalThis : null);
+const browserRuntime = () => ['window', 'self', 'document', 'WorkerGlobalScope'].some(name => typeof globalThis[name] !== 'undefined');
+const pageView = () => (browserRuntime() ? globalThis : null);
 function relayURL(view, url) {
-  if (!view) return String(url);
-  const origin = view.origin, base = view.document?.baseURI;
+  if (!view) {
+    if (browserRuntime()) throw new Error('Relay requests require the page origin');
+    return String(url);
+  }
+  const origin = view.origin, base = view.document ? view.document.baseURI : view.location?.href;
   if (typeof origin !== 'string' || origin === 'null' || !/^https?:$/u.test(view.location?.protocol ?? '') || !base)
     throw new Error('Relay requests require the page origin');
   const resolved = new URL(String(url), base);

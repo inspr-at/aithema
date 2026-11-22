@@ -97,9 +97,11 @@ export async function testGrokConsumer() {
     for (const action of ['close', 'pause', 'resume', 'heartbeat', 'recover']) control[action] = identity =>
       post(`/${identity.callId}/${action}`, { ...identity, tabId: 'fixture-tab' });
     const client = createGrokVoiceClient({ control,
-      // A Node consumer with an in-process relay: no page here (the smoke's happy-dom globals serve
-      // the web components), so the relay's page-origin guard (AIT-625) is told there is none.
-      network: { url: 'https://host.test/composed/relay', headers: { 'x-owner': 'fixture-owner' }, view: null,
+      // A Node consumer with an in-process relay. The smoke's happy-dom globals serve the web
+      // components, so the relay sees a browser context; it is given the fixed host page it
+      // serves, and the page-origin guard (AIT-625 r4) checks the relay URL against it.
+      network: { url: 'https://host.test/composed/relay', headers: { 'x-owner': 'fixture-owner' },
+        view: { origin: 'https://host.test', location: { protocol: 'https:', href: 'https://host.test/' }, document: { baseURI: 'https://host.test/' } },
         fetch: (url, init) => handlers.handle(new Request(url, init)) },
       capture: async ({ onAudio }) => { captureAudio = onAudio; return { stop() {} }; },
       player: { play(bytes, format) { played.push({ bytes, format }); }, stop() {} } });
