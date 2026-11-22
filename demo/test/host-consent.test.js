@@ -440,10 +440,13 @@ test('AIT-376: withdrawal can cancel a first grant with no previously recorded s
 test('AIT-376: postJson passes the AbortSignal to the POST transport', async t => {
   const { postJson } = await import('../post-json.js');
   const original = globalThis.fetch, controller = new AbortController(); let sent;
+  // AIT-625 r7: postJson sends through the guarded helper, so it needs the page it runs on.
+  const view = new Window({ url: 'http://localhost/consent/' }); t.after(() => view.happyDOM.close());
   t.after(() => { globalThis.fetch = original; });
   globalThis.fetch = (url, options) => { sent = { url, ...options }; return new Promise((resolve, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true })); };
-  const request = postJson('/api/sessions/s/consent', { granted: false }, { signal: controller.signal });
-  assert.equal(sent.method, 'POST'); assert.equal(sent.body, '{"granted":false}'); assert.equal(sent.signal, controller.signal);
+  const request = postJson('/api/sessions/s/consent', { granted: false }, { signal: controller.signal, view });
+  assert.equal(sent.method, 'POST'); assert.equal(sent.body, '{"granted":false}'); assert.ok(sent.signal instanceof AbortSignal);
+  assert.equal(sent.url, 'http://localhost/api/sessions/s/consent'); assert.equal(sent.redirect, 'error');
   controller.abort(); await assert.rejects(request, { name: 'AbortError' });
 });
 
