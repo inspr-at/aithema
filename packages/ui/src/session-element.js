@@ -1441,6 +1441,24 @@ export class AithemaSession extends HTMLElement {
     this.#revealedY = row.getBoundingClientRect().top - shell.getBoundingClientRect().top + shell.scrollTop;
     this.#recordTranscriptScroll(before);
   }
+  // AIT-603 r13: the transcript shell shows the host welcome and nothing else:
+  // the list's visible rows are all the welcome, no voice notice paints text,
+  // and no other shell child (reply-failure recovery, any later row) has a
+  // visible box. Latest and empty notice reservations are no content.
+  #onlyWelcomeVisible(shell) {
+    const view = this.ownerDocument.defaultView;
+    const painted = node => {
+      if (node.hidden || ['hidden', 'collapse'].includes(view.getComputedStyle(node).visibility)) return false;
+      const box = node.getBoundingClientRect(); return box.width > 0 && box.height > 0;
+    };
+    const list = shell.querySelector('ol');
+    const rows = [...(list?.children ?? [])].filter(row => !row.hidden && row.getClientRects().length);
+    if (!rows.length || !rows.every(row => row.hasAttribute('data-host-opener'))) return false;
+    return [...shell.children].every(child => child === list || child.classList.contains('transcript-latest')
+      || (child.classList.contains('voice-notices')
+        ? ![...child.querySelectorAll('.voice-notice')].some(notice => painted(notice) && (notice.innerText ?? notice.textContent).trim())
+        : !painted(child)));
+  }
   #scrollToLatest() {
     if (this.#fold?.folded || this.#longReply) return;
     const shell = this.shadowRoot.querySelector('.transcript-shell');
@@ -1507,10 +1525,12 @@ export class AithemaSession extends HTMLElement {
     // layout), read from the workspace; #imageLayout means image INPUT is
     // available and did not hold here, so r11's guard never applied. An
     // explicit Latest jump still goes to the end.
-    const rows = [...(shell.querySelector('ol')?.children ?? [])].filter(row => !row.hidden && row.getClientRects().length);
+    // r13 (Codex gatepra12 M1): positive condition: nothing but the welcome is
+    // visible anywhere the follow would reveal. A voice recovery notice ("please
+    // repeat"), a reply-failure row or any other visible shell content outside
+    // the list is new content, so a following reader follows to it.
     if (this.#combined && !this.#latestJump && this.shadowRoot.querySelector('.workspace')?.dataset.conceptLayout === 'image'
-      && this.ownerDocument.defaultView.matchMedia('(max-width:600px)').matches
-      && rows.length && rows.every(row => row.hasAttribute('data-host-opener'))) end = before;
+      && this.ownerDocument.defaultView.matchMedia('(max-width:600px)').matches && this.#onlyWelcomeVisible(shell)) end = before;
     shell.scrollTop = end;
     // An inline capture can be taller than the combined phone's reading pane.
     // Reveal its entry controls before native focus; bottom-follow alone can
