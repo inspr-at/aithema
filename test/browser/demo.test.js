@@ -159,7 +159,11 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
       // the ZIP is then downloaded from the page's blob URL). Such a report is recorded, and the ZIP
       // checks below require exactly one, a completed blob download, and the full ZIP.
       if (exporting && request.resourceType() === 'fetch' && !request.isNavigationRequest() && new URL(request.url()).pathname.endsWith('/export')
-        && request.failure()?.errorText === 'net::ERR_ABORTED' && request.response()?.status() === 200) { exportAborts.push(request.url()); return; }
+        && request.failure()?.errorText === 'net::ERR_ABORTED' && request.response()?.status() === 200 && !exportAborts.some(other => other !== request)) {
+        // r7 (gate4c Low): the allowance holds for ONE request object only; the ZIP step binds it to
+        // the verified export request whose body became the blob download.
+        exportAborts.push(request); return;
+      }
       fail(new Error(`Demo request failed: ${request.failure()?.errorText} ${request.method()} ${new URL(request.url()).pathname} (${request.resourceType()}${request.isNavigationRequest() ? ', navigation' : ''}, response ${request.response()?.status() ?? 'none'}, step ${smokeStep})`));
     };
     page.on('console', consoleError); page.on('pageerror', fail); page.on('error', fail);
@@ -319,6 +323,12 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         assert.equal(zipResponse.request().redirectChain().length, 0);
         assert.match(String(download.url), /^blob:/u, 'AIT-625 r6: the ZIP is downloaded from the page blob, not by a navigation');
         assert.ok(exportAborts.length <= 1, `at most the one export fetch is reported aborted: ${exportAborts.length}`);
+        // r7 (gate4c Low): a tolerated abort report is THE verified ZIP request (same request id and
+        // URL as the response whose body produced the blob download); any other aborted export fails.
+        for (const aborted of exportAborts) {
+          assert.equal(aborted, zipResponse.request(), 'the tolerated abort is the verified ZIP export request');
+          assert.equal(aborted.id, zipResponse.request().id); assert.equal(aborted.url(), zipResponse.url());
+        }
         exporting = false;
 
         smokeStep = 'phone settings geometry';
