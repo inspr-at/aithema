@@ -429,7 +429,7 @@ const stillDiscarding = (root, feedback, scope) => scope.id
 export const releaseFeedback = (root, { discard = null } = {}) => {
   const feedback = root.querySelector('.composer-feedback');
   if (!feedback) return;
-  feedback.removeAttribute('data-keyboard-kept'); feedback.removeAttribute('data-keyboard-consent'); feedback.style.removeProperty('--feedback-held'); heldHeight.delete(feedback);
+  feedback.removeAttribute('data-keyboard-kept'); feedback.removeAttribute('data-keyboard-consent'); feedback.removeAttribute('data-keyboard-controls'); feedback.style.removeProperty('--feedback-held'); heldHeight.delete(feedback);
   if (discard) discarded.set(feedback, discardScope(feedback, discard)); else discarded.delete(feedback);
 };
 // r10 (Codex gatepra9 Low): a discard that FAILED (its error shows, the tile
@@ -441,7 +441,7 @@ export const endDiscard = root => {
 export const latchFeedback = (root, keyboardUp = root.querySelector('.workspace')?.hasAttribute('data-phone-keyboard')) => {
   const feedback = root.querySelector('.composer-feedback');
   if (!feedback) return;
-  if (!keyboardUp) { if (feedback.hasAttribute('data-keyboard-kept') || feedback.hasAttribute('data-keyboard-consent') || feedback.style.getPropertyValue('--feedback-held') || discarded.has(feedback)) releaseFeedback(root); return; }
+  if (!keyboardUp) { if (feedback.hasAttribute('data-keyboard-kept') || feedback.hasAttribute('data-keyboard-consent') || feedback.hasAttribute('data-keyboard-controls') || feedback.style.getPropertyValue('--feedback-held') || discarded.has(feedback)) releaseFeedback(root); return; }
   if (discarded.has(feedback)) {
     if (stillDiscarding(root, feedback, discarded.get(feedback))) return;
     discarded.delete(feedback);
@@ -450,12 +450,21 @@ export const latchFeedback = (root, keyboardUp = root.querySelector('.workspace'
   // AIT-618 r3: a row that showed the consent action keeps its margin for the
   // "More" target below (combined-entrance-styles.js) until the row is released.
   if (feedback.querySelector(':scope > .composer-reason[data-consent-feature="text"] > .consent-action')) feedback.setAttribute('data-keyboard-consent', '');
+  // r4 (Codex gate2c M2): a row that showed its own controls (Try again, Discard, a held
+  // image's consent) keeps the notice slot's 8 px pad (combined-entrance-styles.js) with
+  // the kept row, so the last control clearing by itself (a hold expiring) moves nothing.
+  if (feedback.querySelector(':is(button, a[href]):not(.composer-reason[data-consent-feature="text"] *)')) feedback.setAttribute('data-keyboard-controls', '');
   if (!feedback.hasAttribute('data-keyboard-kept')) return;
   holdHeight(feedback);
   // A row that grows between paints (a notice painted by a feature poll) is held too.
   const Observer = feedback.ownerDocument.defaultView?.ResizeObserver;
   if (Observer && !observed.has(feedback)) { observed.add(feedback); new Observer(() => latchFeedback(root)).observe(feedback); }
 };
+// AIT-618 r4 (TICK Q1 (a), AIT-188's stale-height escape): when focus has left the
+// composer while the keyboard-up state is open and the viewport has not grown back,
+// the whole state ends after this settle, in one reflow. Tests replace set/clear with
+// their own clock (code-health rule 6); the element reads them at call time.
+export const keyboardSettle = { ms: 1000, set: (fn, ms) => setTimeout(fn, ms), clear: id => clearTimeout(id) };
 export class PhoneComposerViewport {
   constructor(root, { onNoticesChange = () => {}, onCompactChange = () => {}, followsTranscript = () => true,
     resizeComposer = update => update(), onComposerResize = () => {}, questionPending = () => false } = {}) {
@@ -478,6 +487,8 @@ export class PhoneComposerViewport {
           root.querySelector('.workspace')?.removeAttribute('data-phone-keyboard');
           root.querySelector('.workspace')?.removeAttribute('data-phone-keyboard-band');
           root.querySelector('.band')?.removeAttribute('data-keyboard-rail-row');
+          if (this.settleTimer) keyboardSettle.clear(this.settleTimer);
+          this.settleTimer = null; this.keyboardSettled = false;
           latchFeedback(root, false);
         }
         return;
@@ -522,23 +533,45 @@ export class PhoneComposerViewport {
       // under the finger. The keyboard flag itself (footer, dock) keeps AIT-188
       // r3's rule: focus leaving the composer clears it at once. The full height
       // is kept while the band is up, so the close is measured against it.
-      const bandWasUp = workspace.hasAttribute('data-phone-keyboard-band');
-      if (width !== this.viewportWidth || orientation !== this.viewportOrientation || !editing && !bandWasUp) {
+      // AIT-618 r4 (TICK Q1 (a), Codex gate2c M1): ONE keyboard-up state for the
+      // footer, the dock, the feedback latch, the notice/More rules and the
+      // compact band. It opens only with focus in the composer at the
+      // obstruction, and ends when the viewport grows back; with focus outside
+      // the composer and the viewport still small it ends at the settle
+      // (keyboardSettle, AIT-188's stale-height escape), the whole state in one
+      // reflow. Nothing moves before that end (a header tap, or a real Pause
+      // that disables the composer). Two attributes, always toggled together
+      // from that one state: [data-phone-keyboard] scopes the dock rules (also
+      // read by hosts' and other suites' checks), [data-phone-keyboard-band]
+      // the band's own media block.
+      const wasUp = workspace.hasAttribute('data-phone-keyboard'), settled = Boolean(this.keyboardSettled);
+      if (width !== this.viewportWidth || orientation !== this.viewportOrientation || !editing && (!wasUp || settled)) {
         this.fullHeight = Math.max(view?.innerHeight ?? height, height);
         this.viewportWidth = width; this.viewportOrientation = orientation;
       } else this.fullHeight = Math.max(this.fullHeight ?? 0, view?.innerHeight ?? height, height);
       const obstructed = Boolean(phone && touch && this.fullHeight - height >= 150);
-      const keyboardUp = obstructed && Boolean(editing);
+      const keyboardUp = obstructed && Boolean(editing || wasUp && !settled);
+      if (editing || !keyboardUp) {
+        if (this.settleTimer) keyboardSettle.clear(this.settleTimer);
+        this.settleTimer = null; this.keyboardSettled = false;
+      } else if (!this.settleTimer) {
+        this.settleTimer = keyboardSettle.set(() => {
+          this.settleTimer = null; this.keyboardSettled = true;
+          if (this.connected) this.paint();
+        }, keyboardSettle.ms);
+      }
       workspace.toggleAttribute('data-phone-keyboard', keyboardUp);
-      const bandUp = obstructed && Boolean(editing || bandWasUp);
-      workspace.toggleAttribute('data-phone-keyboard-band', bandUp);
+      workspace.toggleAttribute('data-phone-keyboard-band', keyboardUp);
       // AIT-618 r3 (Codex gate1c Medium 4): the keyboard-up band is one row only
       // while the host's header controls leave the pause column free; a host
       // with more controls (Conversations, Contact, …) keeps the rail in its own
       // row, so no two targets intersect. Columns do not depend on the row.
+      // r4 (TICK Q2: the approved 88 px exception; Codex gate2c M3): the row
+      // decision is made once, when the keyboard opens, and latches: a host
+      // slot change never flips it while the keyboard is up.
       const band = root.querySelector('.band'), pauseCell = band?.querySelector(':scope > .audio-rail > .voice-cell--pause');
-      let railRow = false;
-      if (bandUp && pauseCell) {
+      let railRow = Boolean(keyboardUp && wasUp && band?.hasAttribute('data-keyboard-rail-row'));
+      if (keyboardUp && !wasUp && pauseCell) {
         const cell = pauseCell.getBoundingClientRect();
         railRow = [...band.querySelectorAll('.header-actions > *')].some(node => {
           if (node.hidden) return false;
@@ -754,6 +787,8 @@ export class PhoneComposerViewport {
   }
   destroy() {
     this.connected = false;
+    if (this.settleTimer) keyboardSettle.clear(this.settleTimer);
+    this.settleTimer = null;
     this.composerSize.destroy();
     this.root.removeEventListener('focusin', this.paint);
     this.root.querySelector('.display-foot').removeEventListener('pointerleave', this.paint);

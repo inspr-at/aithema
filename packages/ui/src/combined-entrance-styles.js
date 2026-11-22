@@ -398,18 +398,23 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer[data-document-input] .composer-notice-slot { padding-top:1px; }
   /* Where the row above has no free 8 px the slot gives them: the feedback row
      collapsed (the field's row is directly above), or a row with its own
-     controls (Try again, Discard): 8 px, as the overlap takes 8. */
+     controls (Try again, Discard): 8 px, as the overlap takes 8. r4 (Codex
+     gate2c M2): latched with the kept row ([data-keyboard-controls]). */
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.composer-feedback > .composer-reason:is([data-shortcut],:empty)):not(:has(.composer-feedback[data-saved])):not(:has(.composer-feedback[data-keyboard-kept])):not(:has(.composer-feedback :is(button, a, input, [tabindex]))) .composer-notice-slot,
-  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.composer-feedback :is(button, a[href]):not(.composer-reason[data-consent-feature="text"] *)) .composer-notice-slot { padding-top:8px; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.composer-feedback :is(button, a[href]):not(.composer-reason[data-consent-feature="text"] *)) .composer-notice-slot,
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.composer-feedback[data-keyboard-controls]) .composer-notice-slot { padding-top:8px; }
   /* A pending consent row without a floor (a plain dock) stays one line (k1),
      but its action's 44 px target runs from the 8 px gap above it to 36 px
      below its top. The slot holds the rest of that target, so "More" starts
      where the consent target ends: 44 px minus the row's line (.72rem at the
      reason's 1.3 line height, 14.98 px). It stays while the keyboard is up
      after consent clears (layout.js latches [data-keyboard-consent] with the
-     kept row), so clearing moves nothing; the row's box stays one line. */
+     kept row), so clearing moves nothing; the row's box stays one line.
+     r4 (Codex gate2c Low): 1 px more (45 px), so subpixel snapping can never
+     leave a fractional overlap (More's top was 1/64 px above the consent
+     target's bottom). */
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer:not([data-image-input]):not([data-document-input]):has(.composer-feedback[data-keyboard-consent]) .composer-notice-slot,
-  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:not([data-image-input]):not([data-document-input]):has(.composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action) .composer-notice-slot { padding-top:calc(44px - .72rem * 1.3); }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:not([data-image-input]):not([data-document-input]):has(.composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action) .composer-notice-slot { padding-top:calc(45px - .72rem * 1.3); }
 }
 /* AIT-618 r2 (TICK (b)): while the phone keyboard is up the voice band is ONE
    44 px row. The rail moves up into the band's first row, so the small orb
@@ -420,8 +425,8 @@ export const combinedEntranceStyles = `
    paint but stays in the accessibility tree (its live region still speaks).
    The row is 44 px whether a reply plays or is paused; it changes only when
    the keyboard opens or closes (layout.js measures the band after the flag).
-   r3 (Codex gate1c Medium 2): its own flag, [data-phone-keyboard-band], ends
-   only on the keyboard's actual close, not when focus leaves the composer. */
+   r4 (TICK Q1 (a)): [data-phone-keyboard-band] always toggles with
+   [data-phone-keyboard], from ONE keyboard-up state (layout.js). */
 @media(max-width:599px) {
   .workspace[data-entrance="combined"][data-phone-keyboard-band] .band:has(> .audio-rail) { --band-height:44px; grid-template-rows:44px; height:44px; min-height:44px; }
   .workspace[data-entrance="combined"][data-phone-keyboard-band] .band > .audio-rail { grid-row:1; height:44px; min-height:44px; pointer-events:none; }
