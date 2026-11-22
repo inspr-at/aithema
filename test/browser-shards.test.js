@@ -359,6 +359,8 @@ const splitSeeds = {
   'host-surface': [271.585382161, 340], 'host-surface-email': [158.596611386, 199],
   // AIT-603 PR-A r15: moved out of demo.test.js; PR CI 44990458538-1 (no main series yet).
   'phone-dock': [244.38179801, 306],
+  // AIT-618 r6: moved out of phone-dock.test.js; remote test lane run on ed1ebc3e (no main series yet).
+  'phone-keyboard-settle': [23.821721917, 30],
 };
 
 test('AIT-597: split halves keep seed arithmetic from the moved CI work and let live weights roll forward', () => {
