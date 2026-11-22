@@ -385,6 +385,21 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-notice__first { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; }
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-notice__more { flex:none; position:relative; min-height:0; height:auto; padding-block:0; line-height:inherit; }
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-notice__more::after { content:''; position:absolute; left:0; right:0; top:-8px; height:44px; }
+  /* r3 (TICK r2 M1, Codex gate1c Medium 3): the notice line keeps a real inset
+     from the dock's rounded bottom edge, and "More"'s 44 px target fits inside
+     the dock: it takes the 8 px row gap above the line, the line (1lh) and the
+     dock's bottom padding, and never reaches into the row above (the field,
+     Mic, Send or a consent action). 44 - 8 - 17.4 (the .75rem/1.45 line) =
+     18.6, so 19 px of padding (20 px with the border, more than the field
+     text's top inset). The text starts at the field text's left inset. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer { padding-bottom:19px; }
+  /* A pending consent row without a floor (a plain dock) stays one line (k1),
+     but its action's 44 px target starts in the 8 px row gap above and ends
+     36 px below the row's top. The row keeps a margin under its one line, so
+     the "More" target below starts where the consent target ends; the margin
+     stays while the keyboard is up after consent clears (layout.js latches
+     [data-keyboard-consent] with the kept row), so nothing moves. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:not([data-image-input], [data-document-input]) > .composer-feedback:is([data-keyboard-consent], :has(> .composer-reason[data-consent-feature="text"] > .consent-action)) { margin-bottom:max(0px, calc(44px - 8px - 1lh)); }
 }
 /* AIT-618 r2 (TICK (b)): while the phone keyboard is up the voice band is ONE
    44 px row. The rail moves up into the band's first row, so the small orb
@@ -403,6 +418,12 @@ export const combinedEntranceStyles = `
   /* Descendants too: the wave and revealed controls set their own visibility. */
   .workspace[data-entrance="combined"][data-phone-keyboard] .band > .audio-rail > :is(.voice-cell--output, .voice-signal, .voice-cell--mic, .voice-cell--end),
   .workspace[data-entrance="combined"][data-phone-keyboard] .band > .audio-rail > :is(.voice-cell--output, .voice-signal, .voice-cell--mic, .voice-cell--end) :not(.voice-state, .voice-state *) { visibility:hidden; }
+  /* r3 (Codex gate1c Medium 4): a host's header controls reach the pause
+     column (layout.js sets [data-keyboard-rail-row]): the rail keeps its own
+     44 px row under the header, exactly where it sits with the keyboard down,
+     and stays compact (the same cells hidden), so no targets intersect. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .band[data-keyboard-rail-row]:has(> .audio-rail) { --band-height:88px; grid-template-rows:44px 44px; row-gap:0; height:88px; min-height:88px; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .band[data-keyboard-rail-row] > .audio-rail { grid-row:2; }
   .workspace[data-entrance="combined"][data-phone-keyboard] .band > .audio-rail > .voice-cell--pause { pointer-events:auto; }
   .workspace[data-entrance="combined"][data-phone-keyboard] .band > .audio-rail .voice-state {
     visibility:visible; position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }

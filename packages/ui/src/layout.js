@@ -429,7 +429,7 @@ const stillDiscarding = (root, feedback, scope) => scope.id
 export const releaseFeedback = (root, { discard = null } = {}) => {
   const feedback = root.querySelector('.composer-feedback');
   if (!feedback) return;
-  feedback.removeAttribute('data-keyboard-kept'); feedback.style.removeProperty('--feedback-held'); heldHeight.delete(feedback);
+  feedback.removeAttribute('data-keyboard-kept'); feedback.removeAttribute('data-keyboard-consent'); feedback.style.removeProperty('--feedback-held'); heldHeight.delete(feedback);
   if (discard) discarded.set(feedback, discardScope(feedback, discard)); else discarded.delete(feedback);
 };
 // r10 (Codex gatepra9 Low): a discard that FAILED (its error shows, the tile
@@ -441,12 +441,15 @@ export const endDiscard = root => {
 export const latchFeedback = (root, keyboardUp = root.querySelector('.workspace')?.hasAttribute('data-phone-keyboard')) => {
   const feedback = root.querySelector('.composer-feedback');
   if (!feedback) return;
-  if (!keyboardUp) { if (feedback.hasAttribute('data-keyboard-kept') || feedback.style.getPropertyValue('--feedback-held') || discarded.has(feedback)) releaseFeedback(root); return; }
+  if (!keyboardUp) { if (feedback.hasAttribute('data-keyboard-kept') || feedback.hasAttribute('data-keyboard-consent') || feedback.style.getPropertyValue('--feedback-held') || discarded.has(feedback)) releaseFeedback(root); return; }
   if (discarded.has(feedback)) {
     if (stillDiscarding(root, feedback, discarded.get(feedback))) return;
     discarded.delete(feedback);
   }
   if (feedbackShows(feedback)) feedback.setAttribute('data-keyboard-kept', '');
+  // AIT-618 r3: a row that showed the consent action keeps its margin for the
+  // "More" target below (combined-entrance-styles.js) until the row is released.
+  if (feedback.querySelector(':scope > .composer-reason[data-consent-feature="text"] > .consent-action')) feedback.setAttribute('data-keyboard-consent', '');
   if (!feedback.hasAttribute('data-keyboard-kept')) return;
   holdHeight(feedback);
   // A row that grows between paints (a notice painted by a feature poll) is held too.
@@ -510,12 +513,33 @@ export class PhoneComposerViewport {
       const active = root.ownerDocument.activeElement === root.host ? root.activeElement : null;
       const editing = active?.matches('textarea,input,[contenteditable="true"]') || active?.closest('.composer');
       const width = view?.innerWidth, orientation = view?.screen.orientation?.angle;
-      if (width !== this.viewportWidth || orientation !== this.viewportOrientation || !editing) {
+      // AIT-618 r3 (Codex gate1c Medium 2): focus in the composer opens the
+      // keyboard-up state; only the keyboard's actual close (the viewport
+      // grows back) ends it, as under pinch zoom above (PR-A r10). Focus
+      // landing in the header while the keyboard is still up keeps the
+      // compact band, so Pause never drops under the finger.
+      const wasUp = workspace.hasAttribute('data-phone-keyboard');
+      if (width !== this.viewportWidth || orientation !== this.viewportOrientation || !editing && !wasUp) {
         this.fullHeight = Math.max(view?.innerHeight ?? height, height);
         this.viewportWidth = width; this.viewportOrientation = orientation;
       } else this.fullHeight = Math.max(this.fullHeight ?? 0, view?.innerHeight ?? height, height);
-      const keyboardUp = Boolean(phone && touch && editing && this.fullHeight - height >= 150);
+      const keyboardUp = Boolean(phone && touch && (editing || wasUp) && this.fullHeight - height >= 150);
       workspace.toggleAttribute('data-phone-keyboard', keyboardUp);
+      // AIT-618 r3 (Codex gate1c Medium 4): the keyboard-up band is one row only
+      // while the host's header controls leave the pause column free; a host
+      // with more controls (Conversations, Contact, …) keeps the rail in its own
+      // row, so no two targets intersect. Columns do not depend on the row.
+      const band = root.querySelector('.band'), pauseCell = band?.querySelector(':scope > .audio-rail > .voice-cell--pause');
+      let railRow = false;
+      if (keyboardUp && pauseCell) {
+        const cell = pauseCell.getBoundingClientRect();
+        railRow = [...band.querySelectorAll('.header-actions > *')].some(node => {
+          if (node.hidden) return false;
+          const box = node.getBoundingClientRect();
+          return box.width > .5 && box.height > .5 && box.left < cell.right - .5 && cell.left < box.right - .5;
+        });
+      }
+      band?.toggleAttribute('data-keyboard-rail-row', railRow);
       // r6/r7 (AIT-603, TICK r5/r6 M1): with the keyboard up the feedback row
       // only grows. The keyboard-open transition (and every keyboard-up paint)
       // latches whatever the row shows now, so feedback that clears by itself
