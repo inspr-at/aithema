@@ -669,24 +669,45 @@ export async function welcomeOnlyFollowCheck(t) {
         positive(`${name}/shell`, before.shell);
         // The precondition: the welcome alone scrolls and the guard kept the reader above its end.
         assert.ok(before.max > .5 && before.scrollTop < before.max - .5, `${name}: the welcome-only pane scrolls above its end ${JSON.stringify(before)}`);
-        // Main's long-latest-reply rule: the welcome is the latest item and taller
-        // than the pane, so the first Latest jump shows its start (with "Read
-        // full reply"); the next jump goes to its tail, the end. The guard must
-        // not hold either jump (#latestJump bypass).
+        // Main's long-latest-reply rule, measured as main measures it: the
+        // welcome is the latest turn; when it is taller than the room below the
+        // pane's top padding (its height without a shown "Read full reply"), a
+        // Latest jump either holds it at its start or, when main already holds
+        // it there (#longReply, set by a follow while the send is pending; its
+        // timing differs between runners), goes to its tail, the end. Main
+        // alternates, so two jumps show the start once and the end once, in
+        // either order. A welcome that fits goes to the end on both jumps. The
+        // guard must not hold either jump (#latestJump bypass): the end is
+        // reached in both cases.
         await trapWrites(page);
         const latest = () => page.$eval('aithema-session', c => c.shadowRoot.querySelector('.transcript-latest').click());
-        await latest(); await settle(page);
-        const first = await state(page), opener = await page.$eval('aithema-session', c => {
+        const opener = () => page.$eval('aithema-session', c => {
           const shell = c.shadowRoot.querySelector('.transcript-shell'), row = shell.querySelector('[data-id="host:opener"]'), r = row.getBoundingClientRect();
-          return { top: r.top, width: r.width, height: r.height, paneTop: shell.getBoundingClientRect().top + parseFloat(getComputedStyle(shell).paddingTop),
-            readFull: Boolean(row.querySelector('.turn-read-full:not([hidden])')) };
+          const box = shell.getBoundingClientRect(), paneTop = box.top + parseFloat(getComputedStyle(shell).paddingTop);
+          const readFull = row.querySelector('.turn-read-full:not([hidden])');
+          return { top: r.top, width: r.width, height: r.height, paneTop, room: box.bottom - paneTop,
+            own: r.height - (readFull?.getBoundingClientRect().height ?? 0), readFull: Boolean(readFull) };
         });
-        positive(`${name}/opener`, opener);
-        assert.ok(Math.abs(opener.top - opener.paneTop) <= .5, `${name}: the first Latest jump shows the welcome's start: ${JSON.stringify({ writes: await writes(page), opener, first })}`);
+        const at = async () => {
+          const view = await state(page), row = await opener();
+          positive(`${name}/opener`, row);
+          return { view, row, start: Math.abs(row.top - row.paneTop) <= .5, end: view.max > .5 && Math.abs(view.scrollTop - view.max) <= .5 };
+        };
+        const held = await opener();
+        positive(`${name}/opener`, held);
+        const tall = held.own > held.room + .5;
         await latest(); await settle(page);
-        const after = await state(page), trace = await writes(page);
-        assert.deepEqual(after.rows, ['host:opener(h)'], `${name}: still only the host welcome`);
-        assert.ok(after.max > .5 && Math.abs(after.scrollTop - after.max) <= .5, `${name}: the next Latest jump goes to the end: ${JSON.stringify({ trace, opener, before, first, after })}`);
+        const first = await at();
+        await latest(); await settle(page);
+        const second = await at(), trace = await writes(page);
+        const facts = JSON.stringify({ trace, tall, held, before, first, second });
+        assert.deepEqual(second.view.rows, ['host:opener(h)'], `${name}: still only the host welcome`);
+        if (tall) {
+          assert.ok(first.start && second.end || first.end && second.start,
+            `${name}: a welcome taller than the room: one Latest jump shows its start, the other goes to the end: ${facts}`);
+        } else {
+          assert.ok(first.end && second.end, `${name}: a welcome that fits: both Latest jumps go to the end: ${facts}`);
+        }
         assert.deepEqual(problems, []);
       } finally {
         await page.evaluate(() => { const release = globalThis.releaseTurns; globalThis.releaseTurns = null; release?.(); }).catch(() => {});
