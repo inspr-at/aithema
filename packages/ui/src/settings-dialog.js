@@ -1,6 +1,7 @@
 import { neutralBindingReason } from './reason-text.js';
 import { featureConsentText, reasonSeparator } from './consent-line.js';
 import { ConsentSettings, consentLoadFailed } from './consent-settings.js';
+import { resolveCopy } from './copy-resolve.js';
 // START AiSettings.astro, ai-settings.ts and settings-controls.ts behaviour, ported
 // to a native modal <dialog> inside the component (INSPR D3). The server owns every
 // verdict: this dialog sends option ids and shows only acknowledged state.
@@ -526,6 +527,9 @@ export class SettingsDialog {
     return true;
   }
   async #done() {
+    // AIT-612 r5 (gate4c M1): after a failed consent load the button reads Close and only closes: no Settings save
+    // (pending edits, unconfirmed defaults) runs, and no failed or blocked save keeps the sheet open.
+    if (this.#consentEditor?.active && this.#consentEditor.loadFailed) { this.close(); return; }
     if (this.#pendingPreset || this.#voiceConfirm || this.#switchBusy) return;
     // Done owns this interaction only. Later navigation, edits or reopening
     // cancel its close while the save still records the explicit confirmation.
@@ -892,7 +896,7 @@ export class SettingsDialog {
     this.#dialog.dataset.consentStale = String(Boolean(consentActive && this.#consentEditor.stale));
     this.#q('.save-status').textContent = consentActive ? this.#consentEditor.status : this.#status || c.autosave;
     this.#q('.save-retry').dataset.visible = String(this.#failed && !this.#saving);
-    this.#q('.done-label').textContent = this.#consentEditor?.active ? this.#consentEditor.loadFailed ? c.close : this.#consentEditor.saveLabel : this.#continue ? c.continue : c.done;
+    this.#q('.done-label').textContent = this.#consentEditor?.active ? this.#consentEditor.loadFailed ? resolveCopy(this.#copy, 'settings.close') : this.#consentEditor.saveLabel : this.#continue ? c.continue : c.done;
     this.#q('.done').dataset.withdraw = String(Boolean(this.#consentEditor?.active && this.#consentEditor.saveLabel === this.#copy.featureConsent.withdraw));
     this.#q('.consent-save-sizer').textContent = this.#copy.featureConsent.withdraw;
     const done = this.#q('.done');

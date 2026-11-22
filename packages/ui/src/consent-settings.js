@@ -104,7 +104,8 @@ export class ConsentSettings {
       // r2: a failed reload is no longer the stale-but-loaded state, so a language switch keeps the error.
       // r3 (TICK decision (b)): in Settings there is no list for the host sentence to head, so it hides, and focus
       // moves to Done, the next step ("close and open it again"); Done is described by the footer status.
-      const reason = this.#root.querySelector('.consent-reason'), ours = this.#focusIsOurs();
+      // r5 (gate4c M3): focus already on the shared button (a pointer Save whose stale reload failed) takes the ring too.
+      const reason = this.#root.querySelector('.consent-reason'), ours = this.#focusIsOurs() || this.#root.getRootNode().activeElement === this.#button;
       this.#loadFailed = true; this.#stale = false; this.#busy = false; this.#status(consentLoadFailed(this.#copy)); this.#paintBusy();
       if (this.#ports.saveButton) {
         if (ours) this.#focusDone();
