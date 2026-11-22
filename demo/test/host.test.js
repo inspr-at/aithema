@@ -28,6 +28,10 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     for (const key of keys) globalThis[key] = window[key];
     localStorage.setItem('aithema-demo-locale', 'en');
     harness = hostDrain({ onDrain: () => hostReadGate.resolve(), fetch: async (url, init = {}) => {
+      // AIT-625 r7: the demo host sends through the helper, which resolves the URL once; this
+      // fixture keeps matching the same-origin path it always saw.
+      const absolute = new URL(url, running.url);
+      if (absolute.origin === new URL(running.url).origin) url = absolute.pathname + absolute.search;
       if (holdSession && (String(url) === '/api/sessions' || String(url).endsWith('/demo/outbox'))) {
         const held = String(url) === '/api/sessions' ? lateRequest : lateOutbox;
         heldSignals.push(init.signal);

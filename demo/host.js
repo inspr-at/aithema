@@ -13,7 +13,8 @@ import { reasonSeparator } from '../packages/ui/src/display.js';
 import { reasonText } from './reason-text.js';
 import { aiNotice } from '../packages/core/src/ai-notice.js';
 import { sessionKey as key, localeKey, preferredLocale, readPreference, remember, mountTheme, paintUtilities } from './page-preferences.js';
-// Keep this page's document and stop its work before the owner tears it down.
+// Keep this page's document and stop its work before the owner tears it down. AIT-625 r7: every
+// request of this page carries the owner cookie, so each goes through ownerFetch (or postJson, which uses it).
 const document = globalThis.document, page = document.defaultView, component = document.querySelector('aithema-session');
 const lifetime = new AbortController(), pending = new Set();
 const active = () => !lifetime.signal.aborted && Boolean(component?.isConnected);
@@ -128,7 +129,7 @@ async function open(fresh = false, request = {}) {
   if (!active()) return;
   try {
     const saved = fresh ? null : readPreference(key);
-    let response = saved ? await fetch(`/api/sessions/${saved}`, { signal: lifetime.signal }) : null;
+    let response = saved ? await ownerFetch(page, `/api/sessions/${saved}`, { signal: lifetime.signal }) : null;
     if (!active()) return;
     if (!response?.ok) response = await postJson('/api/sessions', { ...request, locale: localeChoice }, { signal: lifetime.signal });
     if (!active()) return;
@@ -182,7 +183,7 @@ async function adopt(session) {
     document.querySelector('#error').textContent = '';
   } catch { if (!signalStartupFailure()) document.querySelector('#error').textContent = binding.demoHost === true ? copy.host.restoreFailed : copy.host.conversationFailed; }
 }
-const binding = await fetch('/demo/config', { signal: lifetime.signal }).then(r => r.json());
+const binding = await ownerFetch(page, '/demo/config', { signal: lifetime.signal }).then(r => r.json());
 if (!active()) return;
 const narrowLegal = document.defaultView.matchMedia('(width < 600px)');
 // The host owns this local overlay. Opening it has no conversation or delivery effect.
@@ -210,7 +211,7 @@ async function paintOutbox(status = '') {
   const o = copy.host.outbox, list = document.querySelector('#outbox-list'), id = component.session.id;
   document.querySelector('#outbox-status').textContent = status;
   try {
-    const response = await fetch(`/api/sessions/${id}/demo/outbox`, { signal: lifetime.signal });
+    const response = await ownerFetch(page, `/api/sessions/${id}/demo/outbox`, { signal: lifetime.signal });
     if (!response.ok) throw new Error();
     const { messages } = await response.json();
     if (!active() || component.session.id !== id) return;

@@ -2,6 +2,7 @@ import { en } from '../packages/ui/src/i18n/en.js';
 import { de } from '../packages/ui/src/i18n/de.js';
 import { withDemoConsentCopy } from './consent-copy.js';
 import { postJson } from './post-json.js';
+import { ownerFetch } from '../packages/ui/src/owner-request.js';
 import { localeKey, sessionKey, preferredLocale, remember, mountTheme, paintUtilities } from './page-preferences.js';
 
 // START consentReturnPath: normalize first, then check again. Backslashes and
@@ -20,9 +21,11 @@ export function translatedItem(item, copy, presentation, locale) {
   return translated?.version === item.version ? { ...item, ...translated } : item;
 }
 
-// The consent page has no component, voice client or microphone import.
+// The consent page has no component, voice client or microphone import. AIT-625 r7: its consent
+// reads and writes carry the owner cookie, so by default they go through the guarded helper.
 export async function mountConsentPage({ document = globalThis.document, location = globalThis.location,
-  storage, fetchImpl = globalThis.fetch, submit = postJson, clock = globalThis, navigate = path => location.assign(path) } = {}) {
+  storage, fetchImpl = (path, init) => ownerFetch(document.defaultView, path, init),
+  submit = (path, body, options) => postJson(path, body, { ...options, view: document.defaultView }), clock = globalThis, navigate = path => location.assign(path) } = {}) {
   const query = new URLSearchParams(location.search), id = query.get('session');
   const returnTo = consentReturnPath(query.get('return'), location.origin);
   const fieldset = document.querySelector('#processing-items'), status = document.querySelector('#consent-status');
