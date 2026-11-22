@@ -227,3 +227,20 @@ test('client-posted later spend deadline is ignored in favor of the stored relay
   assert.equal(h.disconnects, 1);
   assert.equal((await h.post('audio', new Uint8Array(2), connectionId)).status, 403);
 });
+
+test('AIT-625 r2: the browser relay sends only to the document\'s actual origin, refuses redirects and bounds finite requests', async () => {
+  const calls = [], location = { protocol: 'https:', origin: 'https://app.test', href: 'https://app.test/' }, document = { baseURI: 'https://app.test/' };
+  const record = async (url, init) => { calls.push({ url, init }); return Response.json({ connectionId: 'c1' }); };
+  // A sandboxed document keeps its https URL, but its real origin is "null": nothing is sent.
+  await assert.rejects(createNetworkRelayClient({ headers: { 'x-owner': 'alice' }, fetch: record, view: { origin: 'null', location, document } })({}), /page origin/u);
+  await assert.rejects(createNetworkRelayClient({ headers: { 'x-owner': 'alice' }, fetch: record, view: { location, document } })({}), /page origin/u);
+  await assert.rejects(createNetworkRelayClient({ url: 'https://evil.example/composed/relay', fetch: record, view: { origin: 'https://app.test', location, document } })({}), /same origin/u);
+  const foreignBase = { origin: 'https://app.test', location, document: { baseURI: 'https://evil.example/' } };
+  await assert.rejects(createNetworkRelayClient({ fetch: record, view: foreignBase })({}), /same origin/u);
+  assert.equal(calls.length, 0);
+  await createNetworkRelayClient({ headers: { 'x-owner': 'alice' }, fetch: record, view: { origin: 'https://app.test', location, document } })({});
+  assert.equal(calls[0].url, 'https://app.test/composed/relay'); assert.equal(calls[0].init.redirect, 'error');
+  // A finite action whose answer stalls ends at the deadline.
+  const stalled = (url, init) => new Promise((resolve, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true }));
+  await assert.rejects(createNetworkRelayClient({ fetch: stalled, deadline: 50, view: { origin: 'https://app.test', location, document } })({}), error => error.name === 'TimeoutError');
+});
