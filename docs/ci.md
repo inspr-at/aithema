@@ -48,10 +48,10 @@ the new protection, then remove the four aliases in a separate change only after
 the coordinator confirms the switch. Future worker-count changes leave the single
 required `browser` name stable. This change does not edit GitHub settings.
 
-Unit workers report `unit (1/4)` through `unit (4/4)` (AIT-599). The required `test` job needs
-all four workers and retains its exact name and ten-minute cap. Its unconditional
+Unit workers report `unit (1/5)` through `unit (5/5)` (AIT-624; four since AIT-599). The required `test` job needs
+all five workers and retains its exact name and ten-minute cap. Its unconditional
 result gate fails on failure, cancellation, skipping or missing workers, including
-on docs-only PRs. On full runs it also validates all four timing artifacts against
+on docs-only PRs. On full runs it also validates all five timing artifacts against
 the run, attempt, tested commit and complete file assignment. Missing/duplicate
 files, inconsistent test totals and any failed/cancelled/skipped/todo tests fail
 the aggregate. The browser guard, reproducible pack twice, two-minute standalone
@@ -188,7 +188,7 @@ The ten slowest baseline unit files, using full file summaries:
 | `packages/ui/test/host-settlement.test.js` | 43.983 | 38 |
 | `packages/ui/test/display-regressions.test.js` | 43.643 | 93 |
 
-Every full run retains `unit-timings-N-of-4-attempt-A` for 14 days, with per-file durations
+Every full run retains `unit-timings-N-of-5-attempt-A` for 14 days, with per-file durations
 and counts plus the final shard count. Refresh from successful canonical main
 push CI runs, supplying multiple runs for a measured p95 series:
 
@@ -248,6 +248,25 @@ algorithm than the one CI runs. The 180-second watchdog, native deadline, ten-mi
 unchanged; only the shard count and its names follow. Unit job names are not
 required checks (the `test` aggregate is), so no ruleset change is needed.
 Collect more merge-group runs on the four-shard layout to retire the margin.
+
+## AIT-624 fifth unit shard (2026-11-22)
+
+Merge-group unit 1/4 of PR #500 measured **420.187 seconds** against the
+420-second target, and AIT-623's import of the post-AIT-621 timings projected
+shard 1 at **464 seconds** (`test/release-candidate.test.js` alone is about
+224 seconds raw, with the one-sample margin on top). The repository is public,
+so hosted unit workers cost no minutes; LEAD chose five shards over the
+smallest-N rule's four for headroom on the current runner image (AIT-623 is
+superseded by AIT-624). With the committed `scripts/unit-timings.json`, five
+shards of 60/61/61/61/61 files project **341.280 / 305.188 / 297.416 /
+288.480 / 287.378 seconds** with room for **147 further 8-second files**; four
+would project 386.433 seconds on the same table. The 420-second target,
+25-second overhead, 180-second watchdog, ten-minute cap and three file
+workers per shard are unchanged; only the count, names and artifact names
+follow. Unit job names are not required checks (the `test` aggregate is), so
+no ruleset change is needed. A single file at about 224 seconds bounds every
+plan, so splitting `test/release-candidate.test.js` by runtime is a separate
+follow-up.
 
 ## AIT-423 eighth-shard capacity (2026-10-20)
 
@@ -312,7 +331,7 @@ those fields (and the head SHA) to the earliest record of that same successful
 execution to recover the attempt in which it actually ran; a distinct execution
 cannot fall back to an old manifest. Missing history or execution metadata does
 not authorize fallback. It then reads exactly that execution attempt's
-`unit-timings-N-of-4-attempt-A` artifact: an unchanged passing shard can retain
+`unit-timings-N-of-5-attempt-A` artifact: an unchanged passing shard can retain
 attempt 1 while the repaired shard supplies attempt 2. It checks the run ID,
 tested SHA, exact per-shard attempt, complete assignment, successful summaries,
 zero failed/cancelled/skipped/todo tests and matching per-file/final total counts.
