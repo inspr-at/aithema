@@ -32,8 +32,9 @@ export function modelDisplayName(id, copy, label) {
 }
 
 // The existing wallet stores USD millionths: one credit is one US cent. Never overstate spendable credit.
-/** A local clock time in the page language: "09:04 PM" (en), "21:04" (de). Shared by the daily-cap reset and "Connected since". */
-export const clockTime = (at, locale) => new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', ...(locale.startsWith('de') ? { hour12: false } : {}) }).format(at);
+/** A local clock time in the page language's short form without a leading zero (AIT-609): "9:04 PM" (en), "21:04" (de).
+ *  Shared by the daily-cap reset and "Connected since". */
+export const clockTime = (at, locale) => new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit', ...(locale.startsWith('de') ? { hour12: false } : {}) }).format(at);
 export const wholeCredits = micro => Number.isFinite(micro) ? Math.max(0, Math.floor(micro / 10_000)) : 0;
 export const formatCredits = (micro, locale) => new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(wholeCredits(micro));
 
