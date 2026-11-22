@@ -3067,11 +3067,40 @@ export class AithemaSession extends HTMLElement {
   // so the line starts flush with the text. Relative offsets do not affect layout.
   // A font swap can move the wraps without resizing the card (Codex gate2c Low).
   // (The phone consent cap is pure CSS, AIT-603 PR-A: nothing to re-measure.)
-  #readyFonts = () => { this.#markReadyWraps(); };
+  #readyFonts = () => { this.#fitReady(); this.#markReadyWraps(); };
+  #readyItems(ready) {
+    return [...ready.querySelectorAll(':scope > h3, :scope > dl > .ready__row, :scope > .ready__actions')].filter(item => item.getClientRects().length);
+  }
+  // AIT-603 r11 (CI Linux metrics): the phone's one-row readiness keeps title,
+  // consent state and Change settings on at most two rows with any font
+  // metrics. Rows are counted from the items' boxes; only when they take a
+  // third row does the form tighten: first the separators lose their margins,
+  // then the readiness loses its inline padding. Metrics that already fit in
+  // two rows (macOS) never tighten, so their look is unchanged. Runs before the
+  // welcome fit, which sizes the welcome to the space readiness leaves.
+  #fitReady() {
+    const ready = this.#combined && this.shadowRoot.querySelector('.ready'), view = this.ownerDocument.defaultView;
+    if (!ready || !view) return;
+    const rows = () => {
+      let count = 0, lineBottom = -Infinity;
+      for (const item of this.#readyItems(ready)) {
+        const box = item.getBoundingClientRect();
+        if (!count || box.top >= lineBottom - .5) { count += 1; lineBottom = box.bottom; } else lineBottom = Math.max(lineBottom, box.bottom);
+      }
+      return count;
+    };
+    ready.removeAttribute('data-ready-tight');
+    // Only the one-row form (a flex row); the full readiness card is a grid of rows.
+    if (view.getComputedStyle(ready).display !== 'flex') return;
+    for (const step of ['separator', 'padding']) {
+      if (rows() <= 2) return;
+      ready.setAttribute('data-ready-tight', step);
+    }
+  }
   #markReadyWraps() {
     const ready = this.shadowRoot.querySelector('.ready'), view = this.ownerDocument.defaultView;
     if (!ready || !view) return;
-    const items = [...ready.querySelectorAll(':scope > h3, :scope > dl > .ready__row, :scope > .ready__actions')].filter(item => item.getClientRects().length);
+    const items = this.#readyItems(ready);
     let lineBottom = -Infinity;
     for (const [index, item] of items.entries()) {
       const box = item.getBoundingClientRect(), starts = index === 0 || box.top >= lineBottom - .5;
@@ -3085,6 +3114,7 @@ export class AithemaSession extends HTMLElement {
     }
   }
   #syncPanes() {
+    this.#fitReady();
     this.#fitOpener();
     for (const row of this.shadowRoot.querySelectorAll('[data-host-opener]')) {
       const text = row.querySelector('.turn-text'), more = row.querySelector('.host-opener-more');
@@ -3251,7 +3281,7 @@ export class AithemaSession extends HTMLElement {
     // The card is built once per mode and its controls are keyed and updated in place, so a
     // live update keeps the hovered and focused nodes, and #anchored keeps them still (AIT-116 D2).
     if (card.firstElementChild?.className !== mode) card.replaceChildren(mode === 'ready' ? this.#readyCard() : this.#chooserCard());
-    if (mode === 'ready') { this.#paintReady(card.firstElementChild); if (this.#combined) this.#markReadyWraps(); } else this.#paintChooser(card.firstElementChild);
+    if (mode === 'ready') { this.#paintReady(card.firstElementChild); if (this.#combined) { this.#fitReady(); this.#markReadyWraps(); } } else this.#paintChooser(card.firstElementChild);
     if (focus && !intro.contains(root.activeElement)) intro.querySelector(`[data-focus-key="${focus}"]`)?.focus();
   }
   // AIT-140's 40 px orb stays the first band item. START's entrance retains its large, quiet object.

@@ -142,6 +142,12 @@ export const combinedEntranceStyles = `
      rarely wraps; a wrap there gets the same flush start). */
   .workspace[data-entrance="combined"] .ready :is(.ready__row[data-ready="consent"], .ready__actions)[data-line-start] { position:relative; inset-inline-start:calc(-1 * var(--ready-separator,0px)); }
   .workspace[data-entrance="combined"] .ready :is(.ready__row[data-ready="consent"], .ready__actions)[data-line-start]::before { visibility:hidden; }
+  /* AIT-603 r11: only when the items' boxes take a third row (font metrics wider
+     than the ones this form was tuned with, e.g. Linux at 320 DE and 390 DE 125 %),
+     session-element tightens the form until two rows hold: the separators lose
+     their margins, then the readiness its inline padding. */
+  .workspace[data-entrance="combined"] .ready[data-ready-tight] :is(.ready__row[data-ready="consent"], .ready__actions)::before { margin-inline:0; }
+  .workspace[data-entrance="combined"] .ready[data-ready-tight="padding"] { padding-inline:0; }
   /* Before the conversation the render-only welcome cannot scroll, so its
      hidden Latest control keeps no 54px end slot (as on short phones). */
   .workspace[data-entrance="combined"]:not([data-stage="live"]) .transcript-shell:has([data-host-opener]) > .transcript-latest { position:absolute; right:0; bottom:0; margin:0; }
