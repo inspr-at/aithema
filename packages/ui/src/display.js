@@ -35,6 +35,9 @@ export function modelDisplayName(id, copy, label) {
 /** A local clock time in the page language's short form without a leading zero (AIT-609): "9:04 PM" (en), "21:04" (de).
  *  Shared by the daily-cap reset and "Connected since". */
 export const clockTime = (at, locale) => new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit', ...(locale.startsWith('de') ? { hour12: false } : {}) }).format(at);
+/** A date with its clock time (AIT-609 r2): the medium date, then clockTime, so the library's stamp follows the same hour rule
+ *  as the footer: "Nov 20, 2026, 9:04 PM" (en), "20.11.2026, 9:04" (de; Intl's timeStyle 'short' would give "09:04"). */
+export const dateClock = (at, locale) => `${new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(at)}, ${clockTime(at, locale)}`;
 export const wholeCredits = micro => Number.isFinite(micro) ? Math.max(0, Math.floor(micro / 10_000)) : 0;
 export const formatCredits = (micro, locale) => new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(wholeCredits(micro));
 

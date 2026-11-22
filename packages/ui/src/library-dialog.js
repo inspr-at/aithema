@@ -6,6 +6,7 @@
 // The shown order is fixed when the list is loaded, searched or sorted: a rename (which makes its
 // conversation the latest) or a background reload never moves rows; new rows join at the end.
 import { node, setText, reconcile, showOne, fill } from './dom.js';
+import { dateClock } from './display.js';
 
 const PAGE = 100;
 const escape = id => globalThis.CSS?.escape?.(id) ?? id.replace(/["\\]/gu, '\\$&');
@@ -163,7 +164,7 @@ export class LibraryDialog {
     row.dataset.current = String(current); row.dataset.untitled = String(!item.title?.trim());
     const at = time(item.updatedAt), stamp = row.querySelector('time');
     stamp.dateTime = at ? new Date(at).toISOString() : '';
-    setText(stamp, at ? new Intl.DateTimeFormat(this.#locale(), { dateStyle: 'medium', timeStyle: 'short' }).format(at) : '');
+    setText(stamp, at ? dateClock(at, this.#locale()) : '');
     const [normal, editing] = row.querySelector('.library__action-slot').children;
     if (renaming) { showOne(row.querySelector('.library__rename'), open); showOne(editing, normal); }
     else { showOne(open, row.querySelector('.library__rename')); showOne(normal, editing); }
