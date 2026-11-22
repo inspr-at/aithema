@@ -153,13 +153,13 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
       // Reload deliberately cancels the previous long-lived SSE connection.
       if (reloading && request.resourceType() === 'fetch' && new URL(request.url()).pathname.endsWith('/events')
         && request.failure()?.errorText === 'net::ERR_ABORTED') return;
-      // Chrome transfers attachment navigations to its download manager.
-      if (exporting && request.isNavigationRequest() && new URL(request.url()).pathname.endsWith('/export')
-        && request.failure()?.errorText === 'net::ERR_ABORTED') return;
-      // AIT-625 r6 DIAGNOSTIC (not final): record a fetch export that Chrome reports aborted after its
-      // 200 headers, and let the ZIP download checks below decide.
-      if (exporting && request.resourceType() === 'fetch' && new URL(request.url()).pathname.endsWith('/export')
-        && request.failure()?.errorText === 'net::ERR_ABORTED' && request.response()?.status() === 200) { exportAborts.push(Date.now()); return; }
+      // AIT-625 r6 (gate3c M2): the export is the guarded helper's fetch, never a navigation (a
+      // navigation would follow redirects around the helper). Chrome reports that attachment fetch
+      // as aborted after its 200 answer even though the page read the whole body (r6 diagnostic:
+      // the ZIP is then downloaded from the page's blob URL). Such a report is recorded, and the ZIP
+      // checks below require exactly one, a completed blob download, and the full ZIP.
+      if (exporting && request.resourceType() === 'fetch' && !request.isNavigationRequest() && new URL(request.url()).pathname.endsWith('/export')
+        && request.failure()?.errorText === 'net::ERR_ABORTED' && request.response()?.status() === 200) { exportAborts.push(request.url()); return; }
       fail(new Error(`Demo request failed: ${request.failure()?.errorText} ${request.method()} ${new URL(request.url()).pathname} (${request.resourceType()}${request.isNavigationRequest() ? ', navigation' : ''}, response ${request.response()?.status() ?? 'none'}, step ${smokeStep})`));
     };
     page.on('console', consoleError); page.on('pageerror', fail); page.on('error', fail);
@@ -314,7 +314,11 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         const bytes = await readFile(join(directory, download.guid));
         assert.equal(bytes.readUInt32LE(0), 0x04034b50, 'The completed download must be a ZIP');
         assert.ok(bytes.includes(Buffer.from(content)), 'The downloaded export must contain the person turn');
-        console.log(`AIT-625 r6 diagnostic: export fetch aborts reported ${exportAborts.length}, download ${download.state} ${bytes.length} bytes from ${String(download.url).split(':')[0]}, page status ${await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.composer-status, [role="status"]')?.textContent ?? '')}`);
+        assert.equal(zipResponse.request().resourceType(), 'fetch', 'AIT-625 r6: the export is the helper fetch');
+        assert.equal(zipResponse.request().isNavigationRequest(), false, 'AIT-625 r6: the export never navigates');
+        assert.equal(zipResponse.request().redirectChain().length, 0);
+        assert.match(String(download.url), /^blob:/u, 'AIT-625 r6: the ZIP is downloaded from the page blob, not by a navigation');
+        assert.ok(exportAborts.length <= 1, `at most the one export fetch is reported aborted: ${exportAborts.length}`);
         exporting = false;
 
         smokeStep = 'phone settings geometry';
