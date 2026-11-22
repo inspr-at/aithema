@@ -64,7 +64,7 @@ function fixture(t, { transport, restored = true, component = false, echoPause =
     if (url.endsWith('/heartbeat')) return Response.json({ acknowledged: true, browserLivenessDeadlineAt: Date.now() + 30_000 });
     callId = request.body.callId; return Response.json(receipt());
   });
-  const { control } = createVoiceControl({ sessionId: session.id });
+  const { control } = createVoiceControl({ sessionId: session.id, view: window });
   const client = createElevenLabsClient({ control, sdk, mediaDevices: sdk.mediaDevices, AudioContext: sdk.AudioContext,
     persistEvent: async () => {} });
   const start = client.start;

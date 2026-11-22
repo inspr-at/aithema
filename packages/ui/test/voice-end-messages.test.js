@@ -169,7 +169,7 @@ for (const [copy, text] of [[en, 'Voice connection failed. Retry or continue typ
 test('AIT-502 v2.2: voice control preserves resumed bound refusal metadata', async t => {
   const { createVoiceControl } = await import('../src/voice-control.js');
   t.mock.method(globalThis, 'fetch', async () => Response.json({ error: 'deadline', reason: 'time-limit', timeLimit: 'call' }, { status: 504 }));
-  const { control } = createVoiceControl({ sessionId: 'fixture', sessionToken: 'fixture', view: window });
+  const { control } = createVoiceControl({ sessionId: 'fixture', sessionToken: 'fixture', view: new Window({ url: 'http://localhost/' }) });
   await assert.rejects(control.recover({ callId: 'call' }), error => error.code === 'deadline' && error.reason === 'time-limit' && error.timeLimit === 'call');
 });
 

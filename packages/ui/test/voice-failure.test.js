@@ -208,7 +208,7 @@ for (const seconds of [5, 120, null]) test(`AIT-361: control preserves HTTP 429 
   t.mock.method(globalThis, 'fetch', async () => Response.json({ error: 'limit' }, {
     status: 429, headers: seconds === null ? {} : { 'retry-after': String(seconds) },
   }));
-  const { control } = createVoiceControl({ sessionId: 'offline-fixture', view: window });
+  const { control } = createVoiceControl({ sessionId: 'offline-fixture', view: new Window({ url: 'http://localhost/' }) });
   for (const action of ['start', 'recover']) await assert.rejects(control[action]({ callId: 'offline-call' }), error => {
     assert.equal(error.status, 429); assert.equal(error.retryAfterMs, seconds === null ? undefined : seconds * 1000); return true;
   });

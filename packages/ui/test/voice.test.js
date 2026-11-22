@@ -484,7 +484,7 @@ test('AIT-145: browser control asks for background closure confirmation', async 
   t.mock.method(globalThis, 'fetch', async (url, options) => {
     body = JSON.parse(options.body); return Response.json({ reconciliationPending: true, closureConfirmed: false }, { status: 202 });
   });
-  const { control } = createVoiceControl({ sessionId: 'local-session' });
+  const { control } = createVoiceControl({ sessionId: 'local-session', view: window });
   await control.close({ callId: 'ended-call', providerSessionId: 'ended-provider', reason: 'closed' });
   assert.equal(body.background, true);
 });
@@ -602,7 +602,7 @@ test('voice admission cap races carry the reason through control and render plai
   const reasons = ['Voice minute cap reached for this deployment', 'Voice minute cap reached for this UTC day'];
   for (const reason of reasons) {
     t.mock.method(globalThis, 'fetch', async () => Response.json({ error: 'not-admitted', reason }, { status: 403 }));
-    const { control } = createVoiceControl({ sessionId: 'session' });
+    const { control } = createVoiceControl({ sessionId: 'session', view: window });
     let error;
     try { await control.start({ callId: 'call' }); } catch (failure) { error = failure; }
     assert.equal(error.code, 'not-admitted'); assert.equal(error.reason, reason);
@@ -1007,7 +1007,7 @@ test('a reload never sends paused:false by itself: it stays paused behind one fo
   for (const [name, probe] of Object.entries(probes)) {
     const { c, calls, session } = await reloadOrphan(t, probe);
     const closes = calls.filter(call => call.url.endsWith('/close'));
-    assert.deepEqual(closes, [{ url: `/api/sessions/${session.id}/voice/old-call/close`,
+    assert.deepEqual(closes, [{ url: `http://localhost/api/sessions/${session.id}/voice/old-call/close`,
       body: { providerSessionId: 'old-provider', reason: 'page-reloaded' }, keepalive: true, after: null }], `${name}: the abandoned call is ended`);
     assert.deepEqual(resumes(calls), [], `${name}: no pause change without the person`);
     assert.equal(c.session.paused, true, `${name}: still paused`);
@@ -1076,7 +1076,7 @@ test('Retry after a 409 waits out the remaining lease the server reports, otherw
 });
 test('a 409 carries the remaining lease only when the server reports Retry-After', async t => {
   const nativeFetch = globalThis.fetch; t.after(() => { globalThis.fetch = nativeFetch; });
-  const { control } = createVoiceControl({ sessionId: 's1' });
+  const { control } = createVoiceControl({ sessionId: 's1', view: window });
   for (const [headers, expected] of [[{ 'retry-after': '7' }, 7000], [{}, undefined]]) {
     globalThis.fetch = async () => Response.json({ error: 'voice-conflict' }, { status: 409, headers });
     await assert.rejects(control.start({ callId: 'c1' }), error => error.code === 'voice-conflict' && error.retryAfterMs === expected);
@@ -1159,7 +1159,7 @@ test('AIT-136 the rail forwards withdrawal to the adapter instead of draining re
 
 test('AIT-136 the persistence port carries generation, HTTP refusal status and cancellation', async t => {
   const delivered = [], requests = [];
-  const ports = createVoiceControl({ sessionId: 's1', receive: event => delivered.push(event) });
+  const ports = createVoiceControl({ sessionId: 's1', receive: event => delivered.push(event), view: window });
   const event = { type: 'final', callId: 'c1', providerSessionId: 'generation-a', turnId: 'generation-a:user:1', role: 'user', text: 'hello' };
   t.mock.method(globalThis, 'fetch', async (url, options) => {
     requests.push({ url, options }); return Response.json({ error: 'not-admitted' }, { status: 403 });
@@ -1171,7 +1171,9 @@ test('AIT-136 the persistence port carries generation, HTTP refusal status and c
   const pending = ports.persistEvent(event, event, { signal: controller.signal });
   const rejected = assert.rejects(pending, { name: 'AbortError' });
   controller.abort(); held.resolve(Response.json({ seq: 1, type: 'turn.final' })); await rejected;
-  assert.equal(requests.at(-1).options.signal, controller.signal); assert.deepEqual(delivered, []);
+  // AIT-625: the helper sends one signal combining the caller's with its deadline; the caller's abort is what ended it.
+  const sent = requests.at(-1).options.signal;
+  assert.ok(sent instanceof AbortSignal); assert.equal(sent.aborted, true); assert.equal(sent.reason, controller.signal.reason); assert.deepEqual(delivered, []);
 });
 
 
