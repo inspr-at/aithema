@@ -3,6 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import './fixtures/page-origin.js';
 import { createSession } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
@@ -21,9 +22,7 @@ function setup(t, { copy = en, host = { credits: true }, routes = {}, session: e
   Object.assign(session, extra);
   const calls = [];
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
-    // AIT-610 r9: owner routes are fetched at their resolved absolute URL; the fixture routes by path.
-    url = String(url).replace(/^http:\/\/localhost(?=\/)/u, '');
-    const path = String(url).replace(`/api/sessions/${c.session.id}`, '').replace(/^\/api/u, ''), method = options.method ?? 'GET';
+    const path = String(url).replace(/^http:\/\/localhost(?=\/)/u, '').replace(`/api/sessions/${c.session.id}`, '').replace(/^\/api/u, ''), method = options.method ?? 'GET';
     const body = options.body ? JSON.parse(options.body) : undefined;
     if (path === '/events') return new Response(new ReadableStream({ start(controller) { if (options.signal?.aborted) controller.close();
       else options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));

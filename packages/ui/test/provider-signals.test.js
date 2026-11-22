@@ -10,6 +10,7 @@ after(async () => {
 });
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import './fixtures/page-origin.js';
 import { AudioRail } from '../src/audio-rail.js';
 import { de } from '../src/i18n/de.js';
 import { currentVoiceClient } from './fixtures/current-voice-clients.js';

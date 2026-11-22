@@ -54,13 +54,25 @@ export const combinedEntranceStyles = `
 .workspace[data-entrance="combined"] .composer-actions { display:contents; }
 .workspace[data-entrance="combined"] .attach { display:none; }
 .workspace[data-entrance="combined"] .send { grid-area:send; align-self:end; }
+/* r9 (AIT-603, Codex gatepra8 Medium): a kept keyboard-up row holds its largest
+   height in --feedback-held (layout.js latchFeedback), combined with the dock's
+   own minimum below, never instead of it. r10: the plain row's hold is the
+   shared rule (styles.js), for every entrance. */
 .workspace[data-entrance="combined"] .composer-feedback { grid-area:feedback; margin:0; font-size:.72rem; }
 /* Reserve wrapped document refusals only where document intake is configured. */
-.workspace[data-entrance="combined"] .composer[data-document-input] .composer-feedback { min-height:3.75em; }
+.workspace[data-entrance="combined"] .composer[data-document-input] .composer-feedback { min-height:max(var(--feedback-held,0px),3.75em); }
 /* Image refusals reserve the longest real localized reason before intake. */
-.workspace[data-entrance="combined"] .composer[data-image-input] .composer-feedback { min-height:44px; }
+.workspace[data-entrance="combined"] .composer[data-image-input] .composer-feedback { min-height:max(var(--feedback-held,0px),44px); }
 .workspace[data-entrance="combined"] .composer-feedback .composer-reason { font-size:inherit; }
 .workspace[data-entrance="combined"] .composer-feedback .composer-reason[data-shortcut] { position:static; visibility:visible; width:auto; }
+/* AIT-618: a touch phone without a hardware keyboard or pointer has no
+   ⌘/Ctrl + Enter, so the hint is not painted there. Its box stays (static, auto
+   width), so the row lays out exactly as before; the query is static, so the
+   hint never appears or disappears while the visitor types. A hardware
+   keyboard with a fine pointer or hover (desktop, tablet with keyboard) keeps it. */
+@media(hover:none) and (pointer:coarse) {
+  .workspace[data-entrance="combined"] .composer-feedback .composer-reason[data-shortcut] { visibility:hidden; }
+}
 .composer-notice-slot { grid-area:notice; position:relative; min-width:0; }
 .composer-notice-reserve { display:grid; visibility:hidden; pointer-events:none; font-size:.75rem; line-height:1.45; }
 .composer-notice-reserve > * { grid-area:1/1; }
@@ -102,14 +114,17 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"] .composer { row-gap:0; }
   .workspace[data-entrance="combined"] textarea { min-height:44px; height:var(--composer-field-height,44px); }
 }
-@media(min-width:600px) {
+/* r2 (Codex Low): one boundary; phones are ≤ 600 px and keep the route line. */
+@media(width > 600px) {
   .workspace[data-entrance="combined"] .ready__route { display:none; }
 }
 /* AIT-553: short desktops (1366x768, 1280x720 under a host header) show
    readiness as one compact line, whole at first paint above the pinned
    composer: title, consent state and Change settings, joined by reasonSeparator. Model and visuals stay
-   under Change settings; the full card returns at 861 px and taller. */
-@media(min-width:600px) and (max-height:860px) {
+   under Change settings; the full card returns at 861 px and taller.
+   AIT-603: phones (≤ 600 px) always use this one-row form, never the card;
+   there the processing route stays readable (RC26) as its own line below. */
+@media(min-width:600px) and (max-height:860px), (max-width:600px) {
   .workspace[data-entrance="combined"] .ready { display:flex; flex-wrap:wrap; align-items:center; gap:0; padding:.125rem 1rem; }
   .workspace[data-entrance="combined"] .ready h3 { font-size:.85rem; }
   .workspace[data-entrance="combined"] .ready dl { display:contents; }
@@ -128,6 +143,19 @@ export const combinedEntranceStyles = `
   /* An unconfirmed state hides its check icon, so it keeps no empty slot. */
   .workspace[data-entrance="combined"] .ready__row[data-ready="consent"]:not([data-state="confirmed"]) .ready__check { display:none; }
   .workspace[data-entrance="combined"] .ready__actions { display:flex; flex-wrap:nowrap; align-items:center; justify-content:flex-start; gap:0; }
+  /* TICK M1: an item that starts a wrapped line (session-element marks it) keeps
+     its separator's space, so the wrap cannot change, but paints no separator
+     and moves back by its width to start flush with the line. Intended for
+     both scopes of this one-row form: phones and short desktops (where it
+     rarely wraps; a wrap there gets the same flush start). */
+  .workspace[data-entrance="combined"] .ready :is(.ready__row[data-ready="consent"], .ready__actions)[data-line-start] { position:relative; inset-inline-start:calc(-1 * var(--ready-separator,0px)); }
+  .workspace[data-entrance="combined"] .ready :is(.ready__row[data-ready="consent"], .ready__actions)[data-line-start]::before { visibility:hidden; }
+  /* AIT-603 r11: only when the items' boxes take a third row (font metrics wider
+     than the ones this form was tuned with, e.g. Linux at 320 DE and 390 DE 125 %),
+     session-element tightens the form until two rows hold: the separators lose
+     their margins, then the readiness its inline padding. */
+  .workspace[data-entrance="combined"] .ready[data-ready-tight] :is(.ready__row[data-ready="consent"], .ready__actions)::before { margin-inline:0; }
+  .workspace[data-entrance="combined"] .ready[data-ready-tight="padding"] { padding-inline:0; }
   /* Before the conversation the render-only welcome cannot scroll, so its
      hidden Latest control keeps no 54px end slot (as on short phones). */
   .workspace[data-entrance="combined"]:not([data-stage="live"]) .transcript-shell:has([data-host-opener]) > .transcript-latest { position:absolute; right:0; bottom:0; margin:0; }
@@ -139,11 +167,168 @@ export const combinedEntranceStyles = `
   .composer-reserve-phone { display:block; }
   .composer-notice__phone { display:inline; }
 }
+@media(340px < width <= 600px) {
+  /* AIT-603: above 340 px phones show the wide text-consent line (styles.js);
+     reserve it too, so a two-line wrap (DE) cannot make the dock shrink at the
+     hand-off and move the controls. Both lines take the combined feedback row's
+     size (.composer-feedback .composer-reason inherits it), so the reserve is
+     the visible line's exact box. PR-A: flex, as the visible line (the CSS cap below). */
+  .composer-reserve-line.composer-reserve-wide.composer-reserve-consent { display:flex; }
+  .composer-reserve-line.composer-reserve-phone.composer-reserve-consent { display:none; }
+}
+@media(width <= 340px) {
+  /* Codex M4: at 340 px and below the visible narrow line is set tighter
+     (styles.js, letter-spacing -.03em; its action button keeps normal
+     spacing); the narrow reserve matches it. */
+  .composer-reserve-line.composer-reserve-phone.composer-reserve-consent { display:flex; letter-spacing:-.03em; }
+  .composer-reserve-line.composer-reserve-phone.composer-reserve-consent .composer-reserve-action { letter-spacing:normal; }
+}
 @media(max-width:600px) {
+  /* AIT-603 PR-A (TICK's cap, pure CSS: no measuring, no search, no cache).
+     On phones the text-consent line and its reserve share one cap of two whole
+     lines, so the dock never changes height at consent. Desktop keeps the r3
+     uncapped line and reserve.
+     - The host sentence has its own clamp box (.consent-line-copy): line-clamp 2
+       paints the "…". The line is a flex row only so that box's height is
+       definite for the spacer below.
+     - The action is outside that box: it sits at the end of the box's last
+       line (inset-inline-end, bottom), so the text clamps and the action never does.
+     - The room it covers is the box's own: a zero-width float spacer of the
+       box's height less one line, then a hidden float of the action's words
+       (data-action, plus a small gap) that clears it, so it lands on the last
+       line and the sentence (and its "…") wraps around it. A shorter sentence
+       ends on line 1 with the action at its end. The layout follows any copy,
+       locale or font change by itself. */
+  .workspace[data-entrance="combined"] .composer-feedback > .composer-reason[data-consent-feature="text"] { display:flex; position:relative; }
+  /* Codex gate2c M4 / r2 Codex CLAMP: the phone reserve drops the base
+     .composer-reason cap for the shared two-row box; desktop keeps main's. */
+  .composer-reserve-line.composer-reserve-consent { position:relative; max-height:none; overflow:visible; }
+  .workspace[data-entrance="combined"] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy,
+  .composer-reserve-line.composer-reserve-consent > .consent-line-copy {
+    flex:1 1 auto; min-width:0; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; height:2lh; }
+  /* r2, TICK decision (a): the box is ALWAYS two rows (height 2lh), so the
+     spacer below is always one line and the action's room, and the action,
+     always end row 2 at one spot, for short text too; the reserve is the
+     same box, so the dock never depends on the text's length. No "·" ends
+     row 1: on phones the separator (its own span) is not painted. */
+  .workspace[data-entrance="combined"] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy .consent-separator,
+  .composer-reserve-line.composer-reserve-consent > .consent-line-copy .consent-separator { display:none; }
+  .workspace[data-entrance="combined"] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy::before,
+  .composer-reserve-line.composer-reserve-consent > .consent-line-copy::before { content:''; float:inline-end; width:0; height:calc(100% - 1lh); }
+  .workspace[data-entrance="combined"] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy > [data-action]::before,
+  .composer-reserve-line.composer-reserve-consent > .consent-line-copy > [data-action]::before {
+    content:attr(data-action); float:inline-end; clear:both; visibility:hidden; white-space:nowrap; letter-spacing:normal; padding-inline-start:.35em;
+    /* r5: an over-wide action's spacer is capped at the row like the action. */
+    max-width:100%; box-sizing:border-box; overflow:hidden; }
+  .workspace[data-entrance="combined"] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action,
+  .composer-reserve-line.composer-reserve-consent > .composer-reserve-action { position:absolute; inset-inline-end:0; bottom:0; }
+  /* Its 44 px target grows from the line end back over the text, never past
+     the text column toward Mic and Send (a short action, e.g. "OK"). */
+  .workspace[data-entrance="combined"] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action::after { left:auto; right:auto; inset-inline-end:0; }
+  /* r5 (Codex gatepra4, TICK M1 safety net): a host action label wider than
+     the row is capped at the row and ends in "…" on its one line (never
+     offscreen, never wrapping the dock taller). Only its visible variant span
+     clips, so the button's 44 px target (::after) is not clipped; the
+     accessible name stays the full label (the visible text is its prefix). */
+  .workspace[data-entrance="combined"] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action { display:flex; max-width:100%; min-width:0; }
+  .workspace[data-entrance="combined"] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action > * { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* A shorter line (granted, the send shortcut) sits top-aligned in that reserve. */
+  .workspace[data-entrance="combined"] .composer:not([data-image-input]) .composer-feedback > .composer-reason:not([data-send-failed]) { align-self:start; }
+  /* r5 (Codex gate4c Low): image-enabled docks too, for the consent line and the
+     granted line that replaces it; image refusals keep their centred row. */
+  .workspace[data-entrance="combined"] .composer[data-image-input] .composer-feedback > .composer-reason:is([data-consent-feature="text"],[data-shortcut]) { align-self:start; }
+  /* r3, TICK k1: with the phone keyboard up typing is the task and the field's
+     room comes first. Pending: ONE row, the stock short reason (textNarrow) at
+     the start and its action (actionNarrow) at the inline end, never the action
+     alone; the host text is hidden (the action's description, a separate hidden
+     node, is unchanged). Granted or not needed: the row takes 0 px. Nothing is
+     reserved while the keyboard is up, so the row changes only when the keyboard
+     opens or closes. Keyboard down keeps r2's two rows (TICK (a)). */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > :is(.composer-feedback-reserve, .composer-saved-sizer) { display:none; }
+  /* r4, TICK M1: the keyboard never changes the action's label or name; the
+     action keeps the width rule's variant (the wide label above 340 px, as with
+     the keyboard down). Only the reason is the short one. Safety net for a long
+     host action: the reason yields first (one line, min-width 0, "…"; r5: down
+     to 0), the action shrinks only past the row (its "…", rule above); the row is a plain flex row, no float spacer. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy {
+    display:block; -webkit-line-clamp:none; height:1lh; flex:1 1 0; min-width:0; white-space:nowrap; text-overflow:ellipsis; overflow:hidden;
+    container:aithema-k1-reason / inline-size; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy::before,
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy > [data-action]::before { content:none; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy > .consent-wide { display:none; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy > .consent-narrow { display:inline; }
+  /* r7 (TICK r6 L1): no stub like "E…". When the room the action leaves the
+     reason is under 3em (about three characters plus the ellipsis) its text
+     drops out entirely, as when it yields to 0; the action carries the meaning
+     and the full sentence is in the sheet. The box keeps its flex size (size
+     containment: its content never sizes it), so nothing moves. The narrow
+     copy is aria-hidden; the action's description is unchanged. After the
+     narrow copy's display rule, at its specificity (r7b: a bare * lost to it). */
+  @container aithema-k1-reason (max-width:3em) {
+    .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-line-copy > :is(.consent-wide, .consent-narrow, *) { display:none; }
+  }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action {
+    position:relative; inset:auto; flex:0 1 auto; height:1lh; white-space:nowrap; order:2; }
+  /* r6 (Codex gatepra5 Medium, TICK M1 rule): the .35em gap belongs between the
+     reason and the action, never to the action: it is its own flex item between
+     them that shrinks first (a far higher shrink factor), so once the reason has
+     yielded to 0 a fitting action gets the whole row and paints its label whole,
+     exactly as with the keyboard down. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"]::after {
+    content:""; order:1; flex:0 1000000 .35em; min-width:0; }
+  /* One row sits 8 px (the composer's row gap) under Send: its 44 px target
+     starts at that gap and grows down over the status row, clear of Send and Mic. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action::after { top:-8px; transform:none; }
+  /* r10 (TICK r9 M1, LEAD 23:4x): every keyboard-up feedback row respects its
+     dock's floor in every state, the pending consent line included. r4's
+     override (the document and image floors yielding to the one-row consent
+     line) is gone: the consent LINE stays one row, its row keeps the floor
+     (3.75em, 44 px; the rules above, max() with --feedback-held), so consent
+     clearing leaves the row, and Send and Mic, where they are. */
+  /* Granted and IDLE only (r4, Codex A11Y): the feedback row leaves the grid
+     when it shows NOTHING but the keyboard-shortcut hint (or nothing): no
+     visible status text (r5, Codex gatepra4 A11Y: the Saved confirmation after
+     a send, [data-saved], keeps the row), no retry, discard, upload notice,
+     refusal, failure or any other control. Its status regions stay in the
+     accessibility tree at no size. Plain, document- and image-enabled docks
+     alike (r4, Codex KEYBOARD). r5 (Codex gatepra4 Low): a READY staged image
+     keeps its own row above the field and leaves no blank row below it. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.composer-feedback > .composer-reason:is([data-shortcut],:empty)):not(:has(.composer-feedback[data-saved])):not(:has(.composer-feedback[data-keyboard-kept])):not(:has(.composer-feedback :is(button, a, input, [tabindex]))) {
+    grid-template-areas:"message mic send" "notice notice notice"; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.staged-images:not([hidden])):has(.composer-feedback > .composer-reason:is([data-shortcut],:empty)):not(:has(.composer-feedback[data-saved])):not(:has(.composer-feedback[data-keyboard-kept])):not(:has(.composer-feedback :is(button, a, input, [tabindex]))) {
+    grid-template-areas:"images images images" "message mic send" "notice notice notice"; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.composer-feedback > .composer-reason:is([data-shortcut],:empty)):not(:has(.composer-feedback[data-saved])):not(:has(.composer-feedback[data-keyboard-kept])):not(:has(.composer-feedback :is(button, a, input, [tabindex]))) .composer-feedback {
+    grid-area:auto; position:absolute; width:1px; height:0; min-height:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+  /* r6/r7 (TICK r5/r6 M1): with the keyboard up the feedback row only grows.
+     Once anything has shown in it (Saved, "Preparing…", a notice, a control) it
+     keeps its row until the keyboard closes or the visitor sends or discards
+     (layout.js latchFeedback sets [data-keyboard-kept] on the keyboard-open
+     transition and after every composer render; it clears on keyboard close):
+     when that feedback clears itself the row stays, empty (the idle hint is not
+     painted; it stays in the accessibility tree), so Send and Mic never move
+     unprompted. It still opens at 0 px when nothing has shown yet. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback[data-keyboard-kept]:not([data-saved]) > .composer-reason:is([data-shortcut],:empty) { opacity:0; pointer-events:none; }
   .workspace[data-entrance="combined"] { height:auto; padding-bottom:calc(var(--phone-dock,250px) + var(--phone-footer,57px) + 24px); }
   .workspace[data-entrance="combined"] .conversation { height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,250px) - 32px); min-height:0; }
   .workspace[data-entrance="combined"] [data-host-opener] { --turn-max-width:100%; padding-block:6px; }
   .workspace[data-entrance="combined"] [data-host-opener] > strong { margin-bottom:0; }
+  /* AIT-603: session-element fits whole welcome lines (2..6) to the ready stage. */
+  .workspace[data-entrance="combined"] .turn[data-host-opener] .turn-text { -webkit-line-clamp:var(--opener-lines,6); }
+  /* The phone notice is abbreviated, so the processing route keeps its own line under the one-row readiness (RC26). */
+  .workspace[data-entrance="combined"] .ready__route { flex:1 0 100%; }
+  /* r2 (Codex READY-STAGE Medium): the one-row readiness fits the width left
+     by a classic 15 px scrollbar gutter too (stable gutter): a tighter inline
+     padding keeps the title and consent state on one row at 320 DE and 390 DE 125 %. */
+  .workspace[data-entrance="combined"] .ready { padding-inline:.5rem; }
+  /* No render can run before the first reply (AIT-601 r5: the idle reserve is no
+     content end), so the ready stage keeps no 40 px render-label reserve under
+     the welcome. The welcome's top is unchanged; live restores the reserve. */
+  .workspace[data-entrance="combined"][data-concept-layout="image"]:not([data-stage="live"]) .concept-thread .transcript-shell { --aithema-render-reserve:0px; }
+  /* Readiness is the last ready-stage content; no trailing padding below it. */
+  .workspace[data-entrance="combined"]:not([data-stage="live"]) .intro { padding-bottom:0; }
+  /* Only when even two lines and readiness do not fit: a soft bottom fade while
+     content is below; session-element shortens it (12..24 px) to keep Read full reply clear. */
+  .workspace[data-entrance="combined"][data-stage="ready"] .conversation-scroll[data-bottom] { mask-image:linear-gradient(to bottom,#000 calc(100% - var(--opener-fade,24px)),transparent); }
   /* A new offer can use the full conversation reading area. The rail above
      it stays in the same scroller and can scroll away; the input stays pinned. */
   .workspace[data-entrance="combined"] .conversation-scroll:has(.email-offer) .concept-thread { flex:0 0 100%; }
@@ -152,6 +337,35 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"][data-phone-short] .composer:has(.staged-images:not([hidden])) {
     grid-template-areas:"images images images" "message mic send" "feedback feedback feedback" "status status status" "notice notice notice"; }
   .workspace[data-entrance="combined"][data-phone-short] .composer[data-image-input] .composer-feedback { grid-area:auto; }
+  /* AIT-618 (LEAD's decision after PR-A: the transcript's keyboard-up room comes
+     from other chrome, never from moving controls). While the phone keyboard is
+     up typing is the task, so the status row ("Microphone blocked", "Call
+     ended") leaves the grid with its row gap: it takes 0 px and its words stay
+     in the accessibility tree, as the idle feedback row's do (above). It
+     returns when the keyboard closes, at its reserved height. It changes only
+     when the keyboard opens or closes, never while typing; the feedback row's
+     latch and floor (PR-A r6..r10) are untouched. The AI notice stays (a
+     required disclosure). After the short-phone areas, at their specificity;
+     the idle collapse rules above drop the status row themselves. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer {
+    grid-template-areas:"message mic send" "feedback feedback feedback" "notice notice notice"; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.staged-images:not([hidden])) {
+    grid-template-areas:"images images images" "message mic send" "feedback feedback feedback" "notice notice notice"; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-status-slot {
+    grid-area:auto; position:absolute; width:1px; height:0; min-height:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+  /* r4 (Codex KEYBOARD): with the keyboard up an image-enabled dock keeps no
+     image slot above the field: its feedback is the ordinary feedback row
+     under the field (one row while consent is pending, 0 px when idle; the
+     idle collapse above wins), and the composer keeps the plain short-phone
+     padding (question-card.js) instead of the slot's reserve. A staged image
+     keeps its own row. */
+  .workspace[data-entrance="combined"][data-phone-short][data-phone-keyboard] .composer[data-image-input] { padding-top:6px; }
+  .workspace[data-entrance="combined"][data-phone-short][data-phone-keyboard] .composer[data-image-input] .composer-feedback {
+    grid-area:feedback; position:relative; top:auto; left:auto; right:auto; height:auto; }
+  .workspace[data-entrance="combined"][data-phone-short][data-phone-keyboard] .composer[data-image-input] .composer-feedback > .composer-reason[data-consent-feature="text"] { overflow:visible; }
+  /* k1: nothing is reserved while the keyboard is up, the image refusal reserve included
+     (image-input.js keeps its last measured height while it is hidden). */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer[data-image-input] .image-feedback-reserve { display:none; }
   .workspace[data-entrance="combined"][data-phone-short] .concept-bar[data-no-drafts] { display:none; }
   .workspace[data-entrance="combined"][data-phone-short] .conversation { height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,250px) - 26px); }
   .workspace[data-entrance="combined"][data-phone-short] .transcript-shell { padding-bottom:8px; }
@@ -162,5 +376,77 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"][data-phone-short] .composer-reason { position:static; width:auto; height:auto; clip-path:none; }
   .workspace[data-entrance="combined"] .composer-dock { position:fixed; z-index:9; left:var(--aithema-gutter); right:var(--aithema-gutter); bottom:calc(var(--phone-bottom,0px) + var(--phone-footer,57px) + 12px); }
   .workspace[data-entrance="combined"] .phone-dock-backdrop { display:block; position:fixed; z-index:8; left:0; right:0; bottom:var(--phone-bottom,0px); height:calc(var(--phone-dock,250px) + var(--phone-footer,57px) + 24px); background:var(--aithema-paper); mask-image:linear-gradient(to bottom,transparent,#000 12px); }
+  /* AIT-618 r2 (TICK (a)): while the keyboard is up the AI notice is ONE text
+     line. Its first sentence yields with "…" (the full text stays in the
+     node), "More" keeps its 44 px target as an overlap that starts in the
+     8 px row gap above it and grows down over the dock's own padding, as k1's
+     consent action does; it never reaches the feedback row's target. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-notice__phone { display:flex; align-items:baseline; gap:.3em; min-width:0; white-space:nowrap; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-notice__first { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-notice__more { flex:none; position:relative; min-height:0; height:auto; padding-block:0; line-height:inherit; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-notice__more::after { content:''; position:absolute; left:0; right:0; top:-8px; height:44px; }
+  /* r3 (TICK r2 M1, Codex gate1c Medium 3): the notice line keeps a real inset
+     from the dock's rounded bottom edge (12 px with the border, at least the
+     field text's 11 px top inset; the text starts at the field text's left
+     inset), and "More"'s 44 px target stays inside the dock: it overlaps
+     16 px UP (the 8 px row gap and 8 px of the row above, which the image
+     floor row's consent target leaves free: it ends 8 px above the row's
+     bottom), then the line (1lh, 17.4 px) and 10.6 of the 11 px padding. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer { padding-bottom:11px; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-notice__more::after { top:-16px; }
+  /* The document floor (3.75em, 43.2 px) leaves 7.2 px under its consent target: 1 px more above the line. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer[data-document-input] .composer-notice-slot { padding-top:1px; }
+  /* Where the row above has no free 8 px the slot gives them: the feedback row
+     collapsed (the field's row is directly above), or a row with its own
+     controls (Try again, Discard): 8 px, as the overlap takes 8. r4 (Codex
+     gate2c M2): latched with the kept row ([data-keyboard-controls]). */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.composer-feedback > .composer-reason:is([data-shortcut],:empty)):not(:has(.composer-feedback[data-saved])):not(:has(.composer-feedback[data-keyboard-kept])):not(:has(.composer-feedback :is(button, a, input, [tabindex]))) .composer-notice-slot,
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.composer-feedback :is(button, a[href]):not(.composer-reason[data-consent-feature="text"] *)) .composer-notice-slot,
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.composer-feedback[data-keyboard-controls]) .composer-notice-slot { padding-top:8px; }
+  /* A pending consent row without a floor (a plain dock) stays one line (k1),
+     but its action's 44 px target runs from the 8 px gap above it to 36 px
+     below its top. The slot holds the rest of that target, so "More" starts
+     where the consent target ends: 44 px minus the row's line (.72rem at the
+     reason's 1.3 line height, 14.98 px). It stays while the keyboard is up
+     after consent clears (layout.js latches [data-keyboard-consent] with the
+     kept row), so clearing moves nothing; the row's box stays one line.
+     r4 (Codex gate2c Low): 1/16 px more, so layout's 1/64 px snapping can
+     never leave a fractional overlap (More's top was 1/64 px above the
+     consent target's bottom); a whole 1 px cost transcript lines at vv308. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:not([data-image-input]):not([data-document-input]):has(.composer-feedback[data-keyboard-consent]) .composer-notice-slot,
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:not([data-image-input]):not([data-document-input]):has(.composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action) .composer-notice-slot { padding-top:calc(44px + 1px / 16 - .72rem * 1.3); }
+}
+/* AIT-618 r2 (TICK (b)): while the phone keyboard is up the voice band is ONE
+   44 px row. The rail moves up into the band's first row, so the small orb
+   (start), pause/resume and the gear keep their keyboard-down horizontal
+   positions and sizes; the volume control, the level line, the mic and end
+   cells are hidden (visibility: out of the tree's focus order, their cells
+   keep the columns, so pause never shifts). The rail's status leaves the
+   paint but stays in the accessibility tree (its live region still speaks).
+   The row is 44 px whether a reply plays or is paused; it changes only when
+   the keyboard opens or closes (layout.js measures the band after the flag).
+   r4 (TICK Q1 (a)): [data-phone-keyboard-band] always toggles with
+   [data-phone-keyboard], from ONE keyboard-up state (layout.js). */
+@media(max-width:599px) {
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band:has(> .audio-rail) { --band-height:44px; grid-template-rows:44px; height:44px; min-height:44px; }
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band > .audio-rail { grid-row:1; height:44px; min-height:44px; pointer-events:none; }
+  /* The identity is auto-placed: pin it to the one row, or the rail's row would push it into an implicit second row. */
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band:has(> .audio-rail) > .band-identity { grid-row:1; grid-column:1; }
+  /* Descendants too: the wave and revealed controls set their own visibility. */
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band > .audio-rail > :is(.voice-cell--output, .voice-signal, .voice-cell--mic, .voice-cell--end),
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band > .audio-rail > :is(.voice-cell--output, .voice-signal, .voice-cell--mic, .voice-cell--end) :not(.voice-state, .voice-state *) { visibility:hidden; }
+  /* r3 (Codex gate1c Medium 4): a host's header controls reach the pause
+     column (layout.js sets [data-keyboard-rail-row]): the rail keeps its own
+     44 px row under the header, exactly where it sits with the keyboard down,
+     and stays compact (the same cells hidden), so no targets intersect. */
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band[data-keyboard-rail-row]:has(> .audio-rail) { --band-height:88px; grid-template-rows:44px 44px; row-gap:0; height:88px; min-height:88px; }
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band[data-keyboard-rail-row] > .audio-rail { grid-row:2; }
+  /* r6 (TICK M4 (b)): a host control added while the keyboard is up takes the
+     header's left end (the pause column the 88 px row frees), so every other
+     header control keeps its x; only Pause moves. */
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band > .header-actions > [data-keyboard-late] { order:-1; }
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band > .audio-rail > .voice-cell--pause { pointer-events:auto; }
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band > .audio-rail .voice-state {
+    visibility:visible; position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 }
 `;

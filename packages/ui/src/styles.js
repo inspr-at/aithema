@@ -477,7 +477,10 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .composer-reason { flex:1; min-width:0; line-height:1.3; max-height:2.6em; overflow-wrap:anywhere; overflow-y:auto; overscroll-behavior:contain; }
 /* A resumed call retains its held hint's slot. Ordinary shortcuts keep the
    compact confirmation width; all variants share the existing row height. */
-.composer-feedback { display:grid; flex:1; margin-right:auto; min-width:0; align-items:center; align-self:stretch; }
+/* AIT-603 r10 (Codex gatepra9 Medium): every entrance's kept keyboard-up row
+   holds its largest height (--feedback-held, layout.js latchFeedback); an
+   entrance's own minimum combines with it (max(), combined-entrance-styles.js). */
+.composer-feedback { display:grid; flex:1; margin-right:auto; min-width:0; align-items:center; align-self:stretch; min-height:var(--feedback-held,auto); }
 .composer-feedback:not([data-voice-space]):has(.composer-reason[data-shortcut]) { flex:0 1 auto; }
 .composer-feedback > :not(.sr-only) { grid-area:1/1; }
 .composer-reason { transition:opacity 120ms ease; }
@@ -524,6 +527,8 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .composer-reason:has(> .consent-action) { max-height:44px; overflow:visible; }
 .composer-reason[data-consent-feature="text"] { font-size:max(12px,.72rem); max-height:none; overflow:visible; }
 .composer-reason[data-consent-feature="text"] .consent-narrow { display:none; }
+/* AIT-603 (TICK r5): the action's description node sits next to the status line, outside the live region; never painted. */
+.composer-feedback > .consent-description { display:none; }
 @media(max-width:340px) {
   /* Reclaim only gaps: Attach and Send keep their normal positions. */
   .composer-actions:has(.composer-reason[data-consent-feature="text"]) { --composer-actions-gap:0px; }
@@ -839,7 +844,7 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .understanding > .foot > :is(.create-project,.retry) { grid-area:1/2; justify-self:end; }
 /* Invisible in server modes, but always measured so mode switches move nothing. */
 .export-reason { grid-column:1/-1; font-size:.72rem; line-height:1.4; color:var(--aithema-muted); }
-.export[href] { text-decoration:underline; }
+.export:not([aria-disabled="true"]) { text-decoration:underline; cursor:pointer; }
 .export[aria-disabled="true"] { text-decoration:none; cursor:help; }
 @media(width < 480px) {
   .understanding > .foot { display:grid; grid-template-columns:minmax(0,1fr); grid-template-rows:2.75rem auto 2.75rem; gap:0; }

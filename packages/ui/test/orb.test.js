@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import './fixtures/page-origin.js';
 import { createOrb } from '../src/orb.js';
 
 function fixture(t, motion = true, reduced = false) {

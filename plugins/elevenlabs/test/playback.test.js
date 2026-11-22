@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import '../../../packages/ui/test/fixtures/page-origin.js';
 import { watchVoicePlayback } from '../src/playback.js';
 
 test('SDK DOM playback discovery, user-gesture retry and teardown belong to the browser adapter', async t => {

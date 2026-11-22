@@ -477,8 +477,8 @@ test('library: New and Reset hand the conversation to the host; without a handle
     url = String(url).replace(/^http:\/\/localhost(?=\/)/u, ''); // AIT-610 r9: owner routes arrive resolved
     if (String(url).endsWith('/events')) return new Response(new ReadableStream({ start(controller) { if (options.signal?.aborted) controller.close();
       else options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
-    if (String(url) === `/api/library/${created.id}/reset`) return Response.json({ ...entry(replacement.id, '', '2026-10-10T11:00:00Z'), session: replacement }, { status: 201 });
-    if (String(url).startsWith('/api/library')) return Response.json({ items: [], total: 0 });
+    if (String(url).replace(/^http:\/\/localhost(?=\/)/u, '') === `/api/library/${created.id}/reset`) return Response.json({ ...entry(replacement.id, '', '2026-10-10T11:00:00Z'), session: replacement }, { status: 201 });
+    if (String(url).replace(/^http:\/\/localhost(?=\/)/u, '').startsWith('/api/library')) return Response.json({ items: [], total: 0 });
     return Response.json({ balance, limitSlot: null, handover: null, offer: null });
   });
   c.addEventListener('aithema-open-conversation', event => event.preventDefault(), { once: true });
@@ -815,4 +815,26 @@ test('AIT-611: the identity and visitor-email reads of a stale-question restore,
   assert.ok(reads('/visitor/email') > emails, 'the identity answer continues to the visitor email');
   emailRead.resolve({ visitor: { address: 'reader@example.test', tier: 'emailGiven' }, notice: { version: 'ait-611-v1' } }); await tick(12);
   assert.equal(root.querySelector('.host-verify .m-addr').textContent, 'reader@example.test', 'the visitor email painted');
+});
+
+// AIT-609 r2 (TICK's condition): one formatter for every time the visitor sees. The library row's
+// last-activity stamp ends in the same clockTime as "Connected since" and the daily-cap reset:
+// DE "9:04" and "0:04", never "09:04" or "00:04"; EN "9:04 AM", "12:04 AM". Instants are built
+// from fixed local fields, so the lane's time zone does not matter and no real clock takes part.
+test('AIT-609 r2: the library row stamp uses clockTime, DE and EN, morning and midnight', async t => {
+  const { clockTime } = await import('../src/display.js');
+  const morning = new Date(2026, 10, 20, 9, 4, 30), midnight = new Date(2026, 10, 19, 0, 4, 30);
+  const plain = text => text.replace(/\s/gu, ' ');
+  for (const [copy, locale] of [[de, 'de'], [en, 'en']]) await t.test(locale, async t => {
+    const items = [entry('m', 'Morning', morning.toISOString()), entry('n', 'Midnight', midnight.toISOString())];
+    const { root } = setup(t, { copy, routes: { 'GET /library': () => Response.json({ items, total: items.length, offset: 0, limit: 100 }) } });
+    root.querySelector('.library-open-dialog').click(); await tick();
+    const dialog = root.querySelector('dialog.library');
+    for (const [key, at] of [['m', morning], ['n', midnight]]) {
+      const stamp = plain(dialog.querySelector(`tr[data-key="${key}"] time`).textContent);
+      assert.ok(stamp.endsWith(plain(clockTime(at, locale))), `${locale} ${key}: "${stamp}" ends in clockTime "${clockTime(at, locale)}"`);
+      assert.doesNotMatch(stamp, /(?:^|\D)0\d:\d\d/u, `${locale} ${key}: no leading-zero hour in "${stamp}"`);
+      assert.doesNotMatch(stamp, /Uhr/u);
+    }
+  });
 });

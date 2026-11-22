@@ -2,13 +2,14 @@ import { BINDING_REASON_CODES } from '../../../test/fixtures/german-server-texts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import './fixtures/page-origin.js';
 import { createSession, applyEvent } from '@inspr/aithema-core';
 import { voiceEvents } from '../../core/src/live-voice.js';
 import { settingsGauges } from '../../core/src/settings.js';
 import { manifest as voiceManifest } from '../../../plugins/elevenlabs/src/manifest.js';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
-const window = new Window();
+const window = new Window({ url: 'http://localhost/' });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
 const { hostSettingsGauges } = await import('../src/settings-dialog.js');
@@ -902,13 +903,63 @@ test('AIT-234: a failed catalog retains Custom for explicit reload without savin
 });
 
 // Done is also the consent editor's save button; rendering Custom must respect that owner.
-test('AIT-234: an invalid consent document keeps the shared Done button disabled', async t => {
+// AIT-612 r3 (TICK r2 decision (b)): after a failed load, Done is the next step ("close and open it again"): it is
+// enabled, reads Done, holds focus, is described by the footer status, and closes; the empty host sentence hides.
+test('AIT-234 / AIT-612 r3: an invalid consent document never saves; Done closes the sheet and carries the reason', async t => {
   const h = fixture(t, { matrix: { best: { text: refused('current processing consent required') } } });
   h.root.querySelector('.composer-reason .consent-action').click(); await tick(10);
-  assert.equal(h.q('.consent-status').textContent, en.host.consentFailed);
-  assert.equal(h.q('.done').disabled, true);
-  assert.equal(h.q('.done').getAttribute('aria-disabled'), 'true');
-  assert.equal(h.q('.done').hasAttribute('aria-describedby'), false, 'consent failure is not catalog loading');
+  // AIT-612: one message, once, next to Save (the shared footer); a failed load says it could not be loaded.
+  assert.equal(h.q('.consent-status').textContent, '');
+  assert.equal(h.q('.save-status').textContent, en.host.consentPage.loadFailed);
+  const done = h.q('.done');
+  assert.equal(done.disabled, false, 'Done closes the sheet after a failed load');
+  assert.equal(done.getAttribute('aria-disabled'), 'false');
+  // AIT-612 r4 (TICK r3 M1): was `.done-label` === en.settings.done ("Done") with the check mark; nothing is
+  // finished, so the button reads Close / Schließen (the status says "Close and open it again") with the × icon.
+  assert.equal(en.settings.close, 'Close'); assert.equal(de.settings.close, 'Schließen');
+  assert.equal(h.q('.done-label').textContent, en.settings.close);
+  assert.equal(done.getAttribute('aria-label'), null, 'the accessible name is the visible label');
+  assert.equal([...done.querySelectorAll('*')].filter(n => n.childElementCount === 0 && !n.closest('[aria-hidden="true"]')).map(n => n.textContent).join('').trim(), 'Close');
+  assert.deepEqual([...done.querySelectorAll('svg path')].map(n => n.getAttribute('d')), ['m6 6 12 12M18 6 6 18'], 'the close icon (×), not the check');
+  assert.equal(done.getAttribute('aria-describedby'), 'settings-save-status', 'Done carries the reason (the footer status)');
+  assert.equal(h.root.getElementById('settings-save-status'), h.q('.save-status'));
+  assert.ok(h.root.activeElement === done, 'focus moves to Done');
+  assert.equal(h.q('.consent-reason').hidden, true, 'no empty heading over a missing list');
+  const before = h.posts.length;
+  done.click(); await tick(10);
+  assert.equal(h.dialog.open, false, 'Done closes the sheet');
+  // AIT-612 r5 (gate4c M1): was `h.posts.every(body => !('processing' in body)) && h.posts.length >= before`, which let
+  // Close POST the unconfirmed defaults to /settings. After a failed load, Close only closes: nothing saves at all.
+  assert.equal(h.posts.length, before, 'Close saves nothing: no consent, no Settings');
+});
+
+// AIT-612 r5 (gate4c M1): after a failed load, Close never reaches the Settings save path. A pending edit whose save
+// failed neither POSTs again nor keeps the sheet open: Close only closes.
+test('AIT-612 r5: after a failed load, Close with a pending, failed edit saves nothing and closes', async t => {
+  const h = fixture(t, { matrix: { best: { text: refused('current processing consent required') } }, respond: () => new Response(null, { status: 500 }) });
+  await opened(h);
+  h.q('[data-preset="device"]').click(); await tick(10);
+  assert.equal(h.posts.length, 1, 'the edit tried to save once');
+  assert.equal(h.dialog.dataset.saveState, 'failed', 'and its save failed: the edit is still pending');
+  h.root.querySelector('.composer-reason .consent-action').click(); await tick(10);
+  assert.equal(h.q('.save-status').textContent, en.host.consentPage.loadFailed);
+  assert.equal(h.q('.done-label').textContent, en.settings.close);
+  h.q('.done').click(); await tick(10);
+  assert.equal(h.posts.length, 1, 'Close sends no /settings POST');
+  assert.equal(h.dialog.open, false, 'Close always closes the sheet');
+});
+
+// AIT-612 r5 (gate4c M2): a host copy bundle that predates settings.close still names the button: the label resolves
+// through the shipped locale copy (copy-resolve), then English, never to an empty label beside an aria-hidden icon.
+for (const copy of [de, en]) test(`AIT-612 r5 ${copy.display.locale}: a host copy without settings.close still labels Close`, async t => {
+  const { close, ...settings } = copy.settings, hostCopy = { ...copy, settings };
+  assert.equal(hostCopy.settings.close, undefined);
+  const h = fixture(t, { copy: hostCopy, matrix: { best: { text: refused('current processing consent required') } } });
+  h.root.querySelector('.composer-reason .consent-action').click(); await tick(10);
+  const done = h.q('.done');
+  assert.equal(h.q('.done-label').textContent, close);
+  assert.equal(close, copy === de ? 'Schließen' : 'Close');
+  assert.equal([...done.querySelectorAll('*')].filter(n => n.childElementCount === 0 && !n.closest('[aria-hidden="true"]')).map(n => n.textContent).join('').trim(), close, 'the accessible name is present');
 });
 
 for (const copy of [de, en]) test(`AIT-266 ${copy.display.locale}: unavailable Custom agrees at entrance and Settings and arrow keys skip it`, async t => {

@@ -1,0 +1,5 @@
+{
+  "seconds": 30,
+  "provisional": true,
+  "evidence": "AIT-618 r6, 2026-11-22: provisional split reservation (AIT-597 method) for the two whole top-level tests moved intact out of phone-dock.test.js (keyboardSettleCheck, keyboardHostLateAddCheck). They have no rolling-main series yet (they never ran on main). Basis: remote test lane run on ed1ebc3e, the larger of two lane samples (ed1ebc3e: 19.521647667s + 4.30007425s = 23.821721917s; c65650a1: 18.285014833s + 3.941322208s). Provisional reservation = ceil(1.25 * 23.821721917) = 30s. A lane sample, not CI; rolling-main timings replace it."
+}

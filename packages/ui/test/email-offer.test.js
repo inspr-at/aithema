@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import './fixtures/page-origin.js';
 import { Verification } from '../src/verification.js';
 import { EmailOffer } from '../src/email-offer.js';
 import * as offerExports from '../../core/src/email-offer.js';

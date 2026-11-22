@@ -156,6 +156,8 @@ The browser-facing core root does not import these Node artifact constructors.
 | `demo/admin-view.js` | Relative public source URLs | AIT-205: native browser loading |
 | `demo/admin-copy.js` | Relative public source URLs | AIT-205: native browser loading |
 | `demo/fake-voice.js` | Relative public source URLs | AIT-205: native browser loading |
+| `demo/post-json.js` | Relative public source URLs | AIT-205: native browser loading |
+| `demo/admin-page.js` | Relative public source URLs | AIT-205: native browser loading |
 | `packages/server/src/voice-provider.js` | `packages/server/src/dev/local-voice-manifest.js` | AIT-218: private simulator manifest |
 | `plugins/fake-voice/src/manifest.js` | `packages/server/src/dev/local-voice-manifest.js` | Test-only manifest forwarder |
 | `plugins/fake-voice/src/server.js` | `packages/server/src/dev/local-voice.js` | Test-only compatibility forwarder |

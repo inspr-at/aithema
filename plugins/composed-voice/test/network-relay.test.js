@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { createComposedRelay } from '../src/relay.js';
 import { createComposedRelayRoute } from '../src/network-relay.js';
 import { createNetworkRelayClient } from '../src/network-client.js';
+const createPluginRelay = createNetworkRelayClient;
+import { createNetworkRelayClient as createServerRelayClient } from '../../../packages/server/src/composed/network-client.js';
 import { createComposedBrowserMedia } from '../src/client.js';
 
 function fixture(options = {}, durationMs = 60_000, coordinator = {}) {
@@ -227,3 +229,139 @@ test('client-posted later spend deadline is ignored in favor of the stored relay
   assert.equal(h.disconnects, 1);
   assert.equal((await h.post('audio', new Uint8Array(2), connectionId)).status, 403);
 });
+
+test('AIT-625 r2: the browser relay sends only to the document\'s actual origin, refuses redirects and bounds finite requests', async t => {
+  const calls = [], location = { protocol: 'https:', origin: 'https://app.test', href: 'https://app.test/' }, document = { baseURI: 'https://app.test/' };
+  const record = async (url, init) => { calls.push({ url, init }); return Response.json({ connectionId: 'c1' }); };
+  // r6 (gate3c M1): in a browser the checks are the injected helper's; it sends with the page fetch.
+  let respond = record;
+  t.mock.method(globalThis, 'fetch', (url, init) => respond(url, init));
+  const { ownerFetch } = await import('../../../packages/ui/src/owner-request.js');
+  const createNetworkRelayClient = options => createPluginRelay({ ownerFetch, ...options });
+  // A sandboxed document keeps its https URL, but its real origin is "null": nothing is sent.
+  await assert.rejects(createNetworkRelayClient({ headers: { 'x-owner': 'alice' }, fetch: record, view: { origin: 'null', location, document } })({}), /page origin/u);
+  await assert.rejects(createNetworkRelayClient({ headers: { 'x-owner': 'alice' }, fetch: record, view: { location, document } })({}), /page origin/u);
+  await assert.rejects(createNetworkRelayClient({ url: 'https://evil.example/composed/relay', fetch: record, view: { origin: 'https://app.test', location, document } })({}), /same origin/u);
+  const foreignBase = { origin: 'https://app.test', location, document: { baseURI: 'https://evil.example/' } };
+  await assert.rejects(createNetworkRelayClient({ fetch: record, view: foreignBase })({}), /same origin/u);
+  assert.equal(calls.length, 0);
+  await createNetworkRelayClient({ headers: { 'x-owner': 'alice' }, fetch: record, view: { origin: 'https://app.test', location, document } })({});
+  assert.equal(calls[0].url, 'https://app.test/composed/relay'); assert.equal(calls[0].init.redirect, 'error');
+  // A finite action whose answer stalls ends at the deadline.
+  const stalled = (url, init) => new Promise((resolve, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true }));
+  respond = stalled;
+  await assert.rejects(createNetworkRelayClient({ fetch: stalled, deadline: 50, view: { origin: 'https://app.test', location, document } })({}), error => error.name === 'TimeoutError');
+});
+
+// AIT-625 r4 (gate2c M1): view:null and a worker's default view never skip the origin check in a browser.
+async function withGlobals(globals, run) {
+  const saved = Object.keys(globals).map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]);
+  for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+  try { return await run(); } finally {
+    for (const [name, descriptor] of saved) if (descriptor) Object.defineProperty(globalThis, name, descriptor); else delete globalThis[name];
+  }
+}
+for (const [copy, create] of [['plugin', createNetworkRelayClient], ['server', createServerRelayClient]]) {
+  test(`AIT-625 r4 ${copy} copy: in any browser context view:null sends nothing to a foreign URL`, async () => {
+    const calls = [], record = async (url, init) => { calls.push({ url, init }); return Response.json({ connectionId: 'c1' }); };
+    class WorkerGlobalScope {}
+    for (const globals of [{ window: globalThis }, { self: globalThis }, { document: { baseURI: 'https://app.test/' } }, { WorkerGlobalScope }])
+      await withGlobals(globals, async () => {
+        await assert.rejects(create({ url: 'https://evil.example/composed/relay', fetch: record, view: null })({}), /page origin/u, Object.keys(globals)[0]);
+        await assert.rejects(create({ url: '/composed/relay', fetch: record, view: null })({}), /page origin/u, Object.keys(globals)[0]);
+      });
+    assert.equal(calls.length, 0);
+  });
+  test(`AIT-625 r4 ${copy} copy: a browser worker's default view is origin-checked`, async () => {
+    const calls = [], record = async (url, init) => { calls.push({ url, init }); return Response.json({ connectionId: 'c1' }); };
+    class WorkerGlobalScope {}
+    const location = { protocol: 'https:', origin: 'https://app.test', href: 'https://app.test/worker.js' };
+    // A worker without a usable origin sends nothing.
+    await withGlobals({ WorkerGlobalScope, self: globalThis }, async () => {
+      await assert.rejects(create({ url: 'https://evil.example/composed/relay', fetch: record })({}), /page origin/u);
+    });
+    // r6 (gate3c M1): a worker has no page document, so neither the relay without the helper nor
+    // the helper itself sends anything from it.
+    const { ownerFetch } = await import('../../../packages/ui/src/owner-request.js');
+    await withGlobals({ WorkerGlobalScope, self: globalThis, origin: 'https://app.test', location }, async () => {
+      await assert.rejects(create({ url: 'https://evil.example/composed/relay', fetch: record })({}), /page origin/u);
+      await assert.rejects(create({ fetch: record })({}), /page origin/u);
+      await assert.rejects(create({ fetch: record, ownerFetch })({}), /page origin/u);
+    });
+    assert.equal(calls.length, 0);
+  });
+}
+test('AIT-625 r4: outside a browser, view:null keeps the in-process URL as given', async () => {
+  const calls = [], record = async (url, init) => { calls.push({ url, init }); return Response.json({ connectionId: 'c1' }); };
+  assert.equal(globalThis.window ?? globalThis.document ?? globalThis.WorkerGlobalScope, undefined, 'premise: a Node runtime');
+  await createNetworkRelayClient({ url: 'http://localhost/composed/relay', fetch: record, view: null })({});
+  assert.equal(calls[0].url, 'http://localhost/composed/relay'); assert.equal(calls[0].init.redirect, 'error');
+});
+
+// AIT-625 r6 (gate3c M1): in a browser the relay's credential-bearing requests go through THE
+// guarded helper, injected by the caller; there is no parallel copy of its checks.
+const { ownerFetch: guardedFetch } = await import('../../../packages/ui/src/owner-request.js');
+for (const [copy, create] of [['plugin', createNetworkRelayClient], ['server', createServerRelayClient]]) {
+  test(`AIT-625 r6 ${copy} copy: a browser relay request without the owner-request helper sends nothing`, async () => {
+    const calls = [], record = async (url, init) => { calls.push({ url, init }); return Response.json({ connectionId: 'c1' }); };
+    const location = { protocol: 'https:', origin: 'https://app.test', href: 'https://app.test/' }, document = { baseURI: 'https://app.test/' };
+    await assert.rejects(create({ headers: { 'x-owner': 'alice' }, fetch: record, view: { origin: 'https://app.test', location, document } })({}), /owner-request helper/u);
+    for (const globals of [{ window: globalThis }, { document }])
+      await withGlobals(globals, async () => {
+        await assert.rejects(create({ url: '/composed/relay', fetch: record })({}), /owner-request helper/u, Object.keys(globals)[0]);
+      });
+    assert.equal(calls.length, 0, 'zero sends without the helper');
+  });
+  test(`AIT-625 r6 ${copy} copy: with the helper a browser relay request carries the helper's checks`, async t => {
+    const sent = [], injected = [], location = { protocol: 'https:', origin: 'https://app.test', href: 'https://app.test/' }, document = { baseURI: 'https://app.test/' };
+    let respond = () => Response.json({ connectionId: 'c1' });
+    t.mock.method(globalThis, 'fetch', async (url, init) => { sent.push({ url, init }); return respond(url, init); });
+    let helped = 0;
+    const ownerFetch = (...args) => { helped++; return guardedFetch(...args); };
+    const transport = async (url, init) => { injected.push({ url, init }); return Response.json({ connectionId: 'c1' }); };
+    const view = { origin: 'https://app.test', location, document };
+    // A foreign resolved origin (a foreign <base>, or a foreign absolute URL) is refused by the helper.
+    await assert.rejects(create({ ownerFetch, fetch: transport, view: { ...view, document: { baseURI: 'https://evil.example/' } } })({}), /same origin/u);
+    await assert.rejects(create({ url: 'https://evil.example/composed/relay', ownerFetch, fetch: transport, view })({}), /same origin/u);
+    assert.equal(sent.length, 0);
+    await create({ headers: { 'x-owner': 'alice' }, ownerFetch, fetch: transport, view })({});
+    assert.ok(helped >= 3, 'every browser relay request went through the helper');
+    assert.equal(injected.length, 0, 'the fixed-URL transport is not used in a browser');
+    assert.equal(sent.length, 1); assert.equal(sent[0].url, 'https://app.test/composed/relay');
+    assert.equal(sent[0].init.redirect, 'error'); assert.ok(sent[0].init.signal instanceof AbortSignal);
+    assert.equal(new Headers(sent[0].init.headers).get('x-owner'), 'alice');
+    // The helper's deadline ends a stalled finite action.
+    respond = (url, init) => new Promise((resolve, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true }));
+    await assert.rejects(create({ ownerFetch, deadline: 50, view })({}), error => error.name === 'TimeoutError');
+  });
+}
+
+// AIT-625 r7 (gate4c M2): the helper drops a raw owner header, so an explicit-token host's relay
+// authentication travels through the helper's `sessionToken` option: an explicit relay option, or
+// the existing `headers` option mapped once. A cookie host's relay requests carry no token.
+for (const [copy, create] of [['plugin', createNetworkRelayClient], ['server', createServerRelayClient]]) {
+  test(`AIT-625 r7 ${copy} copy: an explicit-token host's relay requests carry the token through the helper; a cookie host's carry none`, async t => {
+    const sent = [], helped = [], token = 'tok-' + copy;
+    t.mock.method(globalThis, 'fetch', async (url, init) => { sent.push({ url, init }); return Response.json({ connectionId: 'c1' }); });
+    const ownerFetch = (view, url, options) => { helped.push(options); return guardedFetch(view, url, options); };
+    const location = { protocol: 'https:', origin: 'https://app.test', href: 'https://app.test/' };
+    const view = { origin: 'https://app.test', location, document: { baseURI: 'https://app.test/' } };
+    const owner = 'x-aithema-session-token';
+    for (const [label, options] of [['explicit option', { sessionToken: token }], ['headers option', { headers: { [owner]: token, 'x-owner': 'alice' } }],
+      ['headers option, other case', { headers: { 'X-Aithema-Session-Token': token } }]]) {
+      sent.length = 0; helped.length = 0;
+      const connection = await create({ ...options, ownerFetch, view })({});
+      await connection.command('pause');
+      assert.ok(helped.length >= 2, label);
+      for (const init of helped) {
+        assert.equal(init.sessionToken, token, `${label}: the token rides the helper's sessionToken option`);
+        assert.ok(!Object.keys(init.headers).some(name => name.toLowerCase() === owner), `${label}: never as a raw header`);
+      }
+      assert.ok(sent.length >= 2 && sent.every(({ init }) => new Headers(init.headers).get(owner) === token), `${label}: every request authenticates`);
+    }
+    sent.length = 0; helped.length = 0;
+    await create({ ownerFetch, view })({});
+    assert.equal(helped.length, 1); assert.equal(helped[0].sessionToken, undefined, 'a cookie host passes no token');
+    assert.equal(new Headers(sent[0].init.headers).get(owner), null, 'a cookie host sends no owner header');
+  });
+}

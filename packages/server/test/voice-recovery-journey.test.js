@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import '../../ui/test/fixtures/page-origin.js';
 import { PluginRegistry, createMockReasoning } from '@inspr/aithema-core';
 import { SQLiteStorage, createHandlers, createPluginRuntime, createVoiceProvider,
   createFacadeSecrets, mockPresets } from '../src/index.js';
@@ -11,6 +12,8 @@ import { AudioRail } from '../../ui/src/audio-rail.js';
 import { styles } from '../../ui/src/styles.js';
 import { en } from '../../ui/src/i18n/en.js';
 import { eventProbe } from '../../../test/voice-test-events.js';
+// AIT-625: a voice control sends its owner requests from a page; this is that page.
+const page = new Window({ url: 'http://fixture.test/' });
 
 test('AIT-382 / START-416: transport close, Pause, Resume, late settlement and a competing tab', { timeout: 10_000 }, async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
@@ -40,7 +43,7 @@ test('AIT-382 / START-416: transport close, Pause, Resume, late settlement and a
     requests.push({ path: parsed.pathname, body, status: response.status, value: await response.clone().json() });
     return response;
   });
-  const { control, persistEvent } = createVoiceControl({ sessionId: h.session.id, sessionToken: h.owner });
+  const { control, persistEvent } = createVoiceControl({ sessionId: h.session.id, sessionToken: h.owner, view: page });
   const sdk = fakeSdk();
   // RTCPeerConnection.close() is represented at the SDK's transport boundary.
   // Its disconnect notification is asynchronous: Pause can latch before delivery.
@@ -133,7 +136,7 @@ test('AIT-382 / START-416: transport close, Pause, Resume, late settlement and a
     event.data.providerSessionId === oldId), false, 'late settlement never publishes over its successor');
   liveControls();
 
-  const second = createVoiceControl({ sessionId: h.session.id, sessionToken: h.owner }).control;
+  const second = createVoiceControl({ sessionId: h.session.id, sessionToken: h.owner, view: page }).control;
   assert.notEqual(second.tabId, control.tabId);
   await assert.rejects(second.start({ callId: 'competing-tab-call' }), error => {
     assert.equal(error.status, 409); assert.equal(error.code, 'voice-ownership-lost'); return true;

@@ -20,11 +20,12 @@ if(new URL(location.href).searchParams.has('passiveDenied'))Object.definePropert
 const allowed={available:true},blocked={available:false,reason:'current processing consent required'};
 const c=document.createElement('aithema-session');document.body.append(c);globalThis.c=c;
 const nativeFetch=fetch;
-globalThis.fetch=async(url,options={})=>{
- // AIT-610 r9: owner routes arrive at their resolved absolute URL; route by path.
- if(String(url).startsWith(location.origin+'/'))url=String(url).slice(location.origin.length);
- if(!String(url).startsWith('/api/sessions/'))return nativeFetch(url,options);
- if(String(url).endsWith('/events'))return new Response(new ReadableStream({start(controller){options.signal?.addEventListener('abort',()=>controller.close(),{once:true})}}));
+globalThis.fetch=async(target,options={})=>{
+ // The guarded owner-request helper sends absolute page-origin URLs; route on the path of a
+ // same-origin request only (AIT-625 r6, gate3c Low): a foreign origin is never served here.
+ const resolved=new URL(String(target),location.href),url=resolved.pathname;
+ if(resolved.origin!==location.origin||!url.startsWith('/api/sessions/'))return nativeFetch(target,options);
+ if(url.endsWith('/events'))return new Response(new ReadableStream({start(controller){options.signal?.addEventListener('abort',()=>controller.close(),{once:true})}}));
  if(String(url).endsWith('/consent'))return Response.json({consentRevision:c.session.consentRevision,selected:[],features:{}});
  if(String(url).endsWith('/turns')){if(failSend)return Response.json({error:'fixture failure'},{status:503});const b=JSON.parse(options.body);sent.push(b);return Response.json({seq:c.session.seq+1,type:'turn.final',data:{id:b.clientEventId,role:'user',content:b.content,...b.voiceCallId?{voiceCallId:b.voiceCallId}:{}}})}
  const s=c.session;s.featureMatrix.best={text:granted?allowed:blocked,voice:granted?allowed:blocked,analysis:allowed};return Response.json(s);

@@ -10,6 +10,10 @@ export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 export const provisionalSplitFiles = new Set([
   'test/browser/pause-phone.test.js', 'test/browser/pause-phone-uploads.test.js',
   'test/browser/host-surface.test.js', 'test/browser/host-surface-email.test.js',
+  // AIT-603 PR-A r15: PR-A's checks moved out of demo.test.js (seed in its weight file).
+  'test/browser/phone-dock.test.js',
+  // AIT-618 r6: the settle and late-add checks moved out of phone-dock.test.js (seed in its weight file).
+  'test/browser/phone-keyboard-settle.test.js',
 ]);
 
 export function readBrowserTestWeights(files = discoverBrowserTests(), root = repositoryRoot) {
@@ -450,7 +454,10 @@ browserTestWeights['test/browser/start-look.test.js'] = Math.max(
 // AIT-597 (2026-11-20): after the split and floor retirement the measured plan
 // totals 5731.723s > 14 * 405s. LEAD decision (c) adds a fifteenth shard under
 // AIT-410/AIT-419; the 405s target, 420s ceiling and job timeouts stay.
-export const browserShardCount = 15;
+// AIT-624 (2026-11-22): LEAD decision (a) adds a sixteenth shard (public repo,
+// GitHub-hosted runners, no billed minutes); 405s target, 420s ceiling and
+// job timeouts stay.
+export const browserShardCount = 16;
 export const browserShardBudget = 420;
 // AIT-419: LEAD decision on AIT-410 (2026-10-20), one raise only; next overshoot gets an eighth shard, not 410s.
 export const browserShardHeadroomTarget = 405;

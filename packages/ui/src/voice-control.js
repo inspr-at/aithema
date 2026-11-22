@@ -1,7 +1,8 @@
 import { postJson } from './post-json.js';
 
 /** Only public call identity and transport credentials cross this port. */
-export function createVoiceControl({ baseUrl = '', sessionId, sessionToken, receive = () => {} }) {
+// `view` is the page whose origin the owner routes must share (AIT-625); the host page by default.
+export function createVoiceControl({ baseUrl = '', sessionId, sessionToken, receive = () => {}, view = globalThis }) {
   // Per-document identity: sessionStorage is copied into auxiliary windows and
   // cannot prove ownership. Only the server's epoch grants command authority.
   const tabId = crypto.randomUUID(), epochs = new Map();
@@ -9,7 +10,7 @@ export function createVoiceControl({ baseUrl = '', sessionId, sessionToken, rece
   const base = `${baseUrl.replace(/\/$/u, '')}/api/sessions/${sessionId}/voice`;
   const post = async (url, body, options = {}) => {
     if (erased) return { closureConfirmed: true };
-    const response = await postJson(url, body, { sessionToken, signal: options.signal });
+    const response = await postJson(url, body, { sessionToken, signal: options.signal, view });
     const refusal = response.status === 404 ? response.clone() : null;
     const value = await response.json().catch(() => null);
     if (refusal && value?.error === 'session-not-found' && Object.keys(value).length === 1)

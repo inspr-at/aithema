@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import './fixtures/page-origin.js';
 import { createSession, inputRevision, htmlPreviewHostPolicy } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
@@ -40,7 +41,7 @@ function fixture(t, { copy = en, model = 'mock', label, offered = false, served 
     if (url.endsWith('/image')) return new Response(Uint8Array.from([137, 80, 78, 71]), { headers: { 'content-type': 'image/png' } });
     if (url.endsWith('/settings')) return Response.json({ processingPreset: 'best', settings: session.settings, engine: session.engine,
       presets: { best: { offered: true, status: 'available', models: offered ? [{ id: model, label, status: 'available' }] : [], voices: [], visuals: [] } } });
-    if (String(url).startsWith('/api/library')) return Response.json({ items: [], total: 0 });
+    if (String(url).replace(/^http:\/\/localhost(?=\/)/u, '').startsWith('/api/library')) return Response.json({ items: [], total: 0 });
     return Response.json(snapshot ?? c.session);
   });
   const meta = document.createElement('meta'); meta.httpEquiv = 'Content-Security-Policy'; meta.content = HTML_PREVIEW_HOST_CSP;

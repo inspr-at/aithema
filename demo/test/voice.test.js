@@ -2,6 +2,7 @@ import { reviseMockConsent } from './consent-helper.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import '../../packages/ui/test/fixtures/page-origin.js';
 import { startChild, temporaryDb } from '../../test/helpers.js';
 import { AudioRail } from '../../packages/ui/src/audio-rail.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
@@ -10,7 +11,9 @@ import { eventProbe, observedVoiceEvents } from '../../test/voice-test-events.js
 test('labelled fake agent exercises speech, voice barge-in, typing, acknowledged pause, reconnect and close through the demo', { timeout: 60_000 }, async t => {
   const running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb());
   const nativeFetch = globalThis.fetch, window = new Window({ url: running.url });
-  const keys = ['HTMLElement', 'customElements', 'document', 'CustomEvent', 'localStorage'];
+  // AIT-625: the demo host's voice control sends from the page (globalThis in a browser), so the
+  // page's origin and location join the copied globals.
+  const keys = ['HTMLElement', 'customElements', 'document', 'CustomEvent', 'localStorage', 'location', 'origin'];
   const originals = Object.fromEntries(keys.map(key => [key, globalThis[key]]));
   let cookie = '', failRecovery = false; const paths = [], failures = [];
   let releaseDelayedTurn = () => {};

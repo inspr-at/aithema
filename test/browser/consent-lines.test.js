@@ -13,7 +13,7 @@ import { shadow, until, boxes, evidenceCommit } from './start2-display-helpers.j
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { compactStatusMaximum } from './overview-fade-check.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
-import { consentSheetFailedLoadCheck, consentSheetLoadedCheck, consentSheetFocusKeptCheck, consentSheetTallPurposeCheck, consentSheetOversizedCheck, consentSheetRingCheck } from './consent-sheet-check.js';
+import { consentSheetFailedLoadCheck, consentSheetLoadedCheck, consentSheetFocusKeptCheck, consentSheetTallPurposeCheck, consentSheetOversizedCheck, consentSheetRingCheck, consentSheetErrorOnceCheck } from './consent-sheet-check.js';
 
 const features = { imageInput: ['models-international', 'image-input'], uploads: ['models-international'], transcription: ['voice-elevenlabs'], images: ['models-international'], text: ['models-international'], html: ['drafts-anthropic'], voice: ['voice-elevenlabs'], analysis: ['models-international'] };
 const places = { html: '.concept-activity-text', voice: '.voice-state', analysis: '.notice' };
@@ -329,9 +329,17 @@ test('AIT-231: a full mock document preserves described items and an invalid one
   await page.keyboard.press('Escape');
   page.state.document = { contract: 'fixture-contract', items: [{ ...CONSENT_ITEMS[0], text: '' }], features, selected: [] };
   await page.locator('aithema-session >>> .notice button').click();
-  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.consent-status').textContent === 'Could not save consent. Try again.');
-  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.consent-save').disabled), true);
+  // AIT-612: an unusable document is a failed LOAD, said once in the footer beside Save, not under the consent text.
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings .save-status').textContent === 'Could not load consent. Close and open it again.');
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.consent-status').textContent), '');
+  // AIT-612 r3 (TICK r2 decision (b)): was `.consent-save` (Done) disabled === true. Fails closed still: no items to
+  // grant, and Done is the next step: enabled, described by the footer status, it closes the sheet.
   assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('.consent-editor input').length), 0);
+  assert.deepEqual(await shadow(page, c => { const done = c.shadowRoot.querySelector('.consent-save'); return [done.disabled, done.getAttribute('aria-describedby'), c.shadowRoot.activeElement === done]; }), [false, 'settings-save-status', true]);
+  // AIT-612 r4 (TICK r3 M1): was "Done" with the check mark; after a failed load it reads Close with the × icon.
+  assert.deepEqual(await shadow(page, c => { const done = c.shadowRoot.querySelector('.consent-save'); return [done.querySelector('.done-label').textContent, done.getAttribute('aria-label'), [...done.querySelectorAll('svg path')].map(n => n.getAttribute('d'))]; }), ['Close', null, ['m6 6 12 12M18 6 6 18']]);
+  await shadow(page, c => c.shadowRoot.querySelector('.consent-save').click());
+  await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
 });
 test('AIT-197 C1: all three refusals have one action each; stage survives a paused reload', async t => {
   const page = await fixture(t); await scene(page, 'de', 'light', 390, ['html', 'voice', 'analysis']);
@@ -671,7 +679,8 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: composer consent act
         : getComputedStyle(child).display === 'none' ? '' : visibleText(child)).join('');
       const narrow = innerWidth <= 340;
       return { text: visibleText(line), expected: `${narrow ? copy.featureConsent.textNarrow : copy.featureConsent.text}\u00a0· ${narrow ? copy.featureConsent.actionNarrow : copy.featureConsent.action}`,
-        expectedName: `${narrow ? copy.featureConsent.actionNarrow : copy.featureConsent.action}: ${copy.featureConsent.textActionReason}`,
+        // AIT-603 r5 (Codex gate4c M3): the action alone names the button; the full sentence is its description.
+        expectedName: narrow ? copy.featureConsent.actionNarrow : copy.featureConsent.action, expectedDescription: copy.featureConsent.text,
         underlined: getComputedStyle(action).textDecorationLine.includes('underline'),
         lineCount: Math.round(ink.height / lineHeight), fontSize, target,
         overlapAttach: overlap('.attach'), overlapSend: overlap('.send'),
@@ -682,13 +691,15 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: composer consent act
     });
     assert.equal(state.text, state.expected); assert.equal(state.action, state.expectedAction);
     const opener = await page.$('aithema-session >>> .composer-reason .consent-action');
-    state.accessibleName = (await page.accessibility.snapshot({ root: opener })).name;
+    const named = await page.accessibility.snapshot({ root: opener });
+    state.accessibleName = named.name; state.accessibleDescription = named.description;
     assert.equal(state.accessibleName, state.expectedName); assert.equal(state.underlined, true);
-    assert.ok(state.accessibleName.startsWith(`${state.action}: `), 'accessible name starts with the visible action at every width');
-    t.diagnostic(`PASS AIT-290 ${evidenceCommit} ${locale}/${width}: label-first name ${state.accessibleName}`);
+    assert.equal(state.accessibleName, state.action, 'accessible name is the visible action at every width');
+    assert.equal(state.accessibleDescription, state.expectedDescription, 'the full sentence is the description at every width');
+    t.diagnostic(`PASS AIT-290 ${evidenceCommit} ${locale}/${width}: name ${state.accessibleName}; description ${state.accessibleDescription}`);
     const tree = await page.accessibility.snapshot({ interestingOnly: false });
     const findButton = n => n.role === 'button' && n.name === state.expectedName || n.children?.some(findButton);
-    assert.ok(findButton(tree), `${locale}/${width}: full consent sentence is the accessible button name`);
+    assert.ok(findButton(tree), `${locale}/${width}: the visible action is the accessible button name`);
     assert.equal(state.inputDisabled, true); assert.equal(state.sendDisabled, true);
     const selectors = ['.composer-shell', '.composer', 'textarea', '.send'];
     const before = await boxes(page, selectors);
@@ -1611,9 +1622,10 @@ test('AIT-509 r10: default HTML consent copy is impersonal and keeps positive fr
 });
 
 // AIT-603 PR-B: the text-consent sheet shows the host sentence in full, on screen, with focus on screen.
-test('AIT-603 PR-B: a failed consent load shows the full host sentence on screen, focus on screen, 360/390/1440 EN/DE long/short', { timeout: 240_000 }, consentSheetFailedLoadCheck);
+test('AIT-603 PR-B / AIT-612 r3: a failed consent load hides the empty host sentence and moves focus to Done, described by the footer status, 360/390/1440 EN/DE long/short', { timeout: 240_000 }, consentSheetFailedLoadCheck);
 test('AIT-603 PR-B: a loaded consent document keeps the full host sentence on screen; focus on the target when on screen, else the sentence; both fit scrolls least, 360/390/1440 EN/DE long/short', { timeout: 240_000 }, consentSheetLoadedCheck);
 test('AIT-603 PR-B r2: focus the visitor moves while the consent document loads stays there after a successful load, 360 EN / 1440 DE', { timeout: 120_000 }, consentSheetFocusKeptCheck);
 test('AIT-603 PR-B r2: a tall target purpose: text scrolls the least for sentence + checkbox, other features centre the focused checkbox inside the scrollport, 360/390/1440 EN/DE', { timeout: 240_000 }, consentSheetTallPurposeCheck);
-test('AIT-603 PR-B r2: an oversized DE host sentence anchors at its top with focus on it, failed and loaded, 360/390', { timeout: 120_000 }, consentSheetOversizedCheck);
+test('AIT-603 PR-B r2: an oversized DE host sentence anchors at its top with focus on it when loaded; a failed load focuses Done (AIT-612 r3), 360/390', { timeout: 120_000 }, consentSheetOversizedCheck);
 test('AIT-603 PR-B r4: the focused target checkbox draws the :focus-visible ring with and without focus({ focusVisible }), both fit, 360/390/1440 EN/DE', { timeout: 300_000 }, consentSheetRingCheck);
+test('AIT-612: the consent sheet shows a failed save or load once, next to Save; the footer keeps its box; 360/390/1440 EN/DE', { timeout: 300_000 }, consentSheetErrorOnceCheck);

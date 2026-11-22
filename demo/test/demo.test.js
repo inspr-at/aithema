@@ -108,6 +108,8 @@ test('demo rejects foreign Hosts and non-JSON POSTs before session creation', { 
 // elsewhere, however it is written.
 // Any mention of the word "method" outside postJson fails (quoted keys, bracket
 // access and shorthand included); a false alarm in a comment is the safe side.
+// The guarded owner helper (AIT-625) fails closed without a page origin; Node tests give it one.
+const page = { origin: 'http://localhost', location: new URL('http://localhost/'), document: { baseURI: 'http://localhost/' } };
 const sendsMethod = source => /\bmethod\b|new\s+Request\s*\(|navigator\.sendBeacon|XMLHttpRequest/u.test(source);
 async function clientFiles() {
   const { readdir } = await import('node:fs/promises');
@@ -135,18 +137,20 @@ test('postJson sends the JSON content type the server requires', async t => {
   const calls = []; const original = globalThis.fetch;
   globalThis.fetch = async (url, init) => { calls.push({ url, init }); return new Response('{}'); };
   t.after(() => { globalThis.fetch = original; });
-  await postJson('/api/sessions'); await postJson('/api/sessions/s/turns', { clientEventId: 'c', content: 'Hello' });
+  await postJson('/api/sessions', {}, { view: page }); await postJson('/api/sessions/s/turns', { clientEventId: 'c', content: 'Hello' }, { view: page });
   assert.deepEqual(calls.map(c => [c.url, c.init.method, c.init.headers['content-type'], c.init.body]), [
-    ['/api/sessions', 'POST', 'application/json', '{}'],
-    ['/api/sessions/s/turns', 'POST', 'application/json', '{"clientEventId":"c","content":"Hello"}'],
+    ['http://localhost/api/sessions', 'POST', 'application/json', '{}'],
+    ['http://localhost/api/sessions/s/turns', 'POST', 'application/json', '{"clientEventId":"c","content":"Hello"}'],
   ]);
 });
 test('preview mints use the common JSON mutation helper with no-store and redirect refusal', async t => {
   const { postJson } = await import('../../packages/ui/src/post-json.js');
   let init; t.mock.method(globalThis, 'fetch', async (_url, options) => { init = options; return Response.json({}); });
   const controller = new AbortController();
-  await postJson('/api/sessions/s/concepts/a/preview', {}, { sessionToken: 'fixture-owner', signal: controller.signal, cache: 'no-store', redirect: 'error' });
-  assert.equal(init.cache, 'no-store'); assert.equal(init.redirect, 'error'); assert.equal(init.signal, controller.signal);
+  await postJson('/api/sessions/s/concepts/a/preview', {}, { sessionToken: 'fixture-owner', signal: controller.signal, cache: 'no-store', redirect: 'error', view: page });
+  assert.equal(init.cache, 'no-store'); assert.equal(init.redirect, 'error');
+  // AIT-625: the signal combines the caller's abort with the helper's deadline, so it follows the caller's.
+  assert.equal(init.signal.aborted, false); controller.abort(); assert.equal(init.signal.aborted, true);
   assert.equal(init.method, 'POST'); assert.equal(init.body, '{}'); assert.equal(init.headers['x-aithema-session-token'], 'fixture-owner');
 });
 test('client JavaScript mutations use postJson except native operator logout and configured Paimos handoff', async () => {
@@ -177,8 +181,8 @@ test('client JavaScript mutations use postJson except native operator logout and
 test('postJson carries explicit header ownership without changing JSON or cookie defaults', async t => {
   const { postJson } = await import('../../packages/ui/src/post-json.js');
   const calls = []; t.mock.method(globalThis, 'fetch', async (url, init) => { calls.push(init); return Response.json({}); });
-  await postJson('/api/sessions', {}, { sessionToken: 'post-owner-fixture' });
-  await postJson('/api/sessions');
+  await postJson('/api/sessions', {}, { sessionToken: 'post-owner-fixture', view: page });
+  await postJson('/api/sessions', {}, { view: page });
   assert.equal(new Headers(calls[0].headers).get('x-aithema-session-token'), 'post-owner-fixture');
   assert.equal(new Headers(calls[1].headers).has('x-aithema-session-token'), false);
   assert.ok(calls.every(call => new Headers(call.headers).get('content-type') === 'application/json'));

@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { Window } from 'happy-dom';
+import './fixtures/page-origin.js';
 import { de } from '../src/i18n/de.js';
 import { en } from '../src/i18n/en.js';
 import { HTML_PREVIEW_CSP, htmlPreviewHostPolicy } from '@inspr/aithema-core';

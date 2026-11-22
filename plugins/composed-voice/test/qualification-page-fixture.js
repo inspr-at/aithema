@@ -17,7 +17,7 @@ export async function pageFixture(reason, { type = 'waiting', firstAudio = false
     AudioNode: class { connect() {} },
     setTimeout(fn, ms) { timers.push({ fn, ms }); return setTimeout(fn, ms); }, clearTimeout,
     createPCMPlayer(options) { onTiming = options.onTiming; options.observeOutput({}); return { async close() {} }; },
-    createPCMCapture: () => {}, createNetworkRelayClient: () => {},
+    createPCMCapture: () => {}, createNetworkRelayClient: () => {}, ownerFetch: () => {},
     createComposedBrowserMedia: () => ({ async connect() {
       connected = true;
       return { events: (async function* () {

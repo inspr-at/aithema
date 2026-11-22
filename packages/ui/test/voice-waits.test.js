@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Window } from 'happy-dom';
+import './fixtures/page-origin.js';
 import { AudioRail } from '../src/audio-rail.js';
 import { voiceEvents } from '../../core/src/live-voice.js';
 import { de } from '../src/i18n/de.js';

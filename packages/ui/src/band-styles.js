@@ -40,6 +40,11 @@ export const bandStyles = `
 .band .audio-rail:focus-visible { outline:none; }
 .audio-rail[data-moved] .pause:disabled { opacity:1; }
 .audio-rail .voice-pause { visibility:hidden; }
+/* AIT-618 r3 (Codex gate1c Medium 1): its icons too. A paused call presses the
+   rail's own pause (audio-rail.js), and the pressed rule paints its resume icon
+   (styles.js sets that icon's own visibility), which then covered the session's
+   visible pause in the same cell and took its taps. */
+.audio-rail .voice-pause[aria-pressed] .voice-icon { visibility:hidden; }
 .voice-signal { height:44px; container-type:inline-size; }
 /* Leave 8px of fully clear space outside the text before each 8px fade.
    The measured centre also follows off-centre consent and reconciliation copy. */
@@ -152,8 +157,8 @@ export const bandStyles = `
 .edge-column button:hover svg, .edge-column button:focus-visible svg { opacity:1; }
 .fold { top:calc(var(--band-height,90px) * .5 + 31px); color:var(--aithema-muted); }
 .fold:is(:hover,:focus-visible) { color:var(--aithema-ink); }
-.fold[aria-disabled="true"] { color:var(--aithema-ink); }
-.fold[aria-disabled="true"] svg { opacity:.16; }
+/* AIT-608 (TICK): nothing to fold yet, the control is hidden; visibility keeps its slot, so nothing moves when it appears. */
+.fold[aria-disabled="true"] { visibility:hidden; }
 .fold[aria-expanded="false"] svg { transform:scaleY(-1); }
 .edge-column button:focus-visible { outline:2px solid var(--aithema-accent); outline-offset:0; }
 .fold-view { grid-column:1/-1; min-width:0; min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr); gap:14px; }

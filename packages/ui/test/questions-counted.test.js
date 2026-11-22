@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import './fixtures/page-origin.js';
 import { createSession, inputRevision } from '@inspr/aithema-core';
 import * as copyTools from '../src/copy-resolve.js';
 import { plural as uploadPlural } from '../src/uploads.js';

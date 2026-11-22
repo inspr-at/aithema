@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Window } from 'happy-dom';
+import '../../packages/ui/test/fixtures/page-origin.js';
 import { aiNotice } from '../../packages/core/src/ai-notice.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
@@ -16,6 +17,9 @@ const demoTexts = copy => [...['account', 'accountNote', 'handoverOffer', 'credi
 
 test('demo slot fills, the fake outbox and the demo handover wording appear only with the demo host', { timeout: 15_000 }, async t => {
   const window = new Window({ url: 'http://localhost' });
+  // AIT-625 r7: the demo host sends through the helper, which resolves the URL once; these stubs
+  // keep matching the same-origin path they always saw.
+  const samePath = url => { const absolute = new URL(url, 'http://localhost'); return absolute.origin === 'http://localhost' ? absolute.pathname + absolute.search : String(url); };
   const keys = ['HTMLElement', 'customElements', 'document', 'CustomEvent', 'localStorage', 'fetch'];
   const originals = Object.fromEntries(keys.map(key => [key, globalThis[key]]));
   try {
@@ -33,6 +37,7 @@ test('demo slot fills, the fake outbox and the demo handover wording appear only
       component.changeLocale = async () => true;
       Object.defineProperty(component, 'session', { get: () => configured.at(-1)?.session });
       globalThis.fetch = async url => {
+        url = samePath(url);
         if (url === '/demo/config') return Response.json({ label: 'Mock reasoning — deterministic demo', ...providers, demoHost });
         if (url === '/api/sessions') return Response.json(session);
         if (url === `/api/sessions/${session.id}/demo/outbox`) return Response.json({ messages: [{ address: 'visitor@example.com', token: 'token' }] });
@@ -82,6 +87,7 @@ test('demo slot fills, the fake outbox and the demo handover wording appear only
         const configured = prepare(false, locale, { voiceMode: 'off', privacy: { url: '/privacy' } });
         const fetch = globalThis.fetch;
         globalThis.fetch = async (url, init) => {
+          url = samePath(url);
           if (url === '/api/sessions') {
             const link = document.querySelector('[data-aithema-privacy]');
             assert.equal(link?.textContent, locale === 'de' ? 'Datenschutzerklärung' : 'Privacy policy', 'link is labelled before session restoration');
