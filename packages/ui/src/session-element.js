@@ -1503,8 +1503,13 @@ export class AithemaSession extends HTMLElement {
     // combined phone image layout a transcript holding only the host welcome
     // keeps its reading position, also when the clamped welcome is taller
     // than a short reading pane (CI Linux metrics at 390x664 DE 125 %).
+    // r12: the image CONCEPT layout (a bound image visual, the welcome clamp's
+    // layout), read from the workspace; #imageLayout means image INPUT is
+    // available and did not hold here, so r11's guard never applied. An
+    // explicit Latest jump still goes to the end.
     const rows = [...(shell.querySelector('ol')?.children ?? [])].filter(row => !row.hidden && row.getClientRects().length);
-    if (this.#combined && this.#imageLayout && this.ownerDocument.defaultView.matchMedia('(max-width:600px)').matches
+    if (this.#combined && !this.#latestJump && this.shadowRoot.querySelector('.workspace')?.dataset.conceptLayout === 'image'
+      && this.ownerDocument.defaultView.matchMedia('(max-width:600px)').matches
       && rows.length && rows.every(row => row.hasAttribute('data-host-opener'))) end = before;
     shell.scrollTop = end;
     // An inline capture can be taller than the combined phone's reading pane.
