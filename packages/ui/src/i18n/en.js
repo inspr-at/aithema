@@ -533,7 +533,7 @@ export const en = {
     "dimensions": "The image dimensions are too large.",
     "deadline": "Preparing the image took too long.",
     "cancelled": "Preparing the image was cancelled.",
-    "unavailable": "Images cannot be prepared right now. Please attach the image again.",
+    "unavailable": "Images can't be prepared right now. Attach the image again.",
     "session": "The images exceed this conversation's total file size.",
     "model": "This assistant can't read images.",
     "live-call": "Images can be sent in text mode.",
