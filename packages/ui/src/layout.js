@@ -461,9 +461,11 @@ export const latchFeedback = (root, keyboardUp = root.querySelector('.workspace'
   if (Observer && !observed.has(feedback)) { observed.add(feedback); new Observer(() => latchFeedback(root)).observe(feedback); }
 };
 // AIT-618 r4 (TICK Q1 (a), AIT-188's stale-height escape): when focus has left the
-// composer while the keyboard-up state is open and the viewport has not grown back,
-// the whole state ends after this settle, in one reflow. Tests replace set/clear with
-// their own clock (code-health rule 6); the element reads them at call time.
+// composer while the keyboard-up state is open, this settle re-measures the viewport.
+// r5 (TICK r4 M1): it ends the state only if the viewport is no longer keyboard-small
+// (the keyboard closed without a resize event), by the measure that opens it; a
+// viewport still small keeps the state. Tests replace set/clear with their own clock
+// (code-health rule 6); the element reads them at call time.
 export const keyboardSettle = { ms: 1000, set: (fn, ms) => setTimeout(fn, ms), clear: id => clearTimeout(id) };
 export class PhoneComposerViewport {
   constructor(root, { onNoticesChange = () => {}, onCompactChange = () => {}, followsTranscript = () => true,
@@ -536,25 +538,30 @@ export class PhoneComposerViewport {
       // AIT-618 r4 (TICK Q1 (a), Codex gate2c M1): ONE keyboard-up state for the
       // footer, the dock, the feedback latch, the notice/More rules and the
       // compact band. It opens only with focus in the composer at the
-      // obstruction, and ends when the viewport grows back; with focus outside
-      // the composer and the viewport still small it ends at the settle
-      // (keyboardSettle, AIT-188's stale-height escape), the whole state in one
-      // reflow. Nothing moves before that end (a header tap, or a real Pause
-      // that disables the composer). Two attributes, always toggled together
+      // obstruction, and ends when the viewport grows back, the whole state in
+      // one reflow; with focus outside the composer a settle (keyboardSettle,
+      // AIT-188's stale-height escape) re-measures. Nothing moves before that end (a header tap, or a real Pause
+      // that disables the composer). r5 (TICK r4 M1, Codex gate3c M2): the
+      // settle is only the stale-height escape: it re-measures, and the state
+      // ends only if the viewport is no longer keyboard-small (the same
+      // obstruction measure against the kept full height). Still small (a host
+      // text field took focus, a partial recovery, a zoom) keeps it until the
+      // viewport grows; the settle runs once per focus loss, focus back in the
+      // composer re-arms it. Two attributes, always toggled together
       // from that one state: [data-phone-keyboard] scopes the dock rules (also
       // read by hosts' and other suites' checks), [data-phone-keyboard-band]
       // the band's own media block.
-      const wasUp = workspace.hasAttribute('data-phone-keyboard'), settled = Boolean(this.keyboardSettled);
-      if (width !== this.viewportWidth || orientation !== this.viewportOrientation || !editing && (!wasUp || settled)) {
+      const wasUp = workspace.hasAttribute('data-phone-keyboard');
+      if (width !== this.viewportWidth || orientation !== this.viewportOrientation || !editing && !wasUp) {
         this.fullHeight = Math.max(view?.innerHeight ?? height, height);
         this.viewportWidth = width; this.viewportOrientation = orientation;
       } else this.fullHeight = Math.max(this.fullHeight ?? 0, view?.innerHeight ?? height, height);
       const obstructed = Boolean(phone && touch && this.fullHeight - height >= 150);
-      const keyboardUp = obstructed && Boolean(editing || wasUp && !settled);
+      const keyboardUp = obstructed && Boolean(editing || wasUp);
       if (editing || !keyboardUp) {
         if (this.settleTimer) keyboardSettle.clear(this.settleTimer);
         this.settleTimer = null; this.keyboardSettled = false;
-      } else if (!this.settleTimer) {
+      } else if (!this.settleTimer && !this.keyboardSettled) {
         this.settleTimer = keyboardSettle.set(() => {
           this.settleTimer = null; this.keyboardSettled = true;
           if (this.connected) this.paint();
@@ -567,11 +574,14 @@ export class PhoneComposerViewport {
       // with more controls (Conversations, Contact, …) keeps the rail in its own
       // row, so no two targets intersect. Columns do not depend on the row.
       // r4 (TICK Q2: the approved 88 px exception; Codex gate2c M3): the row
-      // decision is made once, when the keyboard opens, and latches: a host
-      // slot change never flips it while the keyboard is up.
+      // decision latches while the keyboard is up. r5 (Codex gate3c M4, TICK
+      // (a)): GROW-ONLY. One row while the pause column is free; a host control
+      // entering the pause column while the keyboard is up grows it 44 -> 88
+      // once (only Pause moves down; the transcript pane gives the 44 px), and
+      // it never goes back to 44 until the keyboard-up state ends.
       const band = root.querySelector('.band'), pauseCell = band?.querySelector(':scope > .audio-rail > .voice-cell--pause');
       let railRow = Boolean(keyboardUp && wasUp && band?.hasAttribute('data-keyboard-rail-row'));
-      if (keyboardUp && !wasUp && pauseCell) {
+      if (keyboardUp && !railRow && pauseCell) {
         const cell = pauseCell.getBoundingClientRect();
         railRow = [...band.querySelectorAll('.header-actions > *')].some(node => {
           if (node.hidden) return false;
