@@ -894,6 +894,8 @@ test('AIT-610 r4: recovery never marks an image another handler set still holds 
   await running;
   const other = createHandlers({ storage: f.storage, reasoning: createMockReasoning(), pluginRuntime: f.runtime, consent: mockConsent });
   t.after(() => other.close());
+  // Its boot recovery and fallback jobs, then an ordinary request.
+  await other.resume();
   const listed = await other.handle(ownedRequest(`http://localhost/api/sessions/${f.session.id}/uploads`));
   assert.equal(listed.status, 200, await listed.text());
   assert.equal(f.storage.get(f.session.id).uploads[0].state, 'staged-pending', 'the other handler set leaves the held image alone');
