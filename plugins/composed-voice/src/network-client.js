@@ -11,7 +11,9 @@
  * an injected fetch) has no page origin to protect; there the URL is used as given, still
  * with redirect:'error'. In any browser context view:null fails closed (AIT-625 r4). */
 export const RELAY_REQUEST_DEADLINE_MS = 30_000;
-const browserRuntime = () => ['window', 'self', 'document', 'WorkerGlobalScope'].some(name => typeof globalThis[name] !== 'undefined');
+// Named typeof checks (no computed global access: the AIT-625 structural scan forbids it).
+const browserRuntime = () => typeof window !== 'undefined' || typeof self !== 'undefined' ||
+  typeof document !== 'undefined' || typeof WorkerGlobalScope !== 'undefined';
 const pageView = () => (browserRuntime() ? globalThis : null);
 function relayURL(view, url) {
   if (!view) {
