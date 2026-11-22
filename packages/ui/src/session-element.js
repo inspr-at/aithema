@@ -33,7 +33,7 @@ import { settingsStyles } from './settings-styles.js';
 import { SettingsDialog, ICONS, PRESET_ORDER, reasonText, engineView, catalogLabel } from './settings-dialog.js';
 import { LocalConnector } from './local-connector.js';
 import { postJson, postForm, sameOrigin, OWNER_REDIRECT } from './post-json.js';
-import { UPLOAD_LIMITS, UPLOAD_ACCEPT, DOCUMENT_UPLOAD_ACCEPT, UPLOAD_ICONS, uploadLimits, uploadRetryDelay, unclassifiedUploads, planUploads, refusalText, uploadStateText, uploadStateTexts, uploadsPossible, formatBytes, limitsText, dropText, DOCUMENT_INTAKE_REASONS } from './uploads.js';
+import { UPLOAD_LIMITS, UPLOAD_ACCEPT, DOCUMENT_UPLOAD_ACCEPT, UPLOAD_ICONS, uploadLimits, uploadRetryDelay, unclassifiedUploads, planUploads, refusalText, uploadStateText, uploadStateTexts, uploadsPossible, formatBytes, limitsText, dropText } from './uploads.js';
 import { voiceJournal, tabStorage, closeVoiceCall, answerVoicePings, voiceCallAbandoned } from './voice-orphan.js';
 import { node, setText, reconcile, fill } from './dom.js';
 import { HostSurface } from './host-surface.js';
@@ -3829,7 +3829,7 @@ export class AithemaSession extends HTMLElement {
             // AIT-610 r5: the server refuses a file that is not positively a
             // supported document before storing it; name it with the file-type
             // copy, or (r6) with the reason the server is certain of.
-            if (file && record.kind === 'document') { documentPlan.refused.push({ name: file.name, reason: DOCUMENT_INTAKE_REASONS.includes(record.reason) ? record.reason : 'type' }); continue; }
+            if (file && record.kind === 'document') { documentPlan.refused.push({ name: file.name, reason: 'type' }); continue; }
             if (!file || record.kind !== 'image') continue;
             this.#detectedImages.add(file);
             if (!images) documentPlan.refused.push({ name: file.name, reason: 'type' });

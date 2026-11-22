@@ -31,15 +31,6 @@ export function formBytes(boundary = MAX_BOUNDARY) {
 }
 export const isImageFile = file => /\.(?:png|jpe?g|webp|gif)$/iu.test(file.name) || !/\.[a-z0-9]+$/iu.test(file.name) && /^image\/(?:png|jpeg|webp|gif)$/u.test(file.type);
 const extension = name => /\.([a-z0-9]+)$/iu.exec(name)?.[1].toLowerCase() ?? null;
-// AIT-610 r6: reasons the server names for a document refused at intake when
-// it is certain (an Office suffix); each is shown as '{name} ({reason copy})'
-// (punctuation only, so it is not a copy key), or with the file-type wording
-// when the host copy has no text for that reason.
-export const DOCUMENT_INTAKE_REASONS = Object.freeze(['encrypted', 'legacy', 'malformed']);
-// AIT-610 r7 (TICK r6): 'legacy' names the ONE format the visitor needs, taken
-// from the extension they used; never a list of all three.
-const LEGACY_REASON_KEYS = Object.freeze({ docx: 'legacyWord', xlsx: 'legacyExcel', pptx: 'legacyPowerPoint' });
-const intakeReasonText = (u, refusal) => u.reasons?.[refusal.reason === 'legacy' ? LEGACY_REASON_KEYS[extension(refusal.name ?? '')] : refusal.reason];
 const fill = (text, values) => text.replace(/\{(\w+)\}/gu, (match, key) => values[key] ?? match);
 
 /** Files whose document/image kind needs authoritative classification. Only a
@@ -142,9 +133,7 @@ export function dropText(copy, limits, locale) {
 export function refusalText(copy, { refused, blocked, limits }, locale) {
   const u = copy.uploads, sentences = [];
   if (refused.length && !uploadsPossible(limits)) return u.impossible;
-  if (refused.length) sentences.push(fill(u.refused, { list: refused.map(r => fill(r.reason === 'type' ? u.type
-    : DOCUMENT_INTAKE_REASONS.includes(r.reason) ? intakeReasonText(u, r) ? '{name} ({reason})' : u.type : u.tooLarge,
-    { name: r.name, size: formatBytes(r.limit ?? 0, locale), reason: intakeReasonText(u, r) })).join(', ') }));
+  if (refused.length) sentences.push(fill(u.refused, { list: refused.map(r => fill(r.reason === 'type' ? u.type : u.tooLarge, { name: r.name, size: formatBytes(r.limit ?? 0, locale) })).join(', ') }));
   if (blocked === 'images') sentences.push(resolveCopy(copy, 'imageRefusals.limit', undefined, locale));
   if (blocked === 'count') sentences.push(fill(u.tooMany, { files: limits.maxDocumentsPerSession }));
   if (blocked === 'session') sentences.push(fill(u.sessionFull, { size: formatBytes(limits.maxSessionBytes, locale) }));

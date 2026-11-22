@@ -1,8 +1,7 @@
 // AIT-610 r6 (LEAD 03:0x; gate5c defect b), r7: viewport evidence for TICK.
-// 1. A document refused at intake with a reason the server is certain of
-//    (password-protected, an older Office format, damaged) is named with that
-//    reason in the composer notice; r7 (TICK r6): the legacy line names the one
-//    format of the suffix used (.docx, .xlsx, .pptx).
+// 1. r9 (LEAD's r8 pre-decision): a document refused at intake is named with
+//    the generic file-type wording, whatever reason the server sends (the r6/r7
+//    specific Office reasons and legacy lines are gone).
 // 2. A browser that consumed the pending event of an image reconnects after a
 //    server restart; the reconnection (GET /uploads) shows the derived 'unavailable'.
 // Light theme, 390 and 1440, EN and DE. Screenshots only with AITHEMA_EVIDENCE_DIR.
@@ -64,10 +63,9 @@ export function intakeNoticeCheck() {
         await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
         if (evidence) await page.screenshot({ path: join(evidence, `${prefix}-${state}.png`) });
       };
-      const legacyKeys = { docx: 'legacyWord', xlsx: 'legacyExcel', pptx: 'legacyPowerPoint' };
-      for (const [reason, name] of [['encrypted', 'secret.docx'], ['legacy', 'old-letter.docx'], ['legacy', 'old-budget.xlsx'], ['legacy', 'old-deck.pptx'], ['malformed', 'cut.xlsx']]) {
-        const suffix = name.split('.').pop(), key = reason === 'legacy' ? legacyKeys[suffix] : reason;
-        await t.test(`${reason}: ${name} is named with its reason`, async () => {
+      for (const [reason, name] of [['unsupported', 'secret.docx'], ['encrypted', 'locked.docx'], ['legacy', 'old-budget.xlsx'], ['malformed', 'cut.pptx']]) {
+        const suffix = name.split('.').pop();
+        await t.test(`${reason}: ${name} is named with the generic file-type wording`, async () => {
           await inShadow(page, (c, reason, name) => {
             window.intakeReason = reason;
             const transfer = new DataTransfer(); transfer.items.add(new File(['fixture'], name));
@@ -79,10 +77,9 @@ export function intakeNoticeCheck() {
             return { text: node.textContent, width: box.width, height: box.height };
           });
           assert.ok(notice.width > 0 && notice.height > 0, `a visible notice box ${JSON.stringify(notice)}`);
-          assert.equal(typeof copy.uploads.reasons[key], 'string', key);
-          const expected = copy.uploads.refused.replace('{list}', `${name} (${copy.uploads.reasons[key]})`);
+          const expected = copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', name));
           assert.ok(notice.text.startsWith(expected), notice.text);
-          await shot(reason === 'legacy' ? `intake-legacy-${suffix}` : `intake-${reason}`);
+          await shot(`intake-generic-${reason}-${suffix}`);
         });
       }
       await t.test("reconnect after the pending event shows 'unavailable'", async () => {

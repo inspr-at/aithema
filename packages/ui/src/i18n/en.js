@@ -558,8 +558,7 @@ export const en = {
     replaced: 'The previously unuploaded files were replaced by the new selection.',
     busy: 'Files are still uploading. Try again in a moment.', impossible: 'Files cannot be uploaded: the upload limits of this host leave no room for a file.',
     reasons: { unsupported: 'file type not accepted', empty: 'the file contains no text', malformed: 'the file is damaged or not in the expected format',
-      encrypted: 'the file is password-protected', legacyWord: 'older Word file; save it as .docx and attach it again', legacyExcel: 'older Excel file; save it as .xlsx and attach it again',
-      legacyPowerPoint: 'older PowerPoint file; save it as .pptx and attach it again', limit: 'the file is too large or too long to read', deadline: 'reading took too long',
+      encrypted: 'the file is password-protected', limit: 'the file is too large or too long to read', deadline: 'reading took too long',
       cancelled: 'reading was cancelled', unavailable: 'reading is not available right now' },
   },
   constraints: {

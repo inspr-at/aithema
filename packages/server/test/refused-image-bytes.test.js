@@ -1137,8 +1137,8 @@ test('AIT-610 r6: session export shows a pending image lost to a restart as unav
   await f.assertNoTrace(image);
 });
 
-// Specific intake reasons (LEAD 03:0x): only where certain, else 'unsupported'.
-// A Compound File Binary (version 3, 512-byte sectors): header, one FAT sector,
+// Office fixtures for the r9 generic-reason table below (the r6..r8 specific
+// reasons are deleted). A Compound File Binary (version 3, 512-byte sectors): header, one FAT sector,
 // the directory sectors. AIT-610 r7 (gate6c): the entries are LINKED from the
 // root entry as a real writer links them: each storage's children form a
 // red-black tree ordered by name length, then upper-case name (MS-CFB 2.6.4),
@@ -1213,60 +1213,6 @@ const zip64LocalSizes = () => {
   return Buffer.concat([localPart, centralPart, end]);
 };
 const encryptedOffice = () => cfb([['\x06DataSpaces', ['Version', 'DataSpaceMap', ['DataSpaceInfo', ['StrongEncryptionDataSpace']], ['TransformInfo', [['StrongEncryptionTransform', ['\x06Primary']]]]]], 'EncryptionInfo', 'EncryptedPackage']);
-for (const [label, name, build, reason] of [
-  ['an encrypted .docx (a CFB with EncryptionInfo and EncryptedPackage)', 'secret.docx', encryptedOffice, 'encrypted'],
-  ['an encrypted .xlsx', 'secret.xlsx', () => cfb(['EncryptedPackage', 'EncryptionInfo']), 'encrypted'],
-  ['a legacy .doc renamed .docx (a CFB without the encryption streams)', 'old.docx', () => cfb(['WordDocument', '1Table']), 'legacy'],
-  ['a CFB with only one of the encryption streams', 'half.docx', () => cfb(['EncryptionInfo', 'WordDocument']), 'legacy'],
-  ['a damaged .docx (a truncated zip)', 'cut.docx', () => docx().subarray(0, docx().length - 40), 'malformed'],
-  ['a .pptx zip without [Content_Types].xml', 'bare.pptx', () => Buffer.from(extractorFixtureZip({ 'notes/readme.txt': 'plain words' })), 'malformed'],
-  ['an unknown binary named .docx', 'blob.docx', () => Buffer.concat([Buffer.from([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1, 0]), Buffer.alloc(64, 7)]), 'unsupported'],
-  ['a damaged CFB named .docx (directory sector outside the file)', 'broken.docx', () => { const bytes = cfb(['EncryptionInfo', 'EncryptedPackage']); bytes.writeUInt32LE(40, 0x30); return bytes; }, 'unsupported'],
-  ['a CFB named .txt (not an Office suffix)', 'secret.txt', () => cfb(['EncryptionInfo', 'EncryptedPackage']), 'unsupported'],
-  // AIT-610 r7 (gate6c): certainty. 'legacy' only after a valid directory walk from
-  // the root with at least one directory sector read; 'encrypted' only when both
-  // streams are LINKED from the root; ZIP 'malformed' only for structural damage.
-  ['a CFB whose encryption streams are orphans (not linked from the root)', 'orphans.docx', () => cfb(['EncryptionInfo', 'EncryptedPackage'], { orphans: true }), 'legacy'],
-  ['a CFB whose directory chain ends before any directory sector', 'nodir.docx', () => cfb(['EncryptionInfo', 'EncryptedPackage'], { directoryStart: 0xfffffffe }), 'unsupported'],
-  ['a CFB whose first directory entry is not the root', 'noroot.docx', () => { const bytes = encryptedOffice(); bytes[1024 + 0x42] = 1; return bytes; }, 'unsupported'],
-  ['a CFB whose directory tree loops', 'cycle.docx', () => { const bytes = cfb(['EncryptionInfo', 'EncryptedPackage']); bytes.writeUInt32LE(2, 1024 + 128 + 0x44); return bytes; }, 'unsupported'],
-  ['a CFB whose root child is outside the directory', 'dangling.docx', () => { const bytes = cfb(['EncryptionInfo', 'EncryptedPackage']); bytes.writeUInt32LE(99, 1024 + 0x4c); return bytes; }, 'unsupported'],
-  ['an intact .docx in ZIP64 form (an unsupported ZIP feature)', 'big.docx', () => zipPatched((bytes, end) => { bytes.writeUInt16LE(0xffff, end + 8); bytes.writeUInt16LE(0xffff, end + 10); }), 'unsupported'],
-  // AIT-610 r8 (gate7c): every pointer the walk can reach is validated; any
-  // inconsistency is doubt (generic). Entry ids: 0 root, 1 EncryptionInfo, 2
-  // EncryptedPackage (the tree's top), 3 an unused entry.
-  ['a CFB whose root links itself as a sibling', 'selflink.docx', () => { const bytes = cfb(['EncryptionInfo', 'EncryptedPackage']); bytes.writeUInt32LE(0, 1024 + 0x44); return bytes; }, 'unsupported'],
-  ['a CFB whose root has a sibling', 'rootsibling.docx', () => { const bytes = cfb(['EncryptionInfo', 'EncryptedPackage']); bytes.writeUInt32LE(3, 1024 + 0x48); return bytes; }, 'unsupported'],
-  ['a CFB with a stream that has a child', 'streamchild.docx', () => { const bytes = cfb(['EncryptionInfo', 'EncryptedPackage']); bytes.writeUInt32LE(3, 1024 + 128 + 0x4c); return bytes; }, 'unsupported'],
-  // A small valid ZIP64 layout: the local header carries the size sentinels and
-  // a ZIP64 extra field; the central directory keeps ordinary sizes. A feature.
-  ['an intact .docx whose local header uses ZIP64 size sentinels', 'local64.docx', () => zip64LocalSizes(), 'unsupported'],
-  ['an intact .docx with an unsupported compression method', 'bzip.docx', () => zipPatched(bytes => {
-    const central = bytes.indexOf(Buffer.from([0x50, 0x4b, 1, 2])), local = bytes.readUInt32LE(central + 42);
-    bytes.writeUInt16LE(12, central + 10); bytes.writeUInt16LE(12, local + 8);
-  }), 'unsupported'],
-]) test(`AIT-610 r6 intake reason: ${label} is refused before persistence as '${reason}'`, async t => {
-  const f = await fixture(t);
-  const postUploads = f.storage.postUploads.bind(f.storage), admittedDocuments = [];
-  t.mock.method(f.storage, 'postUploads', (id, eventId, digest, files, ...rest) => {
-    admittedDocuments.push(...files.filter(file => file.kind !== 'image' && !file.refusal).map(file => file.filename));
-    return postUploads(id, eventId, digest, files, ...rest);
-  });
-  const response = await f.upload(`reason-${name.replace(/[^a-zA-Z0-9_-]/gu, '-')}-${reason}`, [[name, build(), 'application/octet-stream']]), body = await response.text();
-  assert.equal(response.status, 202, body);
-  assert.deepEqual(admittedDocuments, [], 'no document admission reached storage');
-  assert.deepEqual(JSON.parse(body).refused, [{ index: 0, name, kind: 'document', reason }]);
-  await f.handlers.idle();
-  assert.equal(f.storage.get(f.session.id).uploads.length, 0, 'no row');
-});
-test('AIT-610 r6: the CFB directory read is bounded (a directory chain that loops or runs long is not certain: generic)', () => {
-  const looped = cfb(['EncryptionInfo', 'EncryptedPackage']);
-  looped.writeUInt32LE(1, 512 + 4); // the directory sector chains to itself
-  assert.equal(uploadModule.uploadIntakeReason(looped, 'loop.docx'), 'unsupported');
-  assert.equal(uploadModule.CFB_DIRECTORY_SECTORS_MAX, 64, 'the stated bound');
-  assert.equal(uploadModule.uploadIntakeReason(cfb(['EncryptionInfo', 'EncryptedPackage']), 'ok.docx'), 'encrypted');
-});
-
 // AIT-610 r9 (LEAD's r8 pre-decision, gate8c found another CFB/ZIP edge): the
 // specific Office intake reasons are gone. EVERY refused Office file is refused
 // with the generic 'unsupported' ("file type not accepted"), never stored; the

@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import { isUtf8 } from 'node:buffer';
 import { inputRevision, PluginError, operationScope, stagedImage, isConsentReason } from '@inspr/aithema-core';
 import { sniffDocument, EXTRACTOR_LIMITS, TEXT_MEDIA_TYPES, EXTRACTOR_EXTENSIONS, EXTRACTABLE_MEDIA_TYPES } from '@inspr/aithema-core/extractor';
-import { inspectZip } from '@inspr/aithema-core/extractor-zip';
 import { normalizeUploadLimits } from './upload-limits.js';
 import { scanUploadMultipart } from './upload-multipart.js';
 
@@ -218,108 +217,6 @@ export function sniffUploadDocument(bytes, filename, maxBytes = EXTRACTOR_LIMITS
   if (TEXT_MEDIA_TYPES.includes(detected.mediaType) && TEXT_MEDIA_TYPES.includes(expected)) return { mediaType: expected };
   return extension && expected !== detected.mediaType ? { mediaType: detected.mediaType, reason: 'unsupported' } : detected;
 }
-// AIT-610 r6 (LEAD 03:0x): the reason a refused document is named with at
-// intake. A specific reason only where it is CERTAIN; otherwise 'unsupported'
-// (the generic "file type not accepted"). Only for an Office suffix:
-//   - a Compound File Binary container (D0 CF 11 E0 A1 B1 1A E1) whose
-//     directory was walked validly from the root entry (r7, cfbRootStreams)
-//     with BOTH an EncryptionInfo and an EncryptedPackage stream LINKED under
-//     the root is a password-protected Office file: 'encrypted';
-//   - any other validly walked CFB is an older Office format (e.g. a .doc
-//     renamed .docx): 'legacy';
-//   - a ZIP with structural damage (an unreadable central directory), or a
-//     readable archive without [Content_Types].xml: 'malformed';
-//   - anything else, including a CFB directory that cannot be walked with
-//     certainty within the bound and an intact ZIP using a feature the reader
-//     does not support (ZIP64, spanning, a method or flag): 'unsupported'.
-// Runs before persistence, only for a file already refused, and is bounded:
-// at most CFB_DIRECTORY_SECTORS_MAX directory sectors (64: 256 entries with
-// 512-byte sectors, 2,048 with 4 KiB sectors), FAT lookups by index (the FAT
-// sector list is bounded by the file's own sector count), and the existing
-// non-inflating ZIP inspection (maxEntries). No copy of the file is made.
-export const CFB_DIRECTORY_SECTORS_MAX = 64;
-const OFFICE_EXTENSIONS = new Set(['docx', 'xlsx', 'pptx']);
-const CFB_SIGNATURE = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
-// AIT-610 r7 (gate6c): the names of the streams LINKED directly under the root
-// storage of a CFB, or null unless the directory is read with certainty: at
-// least one directory sector actually read (an end-of-chain first is not a
-// directory), entry 0 is the root storage, and a walk of every storage's
-// red-black tree from the root (left/right siblings, storage children) stays
-// inside the entries read, meets each entry at most once (no loop) and finds
-// only storages and streams with valid names and colors. Orphaned entries
-// (not reachable from the root) are not part of the file's content.
-const CFB_NOSTREAM = 0xffffffff, CFB_END_OF_CHAIN = 0xfffffffe;
-function cfbRootStreams(bytes) {
-  if (bytes.length < 512) return null;
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const u16 = at => view.getUint16(at, true), u32 = at => view.getUint32(at, true);
-  const major = u16(0x1a), shift = u16(0x1e);
-  if (u16(0x1c) !== 0xfffe || !(major === 3 && shift === 9 || major === 4 && shift === 12)) return null;
-  const size = 2 ** shift, perSector = size / 4, sectors = Math.floor(bytes.length / size) - 1;
-  const inFile = sector => sector < sectors;
-  const offset = sector => (sector + 1) * size;
-  const fatCount = u32(0x2c);
-  if (fatCount > sectors) return null;
-  const fat = [];
-  for (let i = 0; i < 109 && fat.length < fatCount; i++) fat.push(u32(0x4c + i * 4));
-  // Every DIFAT sector adds perSector - 1 entries, so this ends within fatCount.
-  for (let difat = u32(0x44); fat.length < fatCount;) {
-    if (!inFile(difat)) return null;
-    for (let i = 0; i < perSector - 1 && fat.length < fatCount; i++) fat.push(u32(offset(difat) + i * 4));
-    difat = u32(offset(difat) + size - 4);
-  }
-  const entries = []; // byte offsets of the directory entries read, by entry id
-  for (let sector = u32(0x30), read = 0; sector !== CFB_END_OF_CHAIN; read++) {
-    if (read >= CFB_DIRECTORY_SECTORS_MAX || !inFile(sector)) return null;
-    for (let entry = offset(sector); entry < offset(sector) + size; entry += 128) entries.push(entry);
-    const holder = fat[Math.floor(sector / perSector)];
-    if (holder === undefined || !inFile(holder)) return null;
-    sector = u32(offset(holder) + (sector % perSector) * 4);
-  }
-  if (!entries.length) return null;
-  const name = at => {
-    const length = u16(at + 0x40);
-    return length >= 2 && length <= 64 && length % 2 === 0 && u16(at + length - 2) === 0
-      ? Buffer.from(bytes.buffer, bytes.byteOffset + at, length - 2).toString('utf16le') : null;
-  };
-  const root = entries[0];
-  // AIT-610 r8 (gate7c): every pointer the walk can reach is checked; the root
-  // has no siblings and a stream has no child (MS-CFB 2.6.1/2.6.3), so any
-  // value there is an inconsistency (doubt: generic), never ignored.
-  if (bytes[root + 0x42] !== 5 || name(root) !== 'Root Entry' ||
-    u32(root + 0x44) !== CFB_NOSTREAM || u32(root + 0x48) !== CFB_NOSTREAM) return null;
-  const streams = new Set(), seen = new Set([0]), stack = [[u32(root + 0x4c), true]];
-  while (stack.length) {
-    const [id, top] = stack.pop();
-    if (id === CFB_NOSTREAM) continue;
-    if (id >= entries.length || seen.has(id)) return null;
-    seen.add(id);
-    const at = entries[id], type = bytes[at + 0x42], entryName = name(at);
-    if (type !== 1 && type !== 2 || bytes[at + 0x43] > 1 || entryName === null) return null;
-    if (type === 2 && u32(at + 0x4c) !== CFB_NOSTREAM) return null;
-    if (type === 2 && top) streams.add(entryName);
-    stack.push([u32(at + 0x44), top], [u32(at + 0x48), top]);
-    if (type === 1) stack.push([u32(at + 0x4c), false]);
-  }
-  return streams;
-}
-export function uploadIntakeReason(bytes, filename, maxBytes = EXTRACTOR_LIMITS.maxBytes) {
-  const extension = /\.([a-z0-9]+)$/iu.exec(filename)?.[1].toLowerCase();
-  if (!OFFICE_EXTENSIONS.has(extension)) return 'unsupported';
-  if (startsWith(bytes, CFB_SIGNATURE)) {
-    const streams = cfbRootStreams(bytes);
-    return !streams ? 'unsupported' : streams.has('EncryptionInfo') && streams.has('EncryptedPackage') ? 'encrypted' : 'legacy';
-  }
-  if (startsWith(bytes, [80, 75, 3, 4]) || startsWith(bytes, [80, 75, 5, 6])) {
-    let entries;
-    try { entries = inspectZip(bytes, { ...EXTRACTOR_LIMITS, maxBytes }); }
-    // Structural damage only; an unsupported ZIP feature (ZIP64, spanning,
-    // an unsupported method or flag) in an intact archive is generic (r7).
-    catch (error) { return error.reason === 'malformed' && !error.feature ? 'malformed' : 'unsupported'; }
-    return entries.has('[Content_Types].xml') ? 'unsupported' : 'malformed';
-  }
-  return 'unsupported';
-}
 export function createUploadHandlers({ storage, runtime, ownership, readBody, publish, onInput, onWithdraw, signal, limits: configured, opener, now = () => storage.now() }) {
   const limits = normalizeUploadLimits(configured), jobs = new Map(), expiryTimers = new Map();
   // uploadId -> the owned copy of an image original awaiting normalization.
@@ -491,9 +388,9 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
             !Object.hasOwn(extensions, extension) && /^image\//u.test(f.type);
           // AIT-610 r5, allowlist: a document is persisted ONLY when it is
           // positively one of the types the text extraction supports today.
-          // Everything else is refused here, before storage, as 'unsupported',
-          // or with a reason that is certain for an Office suffix (r6).
-          const refusal = !image && (detected.reason || !EXTRACTABLE_MEDIA_TYPES.includes(detected.mediaType)) ? { refusal: uploadIntakeReason(bytes, f.name, limits.maxBytes) } : {};
+          // Everything else is refused here, before storage, as 'unsupported'
+          // (r9: the one generic reason, Office files included).
+          const refusal = !image && (detected.reason || !EXTRACTABLE_MEDIA_TYPES.includes(detected.mediaType)) ? { refusal: 'unsupported' } : {};
           return { bytes, ...(image ? { kind: 'image' } : {}), ...refusal, filename: f.name.slice(0, 200), originalName: f.name, mediaType: detected.mediaType, deadlineAt };
         });
         // Multipart boundary and the untrusted client MIME are transport details.

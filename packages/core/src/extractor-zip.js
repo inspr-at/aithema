@@ -1,26 +1,19 @@
 // Bounded, non-inflating ZIP inspection. Ported from START src/lib/ooxml.ts.
 // Used for sniffing too: a string in arbitrary ZIP payload is not an Office part.
-// `feature` marks an archive this reader cannot read because it uses a ZIP
-// feature it does not support (ZIP64, spanning, a method or flag), as opposed
-// to structural damage; the reason stays 'malformed' for every existing caller
-// (AIT-610 r7: only upload intake wording tells them apart).
 export class ArchiveError extends Error {
-  constructor(reason = 'malformed', feature = false) { super('Unreadable archive'); this.reason = reason; this.feature = feature; }
+  constructor(reason = 'malformed') { super('Unreadable archive'); this.reason = reason; }
 }
 export function inspectZip(bytes, limits) {
   const fail = reason => { throw new ArchiveError(reason); };
-  const unsupported = () => { throw new ArchiveError('malformed', true); };
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const u16 = at => view.getUint16(at, true), u32 = at => view.getUint32(at, true);
   let end = -1;
   for (let at = bytes.length - 22, floor = Math.max(0, bytes.length - 22 - 65535); at >= floor; at--) {
     if (u32(at) === 0x06054b50 && at + 22 + u16(at + 20) === bytes.length) { end = at; break; }
   }
-  if (end < 0) fail();
-  if (u16(end + 4) || u16(end + 6)) unsupported(); // a spanned archive
-  if (u16(end + 8) !== u16(end + 10)) fail();
+  if (end < 0 || u16(end + 4) || u16(end + 6) || u16(end + 8) !== u16(end + 10)) fail();
   const count = u16(end + 10), directorySize = u32(end + 12), directoryAt = u32(end + 16);
-  if (count === 65535 || directoryAt === 0xffffffff || directorySize === 0xffffffff) unsupported(); // ZIP64
+  if (count === 65535 || directoryAt === 0xffffffff || directorySize === 0xffffffff) fail();
   if (count > limits.maxEntries) fail('limit');
   if (!count || directoryAt + directorySize !== end) fail();
   const entries = new Map(), ranges = [];
@@ -31,12 +24,11 @@ export function inspectZip(bytes, limits) {
     const flags = u16(cursor + 8), method = u16(cursor + 10), crc = u32(cursor + 16);
     const compressedSize = u32(cursor + 20), size = u32(cursor + 24), localAt = u32(cursor + 42);
     const nameLength = u16(cursor + 28), next = cursor + 46 + nameLength + u16(cursor + 30) + u16(cursor + 32);
-    if (next > end) fail();
-    if (u16(cursor + 34) || [compressedSize, size, localAt].includes(0xffffffff)) unsupported(); // spanning, ZIP64
+    if (next > end || u16(cursor + 34) || [compressedSize, size, localAt].includes(0xffffffff)) fail();
     if (flags & 1) fail('encrypted');
     // Bits 1/2 describe ordinary deflate compression options; bit 3 is a
     // data descriptor and bit 11 is UTF-8. None changes the size boundary.
-    if (flags & ~(6 | 8 | 2048) || ![0, 8].includes(method)) unsupported();
+    if (flags & ~(6 | 8 | 2048) || ![0, 8].includes(method)) fail();
     total += size;
     if (size > limits.maxPartBytes || total > limits.maxUncompressedBytes ||
       size > Math.max(1, compressedSize) * limits.maxCompressionRatio) fail('limit');
@@ -50,13 +42,7 @@ export function inspectZip(bytes, limits) {
     const localNameLength = u16(localAt + 26), dataAt = localAt + 30 + localNameLength + u16(localAt + 28);
     if (dataAt + compressedSize > directoryAt) fail();
     if (decoder.decode(bytes.subarray(localAt + 30, localAt + 30 + localNameLength)) !== name) fail();
-    if (!(flags & 8)) {
-      // AIT-610 r8: ZIP64 size sentinels in the local header (the real sizes in
-      // its ZIP64 extra field) are a feature, not damage. Every caller still
-      // sees reason 'malformed'; only upload intake reads `feature`.
-      if (u32(localAt + 18) === 0xffffffff || u32(localAt + 22) === 0xffffffff) unsupported();
-      if (u32(localAt + 14) !== crc || u32(localAt + 18) !== compressedSize || u32(localAt + 22) !== size) fail();
-    }
+    if (!(flags & 8) && (u32(localAt + 14) !== crc || u32(localAt + 18) !== compressedSize || u32(localAt + 22) !== size)) fail();
     ranges.push([localAt, dataAt + compressedSize]);
     entries.set(name, { name, method, crc, size, compressedSize, dataAt });
     cursor = next;

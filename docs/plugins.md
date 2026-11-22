@@ -388,20 +388,11 @@ recognized.
   XLSX, PPTX, and UTF-8 text, CSV, Markdown, JSON or XML). Everything else
   (UTF-16 or other non-UTF-8 text, unknown binaries, other archives, a suffix
   that contradicts the content) is refused in the receipt with kind
-  `document` and reason `unsupported` before anything is stored. For an
-  Office suffix (`.docx`, `.xlsx`, `.pptx`) the reason is more specific only
-  where it is certain: a Compound File Binary container whose directory is
-  read from the root entry (at least one directory sector, entry 0 the root
-  storage, every storage's tree walked without a loop or an entry outside the
-  directory) is `encrypted` (password-protected) when `EncryptionInfo` and
-  `EncryptedPackage` are both streams linked under the root, else `legacy`
-  (an older Office format, such as a `.doc` renamed; the client names the one
-  format to save as from the suffix used); a ZIP with structural damage (an
-  unreadable central directory) or without `[Content_Types].xml` is
-  `malformed` (damaged), while an intact ZIP using a feature the reader does
-  not support (ZIP64, spanning, another compression method) stays
-  `unsupported`. The directory read is bounded (at most 64 directory
-  sectors); a directory that cannot be read within it stays `unsupported`. Text is
+  `document` and reason `unsupported` before anything is stored. Every refused
+  Office file (`.docx`, `.xlsx`, `.pptx`), password-protected, an older format
+  renamed, damaged or using a ZIP feature the reader does not support, is
+  refused with the same `unsupported` reason ("file type not accepted"); no
+  Office-specific reason is derived at intake (AIT-610 r9). Text is
   checked over the whole file without a copy (no control bytes, valid UTF-8),
   and its XML root and subtype are read from at most the first 64 KiB
   (`UPLOAD_SNIFF_PREFIX_BYTES`), in one linear pass. If the XML prolog or the

@@ -1156,50 +1156,6 @@ test('AIT-610 r8: a foreign baseUrl receives no reconciliation GET /uploads (the
   assert.equal(counts.uploads, 0, 'no owner-authenticated read reaches another origin');
 });
 
-// AIT-610 r7 (TICK r6, binding): the legacy line names the ONE format the
-// visitor needs, from the extension they used.
-const LEGACY_COPY = {
-  en: { docx: 'older Word file; save it as .docx and attach it again', xlsx: 'older Excel file; save it as .xlsx and attach it again', pptx: 'older PowerPoint file; save it as .pptx and attach it again' },
-  de: { docx: 'ältere Word-Datei; als .docx speichern und erneut anhängen', xlsx: 'ältere Excel-Datei; als .xlsx speichern und erneut anhängen', pptx: 'ältere PowerPoint-Datei; als .pptx speichern und erneut anhängen' },
-};
-for (const copy of [en, de]) for (const ext of ['docx', 'xlsx', 'pptx']) test(`AIT-610 r7: ${copy.display.locale} a legacy .${ext} names its one format`, () => {
-  const locale = copy.display.locale;
-  assert.equal(refusalText(copy, { refused: [{ name: `old.${ext}`, reason: 'legacy' }], limits: UPLOAD_LIMITS }, locale),
-    copy.uploads.refused.replace('{list}', `old.${ext} (${LEGACY_COPY[locale][ext]})`));
-  assert.notEqual(LEGACY_COPY.en[ext], LEGACY_COPY.de[ext]);
-});
-
-// AIT-610 r6 (LEAD 03:0x): the server names a certain intake reason for an
-// Office suffix (password-protected, an older/different Office format,
-// damaged); the client shows it with the existing reason copy, and the
-// generic file-type wording otherwise.
-for (const copy of [en, de]) for (const [reason, expected] of [
-  ['encrypted', () => copy.uploads.reasons.encrypted], ['malformed', () => copy.uploads.reasons.malformed],
-  ['legacy', () => LEGACY_COPY[copy.display.locale].docx], ['unsupported', () => null],
-]) test(`AIT-610 r6: ${copy.display.locale} a document refused at intake as '${reason}' is named with its reason`, async t => {
-  const { c, root } = setup(t, { copy, post: () => Response.json({ accepted: true, events: [], uploads: [],
-    refused: [{ index: 0, name: 'report.docx', kind: 'document', reason }] }, { status: 202 }) });
-  await choose(root, [new window.File(['x'], 'report.docx')]);
-  assert.deepEqual(c.session.uploads, []);
-  const notice = root.querySelector('.composer-reason')?.textContent ?? '';
-  const named = expected() ? `report.docx (${expected()})` : copy.uploads.type.replace('{name}', 'report.docx');
-  assert.equal(copy.uploads.typeReason, undefined, 'the name-and-reason form is punctuation, not copy');
-  assert.ok(typeof (expected() ?? '') === 'string' && (expected() === null || expected().length > 0), `copy for ${reason}`);
-  assert.ok(notice.startsWith(copy.uploads.refused.replace('{list}', named)), notice);
-});
-
-// AIT-610 r6: a host copy without the reason copy still names a document
-// refused with a specific reason, with the generic file-type wording, never
-// the size wording.
-for (const copy of [en, de]) test(`AIT-610 r6: ${copy.display.locale} a host copy without the reason copy falls back to the file-type wording`, () => {
-  const uploads = copy.uploads;
-  const older = { ...copy, uploads: { ...uploads, reasons: { ...uploads.reasons, encrypted: undefined, legacyWord: undefined, legacyExcel: undefined, legacyPowerPoint: undefined, malformed: undefined } } };
-  for (const reason of ['encrypted', 'legacy', 'malformed']) {
-    assert.equal(refusalText(older, { refused: [{ name: 'report.docx', reason }], limits: UPLOAD_LIMITS }, copy.display.locale),
-      older.uploads.refused.replace('{list}', older.uploads.type.replace('{name}', 'report.docx')), reason);
-  }
-});
-
 // AIT-610 r9 (gate8c SECURITY, LEAD r9): every owner-authenticated upload
 // request is resolved ONCE against the document base, its RESOLVED origin is
 // checked against the page origin, and exactly that resolved URL is fetched with
