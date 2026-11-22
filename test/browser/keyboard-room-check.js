@@ -106,7 +106,9 @@ async function harness(t) {
   if (evidence) await mkdir(evidence, { recursive: true });
   const index = [];
   // `touch`: a touch phone without a hardware keyboard (pointer:coarse, hover:none).
-  const open = async ({ width, height, locale, touch = true, intake = null, granted = false }, problems) => {
+  // r3: `consent` overrides the host's consent copy (a long host action); `host` mounts the host
+  // surface (its header controls) through configure, as a host does.
+  const open = async ({ width, height, locale, touch = true, intake = null, granted = false, consent = null, host = null, contact = false }, problems) => {
     const page = await browser.newPage();
     page.on('pageerror', error => problems.push(error.message));
     page.on('console', message => { if (/ResizeObserver/.test(message.text())) problems.push(message.text()); });
@@ -120,15 +122,19 @@ async function harness(t) {
       ? request.respond({ status: 200, contentType: 'text/html', body: fixture }) : request.continue()); });
     await page.goto(`${server.url}/combined-fixture?locale=${locale}&opener&passiveDenied`);
     await page.waitForFunction(() => globalThis.ready && document.querySelector('aithema-session').shadowRoot.querySelector('.composer-status').textContent.length > 0);
-    await page.evaluate(async (locale, intake, granted) => {
+    await page.evaluate(async (locale, intake, granted, consent, host, contact) => {
       const base = (await import(`/packages/ui/src/i18n/${locale}.js`))[locale];
-      globalThis.fixtureCopy = { ...base, featureConsent: { ...base.featureConsent, text: base.featureConsent.text } };
-      const snapshot = JSON.parse(JSON.stringify(document.querySelector('aithema-session').session)), best = snapshot.featureMatrix.best;
+      globalThis.fixtureCopy = { ...base, featureConsent: { ...base.featureConsent, text: base.featureConsent.text, ...(consent ?? {}) } };
+      const c = document.querySelector('aithema-session');
+      const snapshot = JSON.parse(JSON.stringify(c.session)), best = snapshot.featureMatrix.best;
       if (intake === 'image') best.imageInput = { available: true };
       if (intake === 'document') best.uploads = { available: true };
       if (granted) { best.text = structuredClone(best.analysis); best.voice = structuredClone(best.analysis); }
+      if (host) { const configure = c.configure.bind(c); c.configure = options => configure({ ...options, host }); }
+      if (contact) { const button = document.createElement('button'); button.type = 'button'; button.slot = 'contact-launcher';
+        button.textContent = locale === 'de' ? 'Kontakt' : 'Contact'; button.style.cssText = 'width:44px;height:44px;overflow:hidden'; c.append(button); }
       mount(snapshot);
-    }, locale, intake, granted);
+    }, locale, intake, granted, consent, host, contact);
     await page.waitForFunction(granted => {
       const root = document.querySelector('aithema-session').shadowRoot;
       return granted ? root.querySelector('.composer-reason[data-shortcut]') : root.querySelector('.composer-reason[data-consent-feature="text"] .consent-action');
@@ -144,7 +150,12 @@ async function harness(t) {
     await writeFile(join(evidence, `${name}.json`), JSON.stringify(state, null, 2));
     await writeFile(join(evidence, `index-${process.pid}-${t.name.replace(/\W+/gu, '-').slice(0, 40)}.json`), JSON.stringify(index, null, 2));
   };
-  return { open, read, capture };
+  // r3 (TICK r2 next look): a 3x crop of the dock's bottom-left corner (the notice line's start and the corner curve).
+  const crop = async (page, name, dock) => {
+    if (!evidence || !(dock?.width > 0)) return;
+    await page.screenshot({ path: join(evidence, `${name}-corner-3x.png`), clip: { x: dock.x, y: dock.y + dock.height - 48, width: 120, height: 48, scale: 3 } });
+  };
+  return { open, read, capture, crop };
 }
 
 // (a) TICK's acceptance: a transcript line in both consent states, controls still, status row collapsed and back.
@@ -296,20 +307,78 @@ const bandState = c => {
     status: status ? { text: status.textContent.trim(), inTree: status.checkVisibility({ visibilityProperty: true }) || getComputedStyle(status).display !== 'none' && getComputedStyle(status).visibility !== 'hidden', role: status.getAttribute('role') } : null,
     notice: box(notice), noticeLines, noticeLineHeight: notice ? parseFloat(getComputedStyle(notice).lineHeight) || 0 : 0, more: box(more), moreTarget,
     mic: box(root.querySelector('.composer-mic')), send: box(root.querySelector('.send')), dock: box(root.querySelector('.composer-dock')),
+    ...insetState(c),
   };
 };
+// r3 (TICK r2 M1, Codex gate1c): the notice line's insets against the field text's, and every
+// 44 px hit target of the dock and the band (an overlap ::after counts with its own box).
+const insetState = c => {
+  const root = c.shadowRoot, rect = n => { const r = n.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
+  const hitOf = n => { if (!n) return null; const r = n.getBoundingClientRect(), a = getComputedStyle(n, '::after');
+    if (a.content === 'none' || a.position !== 'absolute') return rect(n);
+    const width = parseFloat(a.width) || r.width, height = parseFloat(a.height) || 0;
+    return { x: r.x + (parseFloat(a.left) || 0), y: r.y + (parseFloat(a.top) || 0), width, height }; };
+  const composer = root.querySelector('.composer'), field = root.querySelector('textarea'), first = root.querySelector('.composer-notice__first');
+  if (!composer || !field) return {};
+  const d = composer.getBoundingClientRect(), dc = getComputedStyle(composer), f = field.getBoundingClientRect(), fc = getComputedStyle(field);
+  const text = (() => { const node = [...(first?.childNodes ?? [])].find(n => n.nodeType === 3 && n.textContent.trim()); if (!node) return null;
+    const range = document.createRange(); range.selectNodeContents(node); const r = range.getClientRects()[0]; return r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null; })();
+  const fieldText = { left: f.left + parseFloat(fc.borderLeftWidth) + parseFloat(fc.paddingLeft), top: f.top + parseFloat(fc.borderTopWidth) + parseFloat(fc.paddingTop) };
+  const action = root.querySelector('.composer-feedback .composer-reason[data-consent-feature="text"] > .consent-action');
+  const targets = [['field', field], ['mic', root.querySelector('.composer-mic')], ['send', root.querySelector('.send')], ['consent action', action],
+    ...[...root.querySelectorAll('.composer-feedback :is(button, a[href])')].filter(n => n !== action).map(n => ['feedback control', n])]
+    .filter(([, n]) => n && n.checkVisibility({ visibilityProperty: true }) && n.getBoundingClientRect().width > .5).map(([name, n]) => [name, hitOf(n)]);
+  const header = [...root.querySelectorAll('.band .header-actions :is(button, [slot]), .band .header-actions slot')]
+    .flatMap(n => n.localName === 'slot' ? n.assignedElements() : [n])
+    .filter(n => n.checkVisibility({ visibilityProperty: true }) && n.getBoundingClientRect().width > .5 && n.getBoundingClientRect().height > .5)
+    .map(n => [n.className || n.localName, rect(n)]);
+  return {
+    composerBox: rect(composer), composerBorder: { bottom: parseFloat(dc.borderBottomWidth), left: parseFloat(dc.borderLeftWidth) },
+    noticeText: text, fieldText,
+    insets: text ? { fieldLeft: +(fieldText.left - d.left).toFixed(2), fieldTop: +(fieldText.top - d.top).toFixed(2),
+      noticeLeft: +(text.x - d.left).toFixed(2), noticeBottom: +(d.bottom - (text.y + text.height)).toFixed(2) } : null,
+    moreHit: hitOf(root.querySelector('.composer-notice__more')), targets, header,
+  };
+};
+const intersects = (a, b) => a && b && a.x < b.x + b.width - .5 && b.x < a.x + a.width - .5 && a.y < b.y + b.height - .5 && b.y < a.y + a.height - .5;
+// The notice line: the field text's left inset and at least its top inset at the bottom; "More" keeps a
+// 44 px target inside the dock box that intersects no other target.
+const noticeTargets = (tag, s) => {
+  const failures = [], more = s.moreHit, d = s.composerBox;
+  if (!s.insets || !(s.noticeText?.width > 0 && s.noticeText?.height > 0)) return [`${tag}: the notice line has a positive text box: ${JSON.stringify(s.noticeText)}`];
+  if (Math.abs(s.insets.noticeLeft - s.insets.fieldLeft) > .5) failures.push(`${tag}: the notice text starts at the field text's left inset: ${JSON.stringify(s.insets)}`);
+  if (s.insets.noticeBottom < s.insets.fieldTop - .5) failures.push(`${tag}: the notice line's bottom inset is at least the field text's top inset: ${JSON.stringify(s.insets)}`);
+  if (!(more?.width > 0) || more.height < 44 - .5) failures.push(`${tag}: "More" has a 44 px target: ${JSON.stringify(more)}`);
+  else if (more.y < d.y - .5 || more.y + more.height > d.y + d.height - s.composerBorder.bottom + .5 || more.x < d.x - .5 || more.x + more.width > d.x + d.width + .5)
+    failures.push(`${tag}: the "More" target stays inside the dock box: ${JSON.stringify([more, d])}`);
+  for (const [name, target] of s.targets) if (intersects(more, target)) failures.push(`${tag}: the "More" target intersects the ${name} target: ${JSON.stringify([more, target])}`);
+  return failures;
+};
+// r3 (Codex gate1c Medium 1): a paused CALL as the product renders it: the rail presses its own
+// pause button (audio-rail.js render: the hidden twin in the same cell) and the session mirrors
+// that onto the visible pause (#syncVoicePause). Both are pressed, as in the product.
 const reply = (page, playing) => page.$eval('aithema-session', (c, playing) => {
   const root = c.shadowRoot;
   root.querySelector('.band-orb .orb')?.setAttribute('data-voice', playing ? 'speaking' : 'paused');
   const rail = root.querySelector('.audio-rail'); if (rail) rail.dataset.state = playing ? 'speaking' : 'paused';
-  // Only the painted control is pressed, as in the product (the cell's other button stays hidden;
-  // pressing it too would paint its resume icon, which sets its own visibility).
-  const pause = [...root.querySelectorAll('.voice-cell--pause > button')].find(n => n.checkVisibility({ visibilityProperty: true }) && n.getBoundingClientRect().width > .5);
-  pause?.setAttribute('aria-pressed', String(!playing));
+  for (const pause of root.querySelectorAll('.voice-cell--pause > :is(.pause, .voice-pause)')) pause.setAttribute('aria-pressed', String(!playing));
 }, playing);
+// The conversation pause through its real toggle: the visible pause's click handler posts the
+// pause and the session renders the acknowledged session.paused event.
+const togglePause = async (page, paused) => {
+  await page.$eval('aithema-session', c => {
+    if (!globalThis.pauseRoute) {
+      globalThis.pauseRoute = true; const fixtureFetch = globalThis.fetch;
+      globalThis.fetch = async (url, options = {}) => /\/api\/sessions\/[^/]+\/pause$/u.test(String(url))
+        ? Response.json({ event: { seq: c.session.seq + 1, type: 'session.paused', data: { paused: JSON.parse(options.body).paused } } }) : fixtureFetch(url, options);
+    }
+    c.shadowRoot.querySelector('.voice-cell--pause > .pause').click();
+  });
+  await page.waitForFunction(paused => document.querySelector('aithema-session').shadowRoot.querySelector('.voice-cell--pause > .pause')?.getAttribute('aria-pressed') === String(paused), { timeout: 15_000 }, paused);
+};
 
 export async function keyboardBandCheck(t) {
-  const { open, read, capture } = await harness(t);
+  const { open, read, capture, crop } = await harness(t);
   const readBand = page => page.$eval('aithema-session', bandState);
   const [width, height] = [320, 568];
   for (const viewport of [308, 340]) for (const intake of ['image', 'document']) for (const locale of ['en', 'de']) {
@@ -333,6 +402,7 @@ export async function keyboardBandCheck(t) {
           await reply(page, playing); await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
           const room = await read(page), band = await readBand(page);
           states.push([label, room, band]); await capture(page, `${name}-keyboard-up-${label}`, { ...room, band });
+          if (['pending-playing', 'cleared-playing'].includes(label)) await crop(page, `${name}-keyboard-up-${label}`, band.dock);
         };
         await step('pending-playing', true);
         await step('pending-paused', false);
@@ -368,14 +438,120 @@ export async function keyboardBandCheck(t) {
           if (!band.moreTarget || Math.max(band.moreTarget.height, band.more?.height ?? 0) < 44 - .5 || !(band.more?.width > 0 && band.more?.height > 0)) failures.push(`${tag}: "More" keeps a 44 px target over its line: ${JSON.stringify([band.more, band.moreTarget])}`);
           failures.push(...stableBoxes(`${tag} vs pending-playing`, first, band, ['band', 'orb', 'pause', 'gear', 'mic', 'send', 'notice', 'more']));
           failures.push(...stableBoxes(`${tag} vs pending-playing (dock)`, firstRoom, room, ['mic', 'send', 'feedback', 'dock', 'field']));
+          // r3 (TICK r2 M1, Codex gate1c Medium 3): the notice line's insets and the "More" target.
+          failures.push(...noticeTargets(tag, band));
+          // r3 (Codex gate1c Medium 1): the painted pause is the session's own control and takes the hit, playing and paused.
+          if (!/\bpause\b/u.test(band.pauseClass ?? '') || !band.pauseHitLive) failures.push(`${tag}: the visible pause takes the hit at its centre: ${JSON.stringify([band.pauseClass, band.pauseHitLiveBy])}`);
         }
+        // r3 (Codex gate1c Medium 1): the conversation pause through its real toggle, keyboard up: pressed and released, pause stays put and takes the hit.
+        for (const paused of [true, false]) {
+          await togglePause(page, paused); await settleLong(page);
+          const toggled = await readBand(page), tag = `${name} keyboard up, conversation ${paused ? 'paused' : 'resumed'} by the real toggle`;
+          if (!toggled.keyboard) failures.push(`${tag}: the keyboard stays up`);
+          if (toggled.pausePressed !== String(paused) || !toggled.pauseHitLive) failures.push(`${tag}: the visible pause is pressed as toggled and takes the hit: ${JSON.stringify([toggled.pausePressed, toggled.pauseClass, toggled.pauseHitLiveBy])}`);
+          failures.push(...stableBoxes(`${tag} vs pending-playing`, first, toggled, ['band', 'pause', 'gear']));
+        }
+        // r3 (Codex gate1c Medium 2): focus leaving the composer while the keyboard is still up (the viewport still short)
+        // keeps the keyboard-up band: Pause does not move as focus lands in the header; only the keyboard's close ends it.
+        await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.settings-open').focus());
+        await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+        const headerFocus = await readBand(page);
+        if (!headerFocus.keyboard) failures.push(`${name}: header focus with the viewport still short: the keyboard flag stays`);
+        failures.push(...stableBoxes(`${name} header focus, keyboard still up`, first, headerFocus, ['band', 'orb', 'pause', 'gear']));
         await keyboardDown(page); await settleLong(page);
         const back = await readBand(page);
         await capture(page, `${name}-keyboard-closed`, { ...(await read(page)), band: back });
         if (back.keyboard) failures.push(`${name}: the keyboard flag clears`);
         if (!back.outputPainted.length) failures.push(`${name}: the volume control returns when the keyboard closes`);
         failures.push(...stableBoxes(`${name} keyboard down -> closed`, down, back, ['band', 'orb', 'pause', 'gear']));
-        t.diagnostic(`${name}: band down/up ${down.band?.height} / ${first.band?.height}; lines ${states.map(([label, room]) => `${label}=${room.lines}`).join(' ')}; room ${states.map(([, room]) => room.room.toFixed(1)).join('/')}; notice ${first.notice?.height} (${first.noticeLines} line); pause x ${down.pause?.x} -> ${first.pause?.x}`);
+        t.diagnostic(`${name}: band down/up ${down.band?.height} / ${first.band?.height}; lines ${states.map(([label, room]) => `${label}=${room.lines}`).join(' ')}; room ${states.map(([, room]) => room.room.toFixed(1)).join('/')}; notice ${first.notice?.height} (${first.noticeLines} line); insets ${JSON.stringify(first.insets)}; More hit ${JSON.stringify(first.moreHit)}; pause x ${down.pause?.x} -> ${first.pause?.x}`);
+      } finally { await page.close(); }
+      none(failures, name);
+      assert.deepEqual(problems, []);
+    });
+  }
+}
+
+// (d) AIT-618 r3 (Codex gate1c Medium 3): on a PLAIN dock (no image or document
+// intake) the pending consent row has no floor; with a long host action its
+// 44 px consent target and the notice's 44 px "More" target never intersect,
+// pending and cleared, and "More" stays inside the dock box (320x568, vv308 and
+// vv340, EN/DE; the saved long-action case of AIT-603 PR-A r5).
+const LONG_ACTION = { en: { action: 'Review and agree to sending your messages now…', actionNarrow: 'Review and agree to message sending' },
+  de: { action: 'Verarbeitung prüfen und jetzt gleich zustimmen…', actionNarrow: 'Verarbeitung prüfen, zustimmen' } };
+export async function keyboardTargetsCheck(t) {
+  const { open, read, capture } = await harness(t);
+  const readBand = page => page.$eval('aithema-session', bandState);
+  const [width, height] = [320, 568];
+  for (const viewport of [308, 340]) for (const locale of ['en', 'de']) {
+    const name = `${width}x${height}-vv${viewport}-${locale}-plain-dock-long-action`;
+    await t.test(name, async () => {
+      const problems = [], failures = [];
+      const page = await open({ width, height, locale, consent: LONG_ACTION[locale] }, problems);
+      try {
+        await keyboardUp(page, viewport); await settleLong(page);
+        const pending = await readBand(page), pendingRoom = await read(page);
+        await capture(page, `${name}-keyboard-up-pending`, { ...pendingRoom, band: pending });
+        if (!pending.keyboard) failures.push(`${name}: the keyboard flag is set`);
+        if (!pending.targets.some(([target]) => target === 'consent action')) failures.push(`${name}: fixture: the consent action is a target: ${JSON.stringify(pending.targets)}`);
+        await page.evaluate(() => grant());
+        await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason[data-consent-feature="text"]'), { timeout: 15_000 });
+        await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+        const cleared = await readBand(page), clearedRoom = await read(page);
+        await capture(page, `${name}-keyboard-up-cleared`, { ...clearedRoom, band: cleared });
+        for (const [when, band, room] of [['pending', pending, pendingRoom], ['cleared', cleared, clearedRoom]]) {
+          failures.push(...noticeTargets(`${name} ${when}`, band));
+          if (room.lines < 1) failures.push(`${name} ${when}: at least one whole transcript line is visible: ${JSON.stringify(brief(room))}`);
+        }
+        failures.push(...stableBoxes(`${name} pending -> cleared`, pending, cleared, ['mic', 'send', 'dock', 'notice', 'more']));
+        t.diagnostic(`${name}: lines ${pendingRoom.lines} / ${clearedRoom.lines}; room ${pendingRoom.room.toFixed(1)} / ${clearedRoom.room.toFixed(1)}; More hit ${JSON.stringify(pending.moreHit)}; targets ${JSON.stringify(pending.targets)}`);
+      } finally { await page.close(); }
+      none(failures, name);
+      assert.deepEqual(problems, []);
+    });
+  }
+}
+
+// (e) AIT-618 r3 (Codex gate1c Medium 4): a host with Conversations, Contact and
+// Settings in the header. With the keyboard up no band target intersects
+// another (the small orb, pause/resume, the host controls, the gear), Pause keeps
+// its keyboard-down box, and at least one whole transcript line stays visible
+// (320x568, vv308 and vv340, EN/DE, image dock).
+export async function keyboardHostBandCheck(t) {
+  const { open, read, capture } = await harness(t);
+  const readBand = page => page.$eval('aithema-session', bandState);
+  const [width, height] = [320, 568];
+  const bandTargets = band => [['orb', band.orb], ['pause', band.pause], ...band.header];
+  const crossings = (tag, band) => {
+    const failures = [], targets = bandTargets(band);
+    for (const [part, box] of targets) if (!(box?.width > 0 && box?.height > 0)) failures.push(`${tag}: ${part} positive box: ${JSON.stringify(box)}`);
+    for (let i = 0; i < targets.length; i++) for (let j = i + 1; j < targets.length; j++)
+      if (intersects(targets[i][1], targets[j][1])) failures.push(`${tag}: the ${targets[i][0]} and ${targets[j][0]} targets intersect: ${JSON.stringify([targets[i][1], targets[j][1]])}`);
+    return failures;
+  };
+  for (const viewport of [308, 340]) for (const locale of ['en', 'de']) {
+    const name = `${width}x${height}-vv${viewport}-${locale}-host-header-band`;
+    await t.test(name, async () => {
+      const problems = [], failures = [];
+      const page = await open({ width, height, locale, intake: 'image', host: { library: true }, contact: true }, problems);
+      try {
+        await reply(page, true); await settleLong(page);
+        const down = await readBand(page);
+        await capture(page, `${name}-keyboard-down`, { ...(await read(page)), band: down });
+        const names = down.header.map(([part]) => part).join(' ');
+        if (!/conversations-toggle/u.test(names) || !/settings-open/u.test(names) || down.header.length < 3) failures.push(`${name}: fixture: Conversations, Contact and Settings in the header: ${names}`);
+        failures.push(...crossings(`${name} keyboard down`, down));
+        await keyboardUp(page, viewport); await settleLong(page);
+        const up = await readBand(page), room = await read(page);
+        await capture(page, `${name}-keyboard-up`, { ...room, band: up });
+        if (!up.keyboard) failures.push(`${name}: the keyboard flag is set`);
+        failures.push(...crossings(`${name} keyboard up`, up));
+        for (const key of ['x', 'width', 'height']) if (Math.abs(up.pause[key] - down.pause[key]) > .5) failures.push(`${name}: pause keeps its keyboard-down ${key}: ${down.pause[key]} -> ${up.pause[key]}`);
+        if (!up.pauseHitLive) failures.push(`${name}: the visible pause takes the hit: ${up.pauseHitLiveBy}`);
+        if (up.outputPainted.length) failures.push(`${name}: the volume control is hidden with the keyboard up: ${JSON.stringify(up.outputPainted)}`);
+        if (room.lines < 1) failures.push(`${name}: at least one whole transcript line is visible: ${JSON.stringify(brief(room))}`);
+        failures.push(...noticeTargets(`${name} keyboard up`, up));
+        t.diagnostic(`${name}: band down/up ${down.band?.height} / ${up.band?.height}; lines ${room.lines}; room ${room.room.toFixed(1)}; pause ${JSON.stringify(up.pause)}; header ${JSON.stringify(up.header)}`);
       } finally { await page.close(); }
       none(failures, name);
       assert.deepEqual(problems, []);
