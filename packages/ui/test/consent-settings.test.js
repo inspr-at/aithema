@@ -47,14 +47,15 @@ test('AIT-231: invalid described items leave the existing visitor failure state 
   const h = fixture(t, en, { document: { contract: 'v1', selected: [], features: { voice: ['speech'] },
     items: [{ id: 'speech', version: 1, title: 'Speech', recipients: 'Processor', text: '' }] } });
   await h.editor.open('voice');
-  assert.equal(h.root.querySelector('.consent-status').textContent, en.host.consentFailed);
+  // AIT-612: a document that cannot be used is a failed LOAD, not a failed save.
+  assert.equal(h.root.querySelector('.consent-status').textContent, en.host.consentPage.loadFailed);
   assert.equal(h.root.querySelector('.consent-save').disabled, true);
   assert.equal(h.root.querySelectorAll('input').length, 0);
 });
 test('AIT-197: missing mapping fails closed and a closed editor ignores a late document', async t => {
   const h = fixture(t); await h.editor.open('analysis');
   assert.equal(h.root.querySelector('.consent-save').disabled, true);
-  assert.equal(h.root.querySelector('.consent-status').textContent, en.host.consentFailed);
+  assert.equal(h.root.querySelector('.consent-status').textContent, en.host.consentPage.loadFailed, 'AIT-612: a missing mapping is a failed load');
   const loading = Promise.withResolvers(), late = fixture(t, en, { load: () => loading.promise });
   const opening = late.editor.open('voice'); late.editor.close(); loading.resolve({}); await opening;
   assert.equal(late.root.hidden, true); assert.equal(late.root.querySelectorAll('input').length, 0);
@@ -130,6 +131,21 @@ for (const copy of [de, en]) test(`AIT-603 ${copy.display.locale}: the text feat
   assert.equal([...host.root.querySelectorAll('p')].some(p => !p.hidden && p.textContent === long), false);
   const stock = fixture(t, copy, { document: text, load: async () => { throw new Error('unavailable'); } });
   await stock.editor.open('text');
-  assert.equal(stock.root.querySelector('.consent-status').textContent, copy.host.consentFailed);
+  assert.equal(stock.root.querySelector('.consent-status').textContent, copy.host.consentPage.loadFailed, 'AIT-612: a failed load says so');
   assert.equal(reason(stock)?.textContent, copy.featureConsent.text); assert.equal(reason(stock).hidden, false);
+});
+
+// AIT-612 (TICK AIT-603 r4 L1, AIT-321 design d1cda502): one error, once. A failed load says the consent could
+// not be LOADED; a failed save keeps "could not be saved". Standalone, the sheet's own status sits above its Save.
+for (const copy of [de, en]) test(`AIT-612 ${copy.display.locale}: a failed load and a failed save each say what failed, once`, async t => {
+  assert.equal(typeof copy.host.consentPage.loadFailed, 'string'); assert.notEqual(copy.host.consentPage.loadFailed, copy.host.consentFailed);
+  const failedLoad = fixture(t, copy, { load: async () => { throw new Error('unavailable'); } });
+  await failedLoad.editor.open('voice');
+  assert.equal(failedLoad.root.querySelector('.consent-status').textContent, copy.host.consentPage.loadFailed);
+  assert.equal(failedLoad.editor.status, copy.host.consentPage.loadFailed);
+  assert.equal(failedLoad.root.textContent.includes(copy.host.consentFailed), false, 'a failed load never says "could not be saved"');
+  // The visitor switches language while the failure shows: it follows the page language.
+  const other = copy === de ? en : de;
+  failedLoad.editor.setCopy(other);
+  assert.equal(failedLoad.root.querySelector('.consent-status').textContent, other.host.consentPage.loadFailed);
 });

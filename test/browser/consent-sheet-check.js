@@ -54,7 +54,8 @@ async function harness(t) {
   // it waits for releaseConsent(), so the scroll before the load is known.
   // `noFocusVisible` (r4): emulate an engine that ignores focus({ focusVisible }).
   // `focusFails` (r5, gate Low): focus() on a consent checkbox does nothing.
-  return async ({ width, height, locale, sentence, doc, noFocusVisible = false, focusFails = false }, problems) => {
+  // `saveFails` (AIT-612): the consent POST answers 500, so Save fails.
+  return async ({ width, height, locale, sentence, doc, noFocusVisible = false, focusFails = false, saveFails = false }, problems) => {
     const page = await browser.newPage();
     page.on('pageerror', error => problems.push(error.message));
     await page.setViewport({ width, height });
@@ -79,9 +80,10 @@ async function harness(t) {
       let release; globalThis.releaseConsent = new Promise(resolve => { release = resolve; }); globalThis.release = () => release();
       const prior = globalThis.fetch;
       globalThis.fetch = async (url, options = {}) => String(url).endsWith('/consent') && (options.method ?? 'GET') === 'GET'
-        ? (await globalThis.releaseConsent, doc ? Response.json(doc) : new Response('unavailable', { status: 500 })) : prior(url, options);
+        ? (await globalThis.releaseConsent, doc ? Response.json(doc) : new Response('unavailable', { status: 500 }))
+        : saveFails && String(url).endsWith('/consent') ? Response.json({ error: 'unavailable' }, { status: 500 }) : prior(url, options);
       mount(JSON.parse(JSON.stringify(document.querySelector('aithema-session').session)));
-    }, locale, sentence, doc, noFocusVisible, focusFails);
+    }, locale, sentence, doc, noFocusVisible, focusFails, saveFails);
     await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason[data-consent-feature="text"] .consent-action'));
     await settle(page);
     return page;
@@ -183,8 +185,8 @@ export async function consentSheetFailedLoadCheck(t) {
       try {
         await openSheet(page);
         await page.evaluate(() => globalThis.release());
-        const failed = (item.locale === 'de' ? de : en).host.consentFailed;
-        await page.waitForFunction(text => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings[open] .consent-status')?.textContent === text, {}, failed);
+        const failed = (item.locale === 'de' ? de : en).host.consentPage.loadFailed;
+        await page.waitForFunction(text => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings[open] .save-status')?.textContent === text, {}, failed);
         await settle(page);
         const sheet = await page.$eval('aithema-session', readSheet, full);
         const failures = sentenceFailures(sheet);
@@ -339,7 +341,7 @@ export async function consentSheetOversizedCheck(t) {
       try {
         const start = await openSheet(page);
         await page.evaluate(() => globalThis.release());
-        if (path === 'failed') await page.waitForFunction(text => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings[open] .consent-status')?.textContent === text, {}, de.host.consentFailed);
+        if (path === 'failed') await page.waitForFunction(text => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings[open] .save-status')?.textContent === text, {}, de.host.consentPage.loadFailed);
         else await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings[open] .consent-item--target'));
         await settle(page);
         const sheet = await page.$eval('aithema-session', readSheet, full);
@@ -397,6 +399,64 @@ export async function consentSheetRingCheck(t) {
         none(failures, `${name}: ${JSON.stringify({ focus: sheet.focus, ring, want })}`);
         assert.deepEqual(problems, []);
       } finally { await page.close(); }
+    });
+  }
+}
+
+// AIT-612 (TICK AIT-603 r4 L1): one error, once, next to the action that failed. A failed save shows "could not be
+// saved" only in the footer beside Save; a failed load says the consent could not be LOADED, once, in the same
+// place. The footer reserves every state, so its box is the same in the normal, load-failed and save-failed sheet.
+// TICK captures: normal, load-failed and save-failed at 360/390/1440 EN/DE.
+export async function consentSheetErrorOnceCheck(t) {
+  const open = await harness(t);
+  for (const item of sheetCases) {
+    const copy = item.locale === 'de' ? de : en, boxes = {};
+    for (const state of ['normal', 'load-failed', 'save-failed']) {
+      const name = `${item.width}x${item.height}-${item.locale}-ait612-${state}`;
+      await t.test(name, async () => {
+        const problems = [];
+        const page = await open({ ...item, doc: state === 'load-failed' ? null : documentFor('short', 'fixture-ait-612'), saveFails: state === 'save-failed' }, problems);
+        try {
+          await openSheet(page);
+          await page.evaluate(() => globalThis.release());
+          if (state === 'load-failed') await page.waitForFunction(text => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings[open] .save-status')?.textContent === text, { timeout: 10_000 }, copy.host.consentPage.loadFailed)
+            .catch(error => { throw new Error(`${name}: the footer never said the consent could not be loaded`, { cause: error }); });
+          else await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings[open] .consent-item--target'));
+          if (state === 'save-failed') {
+            await page.$eval('aithema-session', c => { const box = c.shadowRoot.querySelector('dialog.settings[open] .consent-item--target input'); box.checked = true; box.dispatchEvent(new Event('change', { bubbles: true })); });
+            await page.$eval('aithema-session', c => c.shadowRoot.querySelector('dialog.settings[open] .done').click());
+            await page.waitForFunction(text => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings[open] .save-status')?.textContent === text, { timeout: 10_000 }, copy.host.consentFailed)
+              .catch(error => { throw new Error(`${name}: the footer never said the save failed`, { cause: error }); });
+          }
+          await settle(page);
+          const read = await page.$eval('aithema-session', (c, texts) => {
+            const dialog = c.shadowRoot.querySelector('dialog.settings[open]');
+            const box = n => { const r = n?.getBoundingClientRect(); return r ? [r.x, r.y, r.width, r.height] : null; };
+            const visible = needle => [...dialog.querySelectorAll('*')].filter(n => n.childElementCount === 0 && n.textContent.includes(needle) && n.checkVisibility({ visibilityProperty: true }))
+              .map(n => ({ className: n.className, box: box(n), inFooter: Boolean(n.closest('.settings__footer, footer')) }));
+            return { saved: visible(texts.saved), loaded: visible(texts.loaded), consentStatus: dialog.querySelector('.consent-status')?.textContent ?? null,
+              saveStatus: dialog.querySelector('.save-status')?.textContent ?? null, footer: box(dialog.querySelector('.save-state')), done: box(dialog.querySelector('.done')) };
+          }, { saved: copy.host.consentFailed, loaded: copy.host.consentPage.loadFailed });
+          await capture(page, name, { summary: `${state}; saved-error ${read.saved.length}x, load-error ${read.loaded.length}x; footer ${JSON.stringify(read.footer)}`, ...read });
+          const failures = [], expect = { normal: [0, 0], 'load-failed': [0, 1], 'save-failed': [1, 0] }[state];
+          if (read.saved.length !== expect[0]) failures.push(`"${copy.host.consentFailed}" shows ${read.saved.length}x, expected ${expect[0]}`);
+          if (read.loaded.length !== expect[1]) failures.push(`"${copy.host.consentPage.loadFailed}" shows ${read.loaded.length}x, expected ${expect[1]}`);
+          for (const shown of [...read.saved, ...read.loaded]) {
+            if (shown.className !== 'save-status' || !shown.inFooter) failures.push(`the error sits next to Save in the footer: ${JSON.stringify(shown)}`);
+            if (!(shown.box?.[2] > 0 && shown.box?.[3] > 0)) failures.push(`the error has a positive box: ${JSON.stringify(shown)}`);
+          }
+          if (read.consentStatus) failures.push(`nothing repeats under the consent text: ${JSON.stringify(read.consentStatus)}`);
+          for (const [key, value] of [['footer', read.footer], ['done', read.done]]) if (!(value?.[2] > 0 && value?.[3] > 0)) failures.push(`${key}: positive width and height: ${JSON.stringify(value)}`);
+          boxes[state] = { footer: read.footer, done: read.done };
+          none(failures, `${name}: ${JSON.stringify(read)}`);
+          assert.deepEqual(problems, []);
+        } finally { await page.close(); }
+      });
+    }
+    await t.test(`${item.width}x${item.height}-${item.locale}-ait612-0px`, () => {
+      assert.equal(Object.keys(boxes).length, 3, `all three states measured: ${JSON.stringify(boxes)}`);
+      assert.deepEqual(boxes['load-failed'], boxes.normal, `the footer and Save keep their boxes on a failed load (0 px): ${JSON.stringify(boxes)}`);
+      assert.deepEqual(boxes['save-failed'], boxes.normal, `the footer and Save keep their boxes on a failed save (0 px): ${JSON.stringify(boxes)}`);
     });
   }
 }

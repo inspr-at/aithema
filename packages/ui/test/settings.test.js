@@ -905,7 +905,9 @@ test('AIT-234: a failed catalog retains Custom for explicit reload without savin
 test('AIT-234: an invalid consent document keeps the shared Done button disabled', async t => {
   const h = fixture(t, { matrix: { best: { text: refused('current processing consent required') } } });
   h.root.querySelector('.composer-reason .consent-action').click(); await tick(10);
-  assert.equal(h.q('.consent-status').textContent, en.host.consentFailed);
+  // AIT-612: one message, once, next to Save (the shared footer); a failed load says it could not be loaded.
+  assert.equal(h.q('.consent-status').textContent, '');
+  assert.equal(h.q('.save-status').textContent, en.host.consentPage.loadFailed);
   assert.equal(h.q('.done').disabled, true);
   assert.equal(h.q('.done').getAttribute('aria-disabled'), 'true');
   assert.equal(h.q('.done').hasAttribute('aria-describedby'), false, 'consent failure is not catalog loading');

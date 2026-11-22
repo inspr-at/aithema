@@ -13,7 +13,7 @@ import { shadow, until, boxes, evidenceCommit } from './start2-display-helpers.j
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { compactStatusMaximum } from './overview-fade-check.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
-import { consentSheetFailedLoadCheck, consentSheetLoadedCheck, consentSheetFocusKeptCheck, consentSheetTallPurposeCheck, consentSheetOversizedCheck, consentSheetRingCheck } from './consent-sheet-check.js';
+import { consentSheetFailedLoadCheck, consentSheetLoadedCheck, consentSheetFocusKeptCheck, consentSheetTallPurposeCheck, consentSheetOversizedCheck, consentSheetRingCheck, consentSheetErrorOnceCheck } from './consent-sheet-check.js';
 
 const features = { imageInput: ['models-international', 'image-input'], uploads: ['models-international'], transcription: ['voice-elevenlabs'], images: ['models-international'], text: ['models-international'], html: ['drafts-anthropic'], voice: ['voice-elevenlabs'], analysis: ['models-international'] };
 const places = { html: '.concept-activity-text', voice: '.voice-state', analysis: '.notice' };
@@ -1617,3 +1617,4 @@ test('AIT-603 PR-B r2: focus the visitor moves while the consent document loads 
 test('AIT-603 PR-B r2: a tall target purpose: text scrolls the least for sentence + checkbox, other features centre the focused checkbox inside the scrollport, 360/390/1440 EN/DE', { timeout: 240_000 }, consentSheetTallPurposeCheck);
 test('AIT-603 PR-B r2: an oversized DE host sentence anchors at its top with focus on it, failed and loaded, 360/390', { timeout: 120_000 }, consentSheetOversizedCheck);
 test('AIT-603 PR-B r4: the focused target checkbox draws the :focus-visible ring with and without focus({ focusVisible }), both fit, 360/390/1440 EN/DE', { timeout: 300_000 }, consentSheetRingCheck);
+test('AIT-612: the consent sheet shows a failed save or load once, next to Save; the footer keeps its box; 360/390/1440 EN/DE', { timeout: 300_000 }, consentSheetErrorOnceCheck);
