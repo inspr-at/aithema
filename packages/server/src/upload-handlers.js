@@ -28,21 +28,34 @@ const releasePendingRequest = () => { pendingUploadRequests--; };
 // body read is not possible: the server cannot know a request's image count
 // before reading it, and AIT-219 requires three concurrent document requests to
 // be admitted. Each original returns its slot when its job ends (or at shutdown).
-// True memory bound (default ceilings: maxRequestBytes 21 MiB, maxBytes 20 MiB,
-// MAX_PENDING_UPLOAD_REQUESTS 3 retained requests):
+// Memory bound, every live copy counted (AIT-610 r4; default ceilings:
+// maxRequestBytes 21 MiB, maxBytes 20 MiB, MAX_PENDING_UPLOAD_REQUESTS 3
+// retained requests, one normalization at a time through the extraction slot):
+//   server process
 //   - request bodies being read or parsed: at most 3 x 21 MiB (readBody's one
-//     buffer; multipart parts are views of it, the metadata copy holds headers only);
-//   - held originals (owned copies): at most 8 slots and at most 3 x 21 MiB;
-//     the request body is zero-filled and dropped when its handler returns;
-//   - normalizer IPC: one image at a time (the single extraction slot); the
-//     structured-clone copy in the parent and the child's copy add at most 2 x 20 MiB.
-// So at most about 3 x 21 + 3 x 21 + 2 x 20 = 166 MiB of request/image bytes.
+//     buffer; multipart parts are views of it, the metadata copy holds headers
+//     only); zero-filled and dropped when the handler returns;
+//   - held originals (owned copies): at most 8 slots and at most 3 x 21 MiB (a
+//     request stays retained until its jobs end, so its originals count against
+//     the same 3 requests);
+//   - IPC to the normalizer child: one serialized message (<= 20 MiB original);
+//   - the child's result: <= 8 MiB normalized output, received buffers plus the
+//     deserialized message (<= 2 x 8 MiB);
+//   normalizer child (one at a time; RSS capped at 384 MiB by its watchdog)
+//   - the received message: receive buffers plus the deserialized message
+//     (<= 2 x 20 MiB); the decoder reads a VIEW of it (normalize-input.js), not
+//     another copy;
+//   - its result: the encoded output plus its serialized message (<= 2 x 8 MiB).
+// So at most 3 x 21 + 3 x 21 + 20 + 16 = 162 MiB in the server process and
+// 40 + 16 = 56 MiB in the child: 218 MiB of request/image bytes in total.
+// Bytes already dropped wait for the garbage collector; the bound counts live copies.
 // A restart loses the held originals; their rows (no bytes) become
 // staged-refused 'unavailable', which the client shows with an instruction to
 // attach the image again.
 const MAX_PENDING_IMAGE_NORMALIZATIONS = 8;
 let imageSlots = 0; // held originals
 const STAGING_MS = 30 * 60 * 1000;
+const RECOVERY_RETRY_MS = 1000;
 /** Admission counters, for tests and diagnostics (counts only, never bytes). */
 export const uploadAdmissionState = () => ({ pendingUploadRequests, imageSlots });
 // Process-wide FIFO: waiting jobs retain IDs/metadata only, never stored bytes.
@@ -81,6 +94,28 @@ function zeroExcept(buffer, views) {
   }
   buffer.fill(0, offset);
 }
+// A standalone SVG: the root element is <svg> (optionally prefixed) after an
+// optional BOM, XML declaration, processing instructions, comments and doctype
+// (AIT-610 r4). The whole prolog is scanned, so padding cannot hide the root.
+// An XML document with any other root stays a document (AIT-510).
+function standaloneSvg(bytes) {
+  const text = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('latin1');
+  const space = code => code === 0x20 || code === 0x09 || code === 0x0a || code === 0x0d;
+  let i = text.startsWith('\xef\xbb\xbf') ? 3 : 0;
+  for (;;) {
+    while (i < text.length && space(text.charCodeAt(i))) i++;
+    let end;
+    if (text.startsWith('<?', i)) end = text.indexOf('?>', i + 2) + 2;
+    else if (text.startsWith('<!--', i)) end = text.indexOf('-->', i + 4) + 3;
+    else if (text.startsWith('<!DOCTYPE', i)) {
+      const close = text.indexOf('>', i), subset = text.indexOf('[', i);
+      end = (subset >= 0 && subset < close ? text.indexOf('>', text.indexOf(']', subset)) : close) + 1;
+    } else break;
+    if (end <= i) return false; // an unterminated prolog item
+    i = end;
+  }
+  return /^<(?:[A-Za-z_][\w.-]*:)?svg[\t\n\r />]/u.test(text.slice(i, i + 256));
+}
 const extensions = { pdf: EXTRACTOR_MEDIA_TYPES.pdf, docx: EXTRACTOR_MEDIA_TYPES.docx, xlsx: EXTRACTOR_MEDIA_TYPES.xlsx,
   pptx: EXTRACTOR_MEDIA_TYPES.pptx, txt: 'text/plain', md: 'text/markdown', csv: 'text/csv', json: 'application/json', xml: 'application/xml' };
 export function sniffUploadDocument(bytes, filename, maxBytes = EXTRACTOR_LIMITS.maxBytes) {
@@ -99,7 +134,7 @@ export function sniffUploadDocument(bytes, filename, maxBytes = EXTRACTOR_LIMITS
   const excluded = /^(?:heic|heix|hevc|hevx|heim|heis|hevm|hevs|mif1|msf1|avif|avis)$/u.test(brand);
   const detected = excluded ? { mediaType: /^avi/u.test(brand) ? 'image/avif' : 'image/heic', reason: 'unsupported' }
     : gif ? { mediaType: 'image/gif', reason: 'unsupported' } : other ? { mediaType: other, reason: 'unsupported' }
-      : sniffDocument(bytes, { ...EXTRACTOR_LIMITS, maxBytes });
+      : standaloneSvg(bytes) ? { mediaType: 'image/svg+xml', reason: 'unsupported' } : sniffDocument(bytes, { ...EXTRACTOR_LIMITS, maxBytes });
   const extension = /\.([a-z0-9]+)$/iu.exec(filename)?.[1].toLowerCase(), expected = extensions[extension];
   if (detected.reason) return detected;
   // Text subtypes are heuristic: an empty markdown/CSV/JSON file still belongs
@@ -123,7 +158,31 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
   // restart): staged-refused 'unavailable' with a fresh staging window, so the
   // visitor sees the instruction to attach it again before expiry removes it.
   const lost = () => ({ status: 'staged-refused', reason: 'unavailable', expiresAt: now() + STAGING_MS });
+  // Recovery before every expiry pass (AIT-610 r4): a staged-pending image with
+  // neither a job nor a held original (lost to a restart, or its job's final
+  // write failed) becomes staged-refused 'unavailable' first. Returns false if
+  // a recovery write failed: expiry must then not run, or it would discard the
+  // pending row before the visitor sees the instruction to attach it again.
+  function recover(id) {
+    if (signal.aborted) return true;
+    let recovered = true;
+    for (const upload of storage.get(id).uploads) {
+      if (upload.kind !== 'image' || upload.state !== 'staged-pending' || upload.erased || jobs.has(upload.id) || originals.has(upload.id)) continue;
+      try {
+        const before = storage.get(id).seq, event = storage.completeUpload(id, upload.id, lost(), { opener });
+        if (event) for (const saved of storage.read(id, before)) publish(id, saved);
+      } catch { recovered = false; }
+    }
+    return recovered;
+  }
   function expire(id) {
+    if (!recover(id)) {
+      // Keep the rows; try again shortly. Nothing expires in this session until
+      // every lost image is recorded as 'unavailable'.
+      clearTimeout(expiryTimers.get(id));
+      if (!signal.aborted) { const timer = setTimeout(() => expire(id), RECOVERY_RETRY_MS); timer.unref?.(); expiryTimers.set(id, timer); }
+      return;
+    }
     for (const event of storage.expireStagedUploads(id, now())) { jobs.get(event.data.id)?.controller.abort(); publish(id, event); }
     clearTimeout(expiryTimers.get(id)); expiryTimers.delete(id);
     const pending = storage.get(id).uploads.filter(upload => stagedImage(upload) && !upload.erased);
@@ -251,7 +310,9 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
         files = entries.map(({ value: f, bytes }) => {
           const detected = sniffUploadDocument(bytes, f.name, limits.maxBytes);
           // Image signatures always win (BMP, TIFF and JPEG XL included since
-          // AIT-610 r3), whatever the name or client MIME. An image suffix also
+          // AIT-610 r3, a standalone SVG since r4), whatever the name or client
+          // MIME. This runs before storage.postUploads: a disguised image is
+          // held in memory only and never reaches the database. An image suffix also
           // makes the file image input. An image client MIME does so only without
           // a document suffix: AIT-510 keeps document admission for a named
           // document with a false image MIME hint (the MIME is untrusted).
@@ -326,16 +387,10 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
       }
     },
     resume() {
-      // Recovery before boot expiry: a staged image whose original is gone
-      // becomes staged-refused 'unavailable' first, so expiry never discards
-      // it silently. A failure leaves the row pending; its job refuses it.
-      for (const id of storage.list()) for (const upload of storage.get(id).uploads) {
-        if (upload.kind !== 'image' || upload.state !== 'staged-pending' || jobs.has(upload.id) || originals.has(upload.id) || signal.aborted) continue;
-        try {
-          const before = storage.get(id).seq, event = storage.completeUpload(id, upload.id, lost(), { opener });
-          if (event) for (const saved of storage.read(id, before)) publish(id, saved);
-        } catch {}
-      }
+      // Boot expiry recovers first (expire -> recover): a staged image whose
+      // original is gone becomes staged-refused 'unavailable', so expiry never
+      // discards it silently. If that write fails, the session's expiry waits
+      // (retried), and the row's fallback job below records 'unavailable'.
       for (const id of storage.list()) expire(id);
       for (const id of storage.list()) for (const upload of storage.get(id).uploads) {
         if (!['pending', 'staged-pending'].includes(upload.state) || jobs.has(upload.id) || signal.aborted) continue;

@@ -56,10 +56,16 @@ const chunkText = chunk => typeof chunk === 'string' ? chunk : chunk instanceof 
   ? Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength).toString('latin1') : '';
 // Records every byte written through Node's fs write APIs while a fixture is
 // alive, so a file written and deleted between two temp-dir samples is still
-// seen. SQLite writes natively and is covered by the database file scans.
+// seen: fs.writeFile/Sync, appendFile/Sync, write/Sync, writev/Sync,
+// createWriteStream, fs.promises writeFile/appendFile and FileHandle
+// write/writev/writeFile/appendFile. Only in this test process, whose image
+// normalizer is a fake: the real normalizer child is a separate process and is
+// not hooked (it runs with --permission and no fs write grant). SQLite writes
+// natively and is covered by the database file scans.
 function hookFsWrites(t, writes) {
   const mocks = [];
-  const record = (api, data) => { writes.push(`${api}:${chunkText(data)}`); };
+  // Vectored writes (writev) pass an array of buffers.
+  const record = (api, data) => { for (const chunk of Array.isArray(data) ? data : [data]) writes.push(`${api}:${chunkText(chunk)}`); };
   const wrapStream = stream => {
     for (const method of ['write', 'end']) {
       const original = stream[method];
@@ -68,7 +74,7 @@ function hookFsWrites(t, writes) {
     return stream;
   };
   const wrapHandle = handle => {
-    for (const method of ['write', 'writeFile', 'appendFile']) {
+    for (const method of ['write', 'writev', 'writeFile', 'appendFile']) {
       const original = handle[method];
       handle[method] = function (data, ...rest) { record(`handle.${method}`, data); return original.call(this, data, ...rest); };
     }
@@ -78,7 +84,7 @@ function hookFsWrites(t, writes) {
     const original = fs[name];
     mocks.push(t.mock.method(fs, name, function (path, data, ...rest) { record(`fs.${name}`, data); return original.call(this, path, data, ...rest); }));
   }
-  for (const name of ['write', 'writeSync']) {
+  for (const name of ['write', 'writeSync', 'writev', 'writevSync']) {
     const original = fs[name];
     mocks.push(t.mock.method(fs, name, function (fd, data, ...rest) { record(`fs.${name}`, data); return original.call(this, fd, data, ...rest); }));
   }

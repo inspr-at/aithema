@@ -338,14 +338,20 @@ drop). Two other byte paths follow their own rules, listed below.
   reason `image-normalizations` and never held. On every exit,
   refusal or admission, the request body is zero-filled (only the parts of
   admitted documents stay, which the document rules store), and a failed read
-  zero-fills its partial buffers. Request and image bytes in memory stay
-  below about 166 MiB at the default ceilings: three retained request bodies
-  (3 × 21 MiB), their held originals (3 × 21 MiB, at most eight) and the
-  normalizer's IPC copies of one image (2 × 20 MiB). A file is image input when
-  its signature says image (PNG, JPEG, WebP, GIF, BMP, TIFF, HEIC/AVIF, JPEG XL),
-  its name has an image suffix, or its client MIME says image and its name has
-  no document suffix (AIT-510: a false image MIME on a named document keeps
-  document admission; such a file follows the document rules). Refused bytes are
+  zero-fills its partial buffers. Request and image bytes in memory, every live
+  copy counted, at the default ceilings: in the server process three retained
+  request bodies (3 × 21 MiB), their held originals (3 × 21 MiB, at most
+  eight), one IPC message to the normalizer (20 MiB) and its result
+  (2 × 8 MiB), 162 MiB; in the normalizer child (one at a time) the received
+  message (2 × 20 MiB; the decoder reads a view of it, not another copy) and
+  its result (2 × 8 MiB), 56 MiB. 218 MiB in total. Classification runs before
+  any persistence. A file is image input when its signature says image (PNG,
+  JPEG, WebP, GIF, BMP, TIFF, HEIC/AVIF, JPEG XL), it is a standalone SVG (root
+  `<svg>` after an optional XML declaration, comments and doctype, whatever the
+  suffix), its name has an image suffix, or its client MIME says image and its
+  name has no document suffix (AIT-510: a false image MIME on a named document
+  keeps document admission; such a file follows the document rules; an XML
+  document whose root is not `svg` stays a document). Refused bytes are
   never written: no `uploads` row, no blob, no temp file, no cache. For
   idempotent replay the receipt keeps the refused positions, kinds and reasons
   plus a SHA-256 digest over the request's names and file digests, never the
@@ -360,10 +366,12 @@ drop). Two other byte paths follow their own rules, listed below.
   `staged-refused` with its reason. The original is then dropped and zeroed.
   Ownership and the job are registered before anything that can throw, so an
   exception cannot strand an original; shutdown zeroes every original it still
-  holds. A restart loses originals still waiting. Recovery runs before boot
-  expiry: such a row becomes `staged-refused` with reason `unavailable` (never
-  `deadline`, never silently discarded) and a fresh staging window. The client
-  tells the visitor to attach the image again (EN and DE copy).
+  holds. A restart loses originals still waiting. Recovery runs before every
+  expiry pass: such a row becomes `staged-refused` with reason `unavailable`
+  (never `deadline`, never silently discarded) and a fresh staging window. If
+  that write fails, the session's expiry waits and is retried, and the row's
+  own job records `unavailable`; a pending image row is never expired. The
+  client tells the visitor to attach the image again (EN and DE copy).
 - **Turns** carry upload IDs, never bytes. A refused or still pending ID cannot
   be attached.
 
@@ -380,11 +388,18 @@ Out of scope, with their own rules:
 reason with a sentinel image: no stored row or table, database file, WAL or
 rollback journal, backup snapshot taken during the job, temp file (sampled
 before and during the job, nested included), write through Node's `fs` write
-APIs (so a file deleted between samples is still seen), console or host log
-entry (message, stack and `Error.cause` included), stdout/stderr write, stored
-or live event, model-lane request or response body holds the refused bytes.
-Each channel has a positive control. Writes made natively outside Node's `fs`
-APIs (other than SQLite's own files, which are scanned) are not observed.
+APIs, console or host log entry (message, stack and `Error.cause` included),
+stdout/stderr write, stored or live event, model-lane request or response body
+holds the refused bytes. Each channel has a positive control. Exact scope of
+the `fs` hook: `writeFile`/`writeFileSync`, `appendFile`/`appendFileSync`,
+`write`/`writeSync`, `writev`/`writevSync`, `createWriteStream`,
+`fs.promises` `writeFile`/`appendFile`, and a `FileHandle`'s `write`, `writev`,
+`writeFile` and `appendFile`, so a file deleted between temp samples is still
+seen. The hook covers only the test process, which runs the server with a fake
+normalizer. The real normalizer child is a separate process and is not hooked;
+it runs under Node's permission model with read-only module paths and no write
+grant. Writes made natively outside Node's `fs` APIs (other than SQLite's own
+files, which are scanned) are not observed.
 
 ## Routing and health
 
