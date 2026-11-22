@@ -74,6 +74,7 @@ test('AIT-219: measure generated inputs through the real sandboxed workers, thre
         segmentsKept: result?.segments.length ?? 0, charsKept: result?.text.length ?? 0, truncated: result?.truncated ?? false };
       rows.push(row); t.diagnostic(JSON.stringify(row));
       if (run === 1 && process.env.AITHEMA_EVIDENCE_DIR) {
+        await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
         await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `${format}-${sizeMiB}-trace.txt`), record.trace);
       }
       assert.equal(activeExtractorProcessCount(), 0);
