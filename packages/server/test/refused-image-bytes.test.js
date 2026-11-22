@@ -880,3 +880,27 @@ for (const [label, name, text] of [
   assert.notEqual(upload?.kind, 'image', JSON.stringify(upload));
   assert.equal(f.normalized.length, 0, 'the image normalizer never sees a document');
 });
+
+// M4 (r4): recovery now runs before every expiry pass, so it must only touch
+// images that no handler set in this process holds. A second handler set over
+// the same storage leaves an image held by the first one alone.
+test('AIT-610 r4: recovery never marks an image another handler set still holds as unavailable', async t => {
+  const f = await fixture(t), image = sentinelImage();
+  let release, entered;
+  const gate = new Promise(resolve => { release = resolve; }), running = new Promise(resolve => { entered = resolve; });
+  f.normalizer.verdict = async (bytes, metadata, options) => { entered(); await gated(gate, options); return { status: 'staged-refused', reason: 'unsupported' }; };
+  const response = await f.upload('held-elsewhere', [['held.png', image.bytes]]), body = await response.text();
+  assert.equal(response.status, 202, body);
+  await running;
+  const other = createHandlers({ storage: f.storage, reasoning: createMockReasoning(), pluginRuntime: f.runtime, consent: mockConsent });
+  t.after(() => other.close());
+  const listed = await other.handle(ownedRequest(`http://localhost/api/sessions/${f.session.id}/uploads`));
+  assert.equal(listed.status, 200, await listed.text());
+  assert.equal(f.storage.get(f.session.id).uploads[0].state, 'staged-pending', 'the other handler set leaves the held image alone');
+  release();
+  await f.handlers.idle();
+  const upload = f.storage.get(f.session.id).uploads[0];
+  assert.equal(upload.state, 'staged-refused');
+  assert.equal(upload.reason, 'unsupported', 'the normalizer decided, not a false restart recovery');
+  await f.assertNoTrace(image, { responses: [body] });
+});
