@@ -6,3 +6,5 @@ import { documentUploadCheck } from './document-upload-check.js';
 documentUploadCheck();
 import { imageInputCheck } from './image-input-check.js';
 imageInputCheck([1440]);
+import { intakeNoticeCheck } from './ait610-intake-notice-check.js';
+intakeNoticeCheck();
