@@ -15,6 +15,8 @@ import { createVoiceControl } from '../../ui/src/voice-control.js';
 import { paintVoiceInterruption } from '../../ui/src/voice-transcript.js';
 import { de } from '../../ui/src/i18n/de.js';
 import { en } from '../../ui/src/i18n/en.js';
+// AIT-625: a voice control sends its owner requests from a page; this is that page.
+const page = new Window({ url: 'http://localhost/' });
 
 
 // No sockets or provider credentials: the real provider token primitive consumes
@@ -32,7 +34,7 @@ for (const retryAfter of ['12', null]) test(`AIT-378 R1 real token 429, Retry-Af
     const suffix = new URL(url, 'http://fixture').pathname.split(h.session.id)[1];
     const response = await h.route(suffix, JSON.parse(options.body)); entered.resolve(); return response;
   });
-  const { control } = createVoiceControl({ sessionId: h.session.id });
+  const { control } = createVoiceControl({ sessionId: h.session.id, view: page });
   const rail = new AudioRail({ root, client: { manifest: h.plugin.manifest, async start(request) { await control.start(request); } },
     copy: de, context: () => ({}), feature: () => ({ available: true }) });
   t.after(async () => { rail.destroy(); await window.happyDOM.close(); });

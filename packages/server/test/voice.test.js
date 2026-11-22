@@ -17,6 +17,8 @@ import '../../ui/test/fixtures/page-origin.js';
 import { AudioRail } from '../../ui/src/audio-rail.js';
 import { createVoiceControl } from '../../ui/src/voice-control.js';
 import { en } from '../../ui/src/i18n/en.js';
+// AIT-625: a voice control sends its owner requests from a page; this is that page.
+const hostPage = new Window({ url: 'http://host/' });
 
 const test = (name, fn) => nodeTest(name, { timeout: 60_000 }, fn);
 
@@ -3118,7 +3120,7 @@ for (const funding of ['session', 'voiceVisitor', 'owner']) test(`AIT-163 fix3: 
     denial = { status: response.status, body: await response.clone().json() };
     return response;
   });
-  const { control } = createVoiceControl({ baseUrl: 'http://host', sessionId: h.session.id, sessionToken: 'voice-owner' });
+  const { control } = createVoiceControl({ baseUrl: 'http://host', sessionId: h.session.id, sessionToken: 'voice-owner', view: hostPage });
   const window = new Window(), root = window.document.createElement('div'); window.document.body.append(root);
   const rail = new AudioRail({ root, copy: en, feature: () => ({ available: true }), context: () => ({}),
     waitingCall: { ...first, state: 'waiting' },
