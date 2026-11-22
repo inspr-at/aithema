@@ -398,7 +398,11 @@ export const combinedEntranceStyles = `
 @media(max-width:599px) {
   .workspace[data-entrance="combined"][data-phone-keyboard] .band:has(> .audio-rail) { --band-height:44px; grid-template-rows:44px; height:44px; min-height:44px; }
   .workspace[data-entrance="combined"][data-phone-keyboard] .band > .audio-rail { grid-row:1; height:44px; min-height:44px; pointer-events:none; }
-  .workspace[data-entrance="combined"][data-phone-keyboard] .band > .audio-rail > :is(.voice-cell--output, .voice-signal, .voice-cell--mic, .voice-cell--end) { visibility:hidden; }
+  /* The identity is auto-placed: pin it to the one row, or the rail's row would push it into an implicit second row. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .band:has(> .audio-rail) > .band-identity { grid-row:1; grid-column:1; }
+  /* Descendants too: the wave and revealed controls set their own visibility. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .band > .audio-rail > :is(.voice-cell--output, .voice-signal, .voice-cell--mic, .voice-cell--end),
+  .workspace[data-entrance="combined"][data-phone-keyboard] .band > .audio-rail > :is(.voice-cell--output, .voice-signal, .voice-cell--mic, .voice-cell--end) :not(.voice-state, .voice-state *) { visibility:hidden; }
   .workspace[data-entrance="combined"][data-phone-keyboard] .band > .audio-rail > .voice-cell--pause { pointer-events:auto; }
   .workspace[data-entrance="combined"][data-phone-keyboard] .band > .audio-rail .voice-state {
     visibility:visible; position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
