@@ -550,7 +550,7 @@ export const de = {
     pending: 'Datei wird gelesen …', accepted: 'Gelesen. Die Originaldatei wird nicht aufbewahrt.', truncated: 'Teilweise gelesen: Der Text war zu lang und wurde gekürzt.',
     unreadable: 'Nicht lesbar: {reason}. Bitte fügen Sie den relevanten Teil als Text ein.',
     withdraw: 'Datei zurückziehen', withdrawn: 'Datei zurückgezogen', withdrawFailed: 'Die Datei konnte nicht zurückgezogen werden. Versuchen Sie es erneut.',
-    refused: 'Nicht angehängt: {list}.', tooLarge: '{name} (zu groß, höchstens {size} pro Datei)', type: '{name} (Dateityp wird nicht angenommen)', typeReason: '{name} ({reason})',
+    refused: 'Nicht angehängt: {list}.', tooLarge: '{name} (zu groß, höchstens {size} pro Datei)', type: '{name} (Dateityp wird nicht angenommen)',
     tooMany: 'In diesem Gespräch können keine weiteren Dateien hinzugefügt werden (höchstens {files}).', sessionFull: 'Diese Dateien passen nicht mehr in dieses Gespräch (höchstens {size} insgesamt).',
     overLimit: 'Diese Dateien überschreiten die Grenzen für Dateien in diesem Gespräch.', failed: 'Die Datei konnte nicht übernommen werden.', failedMany: 'Die Dateien konnten nicht übernommen werden.',
     notUploaded: { one: '1 Datei nicht hochgeladen: Der Server ist gerade ausgelastet', other: '{count} Dateien nicht hochgeladen: Der Server ist gerade ausgelastet' },

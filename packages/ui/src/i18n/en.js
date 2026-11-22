@@ -550,7 +550,7 @@ export const en = {
     pending: 'Reading the file…', accepted: 'Read. The original file is not stored.', truncated: 'Read in part: the text was too long and was shortened.',
     unreadable: 'Not readable: {reason}. Please paste the relevant part as text.',
     withdraw: 'Withdraw upload', withdrawn: 'Upload withdrawn', withdrawFailed: 'The upload could not be withdrawn. Try again.',
-    refused: 'Not attached: {list}.', tooLarge: '{name} (too large, up to {size} per file)', type: '{name} (file type not accepted)', typeReason: '{name} ({reason})',
+    refused: 'Not attached: {list}.', tooLarge: '{name} (too large, up to {size} per file)', type: '{name} (file type not accepted)',
     tooMany: 'No more files fit in this conversation (up to {files}).', sessionFull: 'These files do not fit in this conversation (up to {size} in total).',
     overLimit: 'These files exceed the upload limits of this conversation.', failed: 'The file could not be added.', failedMany: 'The files could not be added.',
     notUploaded: { one: '1 file not uploaded: the server is busy right now', other: '{count} files not uploaded: the server is busy right now' },
