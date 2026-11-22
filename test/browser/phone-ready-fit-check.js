@@ -658,11 +658,19 @@ export async function welcomeOnlyFollowCheck(t) {
         positive(`${name}/shell`, before.shell);
         // The precondition: the welcome alone scrolls and the guard kept the reader above its end.
         assert.ok(before.max > .5 && before.scrollTop < before.max - .5, `${name}: the welcome-only pane scrolls above its end ${JSON.stringify(before)}`);
-        await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.transcript-latest').click());
+        // A failure names the transcript's scroll writers after the jump (diagnostics only).
+        await page.$eval('aithema-session', c => {
+          const shell = c.shadowRoot.querySelector('.transcript-shell'), top = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop'), trap = globalThis.latestTrap603 = [];
+          const where = () => new Error().stack.split('\n').slice(3, 7)
+            .map(line => { const m = /at (?:async )?(?:(\S+) \()?.*\/([^/:]+):(\d+):\d+\)?$/u.exec(line); return m ? `${m[1] ?? ''}@${m[2]}:${m[3]}` : ''; }).join('<');
+          Object.defineProperty(shell, 'scrollTop', { configurable: true, get() { return top.get.call(this); },
+            set(value) { if (trap.length < 16) trap.push(`${Math.round(top.get.call(this))}->${Math.round(value)}/${this.scrollHeight - this.clientHeight} ${where()}`); top.set.call(this, value); } });
+          c.shadowRoot.querySelector('.transcript-latest').click();
+        });
         await settle(page);
-        const after = await state(page);
+        const after = await state(page), writes = await page.evaluate(() => globalThis.latestTrap603);
         assert.deepEqual(after.rows, ['host:opener(h)'], `${name}: still only the host welcome`);
-        assert.ok(Math.abs(after.scrollTop - after.max) <= .5, `${name}: Latest goes to the end: ${JSON.stringify({ before, after })}`);
+        assert.ok(Math.abs(after.scrollTop - after.max) <= .5, `${name}: Latest goes to the end: ${JSON.stringify({ writes, before, after })}`);
         assert.deepEqual(problems, []);
       } finally {
         await page.evaluate(() => { const release = globalThis.releaseTurns; globalThis.releaseTurns = null; release?.(); }).catch(() => {});
