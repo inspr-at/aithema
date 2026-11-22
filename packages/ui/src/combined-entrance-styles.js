@@ -410,11 +410,11 @@ export const combinedEntranceStyles = `
      reason's 1.3 line height, 14.98 px). It stays while the keyboard is up
      after consent clears (layout.js latches [data-keyboard-consent] with the
      kept row), so clearing moves nothing; the row's box stays one line.
-     r4 (Codex gate2c Low): 1 px more (45 px), so subpixel snapping can never
-     leave a fractional overlap (More's top was 1/64 px above the consent
-     target's bottom). */
+     r4 (Codex gate2c Low): 1/16 px more, so layout's 1/64 px snapping can
+     never leave a fractional overlap (More's top was 1/64 px above the
+     consent target's bottom); a whole 1 px cost transcript lines at vv308. */
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer:not([data-image-input]):not([data-document-input]):has(.composer-feedback[data-keyboard-consent]) .composer-notice-slot,
-  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:not([data-image-input]):not([data-document-input]):has(.composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action) .composer-notice-slot { padding-top:calc(45px - .72rem * 1.3); }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:not([data-image-input]):not([data-document-input]):has(.composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action) .composer-notice-slot { padding-top:calc(44px + 1px / 16 - .72rem * 1.3); }
 }
 /* AIT-618 r2 (TICK (b)): while the phone keyboard is up the voice band is ONE
    44 px row. The rail moves up into the band's first row, so the small orb
