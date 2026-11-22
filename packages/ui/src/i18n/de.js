@@ -734,7 +734,7 @@ export const de = {
       selectAll: 'Alle auswählen', one: 'Eine Einwilligung erteilen', count: '{count} Einwilligungen erteilen', all: 'Alle Einwilligungen erteilen',
       none: 'Ohne Einwilligung weiter', back: 'Zurück', legend: 'Verarbeitung auswählen',
       loading: 'Aktuelle Einwilligungen werden geladen …', saving: 'Ihre Auswahl wird gespeichert …', retry: 'Erneut versuchen',
-      loadFailed: 'Die Einwilligung konnte nicht geladen werden.',
+      loadFailed: 'Die Einwilligung konnte nicht geladen werden. Schließen und erneut öffnen.',
       stale: 'Die Bedingungen der Verarbeitung haben sich geändert. Laden Sie die aktuellen Bedingungen und prüfen Sie Ihre Auswahl.',
       missing: 'Es ist kein Gespräch verfügbar. Gehen Sie zurück, um ein Gespräch zu öffnen.',
       required: 'Für diese Auswahl erforderlich', optional: 'Für diese Auswahl optional',

@@ -735,7 +735,7 @@ export const en = {
       selectAll: 'Select all', one: 'Grant one permission', count: 'Grant {count} permissions', all: 'Grant all permissions',
       none: 'Continue without consent', back: 'Back', legend: 'Choose processing permissions',
       loading: 'Loading current permissions…', saving: 'Saving your selection…', retry: 'Try again',
-      loadFailed: 'Could not load consent.',
+      loadFailed: 'Could not load consent. Close and open it again.',
       stale: 'The processing terms have changed. Reload the current terms and review your selection.',
       missing: 'No conversation is available. Go back to open a conversation.',
       required: 'Required for this choice', optional: 'Optional for this choice',
