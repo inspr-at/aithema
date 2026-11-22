@@ -350,18 +350,29 @@ recognized.
   reason `image-normalizations` and never held. On every exit,
   refusal or admission, the request body is zero-filled (only the parts of
   admitted documents stay, which the document rules store), and a failed read
-  zero-fills its partial buffers. Request, image and document bytes in memory,
-  every live copy counted, at the default ceilings, for the deployed Node 24
-  (IPC `serialization: 'advanced'`: one serialized send buffer; the receiver
-  concatenates the chunks once and reads a `Uint8Array` as a view): in the
-  server process three retained request bodies (3 × 21 MiB), their held
-  originals (3 × 21 MiB, at most eight), the one running job (an image's IPC
-  message with one serializer growth copy, 2 × 20 MiB; a document adds its
-  SQLite read-back and the extractor's own owned snapshot of it, 80 MiB) and
-  its result (2 × 8 MiB), 222 MiB; in the child (one at a time) the received
-  message (2 × 20 MiB; the decoder reads a view of it) and its result
-  (3 × 8 MiB), 64 MiB. At most 287 MiB in total, plus under 0.5 MiB
-  for intake classification, which never copies a whole file (see below).
+  zero-fills its partial buffers. Image originals held in memory (LEAD
+  condition 1, for the deployed Node 24 with IPC `serialization: 'advanced'`:
+  one serialized send buffer; the receiver concatenates the chunks once and
+  reads a `Uint8Array` as a view): at most eight
+  (`MAX_PENDING_IMAGE_NORMALIZATIONS`) × the per-file cap (`maxBytes`,
+  20 MiB) = 160 MiB, plus the IPC copies of the one original being normalized
+  (one job at a time in the extraction slot): the server's send buffer with one
+  growth reallocation (2 × 20 MiB) and the normalizer child's received chunks
+  plus their concatenation (2 × 20 MiB; the decoder reads a view), 80 MiB. So
+  at most 240 MiB of image originals and their IPC copies. Arithmetic over live
+  copies, not an RSS measurement. The document path is bounded by its own
+  ceilings: request bodies `MAX_PENDING_UPLOAD_REQUESTS` (3) ×
+  `maxRequestBytes` (21 MiB); one extraction job at a time (the server's
+  extraction slot, shared with images, and the extractor's single process
+  slot); per file `EXTRACTOR_LIMITS.maxBytes` (20 MiB; larger stored bytes are
+  refused `limit` before extraction), so the job's SQLite read-back, the
+  extractor's owned snapshot (taken inside the slot) and the PDF child's own
+  copy of the file are each at most 20 MiB; the child runs under
+  `maxHeapMb` (128) and the watchdog's `maxRssMb` (384); parsing stops at
+  `maxPages` (100) and `maxChars` (60,000), and OOXML at `maxEntries` (512),
+  `maxPartBytes` (16 MiB), `maxUncompressedBytes` (48 MiB) and
+  `maxCompressionRatio` (100). Intake classification never copies a whole file
+  (under 0.5 MiB, see below).
   Classification runs before any persistence. A file is image input when its
   signature says image (PNG, JPEG, WebP, GIF, BMP, TIFF, HEIC/AVIF, JPEG XL,
   Netpbm, best effort for its ASCII forms), it is a recognized standalone SVG
@@ -379,12 +390,17 @@ recognized.
   that contradicts the content) is refused in the receipt with kind
   `document` and reason `unsupported` before anything is stored. For an
   Office suffix (`.docx`, `.xlsx`, `.pptx`) the reason is more specific only
-  where it is certain: a Compound File Binary container whose directory holds
-  both `EncryptionInfo` and `EncryptedPackage` streams is `encrypted`
-  (password-protected); one whose whole directory was read without them is
-  `legacy` (an older or other Office format, such as a `.doc` renamed); a ZIP
-  signature with an unreadable central directory or no `[Content_Types].xml` is
-  `malformed` (damaged). The directory read is bounded (at most 64 directory
+  where it is certain: a Compound File Binary container whose directory is
+  read from the root entry (at least one directory sector, entry 0 the root
+  storage, every storage's tree walked without a loop or an entry outside the
+  directory) is `encrypted` (password-protected) when `EncryptionInfo` and
+  `EncryptedPackage` are both streams linked under the root, else `legacy`
+  (an older Office format, such as a `.doc` renamed; the client names the one
+  format to save as from the suffix used); a ZIP with structural damage (an
+  unreadable central directory) or without `[Content_Types].xml` is
+  `malformed` (damaged), while an intact ZIP using a feature the reader does
+  not support (ZIP64, spanning, another compression method) stays
+  `unsupported`. The directory read is bounded (at most 64 directory
   sectors); a directory that cannot be read within it stays `unsupported`. Text is
   checked over the whole file without a copy (no control bytes, valid UTF-8),
   and its XML root and subtype are read from at most the first 64 KiB
