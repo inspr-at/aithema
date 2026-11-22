@@ -792,7 +792,7 @@ export class AithemaSession extends HTMLElement {
         ${this.#combined ? '</div>' : ''}
         <div class="phone-dock-backdrop" aria-hidden="true"></div><div class="composer-dock">${questionCardMarkup}<div class="composer-shell"><form class="composer">${this.#combined ? combinedNoticeMarkup : ''}<label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000" rows="2"></textarea><div class="composer-paused" hidden><span></span> <button class="composer-resume" type="button"></button></div><div class="purpose-pause-copy" role="status" hidden></div>
           <div class="composer-actions"><button class="attach" type="button" aria-describedby="attach-limits ai-notice">${UPLOAD_ICONS.attach}<span class="attach__label"></span></button>
-            <span class="sr-only" id="attach-limits"></span><input class="attach-input" type="file" multiple hidden tabindex="-1" accept="${UPLOAD_ACCEPT}">
+            <span class="sr-only" id="attach-limits"></span><span class="sr-only" id="composer-export-reason"></span><input class="attach-input" type="file" multiple hidden tabindex="-1" accept="${UPLOAD_ACCEPT}">
             <span class="composer-feedback"><span class="sr-only" id="upload-retry-reason"></span><small class="composer-reason" role="status" id="composer-reason"></small><small class="composer-saved-sizer" aria-hidden="true">${icon('check')}<span></span></small><small class="composer-saved" aria-hidden="true">${icon('check')}<span></span></small><small class="composer-saved-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></small>${this.#combined ? '<span class="composer-feedback-reserve" aria-hidden="true" inert></span>' : ''}</span>${this.#combined ? '<span class="composer-status-slot"><small class="composer-status" id="composer-status" role="status"></small><span class="composer-status-reserve" aria-hidden="true"></span></span><button class="composer-mic" type="button" aria-describedby="composer-status composer-notice"></button>' : ''}<button class="send" aria-describedby="ai-notice">${icon('arrowRight')}<span class="visually-hidden"></span></button></div></form>
           <div class="composer-out" aria-hidden="true" inert><p class="composer-out__title"><span></span></p><p class="composer-out__body"><span></span></p>
             <div class="composer-out__bar"><span class="composer-out__steps"><span class="composer-out__give" data-next="give"></span><span class="composer-out__confirm" data-next="confirm"></span><span class="composer-out__none" data-next="none"></span></span>
@@ -1969,6 +1969,18 @@ export class AithemaSession extends HTMLElement {
     catch { /* Keep the end action available for another deliberate attempt. */ }
     finally { if (id === this.#session.id) this.#erasedCreating = false; }
   }
+  // AIT-637: why neither export control can export, or null when they can.
+  #exportUnavailableReason() {
+    if (this.#session.processingPreset === 'device') return this.#copy.deviceExportUnavailable;
+    return this.#exportAvailable() ? null : this.#copy.exportUnavailable;
+  }
+  #paintComposerExport() {
+    const control = this.shadowRoot.querySelector('.composer-out__export'), description = this.shadowRoot.querySelector('#composer-export-reason');
+    const why = this.#exportUnavailableReason();
+    setText(description, why ?? '');
+    if (why) { control.setAttribute('aria-disabled', 'true'); control.setAttribute('aria-describedby', description.id); }
+    else { control.removeAttribute('aria-disabled'); control.removeAttribute('aria-describedby'); }
+  }
   // r6: whether the export URL resolves to the page's own origin (the controls carry no href).
   #exportAvailable() {
     try { return Boolean(ownerURL(this.ownerDocument.defaultView, `${this.#base}/api/sessions/${this.#session.id}/export`)); }
@@ -2073,19 +2085,17 @@ export class AithemaSession extends HTMLElement {
     // Keep the footer's space while removing the device handoff from sight and interaction.
     if (create) { create.style.visibility = device ? 'hidden' : ''; create.inert = device || this.shadowRoot.querySelector('.understanding').dataset.overview !== 'current'; }
     const reason = this.shadowRoot.querySelector('.export-reason');
-    setText(reason, this.#copy.deviceExportUnavailable);
-    reason.style.visibility = device ? 'visible' : 'hidden'; reason.setAttribute('aria-hidden', String(!device));
+    // r6: no href in any mode. AIT-637: a control that cannot export (device preset; a foreign
+    // <base> or no page origin) says why, in place: the footer's reason line and tip, and the
+    // composer control's accessible description.
+    const why = this.#exportUnavailableReason();
+    setText(reason, why ?? this.#copy.deviceExportUnavailable);
+    reason.style.visibility = why ? 'visible' : 'hidden'; reason.setAttribute('aria-hidden', String(!why));
     exported.setAttribute('aria-label', this.#copy.export);
-    exported.setAttribute('role', 'link'); exported.tabIndex = 0;
-    if (device) {
-      exported.removeAttribute('href'); exported.setAttribute('aria-disabled', 'true');
-      exported.setAttribute('aria-describedby', reason.id); exported.title = this.#copy.deviceExportUnavailable;
-    } else {
-      // r6: no href in any mode; a foreign <base> or no page origin disables the control.
-      exported.removeAttribute('href');
-      if (this.#exportAvailable()) exported.removeAttribute('aria-disabled'); else exported.setAttribute('aria-disabled', 'true');
-      exported.removeAttribute('aria-describedby'); exported.title = '';
-    }
+    exported.setAttribute('role', 'link'); exported.tabIndex = 0; exported.removeAttribute('href');
+    if (why) { exported.setAttribute('aria-disabled', 'true'); exported.setAttribute('aria-describedby', reason.id); exported.title = why; }
+    else { exported.removeAttribute('aria-disabled'); exported.removeAttribute('aria-describedby'); exported.title = ''; }
+    this.#paintComposerExport();
     if (this.#rail) { const client = this.#voiceClientFor(); if (!this.#rail.session && this.#rail.client !== client) { this.#rail.client = client; this.#renderVoice(); } }
   }
   async #loadCatalog() {
@@ -2651,8 +2661,7 @@ export class AithemaSession extends HTMLElement {
         exportAction.dataset.short = resolveCopy(copy, 'usedUpExportShort', undefined, this.#session.locale);
         exportAction.setAttribute('aria-label', u.export);
       } else { delete exportAction.dataset.short; exportAction.removeAttribute('aria-label'); }
-      const outExport = out.querySelector('.composer-out__export');
-      if (this.#exportAvailable()) outExport.removeAttribute('aria-disabled'); else outExport.setAttribute('aria-disabled', 'true');
+      this.#paintComposerExport();
       for (const node of out.querySelectorAll('[data-next]')) { const shown = node.dataset.next === kind && !node.hidden; node.setAttribute('aria-hidden', String(!shown)); node.inert = !shown; }
       const exportLink = out.querySelector('.composer-out__export'), exportShown = !noAction && (this.#combined || kind === 'none' || newConversationEnabled || ['host-limit', 'session'].includes(this.#host?.endReason));
       exportLink.toggleAttribute('data-export', exportShown); exportLink.inert = !exportShown; exportLink.setAttribute('aria-hidden', String(!exportShown));

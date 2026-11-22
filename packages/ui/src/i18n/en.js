@@ -339,7 +339,7 @@ export const en = {
       timeout: ['Wait until the local model has finished loading or processing another request.', 'A larger model may need more time or memory.'],
     },
   },
-  notConfigured: 'Not configured', deviceExportUnavailable: 'No download: this conversation stays in this tab.',
+  notConfigured: 'Not configured', deviceExportUnavailable: 'No download: this conversation stays in this tab.', exportUnavailable: "Export isn't available on this page.",
   deviceConnectFirst: 'Connect a local model first', deviceConversation: 'On my device — this conversation stays in this tab',
   deviceUnavailable: 'Local model unavailable',
   // Art. 50(1) AI notice (AIT-119). A host may reword it; an empty part falls back to this default.
