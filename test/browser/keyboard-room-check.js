@@ -280,6 +280,10 @@ const bandState = c => {
     pauseHit: pause ? (() => { const r = pause.getBoundingClientRect(); const hit = c.shadowRoot.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return hit === pause || pause.contains(hit); })() : false,
     pauseHitBy: pause ? (() => { const r = pause.getBoundingClientRect(); const hit = c.shadowRoot.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return hit ? `${hit.tagName.toLowerCase()}.${String(hit.className?.baseVal ?? hit.className).split(' ').join('.')}` : null; })() : null,
     pauseInert: Boolean(pause?.closest('[inert]')), pauseDisabled: Boolean(pause?.disabled),
+    // Geometry only: with the rail live (its inert lifted for this one hit test), nothing covers pause.
+    pauseHitLive: pause ? (() => { const inert = [...(function* up(e) { for (; e && e !== root; e = e.parentElement) yield e; })(pause)].filter(e => e.inert);
+      for (const e of inert) e.inert = false; try { const r = pause.getBoundingClientRect(); const hit = c.shadowRoot.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return hit === pause || pause.contains(hit); }
+      finally { for (const e of inert) e.inert = true; } })() : false,
     gear: box(root.querySelector('.settings-open')), gearPainted: painted(root.querySelector('.settings-open')),
     gearName: (root.querySelector('.settings-open')?.textContent ?? '').trim(),
     outputPainted: output.filter(painted).map(n => n.className.baseVal ?? n.className),
@@ -343,6 +347,7 @@ export async function keyboardBandCheck(t) {
           // rail answers its own way before a conversation; the keyboard must not change it).
           if (!band.pauseName || band.pauseHit !== down.pauseHit || band.pauseInert !== down.pauseInert || band.pauseDisabled !== down.pauseDisabled)
             failures.push(`${tag}: pause/resume keeps its name and its keyboard-down reachability: ${JSON.stringify([band.pauseName, [down.pauseHit, down.pauseHitBy, down.pauseInert, down.pauseDisabled], [band.pauseHit, band.pauseHitBy, band.pauseInert, band.pauseDisabled]])}`);
+          if (!band.pauseHitLive || !down.pauseHitLive) failures.push(`${tag}: with the rail live nothing covers pause (keyboard down, up): ${JSON.stringify([down.pauseHitLive, band.pauseHitLive])}`);
           if (band.outputPainted.length || band.outputFocusable.length) failures.push(`${tag}: the volume control and level line are hidden and out of the focus order: ${JSON.stringify([band.outputPainted, band.outputFocusable])}`);
           if (band.status?.text && !band.status.inTree) failures.push(`${tag}: the rail's status stays in the accessibility tree: ${JSON.stringify(band.status)}`);
           if (band.noticeLines !== 1 || !(band.notice?.height > 0) || band.notice.height > band.noticeLineHeight * 1.5 + .5) failures.push(`${tag}: the AI notice is one text line: ${JSON.stringify([band.noticeLines, band.notice, band.noticeLineHeight])}`);
