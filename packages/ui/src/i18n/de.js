@@ -558,7 +558,8 @@ export const de = {
     replaced: 'Die zuvor nicht hochgeladenen Dateien wurden durch die neue Auswahl ersetzt.',
     busy: 'Es werden noch Dateien hochgeladen. Versuchen Sie es gleich noch einmal.', impossible: 'Dateien können nicht hochgeladen werden: Die Upload-Grenzen dieses Hosts lassen keinen Platz für eine Datei.',
     reasons: { unsupported: 'Dateityp wird nicht angenommen', empty: 'die Datei enthält keinen Text', malformed: 'die Datei ist beschädigt oder hat nicht das erwartete Format',
-      encrypted: 'die Datei ist passwortgeschützt', legacy: 'älteres Office-Format; als .docx, .xlsx oder .pptx speichern und erneut anhängen', limit: 'die Datei ist zu groß oder zu lang zum Auslesen', deadline: 'das Auslesen hat zu lange gedauert',
+      encrypted: 'die Datei ist passwortgeschützt', legacyWord: 'ältere Word-Datei; als .docx speichern und erneut anhängen', legacyExcel: 'ältere Excel-Datei; als .xlsx speichern und erneut anhängen',
+      legacyPowerPoint: 'ältere PowerPoint-Datei; als .pptx speichern und erneut anhängen', limit: 'die Datei ist zu groß oder zu lang zum Auslesen', deadline: 'das Auslesen hat zu lange gedauert',
       cancelled: 'das Auslesen wurde abgebrochen', unavailable: 'das Auslesen ist gerade nicht verfügbar' },
   },
   constraints: {
