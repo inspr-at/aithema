@@ -543,7 +543,9 @@ test('AIT-587: a binding switch during upload classification re-reads image capa
 test('AIT-610 r7: a refusal is taken once per refused state; another state lets the same reason show again', async () => {
   const { ImageInputView } = await import('../src/image-input.js');
   const doc = window.document, form = doc.createElement('form'), feedback = doc.createElement('div'), line = doc.createElement('span');
-  feedback.className = 'composer-feedback'; line.className = 'composer-reason'; feedback.append(line); form.append(feedback); doc.body.append(form);
+  feedback.className = 'composer-feedback'; line.className = 'composer-reason'; feedback.append(line); form.append(feedback);
+  // The view appends its notices sheet to the form's root node, as in the element's shadow root.
+  const host = doc.createElement('div'); doc.body.append(host); host.attachShadow({ mode: 'open' }).append(form);
   const session = createSession({ demo: true }); session.uploads = [];
   const view = new ImageInputView({ form, copy: en, session: () => session, canRead: () => true, changed: () => {} });
   const refused = { id: 'img-1', kind: 'image', state: 'staged-refused', reason: 'deadline', filename: 'a.png' };
@@ -552,5 +554,5 @@ test('AIT-610 r7: a refusal is taken once per refused state; another state lets 
   view.receive(refused); assert.equal(view.hasRefusals, false, 'the same refused state is taken once');
   view.receive({ ...refused, state: 'staged-pending', reason: undefined });
   view.receive(refused); assert.equal(view.hasRefusals, true, 'refused again after another state');
-  view.destroy?.(); form.remove();
+  view.destroy?.(); host.remove();
 });
