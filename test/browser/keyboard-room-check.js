@@ -284,6 +284,11 @@ const bandState = c => {
     pauseHitLive: pause ? (() => { const inert = [...(function* up(e) { for (; e && e !== root; e = e.parentElement) yield e; })(pause)].filter(e => e.inert);
       for (const e of inert) e.inert = false; try { const r = pause.getBoundingClientRect(); const hit = c.shadowRoot.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return hit === pause || pause.contains(hit); }
       finally { for (const e of inert) e.inert = true; } })() : false,
+    pauseHitLiveBy: pause ? (() => { const inert = [...(function* up(e) { for (; e && e !== root; e = e.parentElement) yield e; })(pause)].filter(e => e.inert);
+      for (const e of inert) e.inert = false; try { const r = pause.getBoundingClientRect(); const hit = c.shadowRoot.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return hit ? `${hit.tagName.toLowerCase()}.${String(hit.className?.baseVal ?? hit.className).split(' ').join('.')}${hit.parentElement ? ` in ${hit.parentElement.className}` : ''}` : null; }
+      finally { for (const e of inert) e.inert = true; } })() : null,
+    pauseClass: pause?.className ?? null,
     gear: box(root.querySelector('.settings-open')), gearPainted: painted(root.querySelector('.settings-open')),
     gearName: (root.querySelector('.settings-open')?.textContent ?? '').trim(),
     outputPainted: output.filter(painted).map(n => n.className.baseVal ?? n.className),
@@ -313,6 +318,10 @@ export async function keyboardBandCheck(t) {
         await reply(page, true); await settleLong(page);
         const down = await readBand(page);
         await capture(page, `${name}-keyboard-down-playing`, { ...(await read(page)), band: down });
+        await reply(page, false); await settleLong(page);
+        const downPaused = await readBand(page);
+        await capture(page, `${name}-keyboard-down-paused`, { ...(await read(page)), band: downPaused });
+        await reply(page, true); await settleLong(page);
         for (const part of ['band', 'orb', 'pause', 'gear']) if (!(down[part]?.width > 0 && down[part]?.height > 0)) failures.push(`${name}: keyboard down: ${part} positive box: ${JSON.stringify(down[part])}`);
         if (!down.outputPainted.length) failures.push(`${name}: fixture: the volume control shows with the keyboard down`);
         await keyboardUp(page, viewport); await settleLong(page);
@@ -347,7 +356,9 @@ export async function keyboardBandCheck(t) {
           // rail answers its own way before a conversation; the keyboard must not change it).
           if (!band.pauseName || band.pauseHit !== down.pauseHit || band.pauseInert !== down.pauseInert || band.pauseDisabled !== down.pauseDisabled)
             failures.push(`${tag}: pause/resume keeps its name and its keyboard-down reachability: ${JSON.stringify([band.pauseName, [down.pauseHit, down.pauseHitBy, down.pauseInert, down.pauseDisabled], [band.pauseHit, band.pauseHitBy, band.pauseInert, band.pauseDisabled]])}`);
-          if (!band.pauseHitLive || !down.pauseHitLive) failures.push(`${tag}: with the rail live nothing covers pause (keyboard down, up): ${JSON.stringify([down.pauseHitLive, band.pauseHitLive])}`);
+          // Like for like: the keyboard-down state with the same reply state (playing or paused).
+          const same = /paused/u.test(label) ? downPaused : down;
+          if (!down.pauseHitLive || band.pauseHitLive !== same.pauseHitLive) failures.push(`${tag}: with the rail live nothing covers pause, as with the keyboard down: ${JSON.stringify([[down.pauseHitLive, down.pauseHitLiveBy], [same.pauseHitLive, same.pauseHitLiveBy], [band.pauseHitLive, band.pauseHitLiveBy, band.pauseClass]])}`);
           if (band.outputPainted.length || band.outputFocusable.length) failures.push(`${tag}: the volume control and level line are hidden and out of the focus order: ${JSON.stringify([band.outputPainted, band.outputFocusable])}`);
           if (band.status?.text && !band.status.inTree) failures.push(`${tag}: the rail's status stays in the accessibility tree: ${JSON.stringify(band.status)}`);
           if (band.noticeLines !== 1 || !(band.notice?.height > 0) || band.notice.height > band.noticeLineHeight * 1.5 + .5) failures.push(`${tag}: the AI notice is one text line: ${JSON.stringify([band.noticeLines, band.notice, band.noticeLineHeight])}`);
