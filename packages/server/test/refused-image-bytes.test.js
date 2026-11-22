@@ -793,12 +793,13 @@ test('AIT-610 r4: image slots never leak on errors or aborts; a full set of 8 is
   assert.equal(mock.mock.callCount(), 1, 'the admission write was reached and failed');
   mock.mock.restore();
   await idle('an error during admission');
-  // 5. Admitted jobs cancelled mid-normalization (withdrawal and session cancel).
+  // 5. Admitted jobs cancelled mid-normalization (each withdrawn while gated).
   held = await fill('cancelled');
-  const withdrawn = await f.handlers.handle(ownedRequest(`http://localhost/api/sessions/${held.session.id}/uploads/${held.ids[0]}`, { method: 'DELETE' }));
-  assert.equal(withdrawn.status, 200, await withdrawn.text());
-  assert.equal(admissionState().imageSlots, 7, 'a withdrawn job returns its slot at once');
-  await f.handlers.cancelSession(held.session.id);
+  for (const [i, uploadId] of held.ids.entries()) {
+    const withdrawn = await f.handlers.handle(ownedRequest(`http://localhost/api/sessions/${held.session.id}/uploads/${uploadId}`, { method: 'DELETE' }));
+    assert.equal(withdrawn.status, 200, await withdrawn.text());
+    assert.equal(admissionState().imageSlots, 7 - i, 'a withdrawn job returns its slot at once');
+  }
   await idle('cancelled jobs');
   // 6. A full set of 8 is admissible again after all of the above.
   held = await fill('again');
