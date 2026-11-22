@@ -392,7 +392,10 @@ export async function phoneReadyFitCheck(t) {
           // transcript's scroll position before it and the calling frames.
           const shell = root.querySelector('.transcript-shell'), trap = globalThis.scrollTrap603 = [];
           const top = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
-          const state = () => `${root.querySelector('.workspace')?.dataset.stage}:${Math.round(top.get.call(shell))}/${shell.scrollHeight - shell.clientHeight}`;
+          // With the transcript list's visible rows (tag.class#id, h = data-host-opener).
+          const rows = () => [...(shell.querySelector('ol')?.children ?? [])].filter(row => !row.hidden && row.getClientRects().length)
+            .map(row => `${row.tagName.toLowerCase()}.${row.className.trim().replace(/\s+/gu, '.')}#${row.dataset.id ?? ''}${row.hasAttribute('data-host-opener') ? '(h)' : ''}`).join(',');
+          const state = () => `${root.querySelector('.workspace')?.dataset.stage}:${Math.round(top.get.call(shell))}/${shell.scrollHeight - shell.clientHeight} ${root.querySelector('.workspace')?.dataset.conceptLayout}/${matchMedia('(max-width:600px)').matches} rows=${rows()}`;
           const where = () => new Error().stack.split('\n').slice(3, 8)
             .map(line => { const m = /at (?:async )?(?:(\S+) \()?.*\/([^/:]+):(\d+):\d+\)?$/u.exec(line); return m ? `${m[1] ?? ''}@${m[2]}:${m[3]}` : ''; }).join('<');
           const log = entry => { if (trap.length < 24) trap.push(`${entry} [${state()}] ${where()}`); };
