@@ -357,6 +357,8 @@ test('whole-file refinement recovers headroom that greedy LPT leaves unused', ()
 const splitSeeds = {
   'pause-phone': [260.625918641, 326], 'pause-phone-uploads': [192.373785211, 241],
   'host-surface': [271.585382161, 340], 'host-surface-email': [158.596611386, 199],
+  // AIT-603 PR-A r15: moved out of demo.test.js; PR CI 44990458538-1 (no main series yet).
+  'phone-dock': [244.38179801, 306],
 };
 
 test('AIT-597: split halves keep seed arithmetic from the moved CI work and let live weights roll forward', () => {

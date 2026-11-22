@@ -12,7 +12,7 @@ import { startChild } from '../helpers.js';
 import { fixture } from './combined-entrance-check.js';
 
 // A realistic multi-sentence host welcome; it wraps to several lines on desktop.
-const welcome = {
+export const welcome = {
   en: 'Welcome. Your AI assistant is ready to help you describe your project. Tell it what you want to build, who will use it and what matters most to you. You can type or speak, add images or documents, and change the processing settings at any time before you start.',
   de: 'Willkommen. Ihre KI-Assistenz hilft Ihnen, Ihr Vorhaben zu beschreiben. Erzählen Sie, was Sie bauen möchten, wer es nutzen wird und was Ihnen am wichtigsten ist. Sie können schreiben oder sprechen, Bilder oder Dokumente hinzufügen und die Verarbeitung jederzeit vor dem Start ändern.',
 };

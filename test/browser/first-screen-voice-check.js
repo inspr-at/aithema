@@ -106,7 +106,26 @@ async function retain(page, name, record) {
   await writeFile(join(dir, `${name}.json`), JSON.stringify(record, null, 2));
 }
 
-test('AIT-553 item 1: idle pause is neutral and unpressed in both entrances; call transitions pin the combined composer', { timeout: 120_000 }, async t => {
+// AIT-603 r11: this file, rc26-look-check and rc26-look-r2-check derive their
+// choice-capable fixtures from the shared combined fixture by replacing its
+// literal entrance:'combined'. PR-A r10 rewrote that literal for its own
+// choice case, so every such replace silently did nothing and each "choice"
+// case mounted the combined entrance (no mode switch, no idle Start, End on the
+// composer mic). The hook must stay, and a choice case must mount choice.
+test('AIT-603 r11: the shared combined fixture keeps the entrance hook, so a choice case mounts the choice entrance', { timeout: 120_000 }, async t => {
+  assert.ok(combinedFixture.includes("entrance:'combined'"), "the shared fixture keeps its literal entrance:'combined' hook");
+  assert.ok(html.includes("entrance:new URL(location.href).searchParams.get('entrance')||'combined'"), 'this fixture reads the entrance from the URL');
+  const { page, server } = await harness(t);
+  for (const variant of variants) {
+    for (const entrance of ['combined', 'choice']) {
+      await open(page, server, variant, entrance);
+      const combined = await page.evaluate(() => c.shadowRoot.querySelector('.workspace')?.dataset.entrance === 'combined');
+      assert.equal(combined, entrance === 'combined', `${variant.width}-${variant.locale} ${entrance}: the ${entrance} entrance mounts`);
+    }
+  }
+});
+
+test('AIT-553 item 1: idle pause is neutral and unpressed in both entrances; call transitions pin the combined composer',{ timeout: 120_000 }, async t => {
   const { page, server } = await harness(t), records = [];
   for (const variant of variants) {
     const label = `${variant.width}-${variant.locale}-${variant.theme}`;
