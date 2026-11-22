@@ -307,6 +307,11 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
           const r = c.shadowRoot, input = r.querySelector('textarea'); input.value = 'Hello';
           r.querySelector('form').requestSubmit();
           while (r.querySelector('.send').disabled) await new Promise(resolve => setTimeout(resolve, 10));
+          // The 'pause' stub delivers session.paused during the POST, and a paused composer's Send
+          // follows the resume state, so an enabled Send does not mean the save has settled. A saved
+          // turn clears the input in the same synchronous step as the saved confirmation, so the
+          // non-failure states wait for that (bounded; the assertions below then decide).
+          for (const end = Date.now() + 5000; state !== 'failure' && input.value !== '' && Date.now() < end;) await new Promise(resolve => setTimeout(resolve, 10));
           await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
           return { visibleSaved: r.querySelector('.composer-feedback').hasAttribute('data-saved'), savedText: r.querySelector('.composer-saved span').textContent,
             announcement: r.querySelector('.composer-saved-announcement').textContent, announcementCount: window.polish280Announcements.length,
