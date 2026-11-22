@@ -627,6 +627,18 @@ export async function keyboardHostLateAddCheck(t) {
       button.textContent = locale === 'de' ? 'Kontakt' : 'Contact'; button.style.cssText = 'width:44px;height:44px;overflow:hidden'; c.append(button); }
   }, change, locale);
   const pauseFocused = page => page.$eval('aithema-session', c => Boolean(c.shadowRoot.activeElement?.closest('.voice-cell--pause')));
+  // r6 (TICK M4 (b)): every header control already painted keeps its box (Conversations x 224, Settings x 268);
+  // only Pause moves.
+  const headerKept = (tag, from, to) => {
+    const failures = [];
+    if (!from.header.length) failures.push(`${tag}: fixture: header controls painted: ${JSON.stringify(from.header)}`);
+    for (const [part, box] of from.header) {
+      const other = to.header.find(([name]) => name === part)?.[1];
+      if (!(box?.width > 0 && box?.height > 0 && other?.width > 0 && other?.height > 0)) { failures.push(`${tag}: ${part} positive boxes: ${JSON.stringify([box, other])}`); continue; }
+      for (const key of ['x', 'y', 'width', 'height']) if (Math.abs(box[key] - other[key]) > .5) failures.push(`${tag}: ${part} keeps its ${key}: ${box[key]} -> ${other[key]}`);
+    }
+    return failures;
+  };
   for (const viewport of [308, 340]) for (const locale of ['en', 'de']) {
     const name = `${width}x${height}-vv${viewport}-${locale}-host-header-contact-added-while-up`;
     await t.test(name, async () => {
@@ -655,9 +667,25 @@ export async function keyboardHostLateAddCheck(t) {
         if (!before.keyboard) failures.push(`${name}: before: the keyboard-up state stays with focus on Pause`);
         failures.push(...stableBoxes(`${name} up -> focus on Pause (band)`, up, before, ['band', 'orb', 'pause', 'gear', 'notice', 'more']));
         failures.push(...stableBoxes(`${name} up -> focus on Pause (dock)`, upRoom, room, ['mic', 'send', 'feedback', 'dock', 'field']));
-        await contact(page, 'add', locale);
-        await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+        // r6 (Codex gate4c Medium, TICK M4 (a)): the host adds Contact through its own path (a slotted light-DOM
+        // child); the element's real slot handler runs, no synthetic resize. The row is 88 at once: read in the next
+        // frame, before any further paint; then nothing moves after the frames settle.
+        // One page expression (DevTools evaluation; bandState inlined), so no round trip lets another frame pass.
+        const addedNow = await page.evaluate(`(async () => {
+          const c = document.querySelector('aithema-session'), button = document.createElement('button');
+          button.type = 'button'; button.slot = 'contact-launcher'; button.textContent = ${JSON.stringify(locale === 'de' ? 'Kontakt' : 'Contact')};
+          button.style.cssText = 'width:44px;height:44px;overflow:hidden'; c.append(button);
+          await new Promise(resolve => requestAnimationFrame(resolve));
+          return (${bandState})(c);
+        })()`);
+        if (Math.abs((addedNow.band?.height ?? 0) - 88) > .5) failures.push(`${name}: added: the row is 88 px at once (next frame, no resize) through the real slot handler: ${JSON.stringify(addedNow.band)}`);
+        if (Math.abs((addedNow.pause?.x ?? -1) - 170) > .5 || Math.abs((addedNow.pause?.y ?? -1) - 44) > .5) failures.push(`${name}: added at once: Pause at x 170, y 44: ${JSON.stringify(addedNow.pause)}`);
+        failures.push(...crossings(`${name} added at once`, addedNow));
+        failures.push(...headerKept(`${name} before -> added at once`, before, addedNow));
+        await settleLong(page);
         const added = await readBand(page), addedRoom = await read(page);
+        failures.push(...headerKept(`${name} before -> added`, before, added));
+        failures.push(...stableBoxes(`${name} added at once -> settled (band)`, addedNow, added, ['band', 'orb', 'pause', 'gear', 'notice', 'more']));
         await capture(page, `${name}-2-after-contact-added`, { ...addedRoom, band: added });
         const names = added.header.map(([part]) => part).join(' ');
         if (added.header.length <= before.header.length) failures.push(`${name}: fixture: Contact joined the header: ${names}`);
@@ -673,8 +701,9 @@ export async function keyboardHostLateAddCheck(t) {
         if (!(addedRoom.scroll?.height < room.scroll?.height - 43.5)) failures.push(`${name}: added: the 44 px come out of the transcript pane: ${room.scroll?.height} -> ${addedRoom.scroll?.height}`);
         // Grow-only: Contact removed while the keyboard is up keeps 88.
         await contact(page, 'remove', locale);
-        await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+        await settleLong(page);
         const removed = await readBand(page), removedRoom = await read(page);
+        failures.push(...headerKept(`${name} added -> removed`, added, removed));
         await capture(page, `${name}-3-after-contact-removed`, { ...removedRoom, band: removed });
         if (!removed.keyboard) failures.push(`${name}: removed: the keyboard stays up`);
         failures.push(...stableBoxes(`${name} added -> removed (band)`, added, removed, ['band', 'orb', 'pause', 'gear', 'notice', 'more']));
