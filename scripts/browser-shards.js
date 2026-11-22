@@ -452,7 +452,10 @@ browserTestWeights['test/browser/start-look.test.js'] = Math.max(
 // AIT-597 (2026-11-20): after the split and floor retirement the measured plan
 // totals 5731.723s > 14 * 405s. LEAD decision (c) adds a fifteenth shard under
 // AIT-410/AIT-419; the 405s target, 420s ceiling and job timeouts stay.
-export const browserShardCount = 15;
+// AIT-624 (2026-11-22): LEAD decision (a) adds a sixteenth shard (public repo,
+// GitHub-hosted runners, no billed minutes); 405s target, 420s ceiling and
+// job timeouts stay.
+export const browserShardCount = 16;
 export const browserShardBudget = 420;
 // AIT-419: LEAD decision on AIT-410 (2026-10-20), one raise only; next overshoot gets an eighth shard, not 410s.
 export const browserShardHeadroomTarget = 405;
