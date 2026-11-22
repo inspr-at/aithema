@@ -465,6 +465,11 @@ test('AIT-610 control: the trace scans detect stored, logged and forwarded senti
     ['live events', async f => { const response = await f.upload('live-control', [[`${image.marker}.txt`, textBytes('Plain words'), 'text/plain']]); await response.text(); }],
     // A file written and deleted before any temp-dir sample: only the fs hook sees it.
     ['fs write', async f => { const file = join(tmpdir(), `ait610-gone-${process.pid}.bin`); await writeFile(file, image.bytes); await rm(file); }],
+    // Vectored writes (gate3c Low): fs.writevSync and a FileHandle's writev.
+    ['fs write', async f => { const file = join(tmpdir(), `ait610-gone-v-${process.pid}.bin`), fd = fs.openSync(file, 'w');
+      try { fs.writevSync(fd, [Buffer.from('head|'), image.bytes]); } finally { fs.closeSync(fd); } await rm(file); }],
+    ['fs write', async f => { const file = join(tmpdir(), `ait610-gone-hv-${process.pid}.bin`), handle = await fsp.open(file, 'w');
+      try { await handle.writev([image.bytes]); } finally { await handle.close(); } await rm(file); }],
   ]) {
     image = sentinelImage();
     const f = await fixture(t);
@@ -734,4 +739,137 @@ for (const [label, name, content, type] of [
   assert.equal(upload.state, 'staged-refused');
   assert.ok(upload.reason, 'the refusal states its reason');
   await f.assertNoTrace(image, { responses: [body] });
+});
+
+// ---- AIT-610 r4 (gate3c) ----
+const admissionState = () => ({ ...uploadModule.uploadAdmissionState() });
+const multipartTo = (sessionId, encoded) => new Request(`http://localhost/api/sessions/${sessionId}/uploads`, { method: 'POST', body: encoded.body, duplex: 'half',
+  headers: { 'x-aithema-session-token': testToken, 'content-type': encoded.headers.get('content-type') } });
+// LEAD r3 condition for M1: the stated bound holds at the boundary (at most 8
+// originals held, a full set of 8 admissible) and no slot or reservation leaks
+// when a request errors or aborts during the read, during admission, or when
+// its admitted jobs are cancelled.
+test('AIT-610 r4: image slots never leak on errors or aborts; a full set of 8 is admissible again', async t => {
+  const f = await fixture(t), traced = [];
+  const fill = async label => {
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    f.normalizer.verdict = async (bytes, metadata, options) => { await gated(gate, options); return { status: 'staged-refused', reason: 'unsupported' }; };
+    const images = Array.from({ length: 8 }, () => sentinelImage()); traced.push(...images);
+    // A fresh session per set: the per-session image quota is not under test.
+    const session = f.storage.create({ ownerToken: testToken, demo: true });
+    const response = await f.handlers.handle(multipartTo(session.id, multipart(label, images.map((image, i) => [`${label}-${i}.png`, image.bytes]))));
+    const body = await response.text();
+    assert.equal(response.status, 202, body);
+    assert.deepEqual(JSON.parse(body).refused, [], 'all 8 are admitted');
+    assert.equal(admissionState().imageSlots, 8, 'exactly the cap is held');
+    return { release, session, ids: JSON.parse(body).uploads.map(upload => upload.id) };
+  };
+  const idle = async label => { await f.handlers.idle(); await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(admissionState(), { pendingUploadRequests: 0, imageSlots: 0 }, `nothing leaks: ${label}`); };
+  // 1. The boundary: 8 held, the next request is refused before its body is read.
+  let held = await fill('boundary');
+  const over = sentinelImage(); traced.push(over);
+  const state = await streamedUpload(f, f.session.id, multipart('boundary-over', [['over.png', over.bytes]]));
+  const refused = await state.response;
+  assert.equal(refused.status, 429, await refused.clone().text());
+  assert.equal(state.pulled, false);
+  held.release(); await idle('the boundary set finished');
+  // 2. A read that fails mid-body (connection reset).
+  const cut = sentinelImage(); traced.push(cut);
+  const failing = await streamedUpload(f, f.session.id, multipart('abort-read', [['cut.png', cut.bytes]]), { chunks: 3, failAfter: 1 });
+  await failing.response.then(response => response.text(), () => {});
+  await idle('a read failure');
+  // 3. The request aborts while admission waits (availability rejects with its abort).
+  const aborted = sentinelImage(); traced.push(aborted);
+  f.availability.reason = () => { throw new DOMException('The request was aborted', 'AbortError'); };
+  await f.upload('abort-admission', [['aborted.png', aborted.bytes]]).then(response => response.text(), () => {});
+  f.availability.reason = undefined;
+  await idle('an abort during admission');
+  // 4. Storage throws at admission, after the free slots were counted.
+  const failed = sentinelImage(); traced.push(failed);
+  const mock = t.mock.method(f.storage, 'postUploads', () => { throw new Error('database is locked'); });
+  await f.upload('error-admission', [['failed.png', failed.bytes]]).then(response => response.text(), () => {});
+  assert.equal(mock.mock.callCount(), 1, 'the admission write was reached and failed');
+  mock.mock.restore();
+  await idle('an error during admission');
+  // 5. Admitted jobs cancelled mid-normalization (withdrawal and session cancel).
+  held = await fill('cancelled');
+  const withdrawn = await f.handlers.handle(ownedRequest(`http://localhost/api/sessions/${held.session.id}/uploads/${held.ids[0]}`, { method: 'DELETE' }));
+  assert.equal(withdrawn.status, 200, await withdrawn.text());
+  assert.equal(admissionState().imageSlots, 7, 'a withdrawn job returns its slot at once');
+  await f.handlers.cancelSession(held.session.id);
+  await idle('cancelled jobs');
+  // 6. A full set of 8 is admissible again after all of the above.
+  held = await fill('again');
+  held.release(); await idle('the final set finished');
+  for (const image of traced) await f.assertNoTrace(image);
+});
+
+// M4: a recovery write that throws must not let boot expiry discard the row.
+for (const [label, failures] of [['the recovery write throws once', 1], ['the recovery write and its fallback job both throw', 2]]) {
+  test(`AIT-610 r4: ${label}: the lost image still ends staged-refused 'unavailable'`, async t => {
+    const f = await fixture(t), image = sentinelImage(), start = Date.now();
+    f.storage.postUploads(f.session.id, 'before-restart', 'before-restart', [{ kind: 'image', filename: 'lost.png', mediaType: 'image/png',
+      bytes: image.bytes, deadlineAt: start + 25_000 }], SERVER_UPLOAD_LIMITS);
+    let remaining = failures;
+    const completeUpload = f.storage.completeUpload.bind(f.storage);
+    t.mock.method(f.storage, 'completeUpload', (...args) => { if (remaining > 0) { remaining--; throw new Error('database is locked'); } return completeUpload(...args); });
+    // An old pending row at boot: its staging window has already passed.
+    t.mock.timers.enable({ apis: ['Date'], now: start + 31 * 60_000 });
+    await f.handlers.resume();
+    await f.handlers.idle();
+    let upload;
+    for (let i = 0; i < 100; i++) {
+      upload = f.storage.get(f.session.id).uploads.find(item => item.filename === 'lost.png');
+      if (upload?.state === 'staged-refused') break;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.equal(remaining, 0, 'every injected failure happened');
+    assert.equal(upload?.state, 'staged-refused', `never expired as a pending row (${JSON.stringify(upload && { state: upload.state, reason: upload.reason })})`);
+    assert.equal(upload.reason, 'unavailable', 'the client asks the visitor to attach it again');
+    assert.ok(upload.expiresAt > Date.now(), 'a fresh staging window, visible to the client');
+    assert.equal(f.normalized.length, 0);
+    t.mock.timers.reset();
+    await f.assertNoTrace(image);
+  });
+}
+
+// M5: a standalone SVG (root <svg> after an optional prolog) is image input
+// whatever its suffix: classified before document admission, held in memory
+// only, and never stored when refused. A real XML document stays a document.
+const svg = (image, prolog = '') => Buffer.from(`${prolog}<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><text>${image.marker}</text></svg>\n`);
+for (const [label, name, content, type] of [
+  ['a standalone SVG named .xml (declaration, comment and doctype first)', 'diagram.xml', image => svg(image,
+    '<?xml version="1.0" encoding="UTF-8"?>\n<!-- exported -->\n<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">\n'), 'application/xml'],
+  ['a standalone SVG named .txt', 'notes.txt', image => svg(image, '﻿  \n'), 'text/plain'],
+  ['a prefixed SVG root named .xml', 'prefixed.xml', image => Buffer.from(`<svg:svg xmlns:svg="http://www.w3.org/2000/svg"><svg:text>${image.marker}</svg:text></svg:svg>`), 'text/xml'],
+]) test(`AIT-610 r4: ${label} is image input; SQLite, its WAL and a backup never hold it`, async t => {
+  const f = await fixture(t), image = sentinelImage();
+  f.holdReader();
+  const postUploads = f.storage.postUploads.bind(f.storage), stored = [];
+  // The signature check runs before any persistence: storage never receives the bytes.
+  t.mock.method(f.storage, 'postUploads', (id, eventId, digest, files, ...rest) => { stored.push(...files.map(file => ({ kind: file.kind, text: Buffer.from(file.bytes ?? []).toString('latin1') }))); return postUploads(id, eventId, digest, files, ...rest); });
+  const response = await f.upload(`svg-${name.replace(/[^a-zA-Z0-9_-]/gu, '-')}`, [[name, content(image), type]]), body = await response.text();
+  assert.equal(response.status, 202, body);
+  assert.deepEqual(stored.map(file => file.kind), ['image'], 'classified as an image before storage.postUploads');
+  await f.handlers.idle();
+  const upload = f.storage.get(f.session.id).uploads[0];
+  assert.equal(upload?.kind, 'image', JSON.stringify(upload));
+  assert.equal(upload.state, 'staged-refused');
+  assert.ok(upload.reason, 'the refusal states its reason');
+  await f.assertNoTrace(image, { responses: [body] });
+});
+for (const [label, name, text] of [
+  ['an XML document whose root is not svg', 'note.xml', '<?xml version="1.0"?>\n<note><to>Team</to><body>Plain words</body></note>\n'],
+  ['an XHTML document with an inline svg inside', 'page.xml', '<?xml version="1.0"?>\n<html xmlns="http://www.w3.org/1999/xhtml"><body><p>Plain words</p><svg width="1" height="1"/></body></html>\n'],
+  ['a text file that mentions <svg> in its words', 'notes.txt', 'Use the <svg> element for icons.\n'],
+]) test(`AIT-610 r4 (AIT-510 kept): ${label} stays document input`, async t => {
+  const f = await fixture(t);
+  const response = await f.upload(`doc-${name.replace(/[^a-zA-Z0-9_-]/gu, '-')}`, [[name, Buffer.from(text), 'application/xml']]), body = await response.text();
+  assert.equal(response.status, 202, body);
+  await f.handlers.idle();
+  const upload = f.storage.get(f.session.id).uploads[0];
+  assert.notEqual(upload?.kind, 'image', JSON.stringify(upload));
+  assert.equal(f.normalized.length, 0, 'the image normalizer never sees a document');
 });
