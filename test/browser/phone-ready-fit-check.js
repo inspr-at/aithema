@@ -165,7 +165,8 @@ const boxesInPage = c => {
     return { stage: workspace.dataset.stage, layout: workspace.dataset.conceptLayout, entrance: workspace.dataset.entrance,
       scroll: rect(scroll), gutter: scroll.offsetWidth - scroll.clientWidth, scrollTop: scroll.scrollTop, scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight,
       fade: getComputedStyle(scroll).maskImage, fadeAttribute: scroll.hasAttribute('data-bottom'),
-      fadeLength: (() => { const match = /calc\(100% - ([\d.]+)px\)/u.exec(getComputedStyle(scroll).maskImage); return match ? Number(match[1]) : null; })(),
+      // r11: a 0 px fade (no room below the link) serializes as "100%", not calc(100% - 0px).
+      fadeLength: (() => { const mask = getComputedStyle(scroll).maskImage, match = /calc\(100% - ([\d.]+)px\)/u.exec(mask); return match ? Number(match[1]) : /\) 100%, /u.test(mask) ? 0 : null; })(),
       opener: rect(row), label: rect(row?.querySelector(':scope > strong')), text: rect(text), firstLine: first ? { x: first.x, y: first.y, width: first.width, height: first.height } : null,
       lineHeight: style ? parseFloat(style.lineHeight) : null, clamp: style ? style.webkitLineClamp : null, naturalLines,
       link: rect(more), linkText: more && !more.hidden ? more.textContent : null,
