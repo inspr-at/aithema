@@ -466,6 +466,7 @@ export const latchFeedback = (root, keyboardUp = root.querySelector('.workspace'
 // (the keyboard closed without a resize event), by the measure that opens it; a
 // viewport still small keeps the state. Tests replace set/clear with their own clock
 // (code-health rule 6); the element reads them at call time.
+const clearLateHeader = root => { for (const node of root.querySelectorAll('.band > .header-actions > [data-keyboard-late]')) node.removeAttribute('data-keyboard-late'); };
 export const keyboardSettle = { ms: 1000, set: (fn, ms) => setTimeout(fn, ms), clear: id => clearTimeout(id) };
 export class PhoneComposerViewport {
   constructor(root, { onNoticesChange = () => {}, onCompactChange = () => {}, followsTranscript = () => true,
@@ -489,6 +490,7 @@ export class PhoneComposerViewport {
           root.querySelector('.workspace')?.removeAttribute('data-phone-keyboard');
           root.querySelector('.workspace')?.removeAttribute('data-phone-keyboard-band');
           root.querySelector('.band')?.removeAttribute('data-keyboard-rail-row');
+          clearLateHeader(root);
           if (this.settleTimer) keyboardSettle.clear(this.settleTimer);
           this.settleTimer = null; this.keyboardSettled = false;
           latchFeedback(root, false);
@@ -580,6 +582,10 @@ export class PhoneComposerViewport {
       // once (only Pause moves down; the transcript pane gives the 44 px), and
       // it never goes back to 44 until the keyboard-up state ends.
       const band = root.querySelector('.band'), pauseCell = band?.querySelector(':scope > .audio-rail > .voice-cell--pause');
+      // r6 (Codex gate4c Medium, TICK M4 (b)): a host control that appeared
+      // while the keyboard was up (session-element.js marks it) sits at the
+      // header's left end only while that state lasts.
+      if (!keyboardUp || !wasUp) clearLateHeader(root);
       let railRow = Boolean(keyboardUp && wasUp && band?.hasAttribute('data-keyboard-rail-row'));
       if (keyboardUp && !railRow && pauseCell) {
         const cell = pauseCell.getBoundingClientRect();
