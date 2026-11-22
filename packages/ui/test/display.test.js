@@ -192,3 +192,19 @@ test('AIT-609: clockTime is the locale short time without a leading zero, EN and
   for (const locale of ['en', 'de']) for (const at of [evening, morning]) assert.equal(clockTime(at, locale), intl(locale, at));
   assert.equal(clockTime(evening.getTime(), 'en'), clockTime(evening, 'en'), 'Unix milliseconds format the same');
 });
+
+// AIT-609 r2 (TICK's condition): the midnight hour. DE "0:04" (no "00:04", no "24:04"), EN "12:04 AM".
+// Local-time instants built from fixed fields; no real clock takes part.
+test('AIT-609 r2: clockTime at the midnight hour is DE "0:04" and EN "12:04 AM"', () => {
+  const plain = text => text.replace(/\s/gu, ' ');
+  const midnight = new Date(2026, 10, 20, 0, 4, 30), noon = new Date(2026, 10, 20, 12, 4, 30);
+  for (const locale of ['de', 'de-DE', 'de-AT']) {
+    assert.equal(clockTime(midnight, locale), '0:04', `${locale} midnight`);
+    assert.equal(clockTime(noon, locale), '12:04', `${locale} noon`);
+  }
+  for (const locale of ['en', 'en-US']) {
+    assert.equal(plain(clockTime(midnight, locale)), '12:04 AM', `${locale} midnight`);
+    assert.equal(plain(clockTime(noon, locale)), '12:04 PM', `${locale} noon`);
+  }
+  for (const locale of ['en', 'de']) assert.doesNotMatch(clockTime(midnight, locale), /Uhr/u, 'no "Uhr" after the time');
+});
