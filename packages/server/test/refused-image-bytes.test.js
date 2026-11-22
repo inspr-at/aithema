@@ -1145,7 +1145,7 @@ test('AIT-610 r6: session export shows a pending image lost to a restart as unav
 // built balanced, the deepest incomplete level red. `orphans` leaves every
 // entry unlinked from the root (the r6 fixture's shape). `tree` is a list of
 // names; a storage is [name, [children]].
-function cfb(tree, { orphans = false, directoryStart = 1 } = {}) {
+function cfb(tree, { orphans = false } = {}) {
   const sector = 512, entries = [{ name: 'Root Entry', type: 5, children: [] }];
   const add = (items, parent) => { for (const item of items) {
     const [name, children] = Array.isArray(item) ? item : [item, null];
@@ -1173,7 +1173,7 @@ function cfb(tree, { orphans = false, directoryStart = 1 } = {}) {
   const header = Buffer.alloc(sector, 0), fat = Buffer.alloc(sector, 0xff), directory = Buffer.alloc(sector * directorySectors, 0);
   Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]).copy(header);
   header.writeUInt16LE(0x3e, 0x18); header.writeUInt16LE(3, 0x1a); header.writeUInt16LE(0xfffe, 0x1c); header.writeUInt16LE(9, 0x1e); header.writeUInt16LE(6, 0x20);
-  header.writeUInt32LE(1, 0x2c); header.writeUInt32LE(directoryStart, 0x30); header.writeUInt32LE(4096, 0x38);
+  header.writeUInt32LE(1, 0x2c); header.writeUInt32LE(1, 0x30); header.writeUInt32LE(4096, 0x38);
   header.writeUInt32LE(0xfffffffe, 0x3c); header.writeUInt32LE(0xfffffffe, 0x44);
   header.fill(0xff, 0x4c); header.writeUInt32LE(0, 0x4c);
   fat.writeUInt32LE(0xfffffffd, 0);
