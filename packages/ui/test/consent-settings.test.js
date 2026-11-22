@@ -149,3 +149,36 @@ for (const copy of [de, en]) test(`AIT-612 ${copy.display.locale}: a failed load
   failedLoad.editor.setCopy(other);
   assert.equal(failedLoad.root.querySelector('.consent-status').textContent, other.host.consentPage.loadFailed);
 });
+
+// AIT-612 r2 (gate M1): an existing host copy bundle without host.consentPage.loadFailed still explains a failed
+// load: the key resolves through the shipped locale copy (copy-resolve), never to a blank status.
+const withoutLoadFailed = copy => { const { loadFailed, ...consentPage } = copy.host.consentPage; return { ...copy, host: { ...copy.host, consentPage } }; };
+for (const copy of [de, en]) test(`AIT-612 r2 ${copy.display.locale}: a host copy without loadFailed shows the stock failed-load copy`, async t => {
+  const hostCopy = withoutLoadFailed(copy);
+  assert.equal(hostCopy.host.consentPage.loadFailed, undefined);
+  const h = fixture(t, hostCopy, { load: async () => { throw new Error('unavailable'); } });
+  await h.editor.open('voice');
+  assert.equal(h.root.querySelector('.consent-status').textContent, copy.host.consentPage.loadFailed);
+  assert.equal(h.editor.status, copy.host.consentPage.loadFailed);
+  // A language switch to another bundle without the key keeps the failure explained.
+  const other = withoutLoadFailed(copy === de ? en : de);
+  h.editor.setCopy(other);
+  assert.equal(h.root.querySelector('.consent-status').textContent, (copy === de ? en : de).host.consentPage.loadFailed);
+});
+
+// AIT-612 r2 (gate Low): a successful stale reload sets the stale notice; a later reload that fails is a failed load,
+// and a language switch keeps the failure (it must not bring back the "loaded" stale notice).
+for (const copy of [de, en]) test(`AIT-612 r2 ${copy.display.locale}: a failed reload after a stale reload keeps the load error through a language switch`, async t => {
+  const doc = { contract: 'v1', features: { voice: ['host-speech'] }, selected: [], items: [{ id: 'host-speech', title: 'Speech', recipients: 'Voice processor', text: 'Speech purpose', version: 1 }] };
+  let fail = false;
+  const h = fixture(t, copy, { load: async () => { if (fail) throw new Error('unavailable'); return doc; } });
+  await h.editor.open('voice');
+  await h.editor.open('voice', { reload: true });
+  assert.equal(h.editor.stale, true); assert.equal(h.editor.status, copy.host.consentStale);
+  fail = true; await h.editor.open('voice', { reload: true });
+  assert.equal(h.editor.status, copy.host.consentPage.loadFailed);
+  assert.equal(h.editor.stale, false, 'a failed reload is not a stale-but-loaded state');
+  const other = copy === de ? en : de;
+  h.editor.setCopy(other);
+  assert.equal(h.root.querySelector('.consent-status').textContent, other.host.consentPage.loadFailed);
+});

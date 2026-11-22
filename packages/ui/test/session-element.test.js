@@ -1552,6 +1552,29 @@ for (const copy of [de, en]) for (const path of ['save', 'load']) test(`AIT-612 
   assert.ok([...dialog.querySelectorAll('.consent-state-measure')].some(n => n.textContent === text), 'the footer reserves the error (no layout shift)');
 });
 
+// AIT-612 r2 (gate M1): a host copy bundle without host.consentPage.loadFailed: the footer shows the stock
+// failed-load copy (not a blank line beside a disabled Save), and its reserve holds that same text.
+for (const copy of [de, en]) test(`AIT-612 r2 ${copy.display.locale}: a host copy without loadFailed shows the stock failed load in the footer`, async t => {
+  const { loadFailed, ...consentPage } = copy.host.consentPage;
+  const hostCopy = { ...copy, host: { ...copy.host, consentPage } };
+  const c = setup({ copy: hostCopy }), root = c.shadowRoot;
+  t.mock.method(globalThis, 'fetch', async url => {
+    if (String(url).endsWith('/consent')) return new Response('unavailable', { status: 500 });
+    if (String(url).endsWith('/features')) return Response.json({ featureMatrix: c.session.featureMatrix });
+    return Response.json({});
+  });
+  const session = c.session;
+  session.featureMatrix.best.text = { available: false, reason: 'current processing consent required' };
+  c.configure({ session, copy: hostCopy });
+  root.querySelector('.composer-reason .consent-action').click();
+  await new Promise(resolve => setImmediate(resolve));
+  const dialog = root.querySelector('dialog.settings');
+  assert.equal(dialog.open, true);
+  assert.equal(typeof loadFailed, 'string');
+  assert.equal(dialog.querySelector('.save-status').textContent, loadFailed, 'the footer explains the disabled Save');
+  assert.ok([...dialog.querySelectorAll('.consent-state-measure')].some(n => n.textContent === loadFailed), 'the footer reserves the stock text (no layout shift)');
+});
+
 for (const copy of [de, en]) test(`AIT-349: ${copy.display.locale} interruption retains full text and row identity through duplicate/reloaded events`, () => {
   const c = setup({ copy }), root = c.shadowRoot, content = 'Die vollständige Antwort bleibt im Protokoll. The full text stays.';
   c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'truthful', role: 'assistant', content } });
