@@ -619,6 +619,16 @@ export async function welcomeOnlyFollowCheck(t) {
       pane: (() => { const r = shell.getBoundingClientRect(); return { top: r.top, bottom: r.top + shell.clientHeight }; })(),
       notice: rect(notice), noticeText: notice?.textContent.trim() ?? '', noticesInShell: root.querySelector('.voice-notices')?.parentNode === shell };
   });
+  // Diagnostics only: from here on, every scrollTop write to the transcript
+  // shell (old -> new / max, calling frames); a failure message leads with it.
+  const trapWrites = page => page.$eval('aithema-session', c => {
+    const shell = c.shadowRoot.querySelector('.transcript-shell'), top = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop'), trap = globalThis.latestTrap603 = [];
+    const where = () => new Error().stack.split('\n').slice(3, 8)
+      .map(line => { const m = /at (?:async )?(?:(\S+) \()?.*\/([^/:]+):(\d+):\d+\)?$/u.exec(line); return m ? `${m[1] ?? ''}@${m[2]}:${m[3]}` : ''; }).join('<');
+    Object.defineProperty(shell, 'scrollTop', { configurable: true, get() { return top.get.call(this); },
+      set(value) { if (trap.length < 16) trap.push(`${Math.round(top.get.call(this))}->${Math.round(value)}/${this.scrollHeight - this.clientHeight} ${where()}`); top.set.call(this, value); } });
+  });
+  const writes = page => page.evaluate(() => globalThis.latestTrap603);
   const item = { width: 390, height: 664, theme: 'light', text: 125, font: 'wide' };
   for (const locale of ['en', 'de']) {
     const name = `390x664-${locale}-light-text125-wide`;
@@ -632,15 +642,16 @@ export async function welcomeOnlyFollowCheck(t) {
         assert.deepEqual(before.rows, ['host:opener(h)'], `${name}: only the host welcome is in the list`);
         assert.ok(before.rail, `${name}: the voice rail rendered`);
         // The first utterance dropped before it was saved: "please repeat".
+        await trapWrites(page);
         await page.evaluate(() => globalThis.rail603.notices.recovered({ userUnconfirmed: true }));
         await settle(page);
-        const after = await state(page);
+        const after = await state(page), trace = await writes(page);
         positive(`${name}/shell`, after.shell); positive(`${name}/notice`, after.notice);
         assert.ok(after.noticeText, `${name}: the notice has its text`);
         assert.ok(after.noticesInShell, `${name}: the phone notices sit in the transcript shell`);
         const top = after.notice.y, bottom = after.notice.y + after.notice.height;
         assert.ok(top >= after.pane.top - .5 && bottom <= after.pane.bottom + .5,
-          `${name}: the recovery notice is followed into the reading pane: ${JSON.stringify({ before, after })}`);
+          `${name}: the recovery notice is followed into the reading pane: ${JSON.stringify({ trace, before, after })}`);
         assert.deepEqual(problems, []);
       } finally {
         await page.evaluate(() => { const release = globalThis.releaseTurns; globalThis.releaseTurns = null; release?.(); }).catch(() => {});
@@ -658,19 +669,24 @@ export async function welcomeOnlyFollowCheck(t) {
         positive(`${name}/shell`, before.shell);
         // The precondition: the welcome alone scrolls and the guard kept the reader above its end.
         assert.ok(before.max > .5 && before.scrollTop < before.max - .5, `${name}: the welcome-only pane scrolls above its end ${JSON.stringify(before)}`);
-        // A failure names the transcript's scroll writers after the jump (diagnostics only).
-        await page.$eval('aithema-session', c => {
-          const shell = c.shadowRoot.querySelector('.transcript-shell'), top = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop'), trap = globalThis.latestTrap603 = [];
-          const where = () => new Error().stack.split('\n').slice(3, 7)
-            .map(line => { const m = /at (?:async )?(?:(\S+) \()?.*\/([^/:]+):(\d+):\d+\)?$/u.exec(line); return m ? `${m[1] ?? ''}@${m[2]}:${m[3]}` : ''; }).join('<');
-          Object.defineProperty(shell, 'scrollTop', { configurable: true, get() { return top.get.call(this); },
-            set(value) { if (trap.length < 16) trap.push(`${Math.round(top.get.call(this))}->${Math.round(value)}/${this.scrollHeight - this.clientHeight} ${where()}`); top.set.call(this, value); } });
-          c.shadowRoot.querySelector('.transcript-latest').click();
+        // Main's long-latest-reply rule: the welcome is the latest item and taller
+        // than the pane, so the first Latest jump shows its start (with "Read
+        // full reply"); the next jump goes to its tail, the end. The guard must
+        // not hold either jump (#latestJump bypass).
+        await trapWrites(page);
+        const latest = () => page.$eval('aithema-session', c => c.shadowRoot.querySelector('.transcript-latest').click());
+        await latest(); await settle(page);
+        const first = await state(page), opener = await page.$eval('aithema-session', c => {
+          const shell = c.shadowRoot.querySelector('.transcript-shell'), row = shell.querySelector('[data-id="host:opener"]'), r = row.getBoundingClientRect();
+          return { top: r.top, width: r.width, height: r.height, paneTop: shell.getBoundingClientRect().top + parseFloat(getComputedStyle(shell).paddingTop),
+            readFull: Boolean(row.querySelector('.turn-read-full:not([hidden])')) };
         });
-        await settle(page);
-        const after = await state(page), writes = await page.evaluate(() => globalThis.latestTrap603);
+        positive(`${name}/opener`, opener);
+        assert.ok(Math.abs(opener.top - opener.paneTop) <= .5, `${name}: the first Latest jump shows the welcome's start: ${JSON.stringify({ writes: await writes(page), opener, first })}`);
+        await latest(); await settle(page);
+        const after = await state(page), trace = await writes(page);
         assert.deepEqual(after.rows, ['host:opener(h)'], `${name}: still only the host welcome`);
-        assert.ok(Math.abs(after.scrollTop - after.max) <= .5, `${name}: Latest goes to the end: ${JSON.stringify({ writes, before, after })}`);
+        assert.ok(after.max > .5 && Math.abs(after.scrollTop - after.max) <= .5, `${name}: the next Latest jump goes to the end: ${JSON.stringify({ trace, opener, before, first, after })}`);
         assert.deepEqual(problems, []);
       } finally {
         await page.evaluate(() => { const release = globalThis.releaseTurns; globalThis.releaseTurns = null; release?.(); }).catch(() => {});
