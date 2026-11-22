@@ -568,9 +568,12 @@ function servedOffenders(root, pattern) {
     // admin-page.js reads the host clock header (x-aithema-now), which is not the owner header.
     const own = offenders(path, label).filter(item => !(item === `${label}: owner header prefix` && !/x-aithema-(?!now\b)/iu.test(readFileSync(path, 'utf8'))));
     if (label.startsWith('demo/')) { found.push(...own); continue; }
-    const network = own.filter(item => /: fetch (reference|in a string)$/u.test(item));
+    // Without an owner route, a fetch port or a computed access (`view?.[key]` on a local balance
+    // object in core credits.js) cannot reach an owner call; beside one, it fails.
+    const network = own.filter(item => /: (fetch reference|fetch in a string|computed access on \w+)$/u.test(item));
     found.push(...own.filter(item => !network.includes(item)));
-    if (network.length && /['"`]\/api\//u.test(readFileSync(path, 'utf8'))) found.push(`${label}: fetch beside an owner route`);
+    if (network.some(item => /: fetch /u.test(item)) && /['"`]\/api\//u.test(readFileSync(path, 'utf8'))) found.push(`${label}: fetch beside an owner route`);
+    if (network.some(item => /: computed access /u.test(item)) && /['"`]\/api\//u.test(readFileSync(path, 'utf8'))) found.push(`${label}: computed access beside an owner route`);
   }
   return found;
 }
