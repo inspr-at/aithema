@@ -1,16 +1,49 @@
 /** Same-origin authenticated fetch bridge. Host headers carry its existing owner
- * authentication; grants and connection capabilities never appear in URLs. */
-export function createNetworkRelayClient({ url = '/composed/relay', fetch: request = globalThis.fetch, headers = {} } = {}) {
+ * authentication; grants and connection capabilities never appear in URLs.
+ * AIT-625: this runs in the browser and forwards host credentials (headers and the
+ * same-origin cookie), so it applies the owner-request rules itself (this package cannot
+ * depend on the UI helper): on a page, the URL is resolved once against document.baseURI
+ * and must share the document's actual origin (window.origin; "null" fails closed);
+ * every request uses redirect:'error'; finite actions end at a deadline that covers
+ * the body. Only the frame long poll is left to the call lifetime, as /events is.
+ * Without a document (a server-side runtime with an injected fetch) there is no page
+ * origin to protect; the URL is used as given, still with redirect:'error'. */
+export const RELAY_REQUEST_DEADLINE_MS = 30_000;
+const pageView = () => (globalThis.document ? globalThis : null);
+function relayURL(view, url) {
+  if (!view) return String(url);
+  const origin = view.origin, base = view.document?.baseURI;
+  if (typeof origin !== 'string' || origin === 'null' || !/^https?:$/u.test(view.location?.protocol ?? '') || !base)
+    throw new Error('Relay requests require the page origin');
+  const resolved = new URL(String(url), base);
+  if (resolved.origin !== origin) throw new Error('Relay requests require same origin');
+  return resolved.href;
+}
+function combine(signals) {
+  if (typeof AbortSignal.any === 'function') return AbortSignal.any(signals);
+  const controller = new AbortController();
+  for (const signal of signals) {
+    if (signal.aborted) { controller.abort(signal.reason); break; }
+    signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true, signal: controller.signal });
+  }
+  return controller.signal;
+}
+export function createNetworkRelayClient({ url = '/composed/relay', fetch: request = globalThis.fetch, headers = {}, view = pageView(), deadline = RELAY_REQUEST_DEADLINE_MS } = {}) {
   return async function openRelay(grant) {
+    const target = relayURL(view, url);
     const lifetime = new AbortController(); let connectionId, closed = false, commands = 0, retirementRevision = 0;
     async function post(action, body, binary = false, signal = lifetime.signal) {
-      const response = await request(url, { method: 'POST', credentials: 'same-origin', signal,
-        headers: { ...headers, 'content-type': binary ? 'application/octet-stream' : 'application/json',
-          'x-composed-action': action, ...(connectionId ? { 'x-composed-connection': connectionId } : {}) },
-        body: binary ? body : JSON.stringify(body ?? {}) });
-      const value = await response.json();
-      if (!response.ok) { const error = new Error('Composed relay request failed'); error.code = value.error; error.status = response.status; throw error; }
-      return value;
+      const timer = new AbortController(), finite = action !== 'frame' && Number.isFinite(deadline);
+      const id = finite ? setTimeout(() => timer.abort(new DOMException('Relay request deadline', 'TimeoutError')), deadline) : null;
+      try {
+        const response = await request(target, { method: 'POST', credentials: 'same-origin', redirect: 'error', signal: finite ? combine([signal, timer.signal]) : signal,
+          headers: { ...headers, 'content-type': binary ? 'application/octet-stream' : 'application/json',
+            'x-composed-action': action, ...(connectionId ? { 'x-composed-connection': connectionId } : {}) },
+          body: binary ? body : JSON.stringify(body ?? {}) });
+        const value = await response.json();
+        if (!response.ok) { const error = new Error('Composed relay request failed'); error.code = value.error; error.status = response.status; throw error; }
+        return value;
+      } finally { clearTimeout(id); }
     }
     ({ connectionId } = await post('open', grant));
     return {

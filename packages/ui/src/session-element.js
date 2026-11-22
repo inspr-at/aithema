@@ -4430,7 +4430,8 @@ export class AithemaSession extends HTMLElement {
         this.#signalLiveSeq = null; this.#signals?.quiet();
         this.#connectionStatus(attempt ? this.#copy.reconnecting : this.#copy.connecting);
         const response = await this.#api(`${this.#base}/api/sessions/${this.#session.id}/events`, {
-          signal, sessionToken: this.#sessionToken, headers: { 'Last-Event-ID': String(this.#cursor) },
+          // The event stream is the one unbounded body: its deadline covers the headers only.
+          signal, stream: true, sessionToken: this.#sessionToken, headers: { 'Last-Event-ID': String(this.#cursor) },
         });
         if (signal.aborted) return;
         if (response.status === 400) { await this.#restore(); return; }
