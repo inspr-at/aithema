@@ -492,9 +492,12 @@ test('AIT-610 control: the trace scans detect stored, logged and forwarded senti
       try { fs.writevSync(fd, [Buffer.from('head|'), image.bytes]); } finally { fs.closeSync(fd); } await rm(file); }],
     ['fs write', async f => { const file = join(tmpdir(), `ait610-gone-hv-${process.pid}.bin`), handle = await fsp.open(file, 'w');
       try { await handle.writev([image.bytes]); } finally { await handle.close(); } await rm(file); }],
-    // r5 (gate4c Low): a sentinel split across two vectors of one writev call.
+    // r5 (gate4c Low): a sentinel split across the vectors of one writev call.
+    // The sentinel holds its marker three times: 10-byte vectors cut every copy.
     ['fs write', async f => { const file = join(tmpdir(), `ait610-gone-sv-${process.pid}.bin`), fd = fs.openSync(file, 'w');
-      try { fs.writevSync(fd, [image.bytes.subarray(0, 20), image.bytes.subarray(20)]); } finally { fs.closeSync(fd); } await rm(file); }],
+      const vectors = []; for (let at = 0; at < image.bytes.length; at += 10) vectors.push(image.bytes.subarray(at, at + 10));
+      assert.ok(vectors.every(vector => !Buffer.from(vector).toString('latin1').includes(image.marker)), 'no vector holds a whole marker');
+      try { fs.writevSync(fd, vectors); } finally { fs.closeSync(fd); } await rm(file); }],
   ]) {
     image = sentinelImage();
     const f = await fixture(t);
