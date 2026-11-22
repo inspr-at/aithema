@@ -476,6 +476,8 @@ export class PhoneComposerViewport {
       if (viewport && viewport.scale !== 1) {
         if ((this.fullHeight ?? 0) - height * viewport.scale < 150) {
           root.querySelector('.workspace')?.removeAttribute('data-phone-keyboard');
+          root.querySelector('.workspace')?.removeAttribute('data-phone-keyboard-band');
+          root.querySelector('.band')?.removeAttribute('data-keyboard-rail-row');
           latchFeedback(root, false);
         }
         return;
@@ -513,25 +515,30 @@ export class PhoneComposerViewport {
       const active = root.ownerDocument.activeElement === root.host ? root.activeElement : null;
       const editing = active?.matches('textarea,input,[contenteditable="true"]') || active?.closest('.composer');
       const width = view?.innerWidth, orientation = view?.screen.orientation?.angle;
-      // AIT-618 r3 (Codex gate1c Medium 2): focus in the composer opens the
-      // keyboard-up state; only the keyboard's actual close (the viewport
-      // grows back) ends it, as under pinch zoom above (PR-A r10). Focus
-      // landing in the header while the keyboard is still up keeps the
-      // compact band, so Pause never drops under the finger.
-      const wasUp = workspace.hasAttribute('data-phone-keyboard');
-      if (width !== this.viewportWidth || orientation !== this.viewportOrientation || !editing && !wasUp) {
+      // AIT-618 r3 (Codex gate1c Medium 2): the compact keyboard-up BAND opens
+      // with focus in the composer and ends only on the keyboard's actual close
+      // (the viewport grows back), as under pinch zoom above (PR-A r10), so focus
+      // landing in the header while the keyboard is still up never drops Pause
+      // under the finger. The keyboard flag itself (footer, dock) keeps AIT-188
+      // r3's rule: focus leaving the composer clears it at once. The full height
+      // is kept while the band is up, so the close is measured against it.
+      const bandWasUp = workspace.hasAttribute('data-phone-keyboard-band');
+      if (width !== this.viewportWidth || orientation !== this.viewportOrientation || !editing && !bandWasUp) {
         this.fullHeight = Math.max(view?.innerHeight ?? height, height);
         this.viewportWidth = width; this.viewportOrientation = orientation;
       } else this.fullHeight = Math.max(this.fullHeight ?? 0, view?.innerHeight ?? height, height);
-      const keyboardUp = Boolean(phone && touch && (editing || wasUp) && this.fullHeight - height >= 150);
+      const obstructed = Boolean(phone && touch && this.fullHeight - height >= 150);
+      const keyboardUp = obstructed && Boolean(editing);
       workspace.toggleAttribute('data-phone-keyboard', keyboardUp);
+      const bandUp = obstructed && Boolean(editing || bandWasUp);
+      workspace.toggleAttribute('data-phone-keyboard-band', bandUp);
       // AIT-618 r3 (Codex gate1c Medium 4): the keyboard-up band is one row only
       // while the host's header controls leave the pause column free; a host
       // with more controls (Conversations, Contact, …) keeps the rail in its own
       // row, so no two targets intersect. Columns do not depend on the row.
       const band = root.querySelector('.band'), pauseCell = band?.querySelector(':scope > .audio-rail > .voice-cell--pause');
       let railRow = false;
-      if (keyboardUp && pauseCell) {
+      if (bandUp && pauseCell) {
         const cell = pauseCell.getBoundingClientRect();
         railRow = [...band.querySelectorAll('.header-actions > *')].some(node => {
           if (node.hidden) return false;

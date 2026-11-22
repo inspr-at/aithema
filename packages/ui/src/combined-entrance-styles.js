@@ -419,23 +419,25 @@ export const combinedEntranceStyles = `
    keep the columns, so pause never shifts). The rail's status leaves the
    paint but stays in the accessibility tree (its live region still speaks).
    The row is 44 px whether a reply plays or is paused; it changes only when
-   the keyboard opens or closes (layout.js measures the band after the flag). */
+   the keyboard opens or closes (layout.js measures the band after the flag).
+   r3 (Codex gate1c Medium 2): its own flag, [data-phone-keyboard-band], ends
+   only on the keyboard's actual close, not when focus leaves the composer. */
 @media(max-width:599px) {
-  .workspace[data-entrance="combined"][data-phone-keyboard] .band:has(> .audio-rail) { --band-height:44px; grid-template-rows:44px; height:44px; min-height:44px; }
-  .workspace[data-entrance="combined"][data-phone-keyboard] .band > .audio-rail { grid-row:1; height:44px; min-height:44px; pointer-events:none; }
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band:has(> .audio-rail) { --band-height:44px; grid-template-rows:44px; height:44px; min-height:44px; }
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band > .audio-rail { grid-row:1; height:44px; min-height:44px; pointer-events:none; }
   /* The identity is auto-placed: pin it to the one row, or the rail's row would push it into an implicit second row. */
-  .workspace[data-entrance="combined"][data-phone-keyboard] .band:has(> .audio-rail) > .band-identity { grid-row:1; grid-column:1; }
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band:has(> .audio-rail) > .band-identity { grid-row:1; grid-column:1; }
   /* Descendants too: the wave and revealed controls set their own visibility. */
-  .workspace[data-entrance="combined"][data-phone-keyboard] .band > .audio-rail > :is(.voice-cell--output, .voice-signal, .voice-cell--mic, .voice-cell--end),
-  .workspace[data-entrance="combined"][data-phone-keyboard] .band > .audio-rail > :is(.voice-cell--output, .voice-signal, .voice-cell--mic, .voice-cell--end) :not(.voice-state, .voice-state *) { visibility:hidden; }
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band > .audio-rail > :is(.voice-cell--output, .voice-signal, .voice-cell--mic, .voice-cell--end),
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band > .audio-rail > :is(.voice-cell--output, .voice-signal, .voice-cell--mic, .voice-cell--end) :not(.voice-state, .voice-state *) { visibility:hidden; }
   /* r3 (Codex gate1c Medium 4): a host's header controls reach the pause
      column (layout.js sets [data-keyboard-rail-row]): the rail keeps its own
      44 px row under the header, exactly where it sits with the keyboard down,
      and stays compact (the same cells hidden), so no targets intersect. */
-  .workspace[data-entrance="combined"][data-phone-keyboard] .band[data-keyboard-rail-row]:has(> .audio-rail) { --band-height:88px; grid-template-rows:44px 44px; row-gap:0; height:88px; min-height:88px; }
-  .workspace[data-entrance="combined"][data-phone-keyboard] .band[data-keyboard-rail-row] > .audio-rail { grid-row:2; }
-  .workspace[data-entrance="combined"][data-phone-keyboard] .band > .audio-rail > .voice-cell--pause { pointer-events:auto; }
-  .workspace[data-entrance="combined"][data-phone-keyboard] .band > .audio-rail .voice-state {
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band[data-keyboard-rail-row]:has(> .audio-rail) { --band-height:88px; grid-template-rows:44px 44px; row-gap:0; height:88px; min-height:88px; }
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band[data-keyboard-rail-row] > .audio-rail { grid-row:2; }
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band > .audio-rail > .voice-cell--pause { pointer-events:auto; }
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band > .audio-rail .voice-state {
     visibility:visible; position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 }
 `;
