@@ -668,3 +668,81 @@ test('AIT-625 r7 demo: postJson and the consent page send only through the helpe
   for (const call of calls.slice(1)) { assert.match(call.url, /^http:\/\/app\.test\//u); assert.equal(call.init.redirect, 'error'); }
   assert.deepEqual(strays, [], 'no demo module read fetch itself');
 });
+
+// AIT-637 (TICK M1 + L1 on AIT-625): an export control that cannot export looks disabled and says
+// why, in both disabled states (no page origin = a foreign <base>; the device preset) and on both
+// controls (the footer .export and the composer .composer-out__export). Click, Enter and Space
+// send nothing; enabled controls keep main's attributes.
+test('AIT-637 element: both disabled states x both controls are muted, described in EN/DE and send nothing', async t => {
+  const { createSession } = await import('@inspr/aithema-core');
+  const { en } = await import('../src/i18n/en.js');
+  const { de } = await import('../src/i18n/de.js');
+  const { hostStyles } = await import('../src/host-styles.js');
+  const { styles } = await import('../src/styles.js');
+  assert.equal(en.exportUnavailable, "Export isn't available on this page.");
+  assert.equal(de.exportUnavailable, 'Der Export ist auf dieser Seite nicht verfügbar.');
+  assert.notEqual(en.exportUnavailable, de.exportUnavailable, 'AIT-100 B2: EN and DE differ');
+  // Style rules: the composer control gets the footer's muted look (no underline, muted ink,
+  // cursor default, as it shows no tip); the footer keeps its rule and shows a tip in both states.
+  const rule = (css, selector) => css.match(new RegExp(`${selector.replace(/[.[\]"]/gu, '\\$&')}\\s*\\{([^}]*)\\}`, 'u'))?.[1].replace(/\s+/gu, '');
+  const composerRule = rule(hostStyles, '.composer-out__export[aria-disabled="true"]');
+  assert.ok(composerRule, 'a disabled rule exists for the composer export');
+  for (const declaration of ['text-decoration:none', 'color:var(--aithema-muted)', 'cursor:default']) assert.ok(composerRule.includes(declaration), `composer: ${declaration}`);
+  assert.equal(rule(styles, '.export[aria-disabled="true"]'), 'text-decoration:none;cursor:help;', 'the footer keeps main\'s disabled rule');
+  const window = elementPage();
+  const { calls } = guardFetch(t, url => String(url).endsWith('/events') ? new Response(new ReadableStream({ start() {} })) : Response.json({}), [window]);
+  await import('../src/session-element.js');
+  const tick = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)); };
+  const mount = async (locale, preset) => {
+    const copy = structuredClone(locale === 'de' ? de : en), session = createSession({ demo: true });
+    session.locale = locale; if (preset) session.processingPreset = preset;
+    const component = window.document.createElement('aithema-session');
+    component.configure({ copy, session, sessionToken: 'tok', copyForLocale: () => copy });
+    window.document.body.append(component); await tick();
+    t.after(() => component.remove());
+    return component;
+  };
+  const described = (root, control) => {
+    const ids = (control.getAttribute('aria-describedby') ?? '').split(/\s+/u).filter(Boolean);
+    return ids.map(id => root.querySelector(`#${id}`)?.textContent ?? '').join(' ');
+  };
+  const expected = { noorigin: { en: en.exportUnavailable, de: de.exportUnavailable }, device: { en: en.deviceExportUnavailable, de: de.deviceExportUnavailable } };
+  for (const state of ['noorigin', 'device']) for (const locale of ['en', 'de']) {
+    const label = `${state}/${locale}`, base = window.document.createElement('base');
+    if (state === 'noorigin') { base.href = 'https://evil.example/'; window.document.head.append(base); }
+    try {
+      const component = await mount(locale, state === 'device' ? 'device' : undefined), root = component.shadowRoot;
+      const footer = root.querySelector('.export'), composer = root.querySelector('.composer-out__export'), reason = root.querySelector('.export-reason');
+      for (const control of [footer, composer]) {
+        assert.equal(control.getAttribute('aria-disabled'), 'true', `${label} ${control.className}: aria-disabled`);
+        assert.equal(described(root, control), expected[state][locale], `${label} ${control.className}: accessible description`);
+        assert.equal(control.hasAttribute('href'), false, `${label} ${control.className}: no href`);
+      }
+      // The footer shows the reason in place, where the device state shows its reason line, with a tip.
+      assert.equal(reason.textContent, expected[state][locale], `${label}: footer reason line`);
+      assert.equal(reason.style.visibility, 'visible', `${label}: footer reason line visible`);
+      assert.equal(reason.getAttribute('aria-hidden'), 'false', `${label}: footer reason line exposed`);
+      assert.equal(footer.title, expected[state][locale], `${label}: footer tip`);
+      // The composer shows no tip, so its cursor stays default.
+      assert.equal(composer.title, '', `${label}: composer has no tip`);
+      const before = calls.length;
+      for (const control of [footer, composer]) {
+        control.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+        for (const key of ['Enter', ' ']) control.dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+      }
+      await tick();
+      assert.deepEqual(calls.slice(before).map(call => String(call.url)).filter(url => url.endsWith('/export')), [], `${label}: click, Enter and Space send no export`);
+    } finally { base.remove(); }
+  }
+  // Enabled (same origin, default preset): as on main, no aria-disabled, no description, no tip,
+  // the footer reason line hidden.
+  for (const locale of ['en', 'de']) {
+    const root = (await mount(locale)).shadowRoot, reason = root.querySelector('.export-reason');
+    for (const control of [root.querySelector('.export'), root.querySelector('.composer-out__export')]) {
+      assert.equal(control.hasAttribute('aria-disabled'), false, `enabled/${locale} ${control.className}`);
+      assert.equal(control.hasAttribute('aria-describedby'), false, `enabled/${locale} ${control.className}: no description`);
+      assert.equal(control.title, '', `enabled/${locale} ${control.className}: no tip`);
+    }
+    assert.equal(reason.style.visibility, 'hidden'); assert.equal(reason.getAttribute('aria-hidden'), 'true');
+  }
+});
