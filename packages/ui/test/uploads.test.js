@@ -1176,6 +1176,7 @@ test('AIT-610 r9: sameOrigin resolves against the document base and returns exac
   assert.throws(() => sameOrigin(view('http://localhost/'), '//other.example/api/x'), /same origin/u);
 });
 test('AIT-610 r9: a foreign <base href> receives no owner-authenticated upload request: reconcile, limits, attach and withdraw', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] }); // no retry timer outlives the test
   const base = document.createElement('base'); base.href = 'https://other.example/'; document.head.append(base); t.after(() => base.remove());
   assert.equal(new URL('/x', document.baseURI).origin, 'https://other.example', 'the fixture base is in effect');
   const { root, calls } = setup(t, { uploads: [pending('u1'), stagedImage()], images: true });
@@ -1187,6 +1188,7 @@ test('AIT-610 r9: a foreign <base href> receives no owner-authenticated upload r
   assert.equal(root.querySelector('.upload').dataset.state, 'pending');
 });
 test('AIT-610 r9: a same-origin upload request that redirects to another origin is refused: no owner header is forwarded', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] }); // no retry timer outlives the test
   const { root } = setup(t, { uploads: [pending('u1'), stagedImage()], images: true });
   const inner = globalThis.fetch, forwarded = [];
   // The fixture server redirects every upload route elsewhere; like the platform,
@@ -1205,6 +1207,7 @@ test('AIT-610 r9: a same-origin upload request that redirects to another origin 
   assert.equal(root.querySelector('.upload').dataset.state, 'pending');
 });
 test('AIT-610 r9: the normal same-origin path fetches exactly the resolved URL with redirect: error (reconcile, limits, attach, withdraw)', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] }); // no retry timer outlives the test
   const { c, root, calls } = setup(t, { uploads: [pending('u1'), stagedImage()], images: true });
   for (let i = 0; i < 6; i++) await tick();
   root.querySelector('.attach').click(); await tick();
