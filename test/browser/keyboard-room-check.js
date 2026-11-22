@@ -314,7 +314,7 @@ const bandState = c => {
   };
   const status = root.querySelector('.audio-rail .voice-state');
   return {
-    keyboard: root.querySelector('.workspace').hasAttribute('data-phone-keyboard'),
+    keyboard: root.querySelector('.workspace').hasAttribute('data-phone-keyboard'), bandUp: root.querySelector('.workspace').hasAttribute('data-phone-keyboard-band'),
     band: box(root.querySelector('.band')), orb: box(root.querySelector('.band-orb')), orbPainted: painted(root.querySelector('.band-orb .orb') ?? root.querySelector('.band-orb')),
     orbVoice: root.querySelector('.band-orb .orb')?.dataset.voice ?? null,
     pause: box(pause), pauseName: pause ? (pause.getAttribute('aria-label') || pause.textContent).trim() : '', pausePressed: pause?.getAttribute('aria-pressed') ?? null,
@@ -456,12 +456,12 @@ export async function keyboardBandCheck(t) {
         await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.settings-open').focus());
         await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
         const headerFocus = await readBand(page);
-        if (!headerFocus.keyboard) failures.push(`${name}: header focus with the viewport still short: the keyboard flag stays`);
+        if (!headerFocus.bandUp) failures.push(`${name}: header focus with the viewport still short: the keyboard-up band stays`);
         failures.push(...stableBoxes(`${name} header focus, keyboard still up`, first, headerFocus, ['band', 'orb', 'pause', 'gear']));
         await keyboardDown(page); await settleLong(page);
         const back = await readBand(page);
         await capture(page, `${name}-keyboard-closed`, { ...(await read(page)), band: back });
-        if (back.keyboard) failures.push(`${name}: the keyboard flag clears`);
+        if (back.keyboard || back.bandUp) failures.push(`${name}: the keyboard and band flags clear when the keyboard closes`);
         if (!back.outputPainted.length) failures.push(`${name}: the volume control returns when the keyboard closes`);
         failures.push(...stableBoxes(`${name} keyboard down -> closed`, down, back, ['band', 'orb', 'pause', 'gear']));
         t.diagnostic(`${name}: band down/up ${down.band?.height} / ${first.band?.height}; lines ${states.map(([label, room]) => `${label}=${room.lines}`).join(' ')}; room ${states.map(([, room]) => room.room.toFixed(1)).join('/')}; notice ${first.notice?.height} (${first.noticeLines} line); insets ${JSON.stringify(first.insets)}; More hit ${JSON.stringify(first.moreHit)}; pause x ${down.pause?.x} -> ${first.pause?.x}`);
