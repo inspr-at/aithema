@@ -125,11 +125,7 @@ async function harness(t) {
   // r3: `consent` overrides the host's consent copy (a long host action); `host` mounts the host
   // surface (its header controls) through configure, as a host does.
   // r4: `heldImage` keeps image input behind its own consent (a picked image is held until consent or expiry).
-  // `finePointer` emulates a hover-capable fine pointer (a mouse), so a non-touch page matches
-  // (hover:hover) and (pointer:fine) on every runner: Linux headless Chrome reports (hover:none)
-  // for a page without touch. Puppeteer's emulateMediaFeatures accepts only prefers-*, so this
-  // goes through CDP and repeats those two features, which the same call would otherwise drop.
-  const open = async ({ width, height, locale, touch = true, intake = null, granted = false, consent = null, host = null, contact = false, heldImage = false, finePointer = false }, problems) => {
+  const open = async ({ width, height, locale, touch = true, intake = null, granted = false, consent = null, host = null, contact = false, heldImage = false }, problems) => {
     const page = await browser.newPage();
     page.on('pageerror', error => problems.push(error.message));
     page.on('console', message => { if (/ResizeObserver/.test(message.text())) problems.push(message.text()); });
@@ -138,9 +134,6 @@ async function harness(t) {
     }));
     await page.setViewport({ width, height, hasTouch: touch, isMobile: false });
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
-    if (finePointer) await (await page.createCDPSession()).send('Emulation.setEmulatedMedia', { features: [
-      { name: 'prefers-color-scheme', value: 'light' }, { name: 'prefers-reduced-motion', value: 'reduce' },
-      { name: 'hover', value: 'hover' }, { name: 'pointer', value: 'fine' }] });
     await page.setRequestInterception(true);
     page.on('request', request => { void (new URL(request.url()).pathname === '/combined-fixture'
       ? request.respond({ status: 200, contentType: 'text/html', body: fixture }) : request.continue()); });
@@ -268,11 +261,16 @@ export async function keyboardHintCheck(t) {
       const name = `${width}x${height}-${locale}-hardware-keyboard-hint`;
       await t.test(name, async () => {
         const problems = [], failures = [];
-        const page = await open({ width, height, locale, granted: true, touch: false, finePointer: true }, problems);
+        const page = await open({ width, height, locale, granted: true, touch: false }, problems);
         try {
           const state = await read(page);
           await capture(page, name, state);
-          if (state.coarse || state.hoverNone) failures.push(`${name}: fixture: a fine pointer with hover: ${JSON.stringify([state.coarse, state.hoverNone])}`);
+          // The premise is the product's own rule (combined-entrance-styles.js: the hint hides only
+          // under (hover:none) and (pointer:coarse)): not a touch phone, i.e. a fine pointer OR hover.
+          // Linux headless Chrome reports hover:none with pointer:fine for a page without touch, and
+          // the product rightly shows the hint there. The hidden branch is covered on every runner by
+          // the touch-no-hint cases above: their premise proves hasTouch flips to coarse + hover:none.
+          if (state.coarse && state.hoverNone) failures.push(`${name}: fixture: not a touch phone (a fine pointer or hover): ${JSON.stringify([state.coarse, state.hoverNone])}`);
           if (!state.hint?.painted || !(state.hint.box?.width > 0 && state.hint.box?.height > 0) || !/Enter/u.test(state.hint.text)) failures.push(`${name}: the hint shows: ${JSON.stringify(state.hint)}`);
           if (!state.status.painted || !(state.status.slot?.height > 0)) failures.push(`${name}: the mic-blocked row shows: ${JSON.stringify(state.status)}`);
         } finally { await page.close(); }
