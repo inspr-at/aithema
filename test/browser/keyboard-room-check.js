@@ -42,6 +42,20 @@ const keyboardDown = page => page.evaluate(() => {
   window.dispatchEvent(new Event('resize'));
 });
 
+// AIT-618 r4 (TICK Q1 (a), code-health rule 6): the keyboard-up state's settle (focus outside the
+// composer, the viewport not grown back) runs on an injected clock, never a sleep. The element's
+// own layout.js module exports the timer it uses; the test replaces it with a queue it fires itself.
+const installSettleClock = page => page.evaluate(async () => {
+  const { keyboardSettle } = await import('/packages/ui/src/layout.js');
+  globalThis.settleQueue = [];
+  if (!keyboardSettle) return false;
+  keyboardSettle.set = (fn, ms) => { const entry = { fn, ms }; globalThis.settleQueue.push(entry); return entry; };
+  keyboardSettle.clear = entry => { const i = globalThis.settleQueue.indexOf(entry); if (i >= 0) globalThis.settleQueue.splice(i, 1); };
+  return true;
+});
+const pendingSettles = page => page.evaluate(() => (globalThis.settleQueue ?? []).map(entry => entry.ms));
+const fireSettle = page => page.evaluate(() => { const queue = (globalThis.settleQueue ?? []).splice(0); for (const entry of queue) entry.fn(); return queue.length; });
+
 // The dock controls, the status row, the hint and the transcript lines a visitor can read.
 const roomState = c => {
   const root = c.shadowRoot, box = n => { if (!n) return null; const r = n.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
@@ -77,6 +91,7 @@ const roomState = c => {
     mic: box(root.querySelector('.composer-mic')), send: box(root.querySelector('.send')), feedback: box(root.querySelector('.composer-feedback')),
     notice: box(root.querySelector('.composer-notice')), noticePainted: painted(root.querySelector('.composer-notice')),
     band: box(root.querySelector('.band')), scroll: box(scroll), room: Math.max(0, bottom - top), fade,
+    footer: box(root.querySelector('.display-foot')), footerShown: getComputedStyle(root.querySelector('.display-foot')).display !== 'none',
     lines: lines.length, firstLine: lines[0] ?? null,
     status: { text: status?.textContent.trim() ?? '', painted: painted(status), slot: box(slot) },
     hint: hint ? { text: hint.textContent.trim(), painted: painted(hint), box: box(hint) } : null,
@@ -108,7 +123,8 @@ async function harness(t) {
   // `touch`: a touch phone without a hardware keyboard (pointer:coarse, hover:none).
   // r3: `consent` overrides the host's consent copy (a long host action); `host` mounts the host
   // surface (its header controls) through configure, as a host does.
-  const open = async ({ width, height, locale, touch = true, intake = null, granted = false, consent = null, host = null, contact = false }, problems) => {
+  // r4: `heldImage` keeps image input behind its own consent (a picked image is held until consent or expiry).
+  const open = async ({ width, height, locale, touch = true, intake = null, granted = false, consent = null, host = null, contact = false, heldImage = false }, problems) => {
     const page = await browser.newPage();
     page.on('pageerror', error => problems.push(error.message));
     page.on('console', message => { if (/ResizeObserver/.test(message.text())) problems.push(message.text()); });
@@ -122,7 +138,7 @@ async function harness(t) {
       ? request.respond({ status: 200, contentType: 'text/html', body: fixture }) : request.continue()); });
     await page.goto(`${server.url}/combined-fixture?locale=${locale}&opener&passiveDenied`);
     await page.waitForFunction(() => globalThis.ready && document.querySelector('aithema-session').shadowRoot.querySelector('.composer-status').textContent.length > 0);
-    await page.evaluate(async (locale, intake, granted, consent, host, contact) => {
+    await page.evaluate(async (locale, intake, granted, consent, host, contact, heldImage) => {
       const base = (await import(`/packages/ui/src/i18n/${locale}.js`))[locale];
       globalThis.fixtureCopy = { ...base, featureConsent: { ...base.featureConsent, text: base.featureConsent.text, ...(consent ?? {}) } };
       const c = document.querySelector('aithema-session');
@@ -130,16 +146,18 @@ async function harness(t) {
       if (intake === 'image') best.imageInput = { available: true };
       if (intake === 'document') best.uploads = { available: true };
       if (granted) { best.text = structuredClone(best.analysis); best.voice = structuredClone(best.analysis); }
+      if (heldImage) best.imageInput = { available: false, reason: 'current processing consent required' };
       if (host) { const configure = c.configure.bind(c); c.configure = options => configure({ ...options, host }); }
       if (contact) { const button = document.createElement('button'); button.type = 'button'; button.slot = 'contact-launcher';
         button.textContent = locale === 'de' ? 'Kontakt' : 'Contact'; button.style.cssText = 'width:44px;height:44px;overflow:hidden'; c.append(button); }
       mount(snapshot);
-    }, locale, intake, granted, consent, host, contact);
+    }, locale, intake, granted, consent, host, contact, heldImage);
     await page.waitForFunction(granted => {
       const root = document.querySelector('aithema-session').shadowRoot;
       return granted ? root.querySelector('.composer-reason[data-shortcut]') : root.querySelector('.composer-reason[data-consent-feature="text"] .consent-action');
     }, { timeout: 15_000 }, granted);
     await settleLong(page);
+    page.settleClock = await installSettleClock(page);
     return page;
   };
   const read = page => page.$eval('aithema-session', roomState);
@@ -352,6 +370,10 @@ const noticeTargets = (tag, s) => {
   else if (more.y < d.y - .5 || more.y + more.height > d.y + d.height - s.composerBorder.bottom + .5 || more.x < d.x - .5 || more.x + more.width > d.x + d.width + .5)
     failures.push(`${tag}: the "More" target stays inside the dock box: ${JSON.stringify([more, d])}`);
   for (const [name, target] of s.targets) if (intersects(more, target)) failures.push(`${tag}: the "More" target intersects the ${name} target: ${JSON.stringify([more, target])}`);
+  // r4 (Codex gate2c Low): no fractional overlap either. Where "More" and the consent target share
+  // columns, More's top is at or below the consent target's bottom exactly (0 tolerance; 1/64 px fails).
+  for (const [name, target] of s.targets) if (name === 'consent action' && target?.width > 0 && more.x < target.x + target.width && target.x < more.x + more.width
+    && more.y < target.y + target.height && target.y < more.y + more.height) failures.push(`${tag}: the "More" target starts at or below the consent target's bottom exactly: ${more.y} < ${target.y + target.height}`);
   return failures;
 };
 // r3 (Codex gate1c Medium 1): a paused CALL as the product renders it: the rail presses its own
@@ -553,7 +575,164 @@ export async function keyboardHostBandCheck(t) {
         if (up.outputPainted.length) failures.push(`${name}: the volume control is hidden with the keyboard up: ${JSON.stringify(up.outputPainted)}`);
         if (room.lines < 1) failures.push(`${name}: at least one whole transcript line is visible: ${JSON.stringify(brief(room))}`);
         failures.push(...noticeTargets(`${name} keyboard up`, up));
+        // r4 (TICK Q2, Codex gate2c M3): the approved 88 px exception. Pause keeps x 170 in both layouts, and the row
+        // decision latches when the keyboard opens: a host slot change (Contact removed, then added back) never flips it
+        // while the keyboard is up; nothing in the band or the dock moves.
+        for (const [when, band] of [['keyboard down', down], ['keyboard up', up]]) if (Math.abs((band.pause?.x ?? -1) - 170) > .5) failures.push(`${name} ${when}: pause sits at x 170: ${JSON.stringify(band.pause)}`);
+        if (Math.abs((up.band?.height ?? 0) - 88) > .5) failures.push(`${name}: fixture: the host header takes the pause column, so the band keeps the rail row (88 px): ${JSON.stringify(up.band)}`);
+        for (const [step, change] of [['contact removed', 'remove'], ['contact added back', 'add']]) {
+          await page.$eval('aithema-session', (c, change, locale) => {
+            if (change === 'remove') c.querySelector('[slot="contact-launcher"]')?.remove();
+            else { const button = document.createElement('button'); button.type = 'button'; button.slot = 'contact-launcher';
+              button.textContent = locale === 'de' ? 'Kontakt' : 'Contact'; button.style.cssText = 'width:44px;height:44px;overflow:hidden'; c.append(button); }
+          }, change, locale);
+          await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+          const changed = await readBand(page), changedRoom = await read(page);
+          await capture(page, `${name}-keyboard-up-${step.replace(/\s+/gu, '-')}`, { ...changedRoom, band: changed });
+          if (!changed.keyboard) failures.push(`${name} ${step}: the keyboard stays up`);
+          failures.push(...stableBoxes(`${name} ${step} (band)`, up, changed, ['band', 'orb', 'pause', 'gear', 'notice', 'more']));
+          failures.push(...stableBoxes(`${name} ${step} (dock)`, room, changedRoom, ['mic', 'send', 'feedback', 'dock', 'field']));
+          if (changedRoom.lines < 1) failures.push(`${name} ${step}: at least one whole transcript line is visible: ${JSON.stringify(brief(changedRoom))}`);
+        }
         t.diagnostic(`${name}: band down/up ${down.band?.height} / ${up.band?.height}; lines ${room.lines}; room ${room.room.toFixed(1)}; pause ${JSON.stringify(up.pause)}; header ${JSON.stringify(up.header)}`);
+      } finally { await page.close(); }
+      none(failures, name);
+      assert.deepEqual(problems, []);
+    });
+  }
+}
+
+// (f) AIT-618 r4 (TICK Q1 (a), Codex gate2c M1): ONE keyboard-up state. Footer, dock, feedback latch,
+// notice/More and the compact band open together (focus in the composer, the viewport obstructed) and
+// end together, in ONE reflow: when the viewport grows back, or (AIT-188's stale-height escape) at the
+// settle (~1 s, an injected clock here) after focus left the composer. A header tap and a real Pause that
+// disables the composer move nothing before that end. 320x568 vv308, EN/DE, image dock.
+const settleParts = { room: ['dock', 'mic', 'send', 'feedback', 'field', 'notice'], band: ['band', 'pause'] };
+export async function keyboardSettleCheck(t) {
+  const { open, read, capture } = await harness(t);
+  const readBand = page => page.$eval('aithema-session', bandState);
+  const [width, height, viewport] = [320, 568, 308];
+  const both = async page => ({ room: await read(page), band: await readBand(page) });
+  for (const locale of ['en', 'de']) for (const cause of ['header-tap', 'pause-disables-composer']) for (const end of ['settle', 'viewport-grows']) {
+    const name = `${width}x${height}-vv${viewport}-${locale}-image-dock-${cause}-ends-by-${end}`;
+    await t.test(name, async () => {
+      const problems = [], failures = [];
+      const page = await open({ width, height, locale, intake: 'image' }, problems);
+      try {
+        if (!page.settleClock) failures.push(`${name}: the keyboard settle clock is injectable (layout.js keyboardSettle)`);
+        await reply(page, true); await settleLong(page);
+        await keyboardUp(page, viewport); await settleLong(page);
+        const before = await both(page);
+        await capture(page, `${name}-1-before`, { ...before.room, band: before.band });
+        if (cause === 'header-tap') await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.settings-open').focus());
+        else await togglePause(page, true);
+        await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+        const during = await both(page), settles = await pendingSettles(page);
+        await capture(page, `${name}-2-during`, { ...during.room, band: during.band, settles });
+        const editing = await page.$eval('aithema-session', c => Boolean(c.shadowRoot.activeElement?.closest('.composer')));
+        if (editing) failures.push(`${name}: fixture: focus left the composer`);
+        // DURING: focus is out, the viewport is still small, the settle has not run: nothing moves.
+        if (!before.room.keyboard || !before.band.bandUp) failures.push(`${name}: before: the keyboard-up state is open: ${JSON.stringify([before.room.keyboard, before.band.bandUp])}`);
+        if (!during.room.keyboard || !during.band.bandUp) failures.push(`${name}: during: the ONE keyboard-up state stays until its end (footer, dock and band together): ${JSON.stringify([during.room.keyboard, during.band.bandUp])}`);
+        if (during.room.footerShown !== before.room.footerShown) failures.push(`${name}: during: the footer stays as it was: ${before.room.footerShown} -> ${during.room.footerShown}`);
+        failures.push(...stableBoxes(`${name} before -> during (dock)`, before.room, during.room, settleParts.room));
+        failures.push(...stableBoxes(`${name} before -> during (band)`, before.band, during.band, settleParts.band));
+        if (page.settleClock && end === 'settle' && !settles.length) failures.push(`${name}: during: a settle is pending`);
+        if (end === 'settle') await fireSettle(page);
+        else await page.evaluate(() => { Object.defineProperty(window, 'visualViewport', { configurable: true, value: globalThis.k1Viewport }); window.dispatchEvent(new Event('resize')); });
+        await settleLong(page);
+        const after = await both(page);
+        await capture(page, `${name}-3-after`, { ...after.room, band: after.band });
+        // AFTER: the whole state ended at once (one reflow): footer back, full band, keyboard flags clear.
+        if (after.room.keyboard || after.band.bandUp) failures.push(`${name}: after: the whole keyboard-up state ended: ${JSON.stringify([after.room.keyboard, after.band.bandUp])}`);
+        if (!after.room.footerShown || !(after.room.footer?.width > 0 && after.room.footer?.height > 0)) failures.push(`${name}: after: the footer is back with a positive box: ${JSON.stringify(after.room.footer)}`);
+        if (!(after.band.band?.height > 44 + .5)) failures.push(`${name}: after: the full band is back: ${JSON.stringify(after.band.band)}`);
+        if (end === 'viewport-grows' && (await pendingSettles(page)).length) failures.push(`${name}: after: the viewport's growth cancelled the settle`);
+        // ONE reflow: a further paint (and any leftover settle) changes nothing.
+        await fireSettle(page); await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+        const later = await both(page);
+        failures.push(...stableBoxes(`${name} after -> later (dock)`, after.room, later.room, settleParts.room));
+        failures.push(...stableBoxes(`${name} after -> later (band)`, after.band, later.band, settleParts.band));
+        if (later.room.footerShown !== after.room.footerShown) failures.push(`${name}: after -> later: the footer stays`);
+        t.diagnostic(`${name}: settles ${JSON.stringify(settles)}; before/during/after keyboard ${before.room.keyboard}/${during.room.keyboard}/${after.room.keyboard}, band ${before.band.band?.height}/${during.band.band?.height}/${after.band.band?.height}; pause ${JSON.stringify(before.band.pause)} -> ${JSON.stringify(during.band.pause)}; Send y ${before.room.send?.y} / ${during.room.send?.y} / ${after.room.send?.y}`);
+      } finally { await page.close(); }
+      none(failures, name);
+      assert.deepEqual(problems, []);
+    });
+  }
+  // No latch after blur (gate2c M1 tail): a same-width height drop on a touch device with focus OUTSIDE the
+  // composer never opens the state, neither before a keyboard ever opened nor after the settle ended one.
+  for (const locale of ['en', 'de']) {
+    const name = `${width}x${height}-${locale}-image-dock-height-drop-after-blur`;
+    await t.test(name, async () => {
+      const problems = [], failures = [];
+      const page = await open({ width, height, locale, intake: 'image' }, problems);
+      const drop = h => page.evaluate(h => {
+        globalThis.k1Viewport ??= visualViewport;
+        const viewport = new EventTarget(); Object.assign(viewport, { height: h, offsetTop: 0, scale: 1 });
+        Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
+        window.dispatchEvent(new Event('resize'));
+      }, h);
+      try {
+        await page.$eval('aithema-session', c => { c.shadowRoot.querySelector('textarea').focus({ preventScroll: true }); });
+        await settleLong(page);
+        await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.settings-open').focus()); await settleLong(page);
+        await drop(viewport); await settleLong(page);
+        const first = await both(page);
+        if (first.room.keyboard || first.band.bandUp) failures.push(`${name}: a height drop after blur opens no keyboard-up state: ${JSON.stringify([first.room.keyboard, first.band.bandUp])}`);
+        await page.evaluate(() => { Object.defineProperty(window, 'visualViewport', { configurable: true, value: globalThis.k1Viewport }); window.dispatchEvent(new Event('resize')); });
+        await settleLong(page);
+        await keyboardUp(page, viewport); await settleLong(page);
+        await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.settings-open').focus()); await settleLong(page);
+        await fireSettle(page); await settleLong(page);
+        await drop(viewport - 40); await settleLong(page);
+        const second = await both(page);
+        if (second.room.keyboard || second.band.bandUp) failures.push(`${name}: after the settle a further height drop with focus outside opens no state: ${JSON.stringify([second.room.keyboard, second.band.bandUp])}`);
+      } finally { await page.close(); }
+      none(failures, name);
+      assert.deepEqual(problems, []);
+    });
+  }
+}
+
+// (g) AIT-618 r4 (Codex gate2c M2): the notice slot's 8 px pad latches with the feedback row. A held image
+// (image input behind its own consent) shows its consent control in the feedback row; the hold expires on
+// its own timer (180 s, an injected clock here) while the keyboard is up: Mic, Send, the field and the
+// dock do not move. 320x568 vv308, EN/DE, image dock.
+export async function keyboardHeldImageCheck(t) {
+  const { open, read, capture } = await harness(t);
+  const [width, height, viewport] = [320, 568, 308];
+  for (const locale of ['en', 'de']) {
+    const name = `${width}x${height}-vv${viewport}-${locale}-image-dock-held-image-expires`;
+    await t.test(name, async () => {
+      const problems = [], failures = [];
+      const page = await open({ width, height, locale, intake: 'image', granted: true, heldImage: true }, problems);
+      try {
+        // The hold's 180 s timer is captured; every other timer runs natively.
+        await page.evaluate(() => {
+          const native = window.setTimeout.bind(window); globalThis.heldTimers = [];
+          window.setTimeout = (fn, ms, ...rest) => ms === 180000 ? (globalThis.heldTimers.push(fn), -1 - globalThis.heldTimers.length) : native(fn, ms, ...rest);
+        });
+        await keyboardUp(page, viewport); await settleLong(page);
+        await page.$eval('aithema-session', c => {
+          const transfer = new DataTransfer(); transfer.items.add(new File([new Uint8Array([255, 216, 255, 224])], 'held.jpg', { type: 'image/jpeg' }));
+          const input = c.shadowRoot.querySelector('.attach-input'); input.files = transfer.files; input.dispatchEvent(new Event('change'));
+        });
+        const shown = await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-feedback .held-upload-consent .consent-action'), { timeout: 15_000 }).then(() => true, () => false);
+        if (!shown) failures.push(`${name}: fixture: the held image shows its consent control`);
+        await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+        const held = await read(page);
+        await capture(page, `${name}-keyboard-up-held`, held);
+        const timers = await page.evaluate(() => globalThis.heldTimers.length);
+        if (!timers) failures.push(`${name}: fixture: the hold's timer is captured`);
+        await page.evaluate(() => { for (const fn of globalThis.heldTimers.splice(0)) fn(); });
+        await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer-feedback .held-upload-consent'), { timeout: 15_000 }).catch(() => failures.push(`${name}: fixture: the hold expired`));
+        await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+        const expired = await read(page);
+        await capture(page, `${name}-keyboard-up-expired`, expired);
+        if (!held.keyboard || !expired.keyboard) failures.push(`${name}: the keyboard stays up: ${held.keyboard} / ${expired.keyboard}`);
+        failures.push(...stableBoxes(`${name} held -> expired`, held, expired, ['mic', 'send', 'field', 'dock', 'feedback']));
+        t.diagnostic(`${name}: dock ${held.dock?.height} -> ${expired.dock?.height}; Send y ${held.send?.y} -> ${expired.send?.y}; lines ${held.lines} / ${expired.lines}`);
       } finally { await page.close(); }
       none(failures, name);
       assert.deepEqual(problems, []);
