@@ -95,10 +95,23 @@ export function intakeNoticeCheck() {
         await page.evaluate(() => { window.intakeLost = true; window.intakeClose(); });
         await page.waitForFunction(() => document.querySelector('aithema-session').session.uploads.find(upload => upload.id === 'lost-image')?.state === 'staged-refused', { timeout: 15000 });
         assert.ok(await page.evaluate(() => window.intakeStreams) >= 2, 'the browser reconnected');
-        const shown = await inShadow(page, c => {
-          const node = c.shadowRoot.querySelector('.image-refusal'), box = node?.getBoundingClientRect();
+        // The live refusal item (the hidden height reserve renders every reason too).
+        const refusal = scope => inShadow(page, (c, scope) => {
+          const node = c.shadowRoot.querySelector(`${scope} .image-refusal-item .image-refusal`), box = node?.getBoundingClientRect();
           return { text: node?.textContent ?? '', width: box?.width ?? 0, height: box?.height ?? 0 };
-        });
+        }, scope);
+        let shown = await refusal('.composer-feedback');
+        assert.ok(shown.text.includes(copy.imageRefusals.unavailable), shown.text);
+        if (!(shown.width > 0 && shown.height > 0)) {
+          // r7: when the row does not fit the composer slot (390 DE), UploadNotices
+          // moves it behind the visible "more" action into the notices sheet.
+          const more = await inShadow(page, c => { const box = c.shadowRoot.querySelector('.upload-notices-more')?.getBoundingClientRect(); return { width: box?.width ?? 0, height: box?.height ?? 0 }; });
+          assert.ok(more.width > 0 && more.height > 0, `a visible notices action when the row does not fit ${JSON.stringify(more)}`);
+          await shot('reconnect-unavailable-inline');
+          await inShadow(page, c => c.shadowRoot.querySelector('.upload-notices-more').click());
+          await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.upload-notices-sheet')?.open);
+          shown = await refusal('.upload-notices-sheet');
+        }
         assert.ok(shown.width > 0 && shown.height > 0, `a visible refusal box ${JSON.stringify(shown)}`);
         assert.ok(shown.text.includes(copy.imageRefusals.unavailable), shown.text);
         await shot('reconnect-unavailable');
