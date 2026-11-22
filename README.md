@@ -598,7 +598,7 @@ formal “Sie”, preserving quoted evidence verbatim; rendered model text is ne
 rewritten by the UI.
 
 Hosts configure the web component with `{copy, baseUrl, session, sessionToken}`
-(the token is optional) and receive
+(the token is optional; `baseUrl` must be on the page's own origin) and receive
 `aithema-event` notifications. Serve its native ES modules with their relative
 core imports, as the demo does. Copy and CSS tokens belong to the host. Optional
 `deviceConnector` (the browser device plugin factory, `createDeviceReasoning`) and
@@ -796,9 +796,14 @@ supplies “This conversation is no longer available.” / “Dieses Gespräch i
 repaints on locale changes; the action reuses `hostSurface.library.new`. Locale
 changes while erased repaint local text and dispatch `aithema-locale` without
 requesting the session. Geometry holds are released on resize or rotation so
-responsive layout can adapt. The request gate preserves the existing origin
-policy: uploads, concept and host routes require same origin; other session
-routes retain `baseUrl` support.
+responsive layout can adapt. Every component request goes through one guarded
+helper (`packages/ui/src/owner-request.js`, AIT-625): it fails closed without a
+page origin (`about:blank`, `about:srcdoc`, an opaque origin), resolves the URL
+once against `document.baseURI`, sends nothing unless the resolved origin is the
+page origin (so a `baseUrl` or `<base>` on another origin is refused), fetches
+exactly that URL with `redirect: 'error'`, and aborts at the caller's signal or
+when no response headers arrive within 30 s (uploads: 300 s). It is the only
+code that sets `x-aithema-session-token`.
 
 Without a library, the end action emits `aithema-new-conversation` with
 `{previousSessionId, reason: 'deleted', confirm: false}`, omitting `processingPreset`
