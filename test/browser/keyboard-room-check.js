@@ -125,7 +125,11 @@ async function harness(t) {
   // r3: `consent` overrides the host's consent copy (a long host action); `host` mounts the host
   // surface (its header controls) through configure, as a host does.
   // r4: `heldImage` keeps image input behind its own consent (a picked image is held until consent or expiry).
-  const open = async ({ width, height, locale, touch = true, intake = null, granted = false, consent = null, host = null, contact = false, heldImage = false }, problems) => {
+  // `finePointer` emulates a hover-capable fine pointer (a mouse), so a non-touch page matches
+  // (hover:hover) and (pointer:fine) on every runner: Linux headless Chrome reports (hover:none)
+  // for a page without touch. Puppeteer's emulateMediaFeatures accepts only prefers-*, so this
+  // goes through CDP and repeats those two features, which the same call would otherwise drop.
+  const open = async ({ width, height, locale, touch = true, intake = null, granted = false, consent = null, host = null, contact = false, heldImage = false, finePointer = false }, problems) => {
     const page = await browser.newPage();
     page.on('pageerror', error => problems.push(error.message));
     page.on('console', message => { if (/ResizeObserver/.test(message.text())) problems.push(message.text()); });
@@ -134,6 +138,9 @@ async function harness(t) {
     }));
     await page.setViewport({ width, height, hasTouch: touch, isMobile: false });
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
+    if (finePointer) await (await page.createCDPSession()).send('Emulation.setEmulatedMedia', { features: [
+      { name: 'prefers-color-scheme', value: 'light' }, { name: 'prefers-reduced-motion', value: 'reduce' },
+      { name: 'hover', value: 'hover' }, { name: 'pointer', value: 'fine' }] });
     await page.setRequestInterception(true);
     page.on('request', request => { void (new URL(request.url()).pathname === '/combined-fixture'
       ? request.respond({ status: 200, contentType: 'text/html', body: fixture }) : request.continue()); });
@@ -261,7 +268,7 @@ export async function keyboardHintCheck(t) {
       const name = `${width}x${height}-${locale}-hardware-keyboard-hint`;
       await t.test(name, async () => {
         const problems = [], failures = [];
-        const page = await open({ width, height, locale, granted: true, touch: false }, problems);
+        const page = await open({ width, height, locale, granted: true, touch: false, finePointer: true }, problems);
         try {
           const state = await read(page);
           await capture(page, name, state);
