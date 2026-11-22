@@ -1613,10 +1613,10 @@ test('AIT-509 r10: default HTML consent copy is impersonal and keeps positive fr
 });
 
 // AIT-603 PR-B: the text-consent sheet shows the host sentence in full, on screen, with focus on screen.
-test('AIT-603 PR-B: a failed consent load shows the full host sentence on screen, focus on screen, 360/390/1440 EN/DE long/short', { timeout: 240_000 }, consentSheetFailedLoadCheck);
+test('AIT-603 PR-B / AIT-612 r3: a failed consent load hides the empty host sentence and moves focus to Done, described by the footer status, 360/390/1440 EN/DE long/short', { timeout: 240_000 }, consentSheetFailedLoadCheck);
 test('AIT-603 PR-B: a loaded consent document keeps the full host sentence on screen; focus on the target when on screen, else the sentence; both fit scrolls least, 360/390/1440 EN/DE long/short', { timeout: 240_000 }, consentSheetLoadedCheck);
 test('AIT-603 PR-B r2: focus the visitor moves while the consent document loads stays there after a successful load, 360 EN / 1440 DE', { timeout: 120_000 }, consentSheetFocusKeptCheck);
 test('AIT-603 PR-B r2: a tall target purpose: text scrolls the least for sentence + checkbox, other features centre the focused checkbox inside the scrollport, 360/390/1440 EN/DE', { timeout: 240_000 }, consentSheetTallPurposeCheck);
-test('AIT-603 PR-B r2: an oversized DE host sentence anchors at its top with focus on it, failed and loaded, 360/390', { timeout: 120_000 }, consentSheetOversizedCheck);
+test('AIT-603 PR-B r2: an oversized DE host sentence anchors at its top with focus on it when loaded; a failed load focuses Done (AIT-612 r3), 360/390', { timeout: 120_000 }, consentSheetOversizedCheck);
 test('AIT-603 PR-B r4: the focused target checkbox draws the :focus-visible ring with and without focus({ focusVisible }), both fit, 360/390/1440 EN/DE', { timeout: 300_000 }, consentSheetRingCheck);
 test('AIT-612: the consent sheet shows a failed save or load once, next to Save; the footer keeps its box; 360/390/1440 EN/DE', { timeout: 300_000 }, consentSheetErrorOnceCheck);

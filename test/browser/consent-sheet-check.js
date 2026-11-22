@@ -135,16 +135,17 @@ const readSheet = (c, full) => {
     status: dialog.querySelector('.consent-status')?.textContent ?? null,
     focus: active ? `${active.tagName.toLowerCase()}${active.className ? `.${String(active.className).split(' ').join('.')}` : ''}` : null,
     focusTarget: Boolean(target) && active === target, focusSentence: Boolean(holder) && active === holder, focusOnScreen: onScreen(active),
-    sentenceTabIndex: holder?.tabIndex ?? null, ...doneFocus(c, dialog, active, box, onScreen) };
-};
-// AIT-612 r3 (TICK r2 decision (b)): Done holds focus after a failed load, with a visible ring, and is described by the footer status.
-const doneFocus = (c, dialog, active, box, onScreen) => {
-  const done = dialog.querySelector('.done'), ids = (done?.getAttribute('aria-describedby') ?? '').split(/\s+/u).filter(Boolean);
-  const ring = done && getComputedStyle(done);
-  return { done: box(done), focusDone: Boolean(done) && active === done, doneOnScreen: onScreen(done), doneFocusVisible: Boolean(done?.matches(':focus-visible')) || done?.hasAttribute('data-focus-ring') && active === done,
-    doneRing: ring ? { style: ring.outlineStyle, width: ring.outlineWidth } : null, doneDisabled: done?.disabled ?? null,
-    doneDescription: ids.map(id => c.shadowRoot.getElementById(id)).map(n => n ? { className: n.className, text: n.textContent } : null),
-    reasonShown: [...dialog.querySelectorAll('.consent-reason')].some(n => n.checkVisibility()) };
+    sentenceTabIndex: holder?.tabIndex ?? null, ...doneFocus() };
+  // AIT-612 r3 (TICK r2 decision (b)): Done holds focus after a failed load, with a visible ring, and is described by
+  // the footer status. Inline: readSheet runs in the page, where module helpers do not exist.
+  function doneFocus() {
+    const done = dialog.querySelector('.done'), ids = (done?.getAttribute('aria-describedby') ?? '').split(/\s+/u).filter(Boolean);
+    const ring = done && getComputedStyle(done);
+    return { done: box(done), focusDone: Boolean(done) && active === done, doneOnScreen: onScreen(done), doneFocusVisible: Boolean(done?.matches(':focus-visible')) || Boolean(done?.hasAttribute('data-focus-ring')) && active === done,
+      doneRing: ring ? { style: ring.outlineStyle, width: ring.outlineWidth } : null, doneDisabled: done?.disabled ?? null,
+      doneDescription: ids.map(id => c.shadowRoot.getElementById(id)).map(n => n ? { className: n.className, text: n.textContent } : null),
+      reasonShown: [...dialog.querySelectorAll('.consent-reason')].some(n => n.checkVisibility()) };
+  }
 };
 // Failed load in Settings: no empty heading; focus on Done (on screen, ring drawn, enabled), described by the footer status.
 function doneFocusFailures(sheet, failed) {
@@ -371,15 +372,18 @@ export async function consentSheetOversizedCheck(t) {
         await settle(page);
         const sheet = await page.$eval('aithema-session', readSheet, full);
         const failures = [];
-        if (!(sheet.sentence?.width > 0 && sheet.sentence?.height > 0)) failures.push(`the sheet shows the full host sentence (exact text, positive box): ${JSON.stringify(sheet.sentence)}`);
         if (!(sheet.body?.width > 0 && sheet.body?.height > 0)) failures.push(`the settings body positive box: ${JSON.stringify(sheet.body)}`);
-        if (sheet.sentence && sheet.body) {
+        // AIT-612 r3 (TICK r2 decision (b)): was, on both paths, the sentence shown, anchored and holding focus; a failed
+        // load now hides the empty heading and focuses Done, described by the footer status.
+        if (path === 'failed') failures.push(...doneFocusFailures(sheet, de.host.consentPage.loadFailed));
+        else if (!(sheet.sentence?.width > 0 && sheet.sentence?.height > 0)) failures.push(`the sheet shows the full host sentence (exact text, positive box): ${JSON.stringify(sheet.sentence)}`);
+        if (path === 'loaded' && sheet.sentence && sheet.body) {
           if (sheet.sentence.height <= sheet.body.height - 2 * GAP) failures.push(`precondition: the sentence is taller than the settings body: ${sheet.sentence.height} vs ${sheet.body.height}`);
           const offset = sheet.sentence.y - sheet.body.y;
           if (Math.abs(offset - GAP) > 1) failures.push(`the sheet anchors at the sentence top, ${GAP} px clear: ${offset}`);
         }
-        if (!sheet.focusSentence) failures.push(`the sentence holds focus: ${sheet.focus}`);
-        if (sheet.sentenceTabIndex !== -1) failures.push(`the sentence is a programmatic focus stop only (tabindex -1): ${sheet.sentenceTabIndex}`);
+        if (path === 'loaded' && !sheet.focusSentence) failures.push(`the sentence holds focus: ${sheet.focus}`);
+        if (path === 'loaded' && sheet.sentenceTabIndex !== -1) failures.push(`the sentence is a programmatic focus stop only (tabindex -1): ${sheet.sentenceTabIndex}`);
         await capture(page, name, { summary: `oversized DE ${path}; sentence top offset ${sheet.sentence && sheet.body ? sheet.sentence.y - sheet.body.y : null}; focus ${sheet.focus}`, sentenceText: full, scrollAtOpen: start, ...sheet });
         none(failures, `${name}: ${JSON.stringify({ start, sheet })}`);
         assert.deepEqual(problems, []);
