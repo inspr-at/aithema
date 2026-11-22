@@ -1196,6 +1196,22 @@ const zipPatched = patch => {
   assert.ok(bytes.includes(Buffer.from('[Content_Types].xml')), 'an intact Office package');
   patch(bytes, end); return bytes;
 };
+// AIT-610 r8: one stored [Content_Types].xml entry; local header sizes are the
+// ZIP64 sentinels with a ZIP64 extra field (0x0001) holding the real sizes.
+const zip64LocalSizes = () => {
+  const name = Buffer.from('[Content_Types].xml'), data = Buffer.from('<Types/>'), crc = 0x1234abcd;
+  const extra = Buffer.alloc(20); extra.writeUInt16LE(1, 0); extra.writeUInt16LE(16, 2);
+  extra.writeBigUInt64LE(BigInt(data.length), 4); extra.writeBigUInt64LE(BigInt(data.length), 12);
+  const local = Buffer.alloc(30); local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(45, 4); local.writeUInt32LE(crc, 14);
+  local.writeUInt32LE(0xffffffff, 18); local.writeUInt32LE(0xffffffff, 22); local.writeUInt16LE(name.length, 26); local.writeUInt16LE(extra.length, 28);
+  const localPart = Buffer.concat([local, name, extra, data]);
+  const central = Buffer.alloc(46); central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE(45, 4); central.writeUInt16LE(45, 6);
+  central.writeUInt32LE(crc, 16); central.writeUInt32LE(data.length, 20); central.writeUInt32LE(data.length, 24); central.writeUInt16LE(name.length, 28);
+  const centralPart = Buffer.concat([central, name]);
+  const end = Buffer.alloc(22); end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(1, 8); end.writeUInt16LE(1, 10);
+  end.writeUInt32LE(centralPart.length, 12); end.writeUInt32LE(localPart.length, 16);
+  return Buffer.concat([localPart, centralPart, end]);
+};
 const encryptedOffice = () => cfb([['\x06DataSpaces', ['Version', 'DataSpaceMap', ['DataSpaceInfo', ['StrongEncryptionDataSpace']], ['TransformInfo', [['StrongEncryptionTransform', ['\x06Primary']]]]]], 'EncryptionInfo', 'EncryptedPackage']);
 for (const [label, name, build, reason] of [
   ['an encrypted .docx (a CFB with EncryptionInfo and EncryptedPackage)', 'secret.docx', encryptedOffice, 'encrypted'],
@@ -1216,6 +1232,15 @@ for (const [label, name, build, reason] of [
   ['a CFB whose directory tree loops', 'cycle.docx', () => { const bytes = cfb(['EncryptionInfo', 'EncryptedPackage']); bytes.writeUInt32LE(2, 1024 + 128 + 0x44); return bytes; }, 'unsupported'],
   ['a CFB whose root child is outside the directory', 'dangling.docx', () => { const bytes = cfb(['EncryptionInfo', 'EncryptedPackage']); bytes.writeUInt32LE(99, 1024 + 0x4c); return bytes; }, 'unsupported'],
   ['an intact .docx in ZIP64 form (an unsupported ZIP feature)', 'big.docx', () => zipPatched((bytes, end) => { bytes.writeUInt16LE(0xffff, end + 8); bytes.writeUInt16LE(0xffff, end + 10); }), 'unsupported'],
+  // AIT-610 r8 (gate7c): every pointer the walk can reach is validated; any
+  // inconsistency is doubt (generic). Entry ids: 0 root, 1 EncryptionInfo, 2
+  // EncryptedPackage (the tree's top), 3 an unused entry.
+  ['a CFB whose root links itself as a sibling', 'selflink.docx', () => { const bytes = cfb(['EncryptionInfo', 'EncryptedPackage']); bytes.writeUInt32LE(0, 1024 + 0x44); return bytes; }, 'unsupported'],
+  ['a CFB whose root has a sibling', 'rootsibling.docx', () => { const bytes = cfb(['EncryptionInfo', 'EncryptedPackage']); bytes.writeUInt32LE(3, 1024 + 0x48); return bytes; }, 'unsupported'],
+  ['a CFB with a stream that has a child', 'streamchild.docx', () => { const bytes = cfb(['EncryptionInfo', 'EncryptedPackage']); bytes.writeUInt32LE(3, 1024 + 128 + 0x4c); return bytes; }, 'unsupported'],
+  // A small valid ZIP64 layout: the local header carries the size sentinels and
+  // a ZIP64 extra field; the central directory keeps ordinary sizes. A feature.
+  ['an intact .docx whose local header uses ZIP64 size sentinels', 'local64.docx', () => zip64LocalSizes(), 'unsupported'],
   ['an intact .docx with an unsupported compression method', 'bzip.docx', () => zipPatched(bytes => {
     const central = bytes.indexOf(Buffer.from([0x50, 0x4b, 1, 2])), local = bytes.readUInt32LE(central + 42);
     bytes.writeUInt16LE(12, central + 10); bytes.writeUInt16LE(12, local + 8);

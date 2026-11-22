@@ -1017,7 +1017,10 @@ for (const copy of [en, de]) test(`AIT-610 r6: ${copy.display.locale} a reconnec
 // (re)connect, the first stream included, and every gap recovery re-read
 // GET /uploads and reconcile the local staged-pending image rows through the
 // refusal view. One read in flight at a time; callers share it.
-function reconcileFixture(t, copy, { events, snapshot = s => s, uploadsGate = null, lostFrom = 1 } = {}) {
+// AIT-610 r8 options: `sampleAtRequest` reads the server state when the GET
+// arrives (a read that started before a restart answers the old state);
+// `uploadsStatus(n)` answers the n-th GET /uploads with that status; `baseUrl`.
+function reconcileFixture(t, copy, { events, snapshot = s => s, uploadsGate = null, lostFrom = 1, sampleAtRequest = false, uploadsStatus = () => 200, baseUrl = '' } = {}) {
   const staged = { id: 'img-1', kind: 'image', state: 'staged-pending', filename: 'photo.png', mediaType: 'image/png', bytes: 2048, expiresAt: Date.now() + 600_000, at: at(10) };
   const c = document.createElement('aithema-session'), session = createSession({ demo: true, locale: copy === de ? 'de' : 'en' });
   session.uploads = [staged];
@@ -1030,14 +1033,15 @@ function reconcileFixture(t, copy, { events, snapshot = s => s, uploadsGate = nu
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
     if (url.endsWith('/events')) return events(++counts.streams, options, open);
     if (url.endsWith('/uploads') && !options.method) {
-      counts.uploads++;
+      const status = uploadsStatus(++counts.uploads), sampled = sampleAtRequest ? lost(c.session.uploads) : null;
       await uploadsGate?.promise;
-      return Response.json({ uploads: lost(c.session.uploads), limits: UPLOAD_LIMITS });
+      if (status !== 200) return new Response(null, { status });
+      return Response.json({ uploads: sampled ?? lost(c.session.uploads), limits: UPLOAD_LIMITS });
     }
     if (/\/api\/sessions\/[^/]+$/u.test(url)) { counts.sessions++; return Response.json(snapshot({ ...c.session, uploads: lost(c.session.uploads) })); }
     return Response.json({});
   });
-  c.configure({ copy, copyForLocale: locale => ({ en, de })[locale], session, sessionToken: 'owner-fixture', entrance: 'choice' }); document.body.append(c); t.after(() => c.remove());
+  c.configure({ copy, copyForLocale: locale => ({ en, de })[locale], session, sessionToken: 'owner-fixture', baseUrl, entrance: 'choice' }); document.body.append(c); t.after(() => c.remove());
   // Live refusal items only: the hidden height reserve renders every reason too.
   const shown = () => [...c.shadowRoot.querySelectorAll('.image-refusal-item .image-refusal')].map(node => node.textContent).join(' ');
   return { c, counts, shown };
@@ -1067,6 +1071,10 @@ for (const copy of [en, de]) test(`AIT-610 r7: ${copy.display.locale} a reconnec
 for (const copy of [en, de]) test(`AIT-610 r7: ${copy.display.locale} gap recovery passes 'unavailable' through the refusal view, with ONE shared read`, async t => {
   let release; const uploadsGate = { promise: new Promise(resolve => { release = resolve; }) };
   const { c, counts, shown } = reconcileFixture(t, copy, { uploadsGate,
+    // AIT-610 r8: the snapshot was taken before the restart (the row is still
+    // pending in it), so a read is needed; a snapshot that already carries the
+    // refused row is delivered without a read (the r8 test below).
+    snapshot: s => ({ ...s, uploads: s.uploads.map(({ reason, ...u }) => u.id === 'img-1' ? { ...u, state: 'staged-pending' } : { ...u, reason }) }),
     // The first stream is refused with 400 (a gap): the element restores from the
     // snapshot. The second stream ends; the third (after the delay) stays open.
     events: (n, options, open) => n === 1 ? new Response(null, { status: 400 })
@@ -1087,6 +1095,65 @@ for (const copy of [en, de]) test(`AIT-610 r7: ${copy.display.locale} gap recove
   for (let i = 0; i < 12; i++) await tick();
   assert.ok(counts.streams >= 3, 'reconnected again');
   assert.equal(shown(), '', 'no duplicate after another reconciliation');
+});
+// AIT-610 r8 (gate7c): freshness, delivery without a read, a bounded retry,
+// and the origin guard of the existing GET on the same route.
+const closed = () => new Response(new ReadableStream({ start(controller) { controller.close(); } }));
+for (const copy of [en, de]) test(`AIT-610 r8: ${copy.display.locale} a reconnect never reuses a read that started before the restart: a FRESH read shows 'unavailable'`, async t => {
+  let release; const uploadsGate = { promise: new Promise(resolve => { release = resolve; }) };
+  const { c, counts, shown } = reconcileFixture(t, copy, { uploadsGate, sampleAtRequest: true, lostFrom: 2,
+    // The first stream's read samples the row pending; then the stream ends (the
+    // server restarted) and the second stream stays open.
+    events: (n, options, open) => n === 1 ? closed() : open(options) });
+  for (let i = 0; i < 6; i++) await tick();
+  assert.equal(counts.uploads, 1, 'the first stream started a read');
+  t.mock.timers.tick(1000);
+  for (let i = 0; i < 12; i++) await tick();
+  assert.ok(counts.streams >= 2, 'reconnected after the restart');
+  release();
+  for (let i = 0; i < 12; i++) await tick();
+  assert.equal(counts.uploads, 2, 'the reconnect reconciles with a read that began after it');
+  assert.equal(c.session.uploads[0].state, 'staged-refused', JSON.stringify(c.session.uploads[0]));
+  assert.equal(c.session.uploads[0].reason, 'unavailable');
+  assert.ok(shown().includes(copy.imageRefusals.unavailable), shown());
+});
+for (const copy of [en, de]) test(`AIT-610 r8: ${copy.display.locale} a gap snapshot that carries the refused image shows it although GET /uploads fails`, async t => {
+  const { c, counts, shown } = reconcileFixture(t, copy, { uploadsStatus: () => 503,
+    events: (n, options, open) => n === 1 ? new Response(null, { status: 400 }) : open(options) });
+  for (let i = 0; i < 12; i++) await tick();
+  assert.ok(counts.sessions >= 1, 'the gap was recovered from a snapshot');
+  assert.equal(c.session.uploads[0].state, 'staged-refused');
+  assert.ok(shown().includes(copy.imageRefusals.unavailable), shown());
+});
+for (const copy of [en, de]) test(`AIT-610 r8: ${copy.display.locale} a failed GET /uploads is retried once after a short delay`, async t => {
+  const { c, counts, shown } = reconcileFixture(t, copy, { uploadsStatus: n => n === 1 ? 503 : 200, events: (n, options, open) => open(options) });
+  for (let i = 0; i < 12; i++) await tick();
+  assert.equal(counts.uploads, 1);
+  assert.equal(c.session.uploads[0].state, 'staged-pending');
+  t.mock.timers.tick(1000);
+  for (let i = 0; i < 12; i++) await tick();
+  assert.equal(counts.uploads, 2, 'one retry');
+  assert.equal(c.session.uploads[0].state, 'staged-refused');
+  assert.ok(shown().includes(copy.imageRefusals.unavailable), shown());
+});
+test('AIT-610 r8: the retry after a failed GET /uploads is bounded (once per connect or snapshot apply)', async t => {
+  const { c, counts } = reconcileFixture(t, en, { uploadsStatus: () => 503, events: (n, options, open) => open(options) });
+  for (let i = 0; i < 12; i++) await tick();
+  t.mock.timers.tick(1000);
+  for (let i = 0; i < 12; i++) await tick();
+  assert.equal(counts.uploads, 2, 'one retry');
+  for (let step = 0; step < 6; step++) { t.mock.timers.tick(10_000); for (let i = 0; i < 6; i++) await tick(); }
+  assert.equal(counts.uploads, 2, 'no further retry on the same connection');
+  assert.equal(counts.streams, 1);
+  assert.equal(c.session.uploads[0].state, 'staged-pending');
+});
+test('AIT-610 r8: a foreign baseUrl receives no reconciliation GET /uploads (the origin guard of the existing GET)', async t => {
+  const { counts } = reconcileFixture(t, en, { baseUrl: 'https://other.example', events: (n, options, open) => open(options) });
+  for (let i = 0; i < 12; i++) await tick();
+  t.mock.timers.tick(1000);
+  for (let i = 0; i < 12; i++) await tick();
+  assert.ok(counts.streams >= 1, 'the stream opened');
+  assert.equal(counts.uploads, 0, 'no owner-authenticated read reaches another origin');
 });
 
 // AIT-610 r7 (TICK r6, binding): the legacy line names the ONE format the
