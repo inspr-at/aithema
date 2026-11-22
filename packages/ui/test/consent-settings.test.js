@@ -195,3 +195,28 @@ test('AIT-612 r2: the failed-load copy says to close and open the sheet again (E
   h.editor.close(); fail = false; await h.editor.open('voice');
   assert.equal(loads, 2, 'reopening retries the load'); assert.equal(h.root.querySelectorAll('input').length, 1);
 });
+
+// AIT-612 r5 (gate4c M3): a pointer click on the shared Save leaves focus on it without :focus-visible. When the
+// stale-consent reload that follows fails, the failed-load state still draws the ring on that button (data-focus-ring),
+// so keyboard users see where focus is, even though focus never moved.
+test('AIT-612 r5: a pointer Save whose stale reload fails still shows the ring on the shared button', async t => {
+  const window = new Window(); globalThis.document = window.document;
+  t.after(() => window.happyDOM.close());
+  const root = document.createElement('section'), button = document.createElement('button');
+  document.body.append(root, button);
+  const doc = { contract: 'v1', features: { voice: ['host-speech'] }, selected: [], items: [{ id: 'host-speech', title: 'Speech', recipients: 'Voice processor', text: 'Speech purpose', version: 1 }] };
+  let fail = false;
+  const editor = new ConsentSettings({ root, copy: en, ports: { saveButton: button, done() {},
+    load: async () => { if (fail) throw new Error('unavailable'); return doc; },
+    save: async () => { fail = true; throw Object.assign(new Error('stale'), { code: 'consent-stale' }); } } });
+  await editor.open('voice');
+  root.querySelector('input').checked = true;
+  // A pointer press: focus lands on the button with no ring marker.
+  button.focus(); assert.equal(window.document.activeElement, button); assert.equal('focusRing' in button.dataset, false);
+  button.click();
+  for (let i = 0; i < 5; i++) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(editor.loadFailed, true, 'the stale reload failed');
+  assert.equal(editor.status, en.host.consentPage.loadFailed);
+  assert.equal(window.document.activeElement, button, 'focus stays on the shared button');
+  assert.equal('focusRing' in button.dataset, true, 'the failed-load state shows the ring on the focused button');
+});

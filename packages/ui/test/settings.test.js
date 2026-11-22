@@ -927,7 +927,38 @@ test('AIT-234 / AIT-612 r3: an invalid consent document never saves; Done closes
   const before = h.posts.length;
   done.click(); await tick(10);
   assert.equal(h.dialog.open, false, 'Done closes the sheet');
-  assert.ok(h.posts.every(body => !('processing' in body)) && h.posts.length >= before, 'nothing saves consent');
+  // AIT-612 r5 (gate4c M1): was `h.posts.every(body => !('processing' in body)) && h.posts.length >= before`, which let
+  // Close POST the unconfirmed defaults to /settings. After a failed load, Close only closes: nothing saves at all.
+  assert.equal(h.posts.length, before, 'Close saves nothing: no consent, no Settings');
+});
+
+// AIT-612 r5 (gate4c M1): after a failed load, Close never reaches the Settings save path. A pending edit whose save
+// failed neither POSTs again nor keeps the sheet open: Close only closes.
+test('AIT-612 r5: after a failed load, Close with a pending, failed edit saves nothing and closes', async t => {
+  const h = fixture(t, { matrix: { best: { text: refused('current processing consent required') } }, respond: () => new Response(null, { status: 500 }) });
+  await opened(h);
+  h.q('[data-preset="device"]').click(); await tick(10);
+  assert.equal(h.posts.length, 1, 'the edit tried to save once');
+  assert.equal(h.dialog.dataset.saveState, 'failed', 'and its save failed: the edit is still pending');
+  h.root.querySelector('.composer-reason .consent-action').click(); await tick(10);
+  assert.equal(h.q('.save-status').textContent, en.host.consentPage.loadFailed);
+  assert.equal(h.q('.done-label').textContent, en.settings.close);
+  h.q('.done').click(); await tick(10);
+  assert.equal(h.posts.length, 1, 'Close sends no /settings POST');
+  assert.equal(h.dialog.open, false, 'Close always closes the sheet');
+});
+
+// AIT-612 r5 (gate4c M2): a host copy bundle that predates settings.close still names the button: the label resolves
+// through the shipped locale copy (copy-resolve), then English, never to an empty label beside an aria-hidden icon.
+for (const copy of [de, en]) test(`AIT-612 r5 ${copy.display.locale}: a host copy without settings.close still labels Close`, async t => {
+  const { close, ...settings } = copy.settings, hostCopy = { ...copy, settings };
+  assert.equal(hostCopy.settings.close, undefined);
+  const h = fixture(t, { copy: hostCopy, matrix: { best: { text: refused('current processing consent required') } } });
+  h.root.querySelector('.composer-reason .consent-action').click(); await tick(10);
+  const done = h.q('.done');
+  assert.equal(h.q('.done-label').textContent, close);
+  assert.equal(close, copy === de ? 'Schließen' : 'Close');
+  assert.equal([...done.querySelectorAll('*')].filter(n => n.childElementCount === 0 && !n.closest('[aria-hidden="true"]')).map(n => n.textContent).join('').trim(), close, 'the accessible name is present');
 });
 
 for (const copy of [de, en]) test(`AIT-266 ${copy.display.locale}: unavailable Custom agrees at entrance and Settings and arrow keys skip it`, async t => {
