@@ -975,3 +975,55 @@ for (const copy of [en, de]) for (const images of [false, true])
     const notice = root.querySelector('.composer-reason')?.textContent ?? '';
     assert.ok(notice.startsWith(copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'notes.txt'))), notice);
   });
+
+// AIT-610 r6 (gate5c defect b): a browser that consumed the pending event and
+// then reconnects after a server restart gets no new event (the derived
+// 'unavailable' is never written). The reconnect refresh re-reads the session
+// and shows TICK's copy for the lost image.
+for (const copy of [en, de]) test(`AIT-610 r6: ${copy.display.locale} a reconnect after the pending event shows the derived 'unavailable' for a lost image`, async t => {
+  const staged = { id: 'img-1', kind: 'image', state: 'staged-pending', filename: 'photo.png', mediaType: 'image/png', bytes: 2048, expiresAt: Date.now() + 600_000, at: at(10) };
+  const c = document.createElement('aithema-session'), session = createSession({ demo: true, locale: copy === de ? 'de' : 'en' });
+  session.uploads = [staged];
+  session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, uploads: { available: true, reason: null }, imageInput: { available: true } } };
+  let streams = 0;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    if (url.endsWith('/events')) {
+      // The first stream ends (the server restarted); later ones stay open.
+      if (++streams === 1) return new Response(new ReadableStream({ start(controller) { controller.close(); } }));
+      return new Response(new ReadableStream({ start(controller) { options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
+    }
+    if (url.endsWith('/uploads') && !options.method) return Response.json({ uploads: c.session.uploads.map(u => u.id === staged.id ? { ...u, state: 'staged-refused', reason: 'unavailable' } : u), limits: UPLOAD_LIMITS });
+    if (/\/api\/sessions\/[^/]+$/u.test(url)) return Response.json({ ...c.session, uploads: c.session.uploads.map(u => u.id === staged.id ? { ...u, state: 'staged-refused', reason: 'unavailable' } : u) });
+    return Response.json({});
+  });
+  c.configure({ copy, copyForLocale: locale => ({ en, de })[locale], session, sessionToken: 'owner-fixture', entrance: 'choice' }); document.body.append(c); t.after(() => c.remove());
+  const root = c.shadowRoot;
+  for (let i = 0; i < 6; i++) await tick();
+  assert.equal(c.session.uploads[0].state, 'staged-pending', 'before the reconnect the browser still holds the pending row');
+  t.mock.timers.tick(1000);
+  for (let i = 0; i < 12; i++) await tick();
+  assert.ok(streams >= 2, 'reconnected');
+  assert.equal(c.session.uploads[0].state, 'staged-refused', JSON.stringify(c.session.uploads[0]));
+  assert.equal(c.session.uploads[0].reason, 'unavailable');
+  const shown = [...root.querySelectorAll('.image-refusal')].map(node => node.textContent).join(' ');
+  assert.ok(shown.includes(copy.imageRefusals.unavailable), shown);
+});
+
+// AIT-610 r6 (LEAD 03:0x): the server names a certain intake reason for an
+// Office suffix (password-protected, an older/different Office format,
+// damaged); the client shows it with the existing reason copy, and the
+// generic file-type wording otherwise.
+for (const copy of [en, de]) for (const [reason, expected] of [
+  ['encrypted', () => copy.uploads.reasons.encrypted], ['malformed', () => copy.uploads.reasons.malformed],
+  ['legacy', () => copy.uploads.reasons.legacy], ['unsupported', () => null],
+]) test(`AIT-610 r6: ${copy.display.locale} a document refused at intake as '${reason}' is named with its reason`, async t => {
+  const { c, root } = setup(t, { copy, post: () => Response.json({ accepted: true, events: [], uploads: [],
+    refused: [{ index: 0, name: 'report.docx', kind: 'document', reason }] }, { status: 202 }) });
+  await choose(root, [new window.File(['x'], 'report.docx')]);
+  assert.deepEqual(c.session.uploads, []);
+  const notice = root.querySelector('.composer-reason')?.textContent ?? '';
+  const named = expected() ? copy.uploads.typeReason.replace('{name}', 'report.docx').replace('{reason}', expected()) : copy.uploads.type.replace('{name}', 'report.docx');
+  assert.ok(typeof (expected() ?? '') === 'string' && (expected() === null || expected().length > 0), `copy for ${reason}`);
+  assert.ok(notice.startsWith(copy.uploads.refused.replace('{list}', named)), notice);
+});

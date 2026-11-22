@@ -45,7 +45,7 @@ import { createFacadeSecrets, createHandlers, createPluginRuntime, SQLiteStorage
 import { listen } from '../src/http.js';
 import { createMockReasoning, imageReferences, PluginRegistry, reasoningRequest } from '@inspr/aithema-core';
 import { registerDemoExtractors } from '../../../demo/uploads.js';
-import { mockConsent, testToken, ownedRequest, temporaryDb } from '../../../test/helpers.js';
+import { mockConsent, testToken, ownedRequest, temporaryDb, unzip } from '../../../test/helpers.js';
 import * as uploadModule from '../src/upload-handlers.js';
 import * as extractorModule from '@inspr/aithema-core/extractor';
 import { manifest as textManifest } from '../../../plugins/extract-text/src/index.js';
@@ -54,7 +54,7 @@ import { manifest as ooxmlManifest } from '../../../plugins/extract-ooxml/src/in
 import { DOCUMENT_UPLOAD_EXTENSIONS } from '../../ui/src/uploads.js';
 import { en } from '../../ui/src/i18n/en.js';
 import { de } from '../../ui/src/i18n/de.js';
-import { bytes as textBytes, docx, docxWithInlineImage, pdf, pptx, xlsx } from '../../../test/extractor-fixtures.js';
+import { bytes as textBytes, docx, docxWithInlineImage, pdf, pptx, xlsx, zip as extractorFixtureZip } from '../../../test/extractor-fixtures.js';
 
 // The uploads as a client reads them (GET /api/sessions/:id/uploads).
 async function readUploads(handlers, sessionId) {
@@ -116,8 +116,11 @@ function hookFsWrites(t, writes) {
   t.after(() => { for (const mock of mocks) mock.mock.restore(); syncBuiltinESMExports(); });
 }
 
-// A failing assertion must fail its test, never hang the file.
-const test = (name, fn) => nodeTest(name, { timeout: 60_000 }, fn);
+// A failing assertion must fail its test, never hang the file. r6 (gate5c):
+// the options form test(name, options, fn) passes its function through; the
+// r5 wrapper dropped the third argument, so those cases never ran.
+const test = (name, options, fn) => typeof options === 'function' ? nodeTest(name, { timeout: 60_000 }, options)
+  : nodeTest(name, { timeout: 60_000, ...options }, fn);
 // A gated normalizer still ends when the job is aborted (handler close after a failure).
 const gated = (gate, options) => Promise.race([gate, new Promise((resolve, reject) => {
   if (options?.signal?.aborted) reject(options.signal.reason);
@@ -1073,4 +1076,116 @@ test('AIT-610 r5: expiry removes a lost pending image at its normal deadline (no
   assert.equal(f.storage.get(f.session.id).uploads[0].state, 'staged-discarded', 'the normal expiry ran');
   t.mock.timers.reset();
   await f.assertNoTrace(image);
+});
+
+// ---- AIT-610 r6 (gate5c; LEAD r6 definition: "image bytes" = bytes processed as IMAGE input) ----
+// Condition 2 regression: a root name only counts as svg when the name ends
+// there (whitespace, '/' or '>'). Plain text that begins with '<svg=' or
+// '<svgfoo' stays a text document; real svg roots stay image input.
+test('AIT-610 r6: text beginning with <svg= or <svgfoo stays a text document; real svg roots stay image input', () => {
+  for (const text of ['<svg= is how the old notes began\n', '<svgfoo> is not an svg root\n', '<svg=1 width=2>\n', '<svg']) {
+    assert.deepEqual(uploadModule.sniffUploadDocument(textBytes(text), 'notes.txt'), { mediaType: 'text/plain' }, JSON.stringify(text));
+  }
+  for (const text of ['<svg xmlns="http://www.w3.org/2000/svg"/>', '<svg>\n</svg>\n', '<svg/>', '<svg\n  width="1"/>', '<?xml version="1.0"?>\n<s:svg xmlns:s="http://www.w3.org/2000/svg"/>']) {
+    assert.equal(uploadModule.sniffUploadDocument(textBytes(text), 'diagram.xml').mediaType, 'image/svg+xml', JSON.stringify(text));
+  }
+});
+
+// Condition 1 guard: a file admitted as a TEXT document can never reach an
+// image path. Structurally, the image paths accept only rows the image intake
+// created (kind 'image'): the stored-image route (storage.imageUpload), turn
+// attachments (storage.appendTurn) and the normalizer (start()). A document
+// row never carries kind 'image', so its bytes are only ever extracted as text.
+for (const [label, name, text, mime] of [
+  ['text beginning with <svg=', 'notes.txt', '<svg= is how the old notes began\n', 'image/svg+xml'],
+  ['an XHTML document with an inline svg', 'page.xml', '<?xml version="1.0"?>\n<html xmlns="http://www.w3.org/1999/xhtml"><body><svg width="1" height="1"/></body></html>\n', 'image/svg+xml'],
+  ['an SVG-like text document', 'svg-notes.txt', 'svg: <svg width="4"/> is the element we use\n', 'text/plain'],
+]) test(`AIT-610 r6 guard: ${label} admitted as a text document never reaches an image path`, async t => {
+  const f = await fixture(t);
+  const response = await f.upload(`guard-${name.replace(/[^a-zA-Z0-9_-]/gu, '-')}`, [[name, Buffer.from(text), mime]]), body = await response.text();
+  assert.equal(response.status, 202, body);
+  assert.deepEqual(JSON.parse(body).refused, []);
+  await f.handlers.idle();
+  const upload = f.storage.get(f.session.id).uploads[0];
+  assert.equal(upload?.state, 'accepted', JSON.stringify(upload));
+  assert.notEqual(upload.kind, 'image', 'a document row never carries the image kind');
+  assert.equal(f.normalized.length, 0, 'never sent to the image normalizer');
+  assert.equal(f.storage.imageUpload(f.session.id, upload.id), null, 'the stored-image path refuses a document row');
+  const served = await f.handlers.handle(ownedRequest(`http://localhost/api/sessions/${f.session.id}/uploads/${upload.id}/image`));
+  assert.equal(served.status, 404, 'never served for image rendering (transcript, preview)');
+  const turn = await f.handlers.handle(ownedRequest(`http://localhost/api/sessions/${f.session.id}/turns`, { method: 'POST',
+    body: JSON.stringify({ clientEventId: `guard-turn-${name}`, content: 'Look', attachments: [upload.id] }) }));
+  assert.equal(turn.status, 409, 'a document is never image input to a model lane');
+  const current = f.storage.get(f.session.id);
+  for (const lane of ['reaction', 'understanding']) assert.deepEqual(imageReferences(reasoningRequest(current, lane)), [], `${lane}: no image input`);
+  for (const request of f.admitted) assert.equal(/"images":\[\{/u.test(request), false, 'no admitted model request carries an image');
+});
+
+// Defect (b): session export serializes the derived state, not raw pending.
+test('AIT-610 r6: session export shows a pending image lost to a restart as unavailable', async t => {
+  const f = await fixture(t), image = sentinelImage();
+  const staged = lostImage(f, image);
+  await f.handlers.resume();
+  await f.handlers.idle();
+  const response = await f.handlers.handle(ownedRequest(`http://localhost/api/sessions/${f.session.id}/export`));
+  assert.equal(response.status, 200, response.status === 200 ? '' : await response.text());
+  const files = unzip(new Uint8Array(await response.arrayBuffer()));
+  const exported = JSON.parse(files['uploads.json']).find(upload => upload.id === staged.id);
+  assert.equal(exported?.state, 'staged-refused', JSON.stringify(exported));
+  assert.equal(exported.reason, 'unavailable');
+  assert.equal(f.storage.get(f.session.id).uploads[0].state, 'staged-pending', 'the stored row is unchanged (no write)');
+  await f.assertNoTrace(image);
+});
+
+// Specific intake reasons (LEAD 03:0x): only where certain, else 'unsupported'.
+// A minimal Compound File Binary (version 3, 512-byte sectors): header, one FAT
+// sector, one directory sector with the given stream names.
+function cfb(streams) {
+  const sector = 512, header = Buffer.alloc(sector, 0), fat = Buffer.alloc(sector, 0xff), directory = Buffer.alloc(sector, 0);
+  Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]).copy(header);
+  header.writeUInt16LE(0x3e, 0x18); header.writeUInt16LE(3, 0x1a); header.writeUInt16LE(0xfffe, 0x1c); header.writeUInt16LE(9, 0x1e); header.writeUInt16LE(6, 0x20);
+  header.writeUInt32LE(1, 0x2c); header.writeUInt32LE(1, 0x30); header.writeUInt32LE(4096, 0x38);
+  header.writeUInt32LE(0xfffffffe, 0x3c); header.writeUInt32LE(0xfffffffe, 0x44);
+  header.fill(0xff, 0x4c); header.writeUInt32LE(0, 0x4c);
+  fat.writeUInt32LE(0xfffffffd, 0); fat.writeUInt32LE(0xfffffffe, 4);
+  const entry = (index, name, type) => {
+    const at = index * 128, encoded = Buffer.from(`${name}\0`, 'utf16le');
+    encoded.copy(directory, at); directory.writeUInt16LE(encoded.length, at + 0x40); directory[at + 0x42] = type;
+    directory.writeUInt32LE(0xffffffff, at + 0x44); directory.writeUInt32LE(0xffffffff, at + 0x48); directory.writeUInt32LE(0xffffffff, at + 0x4c);
+    directory.writeUInt32LE(0xfffffffe, at + 0x74);
+  };
+  entry(0, 'Root Entry', 5);
+  streams.forEach((name, index) => entry(index + 1, name, 2));
+  return Buffer.concat([header, fat, directory]);
+}
+for (const [label, name, build, reason] of [
+  ['an encrypted .docx (a CFB with EncryptionInfo and EncryptedPackage)', 'secret.docx', () => cfb(['EncryptionInfo', 'EncryptedPackage']), 'encrypted'],
+  ['an encrypted .xlsx', 'secret.xlsx', () => cfb(['EncryptedPackage', 'EncryptionInfo']), 'encrypted'],
+  ['a legacy .doc renamed .docx (a CFB without the encryption streams)', 'old.docx', () => cfb(['WordDocument', '1Table']), 'legacy'],
+  ['a CFB with only one of the encryption streams', 'half.docx', () => cfb(['EncryptionInfo', 'WordDocument']), 'legacy'],
+  ['a damaged .docx (a truncated zip)', 'cut.docx', () => docx().subarray(0, docx().length - 40), 'malformed'],
+  ['a .pptx zip without [Content_Types].xml', 'bare.pptx', () => Buffer.from(extractorFixtureZip({ 'notes/readme.txt': 'plain words' })), 'malformed'],
+  ['an unknown binary named .docx', 'blob.docx', () => Buffer.concat([Buffer.from([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1, 0]), Buffer.alloc(64, 7)]), 'unsupported'],
+  ['a damaged CFB named .docx (directory sector outside the file)', 'broken.docx', () => { const bytes = cfb(['EncryptionInfo', 'EncryptedPackage']); bytes.writeUInt32LE(40, 0x30); return bytes; }, 'unsupported'],
+  ['a CFB named .txt (not an Office suffix)', 'secret.txt', () => cfb(['EncryptionInfo', 'EncryptedPackage']), 'unsupported'],
+]) test(`AIT-610 r6 intake reason: ${label} is refused before persistence as '${reason}'`, async t => {
+  const f = await fixture(t);
+  const postUploads = f.storage.postUploads.bind(f.storage), admittedDocuments = [];
+  t.mock.method(f.storage, 'postUploads', (id, eventId, digest, files, ...rest) => {
+    admittedDocuments.push(...files.filter(file => file.kind !== 'image' && !file.refusal).map(file => file.filename));
+    return postUploads(id, eventId, digest, files, ...rest);
+  });
+  const response = await f.upload(`reason-${name.replace(/[^a-zA-Z0-9_-]/gu, '-')}-${reason}`, [[name, build(), 'application/octet-stream']]), body = await response.text();
+  assert.equal(response.status, 202, body);
+  assert.deepEqual(admittedDocuments, [], 'no document admission reached storage');
+  assert.deepEqual(JSON.parse(body).refused, [{ index: 0, name, kind: 'document', reason }]);
+  await f.handlers.idle();
+  assert.equal(f.storage.get(f.session.id).uploads.length, 0, 'no row');
+});
+test('AIT-610 r6: the CFB directory read is bounded (a directory chain that loops or runs long is not certain: generic)', () => {
+  const looped = cfb(['EncryptionInfo', 'EncryptedPackage']);
+  looped.writeUInt32LE(1, 512 + 4); // the directory sector chains to itself
+  assert.equal(uploadModule.uploadIntakeReason(looped, 'loop.docx'), 'unsupported');
+  assert.equal(uploadModule.CFB_DIRECTORY_SECTORS_MAX, 64, 'the stated bound');
+  assert.equal(uploadModule.uploadIntakeReason(cfb(['EncryptionInfo', 'EncryptedPackage']), 'ok.docx'), 'encrypted');
 });
