@@ -236,7 +236,8 @@ test('AIT-625 r2 helper (real HTTP): a finite request whose body stalls after th
   const { ownerFetch } = await helper();
   const origin = await listen(t, (request, response) => { response.writeHead(200, { 'content-type': 'application/json' }); response.write('{"partial":'); });
   const started = performance.now();
-  await assert.rejects(ownerFetch(page(`${origin}/`), '/api/sessions/s1/turns', { method: 'POST', body: '{}', deadline: 150 }), error => error.name === 'TimeoutError');
+  const stalled = await ownerFetch(page(`${origin}/`), '/api/sessions/s1/turns', { method: 'POST', body: '{}', deadline: 150 });
+  await assert.rejects(stalled.json(), error => error.name === 'TimeoutError');
   assert.ok(performance.now() - started < 5_000);
   // A complete finite body is read under the deadline and still reads normally.
   const whole = await listen(t, (request, response) => response.end(JSON.stringify({ ok: 1 })));
@@ -247,7 +248,7 @@ test('AIT-625 r2 helper (real HTTP): a finite request whose body stalls after th
 test('AIT-625 r2 helper: a stalled body that ignores the signal still ends at the deadline', async t => {
   const { ownerFetch } = await helper();
   stubFetch(t, () => new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode('{')); } })));
-  await assert.rejects(ownerFetch(page(), '/api/sessions/s1/turns', { deadline: 50 }), error => error.name === 'TimeoutError');
+  await assert.rejects((await ownerFetch(page(), '/api/sessions/s1/turns', { deadline: 50 })).text(), error => error.name === 'TimeoutError');
   stubFetch(t, () => new Response(null, { status: 204 }));
   assert.equal((await ownerFetch(page(), '/api/x', {})).status, 204);
 });
