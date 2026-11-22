@@ -535,3 +535,22 @@ test('AIT-587: a binding switch during upload classification re-reads image capa
   assert.equal(posted.includes('photo.png'), false, 'an image picked under an image-capable binding is not sent after the switch');
   assert.equal(f.root.querySelector('.staged-image'), null, 'nothing is staged for the image');
 });
+
+// AIT-610 r7: the refusal view takes a refusal once while the row stays
+// refused (a repeated reconciliation never brings back a dismissed refusal),
+// and again after the same upload was seen in another state (AIT-510's
+// browser check re-refuses one upload id with the same reason).
+test('AIT-610 r7: a refusal is taken once per refused state; another state lets the same reason show again', async () => {
+  const { ImageInputView } = await import('../src/image-input.js');
+  const doc = window.document, form = doc.createElement('form'), feedback = doc.createElement('div'), line = doc.createElement('span');
+  feedback.className = 'composer-feedback'; line.className = 'composer-reason'; feedback.append(line); form.append(feedback); doc.body.append(form);
+  const session = createSession({ demo: true }); session.uploads = [];
+  const view = new ImageInputView({ form, copy: en, session: () => session, canRead: () => true, changed: () => {} });
+  const refused = { id: 'img-1', kind: 'image', state: 'staged-refused', reason: 'deadline', filename: 'a.png' };
+  view.receive(refused); assert.equal(view.hasRefusals, true);
+  view.clear(); assert.equal(view.hasRefusals, false);
+  view.receive(refused); assert.equal(view.hasRefusals, false, 'the same refused state is taken once');
+  view.receive({ ...refused, state: 'staged-pending', reason: undefined });
+  view.receive(refused); assert.equal(view.hasRefusals, true, 'refused again after another state');
+  view.destroy?.(); form.remove();
+});
