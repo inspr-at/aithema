@@ -10,6 +10,8 @@ export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 export const provisionalSplitFiles = new Set([
   'test/browser/pause-phone.test.js', 'test/browser/pause-phone-uploads.test.js',
   'test/browser/host-surface.test.js', 'test/browser/host-surface-email.test.js',
+  // AIT-603 PR-A r15: PR-A's checks moved out of demo.test.js (seed in its weight file).
+  'test/browser/phone-dock.test.js',
 ]);
 
 export function readBrowserTestWeights(files = discoverBrowserTests(), root = repositoryRoot) {
