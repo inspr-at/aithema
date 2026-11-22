@@ -30,48 +30,33 @@ const releasePendingRequest = () => { pendingUploadRequests--; };
 // body read is not possible: the server cannot know a request's image count
 // before reading it, and AIT-219 requires three concurrent document requests to
 // be admitted. Each original returns its slot when its job ends (or at shutdown).
-// Memory bound, every live copy counted (AIT-610 r5), for the deployed runtime:
-// the Dockerfile's node:24 image, IPC to both children with serialization
-// 'advanced'. Checked against Node 24 lib/internal/child_process/serialization.js
-// in both forms the 24.x line ships: the JS ChildProcessSerializer (24.15/24.16)
-// and the native ipc_serdes codec (24.22). In both the sender serializes ONCE
-// into one buffer; the receiver keeps the received chunks until it has the
-// whole message, concatenates them once, and deserializes a Uint8Array as a VIEW
-// of that buffer (no further copy; probed on 24.16 and 24.22). Default ceilings:
-// maxRequestBytes 21 MiB, maxBytes 20 MiB, MAX_PENDING_UPLOAD_REQUESTS 3
-// retained requests, one job at a time in the extraction slot (images and
-// documents share it).
-//   server process
-//   - request bodies being read or parsed: at most 3 x 21 MiB (readBody's one
-//     buffer; multipart parts are views of it, the metadata copy holds headers
-//     only); zero-filled and dropped when the handler returns;
-//   - intake classification: no full-file copy. One control-byte pass and
-//     buffer.isUtf8 run over the bytes in place; text is decoded from at most
-//     UPLOAD_SNIFF_PREFIX_BYTES (64 KiB) twice (the root scan and the subtype),
-//     plus a 512-byte Netpbm header: < 0.5 MiB per file, synchronous, so one
-//     file at a time;
-//   - held originals (owned copies): at most 8 slots and at most 3 x 21 MiB (a
-//     request stays retained until its jobs end, so its originals count against
-//     the same 3 requests);
-//   - the running job: an image sends its original (<= 20 MiB) as one
-//     serialized message; the serializer's buffer can be reallocated once while
-//     it grows, so count 2 x 20 MiB. A document job also reads its stored bytes
-//     back from SQLite (+20 MiB) and the extractor takes its own owned snapshot
-//     of them before IPC (extractor-process.js `Uint8Array.from(bytes)`, kept:
-//     it guards callers that reuse their buffer while the job waits; +20 MiB,
-//     r6 gate5c): <= 80 MiB;
-//   - the child's result: <= 8 MiB, received chunks plus their concatenation
-//     (<= 2 x 8 MiB);
-//   normalizer or extractor child (one at a time; RSS capped at 384 MiB by its
-//   watchdog)
-//   - the received message: chunks plus their concatenation (<= 2 x 20 MiB);
-//     the decoder reads a VIEW of it (normalize-input.js), not another copy;
-//   - its result: the output plus its serialized message, with one growth
-//     reallocation (<= 3 x 8 MiB).
-// So at most 63 + 63 + 80 + 16 = 222 MiB in the server process (plus < 0.5 MiB
-// of intake prefix) and 40 + 24 = 64 MiB in the child: 286 MiB, stated as
-// <= 287 MiB of request, image and document bytes in total. Arithmetic, not an RSS measurement; bytes
-// already dropped wait for the garbage collector, the bound counts live copies.
+// Memory bound (AIT-610 r7, LEAD condition 1, scoped to IMAGE ORIGINALS), for
+// the deployed runtime: the Dockerfile's node:24 image, IPC to both children
+// with serialization 'advanced'. Checked against Node 24
+// lib/internal/child_process/serialization.js in both forms the 24.x line
+// ships (the JS ChildProcessSerializer, 24.15/24.16, and the native ipc_serdes
+// codec, 24.22): the sender serializes ONCE into one buffer; the receiver keeps
+// the received chunks until it has the whole message, concatenates them once,
+// and deserializes a Uint8Array as a VIEW of that buffer (probed on 24.16 and
+// 24.22).
+//   - image originals held in memory (owned copies): at most
+//     MAX_PENDING_IMAGE_NORMALIZATIONS (8) x the per-file cap (limits.maxBytes,
+//     20 MiB) = 160 MiB;
+//   - their IPC copies: one job at a time in the extraction slot, so one
+//     original in flight: the server's send buffer with one growth reallocation
+//     (2 x 20 MiB) and the normalizer child's received chunks plus their
+//     concatenation (2 x 20 MiB; normalize-input.js decodes a view) = 80 MiB;
+//   so at most 240 MiB of image originals and their IPC copies. Arithmetic
+//   over live copies, not an RSS measurement.
+// The document path is bounded by its own ceilings (docs/plugins.md names them
+// with their values): MAX_PENDING_UPLOAD_REQUESTS x maxRequestBytes for request
+// bodies; one extraction job at a time (this module's slot, shared with images,
+// and the extractor's single process slot); EXTRACTOR_LIMITS.maxBytes per file,
+// so a job's SQLite read-back, the extractor's owned snapshot (taken inside the
+// slot) and the PDF child's copy are each <= 20 MiB; the child's maxHeapMb and
+// maxRssMb; maxPages/maxChars and the OOXML entry/part/ratio limits. Intake
+// classification makes no full-file copy (< 0.5 MiB of prefix per file,
+// synchronous).
 // A restart loses the held originals. Their rows (no bytes) stay as stored and
 // are REPORTED as staged-refused 'unavailable' on every read (reportUploads);
 // the client shows that with an instruction to attach the image again.
@@ -237,14 +222,16 @@ export function sniffUploadDocument(bytes, filename, maxBytes = EXTRACTOR_LIMITS
 // intake. A specific reason only where it is CERTAIN; otherwise 'unsupported'
 // (the generic "file type not accepted"). Only for an Office suffix:
 //   - a Compound File Binary container (D0 CF 11 E0 A1 B1 1A E1) whose
-//     directory holds BOTH an EncryptionInfo and an EncryptedPackage stream is
-//     a password-protected Office file: 'encrypted';
-//   - a CFB whose whole directory was read without them is an older or other
-//     Office format (e.g. a .doc renamed .docx): 'legacy';
-//   - a ZIP signature with an unreadable central directory, or a readable
-//     archive without [Content_Types].xml, is damaged: 'malformed';
-//   - anything else, including a CFB directory that cannot be read within the
-//     bound: 'unsupported'.
+//     directory was walked validly from the root entry (r7, cfbRootStreams)
+//     with BOTH an EncryptionInfo and an EncryptedPackage stream LINKED under
+//     the root is a password-protected Office file: 'encrypted';
+//   - any other validly walked CFB is an older Office format (e.g. a .doc
+//     renamed .docx): 'legacy';
+//   - a ZIP with structural damage (an unreadable central directory), or a
+//     readable archive without [Content_Types].xml: 'malformed';
+//   - anything else, including a CFB directory that cannot be walked with
+//     certainty within the bound and an intact ZIP using a feature the reader
+//     does not support (ZIP64, spanning, a method or flag): 'unsupported'.
 // Runs before persistence, only for a file already refused, and is bounded:
 // at most CFB_DIRECTORY_SECTORS_MAX directory sectors (64: 256 entries with
 // 512-byte sectors, 2,048 with 4 KiB sectors), FAT lookups by index (the FAT
@@ -253,9 +240,16 @@ export function sniffUploadDocument(bytes, filename, maxBytes = EXTRACTOR_LIMITS
 export const CFB_DIRECTORY_SECTORS_MAX = 64;
 const OFFICE_EXTENSIONS = new Set(['docx', 'xlsx', 'pptx']);
 const CFB_SIGNATURE = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
-// The stream names in a CFB directory, or null when the directory cannot be
-// read with certainty within the bound.
-function cfbStreams(bytes) {
+// AIT-610 r7 (gate6c): the names of the streams LINKED directly under the root
+// storage of a CFB, or null unless the directory is read with certainty: at
+// least one directory sector actually read (an end-of-chain first is not a
+// directory), entry 0 is the root storage, and a walk of every storage's
+// red-black tree from the root (left/right siblings, storage children) stays
+// inside the entries read, meets each entry at most once (no loop) and finds
+// only storages and streams with valid names and colors. Orphaned entries
+// (not reachable from the root) are not part of the file's content.
+const CFB_NOSTREAM = 0xffffffff, CFB_END_OF_CHAIN = 0xfffffffe;
+function cfbRootStreams(bytes) {
   if (bytes.length < 512) return null;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const u16 = at => view.getUint16(at, true), u32 = at => view.getUint32(at, true);
@@ -274,16 +268,33 @@ function cfbStreams(bytes) {
     for (let i = 0; i < perSector - 1 && fat.length < fatCount; i++) fat.push(u32(offset(difat) + i * 4));
     difat = u32(offset(difat) + size - 4);
   }
-  const streams = new Set();
-  for (let sector = u32(0x30), read = 0; sector !== 0xfffffffe; read++) {
+  const entries = []; // byte offsets of the directory entries read, by entry id
+  for (let sector = u32(0x30), read = 0; sector !== CFB_END_OF_CHAIN; read++) {
     if (read >= CFB_DIRECTORY_SECTORS_MAX || !inFile(sector)) return null;
-    for (let entry = offset(sector); entry < offset(sector) + size; entry += 128) {
-      const length = u16(entry + 0x40);
-      if (bytes[entry + 0x42] === 2 && length >= 2 && length <= 64 && length % 2 === 0) streams.add(Buffer.from(bytes.buffer, bytes.byteOffset + entry, length - 2).toString('utf16le'));
-    }
+    for (let entry = offset(sector); entry < offset(sector) + size; entry += 128) entries.push(entry);
     const holder = fat[Math.floor(sector / perSector)];
     if (holder === undefined || !inFile(holder)) return null;
     sector = u32(offset(holder) + (sector % perSector) * 4);
+  }
+  if (!entries.length) return null;
+  const name = at => {
+    const length = u16(at + 0x40);
+    return length >= 2 && length <= 64 && length % 2 === 0 && u16(at + length - 2) === 0
+      ? Buffer.from(bytes.buffer, bytes.byteOffset + at, length - 2).toString('utf16le') : null;
+  };
+  const root = entries[0];
+  if (bytes[root + 0x42] !== 5 || name(root) !== 'Root Entry') return null;
+  const streams = new Set(), seen = new Set([0]), stack = [[u32(root + 0x4c), true]];
+  while (stack.length) {
+    const [id, top] = stack.pop();
+    if (id === CFB_NOSTREAM) continue;
+    if (id >= entries.length || seen.has(id)) return null;
+    seen.add(id);
+    const at = entries[id], type = bytes[at + 0x42], entryName = name(at);
+    if (type !== 1 && type !== 2 || bytes[at + 0x43] > 1 || entryName === null) return null;
+    if (type === 2 && top) streams.add(entryName);
+    stack.push([u32(at + 0x44), top], [u32(at + 0x48), top]);
+    if (type === 1) stack.push([u32(at + 0x4c), false]);
   }
   return streams;
 }
@@ -291,13 +302,15 @@ export function uploadIntakeReason(bytes, filename, maxBytes = EXTRACTOR_LIMITS.
   const extension = /\.([a-z0-9]+)$/iu.exec(filename)?.[1].toLowerCase();
   if (!OFFICE_EXTENSIONS.has(extension)) return 'unsupported';
   if (startsWith(bytes, CFB_SIGNATURE)) {
-    const streams = cfbStreams(bytes);
+    const streams = cfbRootStreams(bytes);
     return !streams ? 'unsupported' : streams.has('EncryptionInfo') && streams.has('EncryptedPackage') ? 'encrypted' : 'legacy';
   }
   if (startsWith(bytes, [80, 75, 3, 4]) || startsWith(bytes, [80, 75, 5, 6])) {
     let entries;
     try { entries = inspectZip(bytes, { ...EXTRACTOR_LIMITS, maxBytes }); }
-    catch (error) { return error.reason === 'malformed' ? 'malformed' : 'unsupported'; }
+    // Structural damage only; an unsupported ZIP feature (ZIP64, spanning,
+    // an unsupported method or flag) in an intact archive is generic (r7).
+    catch (error) { return error.reason === 'malformed' && !error.feature ? 'malformed' : 'unsupported'; }
     return entries.has('[Content_Types].xml') ? 'unsupported' : 'malformed';
   }
   return 'unsupported';
