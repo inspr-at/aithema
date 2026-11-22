@@ -6,7 +6,7 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 const files = ['packages/ui/test/concepts.test.js', 'packages/ui/test/host-surface.test.js',
-  'packages/ui/test/host-credits.test.js', 'packages/ui/test/host-settlement.test.js', 'packages/ui/test/host-limits.test.js',
+  'packages/ui/test/host-credits-tiers.test.js', 'packages/ui/test/host-credits-voice.test.js', 'packages/ui/test/host-settlement.test.js', 'packages/ui/test/host-limits.test.js',
   'packages/ui/test/layout.test.js', 'plugins/codex-imagegen/test/codex-imagegen.test.js', 'test/unit-timeout.test.js'];
 async function run(label, args) {
   const env = { PATH: process.env.PATH, HOME: process.env.HOME, TMPDIR: process.env.TMPDIR,

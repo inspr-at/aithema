@@ -178,7 +178,7 @@ The ten slowest baseline unit files, using full file summaries:
 | File | Measured seconds | Tests |
 | --- | ---: | ---: |
 | `test/release-candidate.test.js` | 113.763 | 3 |
-| `packages/ui/test/host-credits.test.js` | 102.655 | 86 |
+| `packages/ui/test/host-credits.test.js` (since split into `host-credits-tiers.test.js` and `host-credits-voice.test.js`, AIT-621) | 102.655 | 86 |
 | `packages/ui/test/session-element.test.js` | 82.123 | 112 |
 | `packages/ui/test/host-limits.test.js` | 73.799 | 75 |
 | `packages/ui/test/settings.test.js` | 70.917 | 171 |
