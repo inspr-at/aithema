@@ -2532,11 +2532,11 @@ the inferred marker, across all command states.
 Use the existing light-DOM `slot="account"` for the host's account content. When
 the role control is available, that slot appears only in the desktop popover;
 when absent, no account line appears. The phone role sheet has no account line.
-On a phone, a control that a host inserts while the on-screen keyboard is up can
-overlap the pause control: in `slot="account"` until the next focus change,
-resize or keyboard close, and in `slot="contact-launcher"` only while the page is
-also pinch-zoomed, until the visitor zooms back out; header content already in
-place at load is not affected (known limitation, AIT-635).
+On a phone, a control that a host inserts while the on-screen keyboard is up,
+into `slot="account"`, or into `slot="contact-launcher"` while the page is also
+pinch-zoomed, can overlap the pause control until the keyboard closes at the
+latest; header content already in place at load is not affected (known
+limitation, AIT-635).
 No address, verification claim or account label is invented by the module. The
 phone gear opens the role section and an entry to the existing AI processing
 settings. On desktop, the role trigger follows the AI notice in the left footer
