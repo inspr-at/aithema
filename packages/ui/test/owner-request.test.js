@@ -263,17 +263,16 @@ const pendingAfter = (promise, ms) => Promise.race([promise, new Promise((resolv
 test('AIT-625 r4 helper: an event stream answered with an error keeps its body under the deadline', async t => {
   const { ownerFetch } = await helper();
   stubFetch(t, () => new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode('{')); } }), { status: 404 }));
-  const response = await ownerFetch(page(), '/api/sessions/s1/events', { deadline: 50, stream: true });
-  assert.equal(response.status, 404);
-  await assert.rejects(pendingAfter(response.clone().json(), 2_000), error => error.name === 'TimeoutError');
+  // r8: a finite body is buffered natively inside the helper, so the stall rejects ownerFetch itself.
+  await assert.rejects(pendingAfter(ownerFetch(page(), '/api/sessions/s1/events', { deadline: 50, stream: true }), 2_000), error => error.name === 'TimeoutError');
 });
 
 test('AIT-625 r2 helper (real HTTP): a finite request whose body stalls after the headers ends at the deadline', async t => {
   const { ownerFetch } = await helper();
   const origin = await listen(t, (request, response) => { response.writeHead(200, { 'content-type': 'application/json' }); response.write('{"partial":'); });
   const started = performance.now();
-  const stalled = await ownerFetch(page(`${origin}/`), '/api/sessions/s1/turns', { method: 'POST', body: '{}', deadline: 150 });
-  await assert.rejects(stalled.json(), error => error.name === 'TimeoutError');
+  // r8: the body is buffered inside the helper, so the stall rejects ownerFetch itself.
+  await assert.rejects(ownerFetch(page(`${origin}/`), '/api/sessions/s1/turns', { method: 'POST', body: '{}', deadline: 150 }), error => error.name === 'TimeoutError');
   assert.ok(performance.now() - started < 5_000);
   // A complete finite body is read under the deadline and still reads normally.
   const whole = await listen(t, (request, response) => response.end(JSON.stringify({ ok: 1 })));
@@ -284,9 +283,62 @@ test('AIT-625 r2 helper (real HTTP): a finite request whose body stalls after th
 test('AIT-625 r2 helper: a stalled body that ignores the signal still ends at the deadline', async t => {
   const { ownerFetch } = await helper();
   stubFetch(t, () => new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode('{')); } })));
-  await assert.rejects((await ownerFetch(page(), '/api/sessions/s1/turns', { deadline: 50 })).text(), error => error.name === 'TimeoutError');
+  await assert.rejects(ownerFetch(page(), '/api/sessions/s1/turns', { deadline: 50 }), error => error.name === 'TimeoutError');
   stubFetch(t, () => new Response(null, { status: 204 }));
   assert.equal((await ownerFetch(page(), '/api/x', {})).status, 204);
+});
+
+// r8 (gate5c M3): a finite body is buffered natively (no wrapper stream); onSettled fires once when
+// the buffer completes, before the caller gets the response; the body is bounded by maxBytes.
+test('AIT-625 r8 helper: a finite body is complete and settled once when ownerFetch resolves', async t => {
+  const { ownerFetch } = await helper();
+  let settled = 0;
+  stubFetch(t, () => new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode('{"ok":')); setTimeout(() => { controller.enqueue(new TextEncoder().encode('1}')); controller.close(); }, 20); } }), { status: 200, statusText: 'OK', headers: { 'content-type': 'application/json', 'x-kept': 'yes' } }));
+  const response = await ownerFetch(page(), '/api/x', { onSettled: () => settled++ });
+  assert.equal(settled, 1, 'settled when the native buffer completed, before the caller reads');
+  assert.equal(response.status, 200); assert.equal(response.statusText, 'OK'); assert.equal(response.headers.get('x-kept'), 'yes');
+  assert.deepEqual(await response.json(), { ok: 1 });
+  assert.equal(settled, 1, 'onSettled once');
+  // A null-body status keeps a null body.
+  stubFetch(t, () => new Response(null, { status: 204 }));
+  const empty = await ownerFetch(page(), '/api/x', { onSettled: () => settled++ });
+  assert.equal(empty.status, 204); assert.equal(empty.body, null); assert.equal(settled, 2);
+});
+
+test('AIT-625 r8 helper: a body above maxBytes is refused before buffering when Content-Length says so', async t => {
+  const { ownerFetch, OWNER_RESPONSE_MAX_BYTES } = await helper();
+  assert.ok(Number.isSafeInteger(OWNER_RESPONSE_MAX_BYTES) && OWNER_RESPONSE_MAX_BYTES > 0, 'a stated default bound');
+  let pulled = 0, cancelled = 0, settled = 0;
+  stubFetch(t, () => new Response(new ReadableStream({
+    pull(controller) { pulled += 1024; controller.enqueue(new Uint8Array(1024)); },
+    cancel() { cancelled++; },
+  }, { highWaterMark: 0 }), { headers: { 'content-length': String(OWNER_RESPONSE_MAX_BYTES + 1) } }));
+  await assert.rejects(ownerFetch(page(), '/api/x', { onSettled: () => settled++ }), error => error.name === 'RangeError');
+  assert.equal(pulled, 0, 'nothing buffered: refused from the header');
+  assert.equal(cancelled, 1, 'the unread body is cancelled');
+  assert.equal(settled, 1, 'onSettled once');
+  // A per-call maxBytes refuses the same way.
+  stubFetch(t, () => new Response(new Uint8Array(10), { headers: { 'content-length': '10' } }));
+  await assert.rejects(ownerFetch(page(), '/api/x', { maxBytes: 9, onSettled: () => settled++ }), error => error.name === 'RangeError');
+  assert.equal(settled, 2);
+  stubFetch(t, () => new Response(new Uint8Array(10), { headers: { 'content-length': '10' } }));
+  assert.equal((await (await ownerFetch(page(), '/api/x', { maxBytes: 10 })).arrayBuffer()).byteLength, 10, 'at the bound it is accepted');
+});
+
+test('AIT-625 r8 helper: without Content-Length a body above maxBytes is rejected and never returned', async t => {
+  const { ownerFetch } = await helper();
+  let settled = 0;
+  stubFetch(t, () => new Response(new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array(6)); controller.enqueue(new Uint8Array(6)); controller.close(); } })));
+  await assert.rejects(ownerFetch(page(), '/api/x', { maxBytes: 8, onSettled: () => settled++ }), error => error.name === 'RangeError');
+  assert.equal(settled, 1, 'onSettled once');
+});
+
+test('AIT-625 r8 helper: the export raises the bound to its derived maximum; nothing else does', async () => {
+  const source = readFileSync(new URL('../src/session-element.js', import.meta.url), 'utf8');
+  const { OWNER_EXPORT_MAX_BYTES, OWNER_RESPONSE_MAX_BYTES } = await helper();
+  assert.ok(OWNER_EXPORT_MAX_BYTES > OWNER_RESPONSE_MAX_BYTES);
+  assert.match(source, /\/export`, \{ sessionToken: this\.#sessionToken, maxBytes: OWNER_EXPORT_MAX_BYTES \}/u);
+  assert.equal(source.match(/maxBytes/gu).length, 1, 'only the export call raises the bound');
 });
 
 // One page for the element tests: the custom element registers once per module graph.
