@@ -22,7 +22,7 @@ function sources(dir = SRC) {
   });
 }
 // Comments may explain the policy; only code counts.
-const code = text => text.replace(/\/\*[\s\S]*?\*\//gu, '').replace(/(^|[^:\\'"`])\/\/.*$/gmu, '$1');
+const code = text => text.replace(/(^|\s)\/\*[\s\S]*?\*\//gu, '$1').replace(/(^|[^:\\'"`])\/\/.*$/gmu, '$1');
 
 test('AIT-625 structural: the owner header, fetch and XHR appear only in the guarded helper', () => {
   const offenders = [];
