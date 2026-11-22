@@ -25,15 +25,15 @@ import { browserPath } from '../../scripts/install-test-browser.js';
 
 function waitForDownload(cdp, signal) {
   return new Promise((resolve, reject) => {
-    let guid;
+    let guid, url;
     const cleanup = () => {
       cdp.off('Browser.downloadWillBegin', begin); cdp.off('Browser.downloadProgress', progress);
       signal.removeEventListener('abort', abort);
     };
-    const begin = event => { guid = event.guid; };
+    const begin = event => { guid = event.guid; url = event.url; };
     const progress = event => {
       if (event.guid !== guid) return;
-      if (event.state === 'completed') { cleanup(); resolve(event); }
+      if (event.state === 'completed') { cleanup(); resolve({ ...event, url }); }
       else if (event.state === 'canceled') { cleanup(); reject(new Error('Export download was canceled')); }
     };
     const abort = () => { cleanup(); reject(signal.reason); };
@@ -314,7 +314,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         const bytes = await readFile(join(directory, download.guid));
         assert.equal(bytes.readUInt32LE(0), 0x04034b50, 'The completed download must be a ZIP');
         assert.ok(bytes.includes(Buffer.from(content)), 'The downloaded export must contain the person turn');
-        console.log(`AIT-625 r6 diagnostic: export fetch aborts reported ${exportAborts.length}, download ${download.state} ${bytes.length} bytes`);
+        console.log(`AIT-625 r6 diagnostic: export fetch aborts reported ${exportAborts.length}, download ${download.state} ${bytes.length} bytes from ${String(download.url).split(':')[0]}, page status ${await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.composer-status, [role="status"]')?.textContent ?? '')}`);
         exporting = false;
 
         smokeStep = 'phone settings geometry';
