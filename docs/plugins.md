@@ -325,6 +325,18 @@ or verification change. The server decides again on every request and drops
 refused bytes. Scope: image input through the upload route (upload, paste and
 drop). Two other byte paths follow their own rules, listed below.
 
+**Boundary.** "Image bytes" here means bytes the server processes as image
+input: sent to the image normalizer, to a model as an image, or served for
+rendering as an image. Those are never stored unless the normalizer accepted
+them. A file admitted as a text document is only ever extracted and processed
+as text: it is never rendered, never served as an image and never sent to a
+model as an image (the image paths accept only rows the image intake created;
+tested). Recognizing images that are encoded as text (an SVG root, Netpbm's
+ASCII forms) is best effort: common forms are recognized and become image
+input; a form the recognizer does not identify is a text document and follows
+the document rules. This is not a claim that every text-encoded image is
+recognized.
+
 - **Upload route** (`POST /api/sessions/:id/uploads`; a retry replays the same
   receipt by `clientEventId`). Consent, configuration, verification, normalizer
   health, the image quota and a consent revision during admission refuse the
@@ -345,14 +357,17 @@ drop). Two other byte paths follow their own rules, listed below.
   server process three retained request bodies (3 × 21 MiB), their held
   originals (3 × 21 MiB, at most eight), the one running job (an image's IPC
   message with one serializer growth copy, 2 × 20 MiB; a document adds its
-  SQLite read-back, 60 MiB) and its result (2 × 8 MiB), 202 MiB; in the child
-  (one at a time) the received message (2 × 20 MiB; the decoder reads a view of
-  it) and its result (3 × 8 MiB), 64 MiB. 267 MiB in total, plus under 0.5 MiB
+  SQLite read-back and the extractor's own owned snapshot of it, 80 MiB) and
+  its result (2 × 8 MiB), 222 MiB; in the child (one at a time) the received
+  message (2 × 20 MiB; the decoder reads a view of it) and its result
+  (3 × 8 MiB), 64 MiB. At most 287 MiB in total, plus under 0.5 MiB
   for intake classification, which never copies a whole file (see below).
   Classification runs before any persistence. A file is image input when its
   signature says image (PNG, JPEG, WebP, GIF, BMP, TIFF, HEIC/AVIF, JPEG XL,
-  Netpbm), it is a standalone SVG (root `<svg>` after an optional XML
-  declaration, comments and doctype, whatever the suffix), its name has an
+  Netpbm, best effort for its ASCII forms), it is a recognized standalone SVG
+  (an `svg` root element, optionally prefixed, whose name ends in whitespace,
+  `/` or `>`, after an optional XML declaration, comments and doctype, whatever
+  the suffix; plain text such as `<svg=` stays text), its name has an
   image suffix, or its client MIME says image and its name has no document
   suffix (AIT-510: a false image MIME on a named document keeps document
   admission; an XML document whose root is not `svg` stays a document).
@@ -362,7 +377,15 @@ drop). Two other byte paths follow their own rules, listed below.
   XLSX, PPTX, and UTF-8 text, CSV, Markdown, JSON or XML). Everything else
   (UTF-16 or other non-UTF-8 text, unknown binaries, other archives, a suffix
   that contradicts the content) is refused in the receipt with kind
-  `document` and reason `unsupported` before anything is stored. Text is
+  `document` and reason `unsupported` before anything is stored. For an
+  Office suffix (`.docx`, `.xlsx`, `.pptx`) the reason is more specific only
+  where it is certain: a Compound File Binary container whose directory holds
+  both `EncryptionInfo` and `EncryptedPackage` streams is `encrypted`
+  (password-protected); one whose whole directory was read without them is
+  `legacy` (an older or other Office format, such as a `.doc` renamed); a ZIP
+  signature with an unreadable central directory or no `[Content_Types].xml` is
+  `malformed` (damaged). The directory read is bounded (at most 64 directory
+  sectors); a directory that cannot be read within it stays `unsupported`. Text is
   checked over the whole file without a copy (no control bytes, valid UTF-8),
   and its XML root and subtype are read from at most the first 64 KiB
   (`UPLOAD_SNIFF_PREFIX_BYTES`), in one linear pass. If the XML prolog or the

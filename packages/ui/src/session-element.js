@@ -33,7 +33,7 @@ import { settingsStyles } from './settings-styles.js';
 import { SettingsDialog, ICONS, PRESET_ORDER, reasonText, engineView, catalogLabel } from './settings-dialog.js';
 import { LocalConnector } from './local-connector.js';
 import { postJson, postForm, sameOrigin } from './post-json.js';
-import { UPLOAD_LIMITS, UPLOAD_ACCEPT, DOCUMENT_UPLOAD_ACCEPT, UPLOAD_ICONS, uploadLimits, uploadRetryDelay, unclassifiedUploads, planUploads, refusalText, uploadStateText, uploadStateTexts, uploadsPossible, formatBytes, limitsText, dropText } from './uploads.js';
+import { UPLOAD_LIMITS, UPLOAD_ACCEPT, DOCUMENT_UPLOAD_ACCEPT, UPLOAD_ICONS, uploadLimits, uploadRetryDelay, unclassifiedUploads, planUploads, refusalText, uploadStateText, uploadStateTexts, uploadsPossible, formatBytes, limitsText, dropText, DOCUMENT_INTAKE_REASONS } from './uploads.js';
 import { voiceJournal, tabStorage, closeVoiceCall, answerVoicePings, voiceCallAbandoned } from './voice-orphan.js';
 import { node, setText, reconcile, fill } from './dom.js';
 import { HostSurface } from './host-surface.js';
@@ -3816,8 +3816,9 @@ export class AithemaSession extends HTMLElement {
           for (const record of result.refused ?? []) {
             const file = batch[record.index];
             // AIT-610 r5: the server refuses a file that is not positively a
-            // supported document before storing it; name it with the file-type copy.
-            if (file && record.kind === 'document') { documentPlan.refused.push({ name: file.name, reason: 'type' }); continue; }
+            // supported document before storing it; name it with the file-type
+            // copy, or (r6) with the reason the server is certain of.
+            if (file && record.kind === 'document') { documentPlan.refused.push({ name: file.name, reason: DOCUMENT_INTAKE_REASONS.includes(record.reason) ? record.reason : 'type' }); continue; }
             if (!file || record.kind !== 'image') continue;
             this.#detectedImages.add(file);
             if (!images) documentPlan.refused.push({ name: file.name, reason: 'type' });
@@ -4345,6 +4346,18 @@ export class AithemaSession extends HTMLElement {
         else this.#voiceResumeProjection = null;
       }
       this.#clarifyRefresh++; this.#session.featureMatrix = session.featureMatrix;
+      // AIT-610 r6 (gate5c): a staged image lost to a server restart is
+      // REPORTED as staged-refused 'unavailable' on read; no event carries it.
+      // A browser that consumed the pending event before the restart learns it
+      // here, from the reconnect's snapshot read. Only that transition is taken
+      // from the snapshot; every other upload change still arrives as an event.
+      const derived = new Map((Array.isArray(session.uploads) ? session.uploads : []).filter(upload => upload?.kind === 'image' &&
+        upload.state === 'staged-refused' && upload.reason === 'unavailable').map(upload => [upload.id, upload]));
+      if ([...derived.keys()].some(id => this.#session.uploads?.some(local => local.id === id && local.kind === 'image' && local.state === 'staged-pending'))) {
+        this.#session.uploads = this.#session.uploads.map(local => local.kind === 'image' && local.state === 'staged-pending' && derived.has(local.id)
+          ? { ...local, state: 'staged-refused', reason: 'unavailable' } : local);
+        for (const upload of this.#session.uploads) if (derived.has(upload.id)) this.#images?.receive(upload);
+      }
       const openerChanged = JSON.stringify(this.#session.opener) !== JSON.stringify(session.opener);
       if ('opener' in session) this.#session.opener = session.opener; else delete this.#session.opener;
       if (openerChanged) this.#render('transcript');

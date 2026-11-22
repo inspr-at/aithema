@@ -550,7 +550,7 @@ export const en = {
     pending: 'Reading the file…', accepted: 'Read. The original file is not stored.', truncated: 'Read in part: the text was too long and was shortened.',
     unreadable: 'Not readable: {reason}. Please paste the relevant part as text.',
     withdraw: 'Withdraw upload', withdrawn: 'Upload withdrawn', withdrawFailed: 'The upload could not be withdrawn. Try again.',
-    refused: 'Not attached: {list}.', tooLarge: '{name} (too large, up to {size} per file)', type: '{name} (file type not accepted)',
+    refused: 'Not attached: {list}.', tooLarge: '{name} (too large, up to {size} per file)', type: '{name} (file type not accepted)', typeReason: '{name} ({reason})',
     tooMany: 'No more files fit in this conversation (up to {files}).', sessionFull: 'These files do not fit in this conversation (up to {size} in total).',
     overLimit: 'These files exceed the upload limits of this conversation.', failed: 'The file could not be added.', failedMany: 'The files could not be added.',
     notUploaded: { one: '1 file not uploaded: the server is busy right now', other: '{count} files not uploaded: the server is busy right now' },
@@ -558,7 +558,7 @@ export const en = {
     replaced: 'The previously unuploaded files were replaced by the new selection.',
     busy: 'Files are still uploading. Try again in a moment.', impossible: 'Files cannot be uploaded: the upload limits of this host leave no room for a file.',
     reasons: { unsupported: 'file type not accepted', empty: 'the file contains no text', malformed: 'the file is damaged or not in the expected format',
-      encrypted: 'the file is password-protected', limit: 'the file is too large or too long to read', deadline: 'reading took too long',
+      encrypted: 'the file is password-protected', legacy: 'older Office format; save it as .docx, .xlsx or .pptx and attach it again', limit: 'the file is too large or too long to read', deadline: 'reading took too long',
       cancelled: 'reading was cancelled', unavailable: 'reading is not available right now' },
   },
   constraints: {

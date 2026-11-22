@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { isUtf8 } from 'node:buffer';
 import { inputRevision, PluginError, operationScope, stagedImage, isConsentReason } from '@inspr/aithema-core';
 import { sniffDocument, EXTRACTOR_LIMITS, TEXT_MEDIA_TYPES, EXTRACTOR_EXTENSIONS, EXTRACTABLE_MEDIA_TYPES } from '@inspr/aithema-core/extractor';
+import { inspectZip } from '@inspr/aithema-core/extractor-zip';
 import { normalizeUploadLimits } from './upload-limits.js';
 import { scanUploadMultipart } from './upload-multipart.js';
 
@@ -55,7 +56,10 @@ const releasePendingRequest = () => { pendingUploadRequests--; };
 //   - the running job: an image sends its original (<= 20 MiB) as one
 //     serialized message; the serializer's buffer can be reallocated once while
 //     it grows, so count 2 x 20 MiB. A document job also reads its stored bytes
-//     back from SQLite (+20 MiB): <= 60 MiB;
+//     back from SQLite (+20 MiB) and the extractor takes its own owned snapshot
+//     of them before IPC (extractor-process.js `Uint8Array.from(bytes)`, kept:
+//     it guards callers that reuse their buffer while the job waits; +20 MiB,
+//     r6 gate5c): <= 80 MiB;
 //   - the child's result: <= 8 MiB, received chunks plus their concatenation
 //     (<= 2 x 8 MiB);
 //   normalizer or extractor child (one at a time; RSS capped at 384 MiB by its
@@ -64,9 +68,9 @@ const releasePendingRequest = () => { pendingUploadRequests--; };
 //     the decoder reads a VIEW of it (normalize-input.js), not another copy;
 //   - its result: the output plus its serialized message, with one growth
 //     reallocation (<= 3 x 8 MiB).
-// So at most 63 + 63 + 60 + 16 = 202 MiB in the server process (plus < 0.5 MiB
-// of intake prefix) and 40 + 24 = 64 MiB in the child: 267 MiB of request,
-// image and document bytes in total. Arithmetic, not an RSS measurement; bytes
+// So at most 63 + 63 + 80 + 16 = 222 MiB in the server process (plus < 0.5 MiB
+// of intake prefix) and 40 + 24 = 64 MiB in the child: 286 MiB, stated as
+// <= 287 MiB of request, image and document bytes in total. Arithmetic, not an RSS measurement; bytes
 // already dropped wait for the garbage collector, the bound counts live copies.
 // A restart loses the held originals. Their rows (no bytes) stay as stored and
 // are REPORTED as staged-refused 'unavailable' on every read (reportUploads);
@@ -169,8 +173,12 @@ function xmlRoot(text, whole) {
       name.lastIndex = i + 1;
       const root = name.exec(text);
       if (!root) return null;
-      // The name ends inside the prefix, or the prefix is the whole file.
-      return i + 1 + root[0].length < text.length || whole ? root[0] : 'incomplete';
+      // r6 (gate5c): the name must END there (whitespace, '/' or '>'), so
+      // plain text such as '<svg=' is not an svg root. A name that runs to the
+      // end of a truncated prefix cannot be decided: fail closed.
+      const after = i + 1 + root[0].length;
+      if (after >= text.length) return whole ? null : 'incomplete';
+      return space(text.charCodeAt(after)) || text[after] === '/' || text[after] === '>' ? root[0] : null;
     }
     if (end < 0) return open();
     i = end;
@@ -224,6 +232,75 @@ export function sniffUploadDocument(bytes, filename, maxBytes = EXTRACTOR_LIMITS
   // to its extension. Binary signatures and Office structure take precedence.
   if (TEXT_MEDIA_TYPES.includes(detected.mediaType) && TEXT_MEDIA_TYPES.includes(expected)) return { mediaType: expected };
   return extension && expected !== detected.mediaType ? { mediaType: detected.mediaType, reason: 'unsupported' } : detected;
+}
+// AIT-610 r6 (LEAD 03:0x): the reason a refused document is named with at
+// intake. A specific reason only where it is CERTAIN; otherwise 'unsupported'
+// (the generic "file type not accepted"). Only for an Office suffix:
+//   - a Compound File Binary container (D0 CF 11 E0 A1 B1 1A E1) whose
+//     directory holds BOTH an EncryptionInfo and an EncryptedPackage stream is
+//     a password-protected Office file: 'encrypted';
+//   - a CFB whose whole directory was read without them is an older or other
+//     Office format (e.g. a .doc renamed .docx): 'legacy';
+//   - a ZIP signature with an unreadable central directory, or a readable
+//     archive without [Content_Types].xml, is damaged: 'malformed';
+//   - anything else, including a CFB directory that cannot be read within the
+//     bound: 'unsupported'.
+// Runs before persistence, only for a file already refused, and is bounded:
+// at most CFB_DIRECTORY_SECTORS_MAX directory sectors (64: 256 entries with
+// 512-byte sectors, 2,048 with 4 KiB sectors), FAT lookups by index (the FAT
+// sector list is bounded by the file's own sector count), and the existing
+// non-inflating ZIP inspection (maxEntries). No copy of the file is made.
+export const CFB_DIRECTORY_SECTORS_MAX = 64;
+const OFFICE_EXTENSIONS = new Set(['docx', 'xlsx', 'pptx']);
+const CFB_SIGNATURE = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
+// The stream names in a CFB directory, or null when the directory cannot be
+// read with certainty within the bound.
+function cfbStreams(bytes) {
+  if (bytes.length < 512) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const u16 = at => view.getUint16(at, true), u32 = at => view.getUint32(at, true);
+  const major = u16(0x1a), shift = u16(0x1e);
+  if (u16(0x1c) !== 0xfffe || !(major === 3 && shift === 9 || major === 4 && shift === 12)) return null;
+  const size = 2 ** shift, perSector = size / 4, sectors = Math.floor(bytes.length / size) - 1;
+  const inFile = sector => sector < sectors;
+  const offset = sector => (sector + 1) * size;
+  const fatCount = u32(0x2c);
+  if (fatCount > sectors) return null;
+  const fat = [];
+  for (let i = 0; i < 109 && fat.length < fatCount; i++) fat.push(u32(0x4c + i * 4));
+  // Every DIFAT sector adds perSector - 1 entries, so this ends within fatCount.
+  for (let difat = u32(0x44); fat.length < fatCount;) {
+    if (!inFile(difat)) return null;
+    for (let i = 0; i < perSector - 1 && fat.length < fatCount; i++) fat.push(u32(offset(difat) + i * 4));
+    difat = u32(offset(difat) + size - 4);
+  }
+  const streams = new Set();
+  for (let sector = u32(0x30), read = 0; sector !== 0xfffffffe; read++) {
+    if (read >= CFB_DIRECTORY_SECTORS_MAX || !inFile(sector)) return null;
+    for (let entry = offset(sector); entry < offset(sector) + size; entry += 128) {
+      const length = u16(entry + 0x40);
+      if (bytes[entry + 0x42] === 2 && length >= 2 && length <= 64 && length % 2 === 0) streams.add(Buffer.from(bytes.buffer, bytes.byteOffset + entry, length - 2).toString('utf16le'));
+    }
+    const holder = fat[Math.floor(sector / perSector)];
+    if (holder === undefined || !inFile(holder)) return null;
+    sector = u32(offset(holder) + (sector % perSector) * 4);
+  }
+  return streams;
+}
+export function uploadIntakeReason(bytes, filename, maxBytes = EXTRACTOR_LIMITS.maxBytes) {
+  const extension = /\.([a-z0-9]+)$/iu.exec(filename)?.[1].toLowerCase();
+  if (!OFFICE_EXTENSIONS.has(extension)) return 'unsupported';
+  if (startsWith(bytes, CFB_SIGNATURE)) {
+    const streams = cfbStreams(bytes);
+    return !streams ? 'unsupported' : streams.has('EncryptionInfo') && streams.has('EncryptedPackage') ? 'encrypted' : 'legacy';
+  }
+  if (startsWith(bytes, [80, 75, 3, 4]) || startsWith(bytes, [80, 75, 5, 6])) {
+    let entries;
+    try { entries = inspectZip(bytes, { ...EXTRACTOR_LIMITS, maxBytes }); }
+    catch (error) { return error.reason === 'malformed' ? 'malformed' : 'unsupported'; }
+    return entries.has('[Content_Types].xml') ? 'unsupported' : 'malformed';
+  }
+  return 'unsupported';
 }
 export function createUploadHandlers({ storage, runtime, ownership, readBody, publish, onInput, onWithdraw, signal, limits: configured, opener, now = () => storage.now() }) {
   const limits = normalizeUploadLimits(configured), jobs = new Map(), expiryTimers = new Map();
@@ -396,8 +473,9 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
             !Object.hasOwn(extensions, extension) && /^image\//u.test(f.type);
           // AIT-610 r5, allowlist: a document is persisted ONLY when it is
           // positively one of the types the text extraction supports today.
-          // Everything else is refused here, before storage, as 'unsupported'.
-          const refusal = !image && (detected.reason || !EXTRACTABLE_MEDIA_TYPES.includes(detected.mediaType)) ? { refusal: 'unsupported' } : {};
+          // Everything else is refused here, before storage, as 'unsupported',
+          // or with a reason that is certain for an Office suffix (r6).
+          const refusal = !image && (detected.reason || !EXTRACTABLE_MEDIA_TYPES.includes(detected.mediaType)) ? { refusal: uploadIntakeReason(bytes, f.name, limits.maxBytes) } : {};
           return { bytes, ...(image ? { kind: 'image' } : {}), ...refusal, filename: f.name.slice(0, 200), originalName: f.name, mediaType: detected.mediaType, deadlineAt };
         });
         // Multipart boundary and the untrusted client MIME are transport details.

@@ -809,7 +809,9 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
             reason: current.consentWithdrawn ? 'consent-withdrawn' : 'publication-not-allowed' });
           else artifacts.push(storage.conceptArtifact(id, artifactId));
         }
-        return new Response(exportSession(current, artifacts, withheld, { exportedAt: new Date(now()).toISOString(),
+        // AIT-610 r6: the export shows each upload as a read does (a staged image
+        // lost to a restart is the derived 'unavailable', not raw pending).
+        return new Response(exportSession({ ...current, uploads: uploadHandlers.reportUploads(id, current.uploads) }, artifacts, withheld, { exportedAt: new Date(now()).toISOString(),
           images: current.uploads.filter(upload => upload.kind === 'image' && upload.state === 'sent').map(upload => storage.imageUpload(id, upload.id)).filter(Boolean) }), {
         headers: { 'content-type': 'application/zip', 'content-disposition': 'attachment; filename="aithema-session.zip"', 'cache-control': 'no-store' },
       });
