@@ -154,7 +154,7 @@ test('AIT-135 A2 round 2: denial-only polling skips hidden pages, bounds wallet 
   const fetch = globalThis.fetch;
   t.mock.method(globalThis, 'fetch', async (url, options) => {
     if (String(url).endsWith('/credits')) { creditReads++; await credits; }
-    if (String(url) === `/api/sessions/${f.c.session.id}`) { featureReads++; await features; }
+    if (String(url).replace(/^http:\/\/localhost(?=\/)/u, '') === `/api/sessions/${f.c.session.id}`) { featureReads++; await features; }
     return fetch(url, options);
   });
   t.mock.getter(document, 'visibilityState', () => visible ? 'visible' : 'hidden');

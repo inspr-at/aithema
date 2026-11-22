@@ -22,7 +22,7 @@ function setup(t, { copy = en, host = { credits: true }, routes = {}, session: e
   Object.assign(session, extra);
   const calls = [];
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
-    const path = String(url).replace(`/api/sessions/${c.session.id}`, '').replace(/^\/api/u, ''), method = options.method ?? 'GET';
+    const path = String(url).replace(/^http:\/\/localhost(?=\/)/u, '').replace(`/api/sessions/${c.session.id}`, '').replace(/^\/api/u, ''), method = options.method ?? 'GET';
     const body = options.body ? JSON.parse(options.body) : undefined;
     if (path === '/events') return new Response(new ReadableStream({ start(controller) { if (options.signal?.aborted) controller.close();
       else options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
