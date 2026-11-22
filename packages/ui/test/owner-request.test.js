@@ -5,7 +5,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -528,4 +528,84 @@ test('AIT-625 r6 element: cookie mode exports through the helper only; no export
   assert.equal(downloaded.length, 3);
   assert.equal(foreign.shadowRoot.querySelector('.export').getAttribute('aria-disabled'), 'true');
   assert.deepEqual(strays, [], 'nothing but the helper read fetch');
+});
+
+// AIT-625 r7 (gate4c M1): every browser-shipped module outside packages/ui/src reaches the owner
+// routes only through the helper too. The scanned set is what the demo host actually serves to a
+// browser: its own source allowlist (demo/server.js), applied to demo/, plugins/, packages/server/src
+// and packages/core/src. Every served demo module carries no fetch, XHR, beacon or owner header at
+// all: the owner cookie rides EVERY same-origin request, so each one is an owner call. A served
+// non-demo module may hold a fetch port only for a non-owner endpoint (a local device model, a
+// provider), and then names no owner route; the relays have their own test above.
+function servedPattern() {
+  const path = join(ROOT, 'demo/server.js');
+  const file = ts.createSourceFile(path, readFileSync(path, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  let found;
+  const visit = node => { if (ts.isRegularExpressionLiteral(node) && node.text.includes('demo\\/(?:index\\.html')) found = node.text; ts.forEachChild(node, visit); };
+  visit(file);
+  assert.ok(found, 'the demo server keeps its source allowlist');
+  const end = found.lastIndexOf('/');
+  return new RegExp(found.slice(1, end), found.slice(end + 1));
+}
+const SERVED_ROOTS = ['demo', 'plugins', 'packages/server/src', 'packages/core/src'];
+function servedModules(root, pattern) {
+  const walk = dir => readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) return ['node_modules', 'test', 'ops', 'fixtures'].includes(entry.name) ? [] : walk(path);
+    return entry.name.endsWith('.js') && pattern.test('/' + relative(root, path).split('\\').join('/')) ? [path] : [];
+  });
+  return SERVED_ROOTS.flatMap(dir => { try { return walk(join(root, dir)); } catch (error) { if (error.code === 'ENOENT') return []; throw error; } });
+}
+function servedOffenders(root, pattern) {
+  const found = [];
+  for (const path of servedModules(root, pattern)) {
+    const label = relative(root, path).split('\\').join('/');
+    if (RELAYS.includes(label)) continue;
+    // admin-page.js reads the host clock header (x-aithema-now), which is not the owner header.
+    const own = offenders(path, label).filter(item => !(item === `${label}: owner header prefix` && !/x-aithema-(?!now\b)/iu.test(readFileSync(path, 'utf8'))));
+    if (label.startsWith('demo/')) { found.push(...own); continue; }
+    const network = own.filter(item => /: fetch (reference|in a string)$/u.test(item));
+    found.push(...own.filter(item => !network.includes(item)));
+    if (network.length && /['"`]\/api\//u.test(readFileSync(path, 'utf8'))) found.push(`${label}: fetch beside an owner route`);
+  }
+  return found;
+}
+
+test('AIT-625 r7 structural: every browser-served demo and plugin module reaches owner routes only through the helper', t => {
+  const pattern = servedPattern(), served = servedModules(ROOT, pattern).map(path => relative(ROOT, path));
+  const roots = [...new Set(served.map(path => path.split('/').slice(0, -1).join('/')))].sort();
+  t.diagnostic(`scanned roots: ${roots.join(', ')}`);
+  for (const expected of ['demo/host.js', 'demo/consent-page.js', 'demo/post-json.js', 'demo/admin-page.js', 'plugins/grok-voice/src/client.js'])
+    assert.ok(served.includes(expected), `the scan covers ${expected}`);
+  assert.deepEqual(servedOffenders(ROOT, pattern), [], 'browser-served modules send owner requests only through owner-request.js');
+  // The scan fails on a native fetch to an owner route in demo/.
+  const probe = mkdtempSync(join(tmpdir(), 'ait-625-served-'));
+  try {
+    mkdirSync(join(probe, 'demo')); mkdirSync(join(probe, 'plugins/device/src'), { recursive: true });
+    writeFileSync(join(probe, 'demo/post-json.js'), "export const post = id => fetch(`/api/sessions/${id}/consent`, { method: 'POST' });");
+    writeFileSync(join(probe, 'plugins/device/src/index.js'), "export const read = (f = globalThis.fetch) => f('/api/sessions/x');");
+    assert.deepEqual(servedOffenders(probe, pattern).sort(), ['demo/post-json.js: fetch reference', 'plugins/device/src/index.js: fetch beside an owner route']);
+  } finally { rmSync(probe, { recursive: true, force: true }); }
+});
+
+test('AIT-625 r7 demo: postJson and the consent page send only through the helper; a foreign <base> sends nothing', async t => {
+  const html = readFileSync(join(ROOT, 'demo/consent.html'), 'utf8').replace(/<script[^>]*>[\s\S]*?<\/script>/gu, '');
+  const at = (base = '') => { const window = new Window({ url: 'http://app.test/consent/?session=s' });
+    window.document.write(html.replace('<head>', `<head>${base}`)); t.after(() => window.happyDOM.close()); return window; };
+  const own = at(), foreign = at('<base href="https://evil.example/">');
+  const { calls, strays } = guardFetch(t, () => Response.json({ error: 'nope' }, { status: 404 }), [own, foreign]);
+  const { postJson } = await import('../../../demo/post-json.js');
+  await assert.rejects(postJson('/api/sessions', { locale: 'en' }, { view: foreign }), /same origin/u);
+  assert.equal(calls.length, 0, 'a foreign <base>: zero owner requests');
+  await postJson('/api/sessions', { locale: 'en' }, { view: own });
+  assert.equal(calls.length, 1); assert.equal(calls[0].url, 'http://app.test/api/sessions');
+  assert.equal(calls[0].init.redirect, 'error'); assert.equal(calls[0].init.method, 'POST'); assert.ok(calls[0].init.signal instanceof AbortSignal);
+  const { mountConsentPage } = await import('../../../demo/consent-page.js');
+  const settle = mounting => Promise.race([mounting.catch(() => {}), new Promise(resolve => setTimeout(resolve, 2000))]);
+  await settle(mountConsentPage({ document: foreign.document, location: foreign.location, storage: foreign.localStorage, navigate: () => {} }));
+  assert.equal(calls.length, 1, 'the consent page on a foreign <base>: zero owner requests');
+  await settle(mountConsentPage({ document: own.document, location: own.location, storage: own.localStorage, navigate: () => {} }));
+  assert.ok(calls.length > 1, 'the consent page reads through the helper');
+  for (const call of calls.slice(1)) { assert.match(call.url, /^http:\/\/app\.test\//u); assert.equal(call.init.redirect, 'error'); }
+  assert.deepEqual(strays, [], 'no demo module read fetch itself');
 });
