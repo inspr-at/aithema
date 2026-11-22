@@ -100,6 +100,8 @@ export class AithemaSession extends HTMLElement {
   #consentRefresh; #consentRequestId = null;
   #startIntent = null; #startIntentTimer; #startRetryTimer; #startFromNavigation = false; #checkingStartRestore = null;
   #featureRead = null;
+  // AIT-610 r7: the one in-flight GET /uploads reconciliation; callers share it.
+  #uploadsReconcile = null;
   #signals; #signalState; #signalLiveSeq = null; #signalReplay = new WeakSet();
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #clarifyWaitTimer; #clarifyRefresh = 0;
@@ -2061,6 +2063,10 @@ export class AithemaSession extends HTMLElement {
     this.#renderMode(); this.#dialog?.sync(); this.#host?.resync();
     this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer');
     this.#host?.updateStreaming();
+    // A snapshot replaces the upload rows wholesale; the refusal view learns
+    // them only through the one reconciliation path (AIT-610 r7). A read, not
+    // paid work.
+    void this.#reconcileUploads();
   }
   #clearLaneStatusPending() {
     clearTimeout(this.#laneStatusTimer); this.#laneStatusTimer = null; this.#laneStatusPending = null; this.#laneStatusRead = null;
@@ -4346,18 +4352,6 @@ export class AithemaSession extends HTMLElement {
         else this.#voiceResumeProjection = null;
       }
       this.#clarifyRefresh++; this.#session.featureMatrix = session.featureMatrix;
-      // AIT-610 r6 (gate5c): a staged image lost to a server restart is
-      // REPORTED as staged-refused 'unavailable' on read; no event carries it.
-      // A browser that consumed the pending event before the restart learns it
-      // here, from the reconnect's snapshot read. Only that transition is taken
-      // from the snapshot; every other upload change still arrives as an event.
-      const derived = new Map((Array.isArray(session.uploads) ? session.uploads : []).filter(upload => upload?.kind === 'image' &&
-        upload.state === 'staged-refused' && upload.reason === 'unavailable').map(upload => [upload.id, upload]));
-      if ([...derived.keys()].some(id => this.#session.uploads?.some(local => local.id === id && local.kind === 'image' && local.state === 'staged-pending'))) {
-        this.#session.uploads = this.#session.uploads.map(local => local.kind === 'image' && local.state === 'staged-pending' && derived.has(local.id)
-          ? { ...local, state: 'staged-refused', reason: 'unavailable' } : local);
-        for (const upload of this.#session.uploads) if (derived.has(upload.id)) this.#images?.receive(upload);
-      }
       const openerChanged = JSON.stringify(this.#session.opener) !== JSON.stringify(session.opener);
       if ('opener' in session) this.#session.opener = session.opener; else delete this.#session.opener;
       if (openerChanged) this.#render('transcript');
@@ -4405,6 +4399,43 @@ export class AithemaSession extends HTMLElement {
         } else fail();
       } catch { fail(); }
     } catch { fail(); }
+  }
+  // AIT-610 r7 (LEAD (1)): the ONE reconciliation path for staged images. A
+  // server restart loses held originals; their rows are REPORTED as
+  // staged-refused 'unavailable' on read and no event carries that. Every stream
+  // (re)connect, the first included, and every snapshot apply (gap recovery)
+  // re-read GET /uploads and move each local staged-pending image row the
+  // server reports refused to that state, through the refusal view. Bound to
+  // the session (a read for another session or after erasure is dropped);
+  // idempotent (only pending rows move; the view takes each refusal once);
+  // bounded (one read in flight, callers share it; no read without a pending
+  // row or a refused row the view has not taken).
+  #reconcileUploads() {
+    const sessionId = this.#session.id;
+    if (this.#uploadsReconcile?.sessionId === sessionId) return this.#uploadsReconcile.promise;
+    const images = () => (this.#session.uploads ?? []).filter(upload => upload.kind === 'image' && !upload.erased);
+    if (this.#erased || this.#session.processingPreset === 'device' || this.#session.tombstone ||
+      !images().some(upload => upload.state === 'staged-pending' || this.#images?.unreceived(upload))) return Promise.resolve();
+    const read = { sessionId, promise: null };
+    read.promise = (async () => {
+      try {
+        const response = await this.#api(`${this.#base}/api/sessions/${sessionId}/uploads`, { headers: this.#headers() });
+        const body = response.ok ? await response.json() : null;
+        if (this.#erased || this.#session.id !== sessionId || !Array.isArray(body?.uploads)) return;
+        const reported = new Map(body.uploads.filter(upload => upload?.kind === 'image' && upload.state === 'staged-refused').map(upload => [upload.id, upload]));
+        let changed = false;
+        this.#session.uploads = (this.#session.uploads ?? []).map(local => {
+          const server = reported.get(local.id);
+          if (!server || local.kind !== 'image' || local.state !== 'staged-pending') return local;
+          changed = true; return { ...local, state: 'staged-refused', reason: server.reason };
+        });
+        for (const upload of images()) if (this.#images?.unreceived(upload)) { this.#images.receive(upload); changed = true; }
+        if (changed) { this.#render('composer'); this.#host?.update(); }
+      } catch { /* the next connect or snapshot reconciles again */ }
+      finally { if (this.#uploadsReconcile === read) this.#uploadsReconcile = null; }
+    })();
+    this.#uploadsReconcile = read;
+    return read.promise;
   }
   async #restore() {
     const sessionId = this.#session.id, requestedCursor = this.#cursor;
@@ -4458,6 +4489,8 @@ export class AithemaSession extends HTMLElement {
         this.#connectionStatus(this.#copy.connected); reader = response.body.getReader();
         // A reconnect may follow a host restart: grants held in memory may be gone (D6).
         if (attempt++ > 0) void this.#refreshFeatures();
+        // Any stream, the first included, may follow a restart that lost staged originals.
+        void this.#reconcileUploads();
         let replaying = true;
         for await (const event of serverEvents(reader)) {
           if (signal.aborted) break;

@@ -6,7 +6,7 @@ import { isImageFile } from './uploads.js';
 
 /** Owns erasable previews and per-file refusal records; never changes conversation input. */
 export class ImageInputView {
-  #ports; #copy; #tiles; #records = []; #refusalVersion = 0; #urls = new Map(); #loads = new Map(); #epoch = 0; #reserve; #reserveObserver; #notices;
+  #ports; #copy; #tiles; #records = []; #refusalVersion = 0; #urls = new Map(); #loads = new Map(); #epoch = 0; #reserve; #reserveObserver; #notices; #received = new Set();
   constructor(ports) {
     this.#ports = ports; this.#copy = ports.copy; this.#notices = new UploadNotices(ports.form);
     this.#tiles = node('div', 'staged-images'); this.#tiles.hidden = true;
@@ -40,8 +40,12 @@ export class ImageInputView {
     }
   }
   clear(through = this.#refusalVersion) { this.#records = this.#records.filter(record => record.version > through); }
+  // AIT-610 r7: each refusal is taken once, so a repeated reconciliation or
+  // event never brings back a refusal the visitor dismissed.
+  unreceived(upload) { return upload.kind === 'image' && upload.state === 'staged-refused' && !upload.erased && !this.#received.has(`${upload.id}:${upload.reason}`); }
   receive(upload) {
-    if (upload.kind !== 'image' || upload.state !== 'staged-refused' || upload.erased) return;
+    if (!this.unreceived(upload)) return;
+    this.#received.add(`${upload.id}:${upload.reason}`);
     // An accepted extension with unrecognized bytes needs a readable-image
     // sentence, not instructions to choose the same accepted type again.
     const reason = upload.reason === 'unsupported' && isImageFile({ name: upload.filename ?? '', type: upload.mediaType ?? '' })
