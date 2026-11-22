@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createComposedRelay } from '../src/relay.js';
 import { createComposedRelayRoute } from '../src/network-relay.js';
 import { createNetworkRelayClient } from '../src/network-client.js';
+import { createNetworkRelayClient as createServerRelayClient } from '../../../packages/server/src/composed/network-client.js';
 import { createComposedBrowserMedia } from '../src/client.js';
 
 function fixture(options = {}, durationMs = 60_000, coordinator = {}) {
@@ -243,4 +244,47 @@ test('AIT-625 r2: the browser relay sends only to the document\'s actual origin,
   // A finite action whose answer stalls ends at the deadline.
   const stalled = (url, init) => new Promise((resolve, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true }));
   await assert.rejects(createNetworkRelayClient({ fetch: stalled, deadline: 50, view: { origin: 'https://app.test', location, document } })({}), error => error.name === 'TimeoutError');
+});
+
+// AIT-625 r4 (gate2c M1): view:null and a worker's default view never skip the origin check in a browser.
+async function withGlobals(globals, run) {
+  const saved = Object.keys(globals).map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]);
+  for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+  try { return await run(); } finally {
+    for (const [name, descriptor] of saved) if (descriptor) Object.defineProperty(globalThis, name, descriptor); else delete globalThis[name];
+  }
+}
+for (const [copy, create] of [['plugin', createNetworkRelayClient], ['server', createServerRelayClient]]) {
+  test(`AIT-625 r4 ${copy} copy: in any browser context view:null sends nothing to a foreign URL`, async () => {
+    const calls = [], record = async (url, init) => { calls.push({ url, init }); return Response.json({ connectionId: 'c1' }); };
+    class WorkerGlobalScope {}
+    for (const globals of [{ window: globalThis }, { self: globalThis }, { document: { baseURI: 'https://app.test/' } }, { WorkerGlobalScope }])
+      await withGlobals(globals, async () => {
+        await assert.rejects(create({ url: 'https://evil.example/composed/relay', fetch: record, view: null })({}), /page origin/u, Object.keys(globals)[0]);
+        await assert.rejects(create({ url: '/composed/relay', fetch: record, view: null })({}), /page origin/u, Object.keys(globals)[0]);
+      });
+    assert.equal(calls.length, 0);
+  });
+  test(`AIT-625 r4 ${copy} copy: a browser worker's default view is origin-checked`, async () => {
+    const calls = [], record = async (url, init) => { calls.push({ url, init }); return Response.json({ connectionId: 'c1' }); };
+    class WorkerGlobalScope {}
+    const location = { protocol: 'https:', origin: 'https://app.test', href: 'https://app.test/worker.js' };
+    // A worker without a usable origin sends nothing.
+    await withGlobals({ WorkerGlobalScope, self: globalThis }, async () => {
+      await assert.rejects(create({ url: 'https://evil.example/composed/relay', fetch: record })({}), /page origin/u);
+    });
+    await withGlobals({ WorkerGlobalScope, self: globalThis, origin: 'https://app.test', location }, async () => {
+      await assert.rejects(create({ url: 'https://evil.example/composed/relay', fetch: record })({}), /same origin/u);
+      assert.equal(calls.length, 0);
+      await create({ fetch: record })({});
+    });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, 'https://app.test/composed/relay');
+  });
+}
+test('AIT-625 r4: outside a browser, view:null keeps the in-process URL as given', async () => {
+  const calls = [], record = async (url, init) => { calls.push({ url, init }); return Response.json({ connectionId: 'c1' }); };
+  assert.equal(globalThis.window ?? globalThis.document ?? globalThis.WorkerGlobalScope, undefined, 'premise: a Node runtime');
+  await createNetworkRelayClient({ url: 'http://localhost/composed/relay', fetch: record, view: null })({});
+  assert.equal(calls[0].url, 'http://localhost/composed/relay'); assert.equal(calls[0].init.redirect, 'error');
 });
