@@ -18,7 +18,8 @@ const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const HELPER = 'owner-request.js';
 const HEADER = 'x-aithema-session-token';
 const helper = () => import('../src/owner-request.js');
-// The browser voice relay forwards host credentials too; it carries its own guard (AIT-625 r2).
+// The browser voice relay forwards host credentials too; since r6 (gate3c M1) its browser
+// requests go through the injected helper, with no check of its own.
 const RELAYS = ['packages/server/src/composed/network-client.js', 'plugins/composed-voice/src/network-client.js'];
 
 function sources(dir = SRC) {
@@ -77,12 +78,14 @@ test('AIT-625 structural: the scanner sees code a regex comment stripper would e
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('AIT-625 structural: each browser voice relay keeps its own guard and calls its transport once', () => {
+test('AIT-625 structural: each browser voice relay sends through the injected helper; only the server transport is its own', () => {
   for (const path of RELAYS) {
     const text = readFileSync(join(ROOT, path), 'utf8');
-    assert.equal(text.match(/\brequest\(/gu)?.length, 1, `${path} sends through one call`);
-    assert.match(text, /redirect: 'error'/u, `${path} refuses redirects`);
-    assert.match(text, /view\.origin/u, `${path} checks the document's actual origin`);
+    assert.equal(text.match(/\brequest\(/gu)?.length, 1, `${path} has one server-side transport call`);
+    assert.match(text, /redirect: 'error'/u, `${path} refuses redirects on the server-side transport`);
+    // r6 (gate3c M1): the browser path is the helper, not a parallel copy of its checks.
+    assert.equal(text.match(/\bownerFetch\(/gu)?.length, 1, `${path} sends browser requests through the helper once`);
+    assert.doesNotMatch(text, /view\.origin|baseURI|new URL\(/u, `${path} carries no origin check of its own`);
     assert.deepEqual(offenders(join(ROOT, path), path).filter(found => !/: fetch reference$/u.test(found)), [], `${path} names no owner header`);
   }
   assert.equal(readFileSync(join(ROOT, RELAYS[0]), 'utf8'), readFileSync(join(ROOT, RELAYS[1]), 'utf8'), 'the two relay copies stay identical');
