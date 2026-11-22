@@ -639,11 +639,16 @@ export async function keyboardHostLateAddCheck(t) {
         if (!up.keyboard) failures.push(`${name}: the keyboard flag is set`);
         if (Math.abs((up.band?.height ?? 0) - 44) > .5) failures.push(`${name}: fixture: the keyboard opens with the pause column free (one 44 px row): ${JSON.stringify(up.band)}`);
         // Focus on Pause (a keyboard user's Tab, or a tap that focuses it); the keyboard-up state stays.
-        await page.$eval('aithema-session', c => [...c.shadowRoot.querySelectorAll('.voice-cell--pause > button')].find(b => b.checkVisibility())?.focus({ preventScroll: true }));
+        const focusInfo = await page.$eval('aithema-session', c => {
+          const pause = c.shadowRoot.querySelector('.voice-cell--pause > .pause'); pause?.focus({ preventScroll: true });
+          const active = c.shadowRoot.activeElement;
+          return { found: Boolean(pause), disabled: pause?.disabled, inert: Boolean(pause?.closest('[inert]')), tabIndex: pause?.tabIndex,
+            active: active ? `${active.tagName}.${active.className}` : String(document.activeElement?.tagName) };
+        });
         await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
         const before = await readBand(page), room = await read(page);
         await capture(page, `${name}-1-before`, { ...room, band: before });
-        if (!(await pauseFocused(page))) failures.push(`${name}: fixture: focus is on Pause`);
+        if (!(await pauseFocused(page))) failures.push(`${name}: fixture: focus is on Pause: ${JSON.stringify(focusInfo)}`);
         if (!before.keyboard) failures.push(`${name}: before: the keyboard-up state stays with focus on Pause`);
         failures.push(...stableBoxes(`${name} up -> focus on Pause (band)`, up, before, ['band', 'orb', 'pause', 'gear', 'notice', 'more']));
         failures.push(...stableBoxes(`${name} up -> focus on Pause (dock)`, upRoom, room, ['mic', 'send', 'feedback', 'dock', 'field']));
