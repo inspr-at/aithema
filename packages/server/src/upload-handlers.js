@@ -54,6 +54,9 @@ const releasePendingRequest = () => { pendingUploadRequests--; };
 // attach the image again.
 const MAX_PENDING_IMAGE_NORMALIZATIONS = 8;
 let imageSlots = 0; // held originals
+// Upload IDs whose original some handler set in this process holds: recovery
+// never treats those as lost, whichever handler set runs it.
+const heldInProcess = new Set();
 const STAGING_MS = 30 * 60 * 1000;
 const RECOVERY_RETRY_MS = 1000;
 /** Admission counters, for tests and diagnostics (counts only, never bytes). */
@@ -147,11 +150,11 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
   // uploadId -> the owned copy of an image original awaiting normalization.
   const originals = new Map();
   // The caller assigned a free slot to this original in the same synchronous turn.
-  function holdOriginal(uploadId, bytes) { originals.set(uploadId, Uint8Array.prototype.slice.call(bytes)); imageSlots++; }
+  function holdOriginal(uploadId, bytes) { originals.set(uploadId, Uint8Array.prototype.slice.call(bytes)); imageSlots++; heldInProcess.add(uploadId); }
   function releaseOriginal(uploadId) {
     const bytes = originals.get(uploadId);
     if (!bytes) return;
-    originals.delete(uploadId); imageSlots--;
+    originals.delete(uploadId); imageSlots--; heldInProcess.delete(uploadId);
     bytes.fill(0);
   }
   // A staged image whose original this process does not hold (lost to a
@@ -167,7 +170,7 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
     if (signal.aborted) return true;
     let recovered = true;
     for (const upload of storage.get(id).uploads) {
-      if (upload.kind !== 'image' || upload.state !== 'staged-pending' || upload.erased || jobs.has(upload.id) || originals.has(upload.id)) continue;
+      if (upload.kind !== 'image' || upload.state !== 'staged-pending' || upload.erased || jobs.has(upload.id) || heldInProcess.has(upload.id)) continue;
       try {
         const before = storage.get(id).seq, event = storage.completeUpload(id, upload.id, lost(), { opener });
         if (event) for (const saved of storage.read(id, before)) publish(id, saved);
