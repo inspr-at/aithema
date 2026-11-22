@@ -1199,3 +1199,65 @@ for (const copy of [en, de]) test(`AIT-610 r6: ${copy.display.locale} a host cop
       older.uploads.refused.replace('{list}', older.uploads.type.replace('{name}', 'report.docx')), reason);
   }
 });
+
+// AIT-610 r9 (gate8c SECURITY, LEAD r9): every owner-authenticated upload
+// request is resolved ONCE against the document base, its RESOLVED origin is
+// checked against the page origin, and exactly that resolved URL is fetched with
+// redirect: 'error', so neither a foreign <base href> nor a redirect from the
+// own origin carries the owner header elsewhere.
+const { sameOrigin } = await import('../src/post-json.js');
+const stagedImage = (id = 'img-1') => ({ id, kind: 'image', state: 'staged-pending', filename: 'photo.png', mediaType: 'image/png', bytes: 2048, expiresAt: Date.now() + 600_000, at: at(10) });
+test('AIT-610 r9: sameOrigin resolves against the document base and returns exactly the resolved URL', () => {
+  const view = baseURI => ({ location: { origin: 'http://localhost', href: 'http://localhost/page/' }, document: { baseURI } });
+  assert.equal(sameOrigin(view('http://localhost/app/'), 'api/x'), 'http://localhost/app/api/x');
+  assert.equal(sameOrigin(view('http://localhost/app/'), '/api/x'), 'http://localhost/api/x');
+  assert.throws(() => sameOrigin(view('https://other.example/'), '/api/x'), /same origin/u, 'a foreign <base href>');
+  assert.throws(() => sameOrigin(view('http://localhost/'), 'https://other.example/api/x'), /same origin/u);
+  assert.throws(() => sameOrigin(view('http://localhost/'), '//other.example/api/x'), /same origin/u);
+});
+test('AIT-610 r9: a foreign <base href> receives no owner-authenticated upload request: reconcile, limits, attach and withdraw', async t => {
+  const base = document.createElement('base'); base.href = 'https://other.example/'; document.head.append(base); t.after(() => base.remove());
+  assert.equal(new URL('/x', document.baseURI).origin, 'https://other.example', 'the fixture base is in effect');
+  const { root, calls } = setup(t, { uploads: [pending('u1'), stagedImage()], images: true });
+  for (let i = 0; i < 6; i++) await tick();
+  root.querySelector('.attach').click(); await tick();
+  await choose(root, [file('a.txt')]);
+  root.querySelector('.upload-withdraw').click(); await tick();
+  assert.deepEqual(calls.filter(call => /\/uploads/u.test(call.url)).map(call => call.url), [], 'nothing is sent');
+  assert.equal(root.querySelector('.upload').dataset.state, 'pending');
+});
+test('AIT-610 r9: a same-origin upload request that redirects to another origin is refused: no owner header is forwarded', async t => {
+  const { root } = setup(t, { uploads: [pending('u1'), stagedImage()], images: true });
+  const inner = globalThis.fetch, forwarded = [];
+  // The fixture server redirects every upload route elsewhere; like the platform,
+  // fetch follows the redirect unless redirect is 'error', in which case it rejects.
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    if (!/\/uploads/u.test(url)) return inner(url, options);
+    if (options.redirect === 'error') throw new TypeError('redirect refused');
+    forwarded.push({ to: 'https://other.example/', owner: new Headers(options.headers).get('x-aithema-session-token') });
+    return inner(url, options);
+  });
+  for (let i = 0; i < 6; i++) await tick();
+  root.querySelector('.attach').click(); await tick();
+  await choose(root, [file('a.txt')]);
+  root.querySelector('.upload-withdraw').click(); await tick(); await tick();
+  assert.deepEqual(forwarded, [], 'no request followed a redirect');
+  assert.equal(root.querySelector('.upload').dataset.state, 'pending');
+});
+test('AIT-610 r9: the normal same-origin path fetches exactly the resolved URL with redirect: error (reconcile, limits, attach, withdraw)', async t => {
+  const { c, root, calls } = setup(t, { uploads: [pending('u1'), stagedImage()], images: true });
+  for (let i = 0; i < 6; i++) await tick();
+  root.querySelector('.attach').click(); await tick();
+  await choose(root, [file('a.txt')]);
+  root.querySelector('.upload-withdraw').click(); await tick(); await tick();
+  const prefix = `http://localhost/api/sessions/${c.session.id}/uploads`;
+  const uploads = calls.filter(call => /\/uploads/u.test(call.url));
+  assert.ok(uploads.some(call => call.url === prefix && !call.options.method), 'a GET /uploads went out');
+  assert.ok(uploads.some(call => call.url === prefix && call.options.method === 'POST'), 'the attach POST went out');
+  assert.ok(uploads.some(call => call.url === `${prefix}/u1/withdraw`), 'the withdraw went out');
+  for (const call of uploads) {
+    assert.equal(call.options.redirect, 'error', call.url);
+    assert.equal(new Headers(call.options.headers).get('x-aithema-session-token'), call.options.method ? 'owner-fixture' : new Headers(call.options.headers).get('x-aithema-session-token'));
+  }
+  assert.equal(c.session.uploads.find(u => u.id === 'u1').state, 'withdrawn');
+});
