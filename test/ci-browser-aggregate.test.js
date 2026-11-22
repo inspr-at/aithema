@@ -7,8 +7,8 @@ import { parse } from 'yaml';
 
 const ci = parse(readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8'));
 
-test('AIT-511: parallel browser aggregate covers all fifteen workers while retaining required aliases', () => {
-  assert.deepEqual(ci.jobs.browser.strategy.matrix.shard, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+test('AIT-511: parallel browser aggregate covers all sixteen workers while retaining required aliases', () => {
+  assert.deepEqual(ci.jobs.browser.strategy.matrix.shard, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
   const aggregate = ci.jobs['browser-aggregate'];
   assert.ok(aggregate, 'Add a parallel aggregate before switching required checks');
   assert.equal(aggregate.name, 'browser');
