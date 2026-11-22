@@ -1038,7 +1038,8 @@ function reconcileFixture(t, copy, { events, snapshot = s => s, uploadsGate = nu
     return Response.json({});
   });
   c.configure({ copy, copyForLocale: locale => ({ en, de })[locale], session, sessionToken: 'owner-fixture', entrance: 'choice' }); document.body.append(c); t.after(() => c.remove());
-  const shown = () => [...c.shadowRoot.querySelectorAll('.image-refusal')].map(node => node.textContent).join(' ');
+  // Live refusal items only: the hidden height reserve renders every reason too.
+  const shown = () => [...c.shadowRoot.querySelectorAll('.image-refusal-item .image-refusal')].map(node => node.textContent).join(' ');
   return { c, counts, shown };
 }
 for (const copy of [en, de]) test(`AIT-610 r7: ${copy.display.locale} a restart between the initial snapshot and the FIRST stream shows 'unavailable'`, async t => {
