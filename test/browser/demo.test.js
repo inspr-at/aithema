@@ -2075,8 +2075,10 @@ test('AIT-601: combined entrance with a real image concept layout: the welcome o
 import { combinedImageOpenerFoldCheck } from './combined-image-opener-check.js';
 test('AIT-601 r5: before the first reply the idle render-label reserve cannot make fitting content follow; real overflow follows; a reply counts it again', { timeout:180_000 }, combinedImageOpenerFoldCheck);
 
-import { phoneReadyFitCheck } from './phone-ready-fit-check.js';
+import { phoneReadyFitCheck, welcomeOnlyFollowCheck } from './phone-ready-fit-check.js';
 test('AIT-603: phones, combined entrance with a real image concept layout: the welcome clamp follows the space with one-row readiness, a bottom fade only when even two lines do not fit, and a fixed clamp through the hand-off', { timeout:360_000 }, phoneReadyFitCheck);
+// r13 (Codex gatepra12 M1): the welcome-only guard follows visible recovery content; Latest still goes to the end.
+test('AIT-603 r13: phones, combined image concept layout, welcome only: a voice recovery notice is followed into view and an explicit Latest jump goes to the end', { timeout:180_000 }, welcomeOnlyFollowCheck);
 
 import { consentCapMatrixCheck, consentCapGrantCheck, consentCapLocaleSwitchCheck, consentCapFontSwapCheck, consentCapDesktopCheck, consentAccessibleTextCheck, consentSentenceOnceCheck, consentCapTwoRowsCheck, consentKeyboardUpCheck, consentKeyboardIntakeCheck, consentKeyboardSavedCheck, consentKeyboardWideActionCheck, consentKeyboardFitActionCheck, consentKeyboardSelfClearCheck, consentKeyboardReasonDropCheck, consentKeyboardKeptHeightCheck, consentKeyboardHeldMinimumCheck, consentKeyboardFloorCheck, consentKeyboardLifecycleCheck } from './consent-cap-check.js';
 test('AIT-603 PR-A: the phone consent cap is pure CSS: at most two lines, the host text clamps with "…" in its own box, the action is whole and ends line 2 (360/390 EN/DE, host text 0..very long, a 72-letter word, a short action)', { timeout:300_000 }, consentCapMatrixCheck);

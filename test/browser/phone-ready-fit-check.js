@@ -246,16 +246,9 @@ async function measure(page) {
   return page.$eval('aithema-session', boxesInPage);
 }
 
-export async function phoneReadyFitCheck(t) {
-  const directory = await mkdtemp(join(tmpdir(), 'aithema-phone-ready-'));
-  const server = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
-    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
-  });
-  let browser;
-  t.after(async () => { try { await browser?.close(); } finally { await server.kill(); } });
-  browser = await browserForFile();
-  const evidence = process.env.AITHEMA_EVIDENCE_DIR, index = [], tickIndex = [];
-  const open = async (page, { width, height, locale, theme, text, start, longConsent, scrollbar = 'classic', font }, problems) => {
+// The fixture page for one case, with the real image concept layout mounted.
+// r13: module level, so the welcome-only follow check opens the same page.
+async function openCase(server, page, { width, height, locale, theme, text, start, longConsent, scrollbar = 'classic', font }, problems) {
     page.on('pageerror', error => problems.push(error.message));
     await page.setViewport({ width, height });
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
@@ -285,7 +278,18 @@ export async function phoneReadyFitCheck(t) {
       globalThis.snapshot603 = snapshot;
       mount(snapshot);
     }, welcome[locale], locale, text, Boolean(start), longConsent ?? 0, SCROLLBARS[scrollbar], FONTS[font] ?? null);
-  };
+}
+
+export async function phoneReadyFitCheck(t) {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-phone-ready-'));
+  const server = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
+  });
+  let browser;
+  t.after(async () => { try { await browser?.close(); } finally { await server.kill(); } });
+  browser = await browserForFile();
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR, index = [], tickIndex = [];
+  const open = (page, item, problems) => openCase(server, page, item, problems);
   if (evidence) await mkdir(join(evidence, 'ait-603', 'shots'), { recursive: true });
   for (const item of cases) {
     const { width, height, locale, theme, text } = item, name = caseName(item);
@@ -569,4 +573,101 @@ export async function phoneReadyFitCheck(t) {
     });
   }
   assert.equal(index.length, cases.length * 4 + stateCases.length);
+}
+
+// AIT-603 r13 (Codex gatepra12 M1): the welcome-only hand-off guard keeps the
+// reading position only while nothing but the host welcome is visible. A voice
+// recovery notice ("please repeat" when the first utterance drops before it is
+// saved) renders in the transcript shell outside the list; a following reader
+// sees it. And an explicit Latest jump goes to the end with only the welcome.
+// 390x664 at 125 % with the wide font: the welcome alone is taller than the
+// live reading pane there (the r12 hand-off case), on every platform.
+export async function welcomeOnlyFollowCheck(t) {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-welcome-follow-'));
+  const server = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
+  });
+  let browser;
+  t.after(async () => { try { await browser?.close(); } finally { await server.kill(); } });
+  browser = await browserForFile();
+  const settle = page => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve)))));
+  // The live stage with only the host welcome in the list: the first typed
+  // turn's response is held, so nothing has arrived yet.
+  const welcomeOnlyLive = async (page, locale) => {
+    await page.evaluate(async () => {
+      const { AudioRail } = await import('/packages/ui/src/audio-rail.js');
+      const render = AudioRail.prototype.render;
+      AudioRail.prototype.render = function () { globalThis.rail603 = this; return render.call(this); };
+      const original = globalThis.fetch, held = new Promise(resolve => { globalThis.releaseTurns = resolve; });
+      globalThis.fetch = async (url, options) => { if (String(url).endsWith('/turns') && globalThis.releaseTurns) await held; return original(url, options); };
+    });
+    await page.type('aithema-session >>> textarea', locale === 'de' ? 'Ein Rechnungssystem.' : 'An invoice system.');
+    await page.click('aithema-session >>> .send');
+    await page.waitForFunction(() => trace.includes('consent'));
+    await page.evaluate(() => grant());
+    await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').dataset.stage === 'live');
+    await settle(page);
+  };
+  const state = page => page.$eval('aithema-session', c => {
+    const root = c.shadowRoot, shell = root.querySelector('.transcript-shell'), notice = root.querySelector('.voice-notice--user');
+    const rect = node => { if (!node) return null; const r = node.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
+    const rows = [...shell.querySelector('ol').children].filter(row => !row.hidden && row.getClientRects().length)
+      .map(row => `${row.dataset.id ?? row.className}${row.hasAttribute('data-host-opener') ? '(h)' : ''}`);
+    return { layout: root.querySelector('.workspace').dataset.conceptLayout, rows, rail: Boolean(globalThis.rail603),
+      scrollTop: shell.scrollTop, max: shell.scrollHeight - shell.clientHeight, shell: rect(shell),
+      // The shell's reading pane: its box without the horizontal scrollbar.
+      pane: (() => { const r = shell.getBoundingClientRect(); return { top: r.top, bottom: r.top + shell.clientHeight }; })(),
+      notice: rect(notice), noticeText: notice?.textContent.trim() ?? '', noticesInShell: root.querySelector('.voice-notices')?.parentNode === shell };
+  });
+  const item = { width: 390, height: 664, theme: 'light', text: 125, font: 'wide' };
+  for (const locale of ['en', 'de']) {
+    const name = `390x664-${locale}-light-text125-wide`;
+    await t.test(`${name}: a voice recovery notice in a welcome-only transcript is followed into view`, async () => {
+      const page = await browser.newPage(), problems = [];
+      try {
+        await openCase(server, page, { ...item, locale }, problems);
+        await welcomeOnlyLive(page, locale);
+        const before = await state(page);
+        assert.equal(before.layout, 'image', `${name}: the image concept layout ${JSON.stringify(before)}`);
+        assert.deepEqual(before.rows, ['host:opener(h)'], `${name}: only the host welcome is in the list`);
+        assert.ok(before.rail, `${name}: the voice rail rendered`);
+        // The first utterance dropped before it was saved: "please repeat".
+        await page.evaluate(() => globalThis.rail603.notices.recovered({ userUnconfirmed: true }));
+        await settle(page);
+        const after = await state(page);
+        positive(`${name}/shell`, after.shell); positive(`${name}/notice`, after.notice);
+        assert.ok(after.noticeText, `${name}: the notice has its text`);
+        assert.ok(after.noticesInShell, `${name}: the phone notices sit in the transcript shell`);
+        const top = after.notice.y, bottom = after.notice.y + after.notice.height;
+        assert.ok(top >= after.pane.top - .5 && bottom <= after.pane.bottom + .5,
+          `${name}: the recovery notice is followed into the reading pane: ${JSON.stringify({ before, after })}`);
+        assert.deepEqual(problems, []);
+      } finally {
+        await page.evaluate(() => { const release = globalThis.releaseTurns; globalThis.releaseTurns = null; release?.(); }).catch(() => {});
+        await page.close();
+      }
+    });
+    await t.test(`${name}: an explicit Latest jump in a welcome-only transcript goes to the end`, async () => {
+      const page = await browser.newPage(), problems = [];
+      try {
+        await openCase(server, page, { ...item, locale }, problems);
+        await welcomeOnlyLive(page, locale);
+        const before = await state(page);
+        assert.equal(before.layout, 'image', `${name}: the image concept layout ${JSON.stringify(before)}`);
+        assert.deepEqual(before.rows, ['host:opener(h)'], `${name}: only the host welcome is in the list`);
+        positive(`${name}/shell`, before.shell);
+        // The precondition: the welcome alone scrolls and the guard kept the reader above its end.
+        assert.ok(before.max > .5 && before.scrollTop < before.max - .5, `${name}: the welcome-only pane scrolls above its end ${JSON.stringify(before)}`);
+        await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.transcript-latest').click());
+        await settle(page);
+        const after = await state(page);
+        assert.deepEqual(after.rows, ['host:opener(h)'], `${name}: still only the host welcome`);
+        assert.ok(Math.abs(after.scrollTop - after.max) <= .5, `${name}: Latest goes to the end: ${JSON.stringify({ before, after })}`);
+        assert.deepEqual(problems, []);
+      } finally {
+        await page.evaluate(() => { const release = globalThis.releaseTurns; globalThis.releaseTurns = null; release?.(); }).catch(() => {});
+        await page.close();
+      }
+    });
+  }
 }
