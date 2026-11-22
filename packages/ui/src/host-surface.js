@@ -9,7 +9,7 @@ import { reasonSeparator } from './consent-line.js';
 // understanding pane, the handover band and the host's legal and footer slots. Each part
 // appears only when the host enables it in configure({host}); all facts come from the server.
 import { inputRevision } from '../../core/src/session.js';
-import { postJson, sameOrigin } from './post-json.js';
+import { postJson, sameOrigin, OWNER_REDIRECT } from './post-json.js';
 import { node, setText, fill } from './dom.js';
 import { clockTime } from './display.js';
 import { Verification } from './verification.js';
@@ -246,8 +246,8 @@ export class HostSurface {
     const sessionId = this.#session().id, url = sameOrigin(this.#view, `${this.#base}${path}`);
     const request = this.#request ?? ((url, body, options) => options ? postJson(url, body, options) : fetch(url, body));
     const response = body === undefined
-      ? await request(url, { headers: this.#token ? { 'x-aithema-session-token': this.#token } : {}, cache: 'no-store' })
-      : await request(url, body, { sessionToken: this.#token, verb });
+      ? await request(url, { headers: this.#token ? { 'x-aithema-session-token': this.#token } : {}, cache: 'no-store', redirect: OWNER_REDIRECT })
+      : await request(url, body, { sessionToken: this.#token, verb, redirect: OWNER_REDIRECT });
     if (this.#erased && !path.startsWith('/api/library')) throw new DOMException('Conversation erased', 'AbortError');
     let value = null; try { value = await response.json(); } catch { /* A body-less reply carries its status only. */ }
     if (!this.#alive || sessionId !== this.#session().id) throw new Error('Conversation changed');

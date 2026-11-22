@@ -32,7 +32,7 @@ import { actorRoleStyles } from './actor-role-styles.js';
 import { settingsStyles } from './settings-styles.js';
 import { SettingsDialog, ICONS, PRESET_ORDER, reasonText, engineView, catalogLabel } from './settings-dialog.js';
 import { LocalConnector } from './local-connector.js';
-import { postJson, postForm, sameOrigin } from './post-json.js';
+import { postJson, postForm, sameOrigin, OWNER_REDIRECT } from './post-json.js';
 import { UPLOAD_LIMITS, UPLOAD_ACCEPT, DOCUMENT_UPLOAD_ACCEPT, UPLOAD_ICONS, uploadLimits, uploadRetryDelay, unclassifiedUploads, planUploads, refusalText, uploadStateText, uploadStateTexts, uploadsPossible, formatBytes, limitsText, dropText, DOCUMENT_INTAKE_REASONS } from './uploads.js';
 import { voiceJournal, tabStorage, closeVoiceCall, answerVoicePings, voiceCallAbandoned } from './voice-orphan.js';
 import { node, setText, reconcile, fill } from './dom.js';
@@ -3626,7 +3626,7 @@ export class AithemaSession extends HTMLElement {
       const sessionId = this.#session.id; button.setAttribute('aria-disabled', 'true');
       try {
         const path = `${this.#base}/api/sessions/${sessionId}/uploads/${encodeURIComponent(uploadId)}/withdraw`;
-        const response = await this.#api(sameOrigin(this.ownerDocument.defaultView, path), {}, { sessionToken: this.#sessionToken });
+        const response = await this.#api(sameOrigin(this.ownerDocument.defaultView, path), {}, { sessionToken: this.#sessionToken, redirect: OWNER_REDIRECT });
         if (!response.ok) throw new Error();
         const ack = await response.json(); if (sessionId === this.#session.id) this.receive(ack.event);
       } catch { if (sessionId === this.#session.id) this.#status(copy.uploads.withdrawFailed); }
@@ -3640,7 +3640,7 @@ export class AithemaSession extends HTMLElement {
     const root = this.shadowRoot, input = root.querySelector('.attach-input'), zone = root.querySelector('.conversation');
     this.#images = new ImageInputView({ form: root.querySelector('.composer'), copy: this.#copy, session: () => this.#session, canRead: () => this.#feature('imageInput').available === true,
       changed: () => { if (this.isConnected) { this.#render('composer'); this.#render('transcript'); } },
-      fetchImage: id => this.#api(sameOrigin(this.ownerDocument.defaultView, `${this.#base}/api/sessions/${this.#session.id}/uploads/${encodeURIComponent(id)}/image`), { headers: this.#headers(), cache: 'no-store' }),
+      fetchImage: id => this.#api(sameOrigin(this.ownerDocument.defaultView, `${this.#base}/api/sessions/${this.#session.id}/uploads/${encodeURIComponent(id)}/image`), { headers: this.#headers(), cache: 'no-store', redirect: OWNER_REDIRECT }),
       remove: id => { const row = root.querySelector(`.staged-image[data-id="${id}"]`); if (row) void this.#removeImage(id); } });
     root.querySelector('.attach__label').textContent = this.#copy.uploads.attach;
     root.querySelector('.drop-overlay strong').textContent = this.#copy.uploads.dropActive;
@@ -3736,7 +3736,7 @@ export class AithemaSession extends HTMLElement {
     // Started on the next microtask, so a refusal before sending (another origin) can clear it.
     const load = Promise.resolve().then(async () => {
       try {
-        const response = await this.#api(sameOrigin(this.ownerDocument.defaultView, path), { headers: this.#headers(), cache: 'no-store', signal: AbortSignal.timeout(5000) });
+        const response = await this.#api(sameOrigin(this.ownerDocument.defaultView, path), { headers: this.#headers(), cache: 'no-store', redirect: OWNER_REDIRECT, signal: AbortSignal.timeout(5000) });
         if (!response.ok) throw new Error();
         const body = await response.json();
         if (sessionId === this.#session.id && this.isConnected) { this.#limits = uploadLimits(body.limits); this.#render('composer'); }
@@ -3896,7 +3896,7 @@ export class AithemaSession extends HTMLElement {
   async #removeImage(id) {
     const sessionId = this.#session.id;
     try {
-      const response = await this.#api(sameOrigin(this.ownerDocument.defaultView, `${this.#base}/api/sessions/${sessionId}/uploads/${encodeURIComponent(id)}/withdraw`), {}, { sessionToken: this.#sessionToken });
+      const response = await this.#api(sameOrigin(this.ownerDocument.defaultView, `${this.#base}/api/sessions/${sessionId}/uploads/${encodeURIComponent(id)}/withdraw`), {}, { sessionToken: this.#sessionToken, redirect: OWNER_REDIRECT });
       if (!response.ok) throw new Error();
       const body = await response.json(); if (sessionId === this.#session.id) this.receive(body.event);
     } catch { this.#status(this.#copy.uploads.withdrawFailed); }
@@ -3919,7 +3919,7 @@ export class AithemaSession extends HTMLElement {
       // must not throw out of disconnectedCallback (the host's removal).
       let url;
       try { url = sameOrigin(this.ownerDocument.defaultView, `${this.#base}/api/sessions/${this.#session.id}/uploads/${encodeURIComponent(upload.id)}/withdraw`); } catch { continue; }
-      void this.#api(url, {}, { sessionToken: this.#sessionToken, keepalive: true }).catch(() => {});
+      void this.#api(url, {}, { sessionToken: this.#sessionToken, keepalive: true, redirect: OWNER_REDIRECT }).catch(() => {});
     }
     this.#images?.destroy();
     clearTimeout(this.#uploadRetryTimer); this.#uploadRetryTimer = null;
@@ -3949,7 +3949,7 @@ export class AithemaSession extends HTMLElement {
       // Keep the uploading state and notice unchanged until a retry succeeds or all attempts fail.
       for (let attempt = 0; attempt < 3; attempt++) {
         if (!current()) return '';
-        response = await this.#api(sameOrigin(this.ownerDocument.defaultView, path), form, { sessionToken: this.#sessionToken, signal });
+        response = await this.#api(sameOrigin(this.ownerDocument.defaultView, path), form, { sessionToken: this.#sessionToken, signal, redirect: OWNER_REDIRECT });
         body = await response.json().catch(() => null);
         if (!current()) return '';
         if (response.status !== 429 || body?.error !== 'upload-rate-limit' || attempt === 2) break;
@@ -4450,7 +4450,7 @@ export class AithemaSession extends HTMLElement {
     read.promise = (async () => {
       let failed = false;
       try {
-        const response = await this.#api(url, { headers: this.#headers(), cache: 'no-store' });
+        const response = await this.#api(url, { headers: this.#headers(), cache: 'no-store', redirect: OWNER_REDIRECT });
         failed = !response.ok;
         const body = response.ok ? await response.json() : null;
         if (this.#erased || this.#session.id !== sessionId || !Array.isArray(body?.uploads)) return;
