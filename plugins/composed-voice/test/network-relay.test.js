@@ -335,3 +335,33 @@ for (const [copy, create] of [['plugin', createNetworkRelayClient], ['server', c
     await assert.rejects(create({ ownerFetch, deadline: 50, view })({}), error => error.name === 'TimeoutError');
   });
 }
+
+// AIT-625 r7 (gate4c M2): the helper drops a raw owner header, so an explicit-token host's relay
+// authentication travels through the helper's `sessionToken` option: an explicit relay option, or
+// the existing `headers` option mapped once. A cookie host's relay requests carry no token.
+for (const [copy, create] of [['plugin', createNetworkRelayClient], ['server', createServerRelayClient]]) {
+  test(`AIT-625 r7 ${copy} copy: an explicit-token host's relay requests carry the token through the helper; a cookie host's carry none`, async t => {
+    const sent = [], helped = [], token = 'tok-' + copy;
+    t.mock.method(globalThis, 'fetch', async (url, init) => { sent.push({ url, init }); return Response.json({ connectionId: 'c1' }); });
+    const ownerFetch = (view, url, options) => { helped.push(options); return guardedFetch(view, url, options); };
+    const location = { protocol: 'https:', origin: 'https://app.test', href: 'https://app.test/' };
+    const view = { origin: 'https://app.test', location, document: { baseURI: 'https://app.test/' } };
+    const owner = 'x-aithema-session-token';
+    for (const [label, options] of [['explicit option', { sessionToken: token }], ['headers option', { headers: { [owner]: token, 'x-owner': 'alice' } }],
+      ['headers option, other case', { headers: { 'X-Aithema-Session-Token': token } }]]) {
+      sent.length = 0; helped.length = 0;
+      const connection = await create({ ...options, ownerFetch, view })({});
+      await connection.command('pause');
+      assert.ok(helped.length >= 2, label);
+      for (const init of helped) {
+        assert.equal(init.sessionToken, token, `${label}: the token rides the helper's sessionToken option`);
+        assert.ok(!Object.keys(init.headers).some(name => name.toLowerCase() === owner), `${label}: never as a raw header`);
+      }
+      assert.ok(sent.length >= 2 && sent.every(({ init }) => new Headers(init.headers).get(owner) === token), `${label}: every request authenticates`);
+    }
+    sent.length = 0; helped.length = 0;
+    await create({ ownerFetch, view })({});
+    assert.equal(helped.length, 1); assert.equal(helped[0].sessionToken, undefined, 'a cookie host passes no token');
+    assert.equal(new Headers(sent[0].init.headers).get(owner), null, 'a cookie host sends no owner header');
+  });
+}
