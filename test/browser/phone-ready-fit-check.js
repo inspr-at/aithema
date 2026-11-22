@@ -34,11 +34,18 @@ for (const locale of ['en', 'de']) cases.push({ width: 390, height: 664, locale,
 // Each mode is set explicitly in the page, never left to the host's default.
 for (const [width, height, locale, text] of [[320, 568, 'en', 100], [320, 568, 'de', 100], [360, 740, 'de', 100], [390, 664, 'en', 100], [390, 664, 'de', 125]])
   cases.push({ width, height, locale, theme: 'light', text, scrollbar: 'overlay' });
+// r11: CI Linux's fallback sans is wider than macOS's, and DE readiness took a
+// third row there. These cases run a wide font on every platform (Verdana on
+// macOS, DejaVu Sans on Linux), so the readiness fit is proven with wide
+// metrics wherever the suite runs, not only on the CI platform.
+for (const [width, height, text] of [[320, 568, 100], [390, 664, 125]])
+  cases.push({ width, height, locale: 'de', theme: 'light', text, font: 'wide' });
+const FONTS = { wide: 'Verdana,"DejaVu Sans",sans-serif' };
 const SCROLLBARS = {
   classic: '.conversation-scroll::-webkit-scrollbar { width:15px; height:15px; } .conversation-scroll::-webkit-scrollbar-thumb { background:#8888; }',
   overlay: '.conversation-scroll::-webkit-scrollbar { width:0; height:0; }',
 };
-const caseName = ({ width, height, locale, theme, text, start, longConsent, r4, scrollbar }) => `${width}x${height}-${locale}-${theme}${text === 100 ? '' : `-text${text}`}${start ? '-start' : ''}${longConsent ? '-longconsent' : ''}${r4 ? '-r4' : ''}${scrollbar === 'overlay' ? '-overlay' : ''}`;
+const caseName = ({ width, height, locale, theme, text, start, longConsent, r4, scrollbar, font }) => `${width}x${height}-${locale}-${theme}${text === 100 ? '' : `-text${text}`}${start ? '-start' : ''}${longConsent ? '-longconsent' : ''}${r4 ? '-r4' : ''}${scrollbar === 'overlay' ? '-overlay' : ''}${font ? `-${font}` : ''}`;
 const CAP = 6, MIN = 2;
 const keys = ['x', 'y', 'width', 'height'];
 const positive = (label, box) => assert.ok(box && box.width > 0 && box.height > 0, `${label} positive box: ${JSON.stringify(box)}`);
@@ -247,7 +254,7 @@ export async function phoneReadyFitCheck(t) {
   t.after(async () => { try { await browser?.close(); } finally { await server.kill(); } });
   browser = await browserForFile();
   const evidence = process.env.AITHEMA_EVIDENCE_DIR, index = [], tickIndex = [];
-  const open = async (page, { width, height, locale, theme, text, start, longConsent, scrollbar = 'classic' }, problems) => {
+  const open = async (page, { width, height, locale, theme, text, start, longConsent, scrollbar = 'classic', font }, problems) => {
     page.on('pageerror', error => problems.push(error.message));
     await page.setViewport({ width, height });
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
@@ -256,8 +263,10 @@ export async function phoneReadyFitCheck(t) {
       ? request.respond({ status: 200, contentType: 'text/html', body: fixture }) : request.continue()); });
     await page.goto(`${server.url}/combined-fixture?locale=${locale}&passiveDenied`);
     await page.waitForFunction(() => globalThis.ready && document.querySelector('aithema-session').shadowRoot.querySelector('.composer-status').textContent.length > 0);
-    await page.evaluate(async (welcomeText, locale, size, start, longConsent, scrollbarStyle) => {
+    await page.evaluate(async (welcomeText, locale, size, start, longConsent, scrollbarStyle, fontFamily) => {
       document.documentElement.style.fontSize = `${size}%`;
+      // r11: a wide font case sets the host's font before mount (the fits read its metrics).
+      if (fontFamily) document.querySelector('aithema-session').style.setProperty('--aithema-font', fontFamily);
       // r2: the scroll area's scrollbar mode, before mount (the fit reads the width it leaves).
       const scrollbarSheet = new CSSStyleSheet(); scrollbarSheet.replaceSync(scrollbarStyle);
       const shadow = document.querySelector('aithema-session').shadowRoot;
@@ -274,7 +283,7 @@ export async function phoneReadyFitCheck(t) {
       // Kept for a second configure() with the same snapshot (Codex M2).
       globalThis.snapshot603 = snapshot;
       mount(snapshot);
-    }, welcome[locale], locale, text, Boolean(start), longConsent ?? 0, SCROLLBARS[scrollbar]);
+    }, welcome[locale], locale, text, Boolean(start), longConsent ?? 0, SCROLLBARS[scrollbar], FONTS[font] ?? null);
   };
   if (evidence) await mkdir(join(evidence, 'ait-603', 'shots'), { recursive: true });
   for (const item of cases) {
