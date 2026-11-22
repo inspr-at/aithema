@@ -961,3 +961,17 @@ for (const defaults of [en, de]) test(`AIT-563 Low 5: ${defaults.display.locale}
   assert.equal(notice.includes(defaults.uploads.failedMany), false);
   for (const name of ['first.pdf', 'second.pdf']) assert.equal(notice.split(name).length - 1, 1);
 });
+
+// AIT-610 r5 (LEAD condition 1): the server refuses a file that is not
+// positively a supported document before storing it (kind 'document', reason
+// 'unsupported'). The client names it with the existing unsupported wording.
+for (const copy of [en, de]) for (const images of [false, true])
+  test(`AIT-610 r5: ${copy.display.locale}${images ? ' with image input' : ''} a document refused at intake is named with the file-type wording`, async t => {
+    const { c, root, calls } = setup(t, { copy, images, post: () => Response.json({ accepted: true, events: [], uploads: [],
+      refused: [{ index: 0, name: 'notes.txt', kind: 'document', reason: 'unsupported' }] }, { status: 202 }) });
+    await choose(root, [new window.File(['caf\xe9'], 'notes.txt', { type: 'text/plain' })]);
+    assert.equal(calls.filter(call => call.options.method === 'POST').length, 1);
+    assert.deepEqual(c.session.uploads, []);
+    const notice = root.querySelector('.composer-reason')?.textContent ?? '';
+    assert.ok(notice.startsWith(copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'notes.txt'))), notice);
+  });

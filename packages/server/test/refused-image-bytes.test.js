@@ -47,7 +47,22 @@ import { createMockReasoning, imageReferences, PluginRegistry, reasoningRequest 
 import { registerDemoExtractors } from '../../../demo/uploads.js';
 import { mockConsent, testToken, ownedRequest, temporaryDb } from '../../../test/helpers.js';
 import * as uploadModule from '../src/upload-handlers.js';
-import { bytes as textBytes, docxWithInlineImage, pdf } from '../../../test/extractor-fixtures.js';
+import * as extractorModule from '@inspr/aithema-core/extractor';
+import { manifest as textManifest } from '../../../plugins/extract-text/src/index.js';
+import { manifest as pdfManifest } from '../../../plugins/extract-pdf/src/index.js';
+import { manifest as ooxmlManifest } from '../../../plugins/extract-ooxml/src/index.js';
+import { DOCUMENT_UPLOAD_EXTENSIONS } from '../../ui/src/uploads.js';
+import { en } from '../../ui/src/i18n/en.js';
+import { de } from '../../ui/src/i18n/de.js';
+import { bytes as textBytes, docx, docxWithInlineImage, pdf, pptx, xlsx } from '../../../test/extractor-fixtures.js';
+
+// The uploads as a client reads them (GET /api/sessions/:id/uploads).
+async function readUploads(handlers, sessionId) {
+  const response = await handlers.handle(ownedRequest(`http://localhost/api/sessions/${sessionId}/uploads`));
+  const body = await response.text();
+  assert.equal(response.status, 200, body);
+  return JSON.parse(body).uploads;
+}
 
 // Captured before any fixture hooks the fs write APIs (a control writes a
 // synthetic rollback journal without passing through the hook).
@@ -476,6 +491,9 @@ test('AIT-610 control: the trace scans detect stored, logged and forwarded senti
       try { fs.writevSync(fd, [Buffer.from('head|'), image.bytes]); } finally { fs.closeSync(fd); } await rm(file); }],
     ['fs write', async f => { const file = join(tmpdir(), `ait610-gone-hv-${process.pid}.bin`), handle = await fsp.open(file, 'w');
       try { await handle.writev([image.bytes]); } finally { await handle.close(); } await rm(file); }],
+    // r5 (gate4c Low): a sentinel split across two vectors of one writev call.
+    ['fs write', async f => { const file = join(tmpdir(), `ait610-gone-sv-${process.pid}.bin`), fd = fs.openSync(file, 'w');
+      try { fs.writevSync(fd, [image.bytes.subarray(0, 20), image.bytes.subarray(20)]); } finally { fs.closeSync(fd); } await rm(file); }],
   ]) {
     image = sentinelImage();
     const f = await fixture(t);
@@ -540,7 +558,8 @@ test('AIT-610 option A: a normalization lost to a restart surfaces as unavailabl
   assert.equal(f.storage.uploadBytes(f.session.id, staged.id), null, 'the staged row never holds the original');
   await f.handlers.resume();
   await f.handlers.idle();
-  const upload = f.storage.get(f.session.id).uploads[0];
+  // r5: the state is derived on read (no write); read it as a client does.
+  const [upload] = await readUploads(f.handlers, f.session.id);
   assert.equal(upload.state, 'staged-refused', 'never a silent loss or a false ready');
   assert.equal(upload.reason, 'unavailable', 'the client renders this as unavailable; the visitor attaches again');
   assert.equal(f.normalized.length, 0);
@@ -706,25 +725,24 @@ test('AIT-610 r3: a throw in expiry after admission strands no original and rele
   await f.assertNoTrace(image, { responses: [body] });
 });
 
-// M4: restart recovery. A missing original is checked first; boot expiry runs
-// after recovery, so an old pending row becomes 'unavailable', never discarded.
-for (const [label, shift] of [['after the request deadline', 60_000], ['after the staging expiry (an old pending row at boot)', 31 * 60_000]]) {
-  test(`AIT-610 r3: restart recovery ${label} surfaces as staged-refused 'unavailable'`, async t => {
-    const f = await fixture(t), image = sentinelImage(), start = Date.now();
-    f.storage.postUploads(f.session.id, 'before-restart', 'before-restart', [{ kind: 'image', filename: 'lost.png', mediaType: 'image/png',
-      bytes: image.bytes, deadlineAt: start + 25_000 }], SERVER_UPLOAD_LIMITS);
-    // One clock for every component: Date, read by the storage and the runtime.
-    t.mock.timers.enable({ apis: ['Date'], now: start + shift });
-    await f.handlers.resume();
-    await f.handlers.idle();
-    const upload = f.storage.get(f.session.id).uploads.find(item => item.filename === 'lost.png');
-    assert.equal(upload.state, 'staged-refused', 'never discarded silently, never ready');
-    assert.equal(upload.reason, 'unavailable', 'the client asks the visitor to attach it again');
-    assert.equal(f.normalized.length, 0);
-    t.mock.timers.reset();
-    await f.assertNoTrace(image);
-  });
-}
+// M4: restart recovery. A missing original is checked first: after the request
+// deadline the row still reads as 'unavailable', never 'deadline'. (r5: the old
+// boot-expiry variant is replaced by the normal-deadline expiry test below.)
+test(`AIT-610 r3: restart recovery after the request deadline surfaces as staged-refused 'unavailable'`, async t => {
+  const f = await fixture(t), image = sentinelImage(), start = Date.now();
+  f.storage.postUploads(f.session.id, 'before-restart', 'before-restart', [{ kind: 'image', filename: 'lost.png', mediaType: 'image/png',
+    bytes: image.bytes, deadlineAt: start + 25_000 }], SERVER_UPLOAD_LIMITS);
+  // One clock for every component: Date, read by the storage and the runtime.
+  t.mock.timers.enable({ apis: ['Date'], now: start + 60_000 });
+  await f.handlers.resume();
+  await f.handlers.idle();
+  const upload = (await readUploads(f.handlers, f.session.id)).find(item => item.filename === 'lost.png');
+  assert.equal(upload.state, 'staged-refused', 'never discarded silently, never ready');
+  assert.equal(upload.reason, 'unavailable', 'the client asks the visitor to attach it again');
+  assert.equal(f.normalized.length, 0);
+  t.mock.timers.reset();
+  await f.assertNoTrace(image);
+});
 
 // M5: image signatures the classifier missed (BMP, TIFF) and an image MIME on
 // a document suffix are image input: held in memory, never stored if refused.
@@ -813,34 +831,6 @@ test('AIT-610 r4: image slots never leak on errors or aborts; a full set of 8 is
   for (const image of traced) await f.assertNoTrace(image);
 });
 
-// M4: a recovery write that throws must not let boot expiry discard the row.
-for (const [label, failures] of [['the recovery write throws once', 1], ['the recovery write and its fallback job both throw', 2]]) {
-  test(`AIT-610 r4: ${label}: the lost image still ends staged-refused 'unavailable'`, async t => {
-    const f = await fixture(t), image = sentinelImage(), start = Date.now();
-    f.storage.postUploads(f.session.id, 'before-restart', 'before-restart', [{ kind: 'image', filename: 'lost.png', mediaType: 'image/png',
-      bytes: image.bytes, deadlineAt: start + 25_000 }], SERVER_UPLOAD_LIMITS);
-    let remaining = failures;
-    const completeUpload = f.storage.completeUpload.bind(f.storage);
-    t.mock.method(f.storage, 'completeUpload', (...args) => { if (remaining > 0) { remaining--; throw new Error('database is locked'); } return completeUpload(...args); });
-    // An old pending row at boot: its staging window has already passed.
-    t.mock.timers.enable({ apis: ['Date'], now: start + 31 * 60_000 });
-    await f.handlers.resume();
-    await f.handlers.idle();
-    let upload;
-    for (let i = 0; i < 100; i++) {
-      upload = f.storage.get(f.session.id).uploads.find(item => item.filename === 'lost.png');
-      if (upload?.state === 'staged-refused') break;
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
-    assert.equal(remaining, 0, 'every injected failure happened');
-    assert.equal(upload?.state, 'staged-refused', `never expired as a pending row (${JSON.stringify(upload && { state: upload.state, reason: upload.reason })})`);
-    assert.equal(upload.reason, 'unavailable', 'the client asks the visitor to attach it again');
-    assert.ok(upload.expiresAt > Date.now(), 'a fresh staging window, visible to the client');
-    assert.equal(f.normalized.length, 0);
-    t.mock.timers.reset();
-    await f.assertNoTrace(image);
-  });
-}
 
 // M5: a standalone SVG (root <svg> after an optional prolog) is image input
 // whatever its suffix: classified before document admission, held in memory
@@ -899,10 +889,184 @@ test('AIT-610 r4: recovery never marks an image another handler set still holds 
   const listed = await other.handle(ownedRequest(`http://localhost/api/sessions/${f.session.id}/uploads`));
   assert.equal(listed.status, 200, await listed.text());
   assert.equal(f.storage.get(f.session.id).uploads[0].state, 'staged-pending', 'the other handler set leaves the held image alone');
+  // r5: and reports it as held (pending), never as derived 'unavailable'.
+  assert.equal((await readUploads(other, f.session.id))[0].state, 'staged-pending', 'a held image is not reported unavailable');
   release();
   await f.handlers.idle();
   const upload = f.storage.get(f.session.id).uploads[0];
   assert.equal(upload.state, 'staged-refused');
   assert.equal(upload.reason, 'unsupported', 'the normalizer decided, not a false restart recovery');
   await f.assertNoTrace(image, { responses: [body] });
+});
+
+// ---- AIT-610 r5 (gate4c; LEAD r5: allowlist documents, derived 'unavailable') ----
+// Condition 1: only files positively recognized as a document type the text
+// extraction supports today are persisted. The list is the extractor's own
+// (EXTRACTABLE_MEDIA_TYPES, EXTRACTOR_EXTENSIONS); this test keeps the
+// bundled extractors, the server's recognizers and the picker in sync with it.
+const extractableCorpus = {
+  'application/pdf': () => pdf(),
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': () => docx(),
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': () => xlsx(),
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': () => pptx(),
+  'text/plain': () => textBytes('Plain document words.\n'),
+  'text/csv': () => textBytes('name,count\nalpha,1\nbeta,2\n'),
+  'text/markdown': () => textBytes('# Notes\n\nPlain words.\n'),
+  'application/json': () => textBytes('{"note":"plain words"}\n'),
+  'application/xml': () => textBytes('<?xml version="1.0"?>\n<note><body>Plain words</body></note>\n'),
+};
+test('AIT-610 r5: the document allowlist is the extractor list; every type has a recognizer and every recognizer maps to an extractor type', () => {
+  const extractable = extractorModule.EXTRACTABLE_MEDIA_TYPES, extensions = extractorModule.EXTRACTOR_EXTENSIONS;
+  assert.ok(Array.isArray(extractable) && extractable.length, 'the extractor exports its supported document types');
+  const formats = [...new Set([textManifest, pdfManifest, ooxmlManifest].flatMap(manifest => manifest.models.flatMap(model => model.formats)))];
+  assert.deepEqual([...extractable].sort(), formats.sort(), 'exactly the formats the bundled text extractors read');
+  assert.deepEqual(Object.keys(extractableCorpus).sort(), [...extractable].sort(), 'the corpus covers every supported type');
+  for (const type of extractable) {
+    const sample = extractableCorpus[type]();
+    assert.deepEqual(uploadModule.sniffUploadDocument(sample, 'unnamed'), { mediaType: type }, `${type} has a positive recognizer`);
+  }
+  assert.deepEqual([...new Set(Object.values(extensions))].sort(), [...extractable].sort(), 'every document suffix maps to a supported type and back');
+  assert.deepEqual(Object.keys(extensions).sort(), [...DOCUMENT_UPLOAD_EXTENSIONS].sort(), 'the picker offers exactly these suffixes');
+  // Anything the recognizer accepts without a reason is a supported type or an image.
+  for (const sample of [Buffer.from([0, 1, 2, 255]), Buffer.from('\xff\xfe<\0s\0v\0g\0', 'latin1'), Buffer.from('PK\x05\x06' + '\0'.repeat(18), 'latin1'), textBytes('plain')]) {
+    const detected = uploadModule.sniffUploadDocument(sample, 'unnamed');
+    if (!detected.reason) assert.ok(extractable.includes(detected.mediaType), JSON.stringify(detected));
+  }
+  assert.equal(extractorModule.UPLOAD_SNIFF_PREFIX_BYTES ?? uploadModule.UPLOAD_SNIFF_PREFIX_BYTES, 64 * 1024, 'the stated prefix bound');
+});
+
+// Regression corpus: every document type that worked before still works,
+// including the AIT-510 cases (a real document under a false image MIME).
+for (const [name, type, mime] of [
+  ['report.pdf', 'application/pdf'], ['letter.docx', extractorModule.EXTRACTOR_MEDIA_TYPES.docx], ['sheet.xlsx', extractorModule.EXTRACTOR_MEDIA_TYPES.xlsx],
+  ['deck.pptx', extractorModule.EXTRACTOR_MEDIA_TYPES.pptx], ['notes.txt', 'text/plain'], ['table.csv', 'text/csv'], ['readme.md', 'text/markdown'],
+  ['data.json', 'application/json'], ['note.xml', 'application/xml'],
+  ['scan.pdf', 'application/pdf', 'image/png'], ['words.txt', 'text/plain', 'image/jpeg'], ['letter2.docx', extractorModule.EXTRACTOR_MEDIA_TYPES.docx, 'image/webp'],
+]) test(`AIT-610 r5 regression: ${name}${mime ? ` under a false ${mime} MIME` : ''} is still document input and extracted`, { timeout: 30_000 }, async t => {
+  const f = await fixture(t);
+  const response = await f.upload(`keep-${name.replace(/[^a-zA-Z0-9_-]/gu, '-')}-${mime ? 'mime' : 'plain'}`, [[name, extractableCorpus[type](), mime ?? type]]), body = await response.text();
+  assert.equal(response.status, 202, body);
+  assert.deepEqual(JSON.parse(body).refused, [], 'never refused at intake');
+  await f.handlers.idle();
+  const upload = f.storage.get(f.session.id).uploads[0];
+  assert.notEqual(upload?.kind, 'image', JSON.stringify(upload));
+  assert.equal(upload.mediaType, type);
+  assert.equal(upload.state, 'accepted', JSON.stringify({ state: upload.state, reason: upload.reason }));
+  assert.equal(f.normalized.length, 0);
+});
+
+// Refused before persistence, whatever the name: the bytes never reach
+// storage.postUploads as an admitted document, the database, its WAL or a backup.
+const svgBody = marker => `<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><text>${marker}</text></svg>\n`;
+const utf16 = image => ({ ...image, marker: Buffer.from(image.marker, 'utf16le').toString('latin1') });
+for (const [label, name, build, type, outcome, encode] of [
+  ['binary Netpbm (P6) named .txt', 'scan.txt', image => Buffer.concat([Buffer.from('P6\n4 4\n255\n'), Buffer.from([0, 0, 0, 255, 10, 7]), Buffer.from(image.marker)]), 'text/plain', 'image'],
+  ['ASCII Netpbm (P3) named .txt', 'pixels.txt', image => Buffer.from(`P3\n2 1\n255\n255 0 0 0 0 255\n# ${image.marker}\n`), 'text/plain', 'image'],
+  ['a UTF-16 SVG named .xml', 'diagram.xml', image => Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(`<?xml version="1.0" encoding="UTF-16"?>\n${svgBody(image.marker)}`, 'utf16le')]), 'application/xml', 'document', utf16],
+  ['an SVG with a quoted ] in its DTD subset', 'quoted.xml', image => Buffer.from(`<?xml version="1.0"?>\n<!DOCTYPE svg [\n  <!ENTITY e "a]b>c">\n]>\n${svgBody(image.marker)}`), 'application/xml', 'image'],
+  ['an SVG whose prolog runs past the scanned prefix', 'long.xml', image => Buffer.from(`<?xml version="1.0"?>\n<!-- ${'x'.repeat(70 * 1024)} -->\n${svgBody(image.marker)}`), 'application/xml', 'document'],
+  ['an unknown binary named .txt', 'blob.txt', image => Buffer.concat([Buffer.from([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1, 0]), Buffer.from(image.marker), Buffer.alloc(16)]), 'text/plain', 'document'],
+  ['a text file that is not UTF-8 (Latin-1) named .txt', 'latin.txt', image => Buffer.concat([Buffer.from('caf\xe9 ', 'latin1'), Buffer.from(image.marker)]), 'text/plain', 'document'],
+]) test(`AIT-610 r5: ${label} is refused before persistence; SQLite, its WAL and a backup never hold it`, async t => {
+  const f = await fixture(t), base = sentinelImage(), image = encode ? encode(base) : base;
+  f.holdReader();
+  const postUploads = f.storage.postUploads.bind(f.storage), admittedDocuments = [];
+  t.mock.method(f.storage, 'postUploads', (id, eventId, digest, files, ...rest) => {
+    admittedDocuments.push(...files.filter(file => file.kind !== 'image' && !file.refusal).map(file => file.filename));
+    return postUploads(id, eventId, digest, files, ...rest);
+  });
+  const response = await f.upload(`refuse-${name.replace(/[^a-zA-Z0-9_-]/gu, '-')}`, [[name, build(base), type]]), body = await response.text();
+  assert.equal(response.status, 202, body);
+  assert.deepEqual(admittedDocuments, [], 'no document admission reached storage');
+  await f.handlers.idle();
+  const result = JSON.parse(body), upload = f.storage.get(f.session.id).uploads[0];
+  if (outcome === 'document') {
+    assert.deepEqual(result.refused, [{ index: 0, name, kind: 'document', reason: 'unsupported' }], 'refused at intake with the unsupported reason');
+    assert.equal(upload, undefined, 'no row');
+  } else {
+    assert.equal(upload?.kind, 'image', JSON.stringify(upload));
+    assert.equal(upload.state, 'staged-refused');
+  }
+  assert.equal(f.storage.db.prepare('SELECT COUNT(*) AS n FROM uploads WHERE bytes IS NOT NULL').get().n, 0, 'no stored bytes');
+  await f.assertNoTrace(image, { responses: [body] });
+});
+
+// The bounded scan: a large prolog of repeated malformed doctypes is linear
+// (gate4c: the r4 prolog scan could be quadratic).
+test('AIT-610 r5: the SVG/text recognizer reads a bounded prefix and stays linear on repeated malformed doctypes', () => {
+  // 60,000 doctypes without a subset: the r4 scan searched the rest of the file
+  // for '[' once per doctype. Then an unterminated subset over 19 MiB.
+  for (const hostile of [Buffer.from('<!DOCTYPE a>'.repeat(60_000)), Buffer.from('<!DOCTYPE x ['.repeat(1_500_000))]) {
+    const started = performance.now();
+    const detected = uploadModule.sniffUploadDocument(hostile, 'hostile.xml');
+    const elapsed = performance.now() - started;
+    assert.equal(detected.reason, 'unsupported', JSON.stringify(detected));
+    assert.ok(elapsed < 500, `bounded (${Math.round(elapsed)} ms for ${hostile.length} bytes)`);
+  }
+});
+
+// Condition 2: a staged-pending image with no live original or job in this
+// process is REPORTED as staged-refused 'unavailable' on every read. Nothing is
+// written for it; expiry removes it at its normal deadline.
+const lostImage = (f, image, at = Date.now(), session = f.session) => f.storage.postUploads(session.id, `lost-${image.marker.slice(-6)}`, `lost-${image.marker.slice(-6)}`,
+  [{ kind: 'image', filename: 'lost.png', mediaType: 'image/png', bytes: image.bytes, deadlineAt: at + 25_000 }], SERVER_UPLOAD_LIMITS).events[0].data;
+test('AIT-610 r5: a pending image lost to a restart reads as unavailable (EN/DE copy) on every read; resume writes nothing', async t => {
+  const f = await fixture(t), image = sentinelImage();
+  const staged = lostImage(f, image);
+  const seq = f.storage.get(f.session.id).seq;
+  const completeUpload = t.mock.method(f.storage, 'completeUpload');
+  await f.handlers.resume();
+  await f.handlers.idle();
+  const first = await readUploads(f.handlers, f.session.id), second = await readUploads(f.handlers, f.session.id);
+  const snapshot = await f.handlers.handle(ownedRequest(`http://localhost/api/sessions/${f.session.id}`));
+  const session = JSON.parse(await snapshot.text());
+  for (const uploads of [first, second, session.uploads]) {
+    const upload = uploads.find(item => item.id === staged.id);
+    assert.equal(upload?.state, 'staged-refused', JSON.stringify(upload));
+    assert.equal(upload.reason, 'unavailable');
+    assert.equal(upload.expiresAt, staged.expiresAt, 'the normal deadline, no fresh window');
+  }
+  assert.deepEqual(first, second, 'idempotent: the same answer every read');
+  assert.equal(completeUpload.mock.callCount(), 0, 'no recovery write');
+  assert.equal(f.storage.get(f.session.id).seq, seq, 'resume and the reads appended nothing');
+  assert.equal(f.storage.get(f.session.id).uploads[0].state, 'staged-pending', 'the stored row is unchanged');
+  // The copy the client shows for this reason (TICK's binding copy).
+  assert.equal(en.imageRefusals.unavailable, "Images can't be prepared right now. Attach the image again.");
+  assert.equal(de.imageRefusals.unavailable, 'Bilder lassen sich gerade nicht vorbereiten. Hängen Sie das Bild erneut an.');
+  await f.assertNoTrace(image);
+});
+
+test('AIT-610 r5: the derived state binds to its session; a row another session holds or loses is never reported', async t => {
+  const f = await fixture(t), lost = sentinelImage(), held = sentinelImage(), foreign = sentinelImage();
+  let release, entered;
+  const gate = new Promise(resolve => { release = resolve; }), running = new Promise(resolve => { entered = resolve; });
+  f.normalizer.verdict = async (bytes, metadata, options) => { entered(); await gated(gate, options); return { status: 'staged-refused', reason: 'dimensions' }; };
+  const other = f.storage.create({ ownerToken: testToken, demo: true }), third = f.storage.create({ ownerToken: testToken, demo: true });
+  const lostRow = lostImage(f, lost), foreignRow = lostImage(f, foreign, Date.now(), third);
+  const response = await f.handlers.handle(multipartTo(other.id, multipart('held-other', [['held.png', held.bytes]]))), body = await response.text();
+  assert.equal(response.status, 202, body);
+  await running;
+  const mine = await readUploads(f.handlers, f.session.id), theirs = await readUploads(f.handlers, other.id);
+  assert.deepEqual(mine.map(upload => [upload.id, upload.state, upload.reason]), [[lostRow.id, 'staged-refused', 'unavailable']], 'only this session\'s row');
+  assert.equal(theirs.length, 1);
+  assert.equal(theirs[0].state, 'staged-pending', 'a held image in another session is not reported unavailable');
+  assert.equal(mine.some(upload => upload.id === foreignRow.id) || theirs.some(upload => upload.id === foreignRow.id), false, 'a foreign row is never reported');
+  release();
+  await f.handlers.idle();
+  for (const image of [lost, held, foreign]) await f.assertNoTrace(image, { responses: [body] });
+});
+
+test('AIT-610 r5: expiry removes a lost pending image at its normal deadline (no hold)', async t => {
+  const f = await fixture(t), image = sentinelImage(), start = Date.now();
+  const staged = lostImage(f, image, start);
+  t.mock.timers.enable({ apis: ['Date'], now: start + 60_000 });
+  await f.handlers.resume();
+  await f.handlers.idle();
+  assert.equal((await readUploads(f.handlers, f.session.id))[0].reason, 'unavailable');
+  t.mock.timers.setTime(staged.expiresAt + 1);
+  const [upload] = await readUploads(f.handlers, f.session.id);
+  assert.equal(upload.state, 'staged-discarded', JSON.stringify(upload));
+  assert.equal(f.storage.get(f.session.id).uploads[0].state, 'staged-discarded', 'the normal expiry ran');
+  t.mock.timers.reset();
+  await f.assertNoTrace(image);
 });
