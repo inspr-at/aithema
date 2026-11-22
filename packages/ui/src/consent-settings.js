@@ -2,6 +2,10 @@ import { consentSaveEndsConversation } from '../../core/src/settings.js';
 import { validateConsentDocument } from '../../core/src/consent-document.js';
 import { setText } from './dom.js';
 import { featureConsentText } from './consent-line.js';
+import { resolveCopy } from './copy-resolve.js';
+
+// AIT-612 r2: host copy bundles that predate host.consentPage.loadFailed get the shipped locale's text.
+export const consentLoadFailed = copy => resolveCopy(copy, 'host.consentPage.loadFailed');
 
 // The least scroll that shows the span top..bottom inside the scroller (12 px
 // clear); when it does not fit, the top anchors. Scrolling by delta, the top
@@ -31,7 +35,7 @@ export class ConsentSettings {
   }
   setCopy(copy) {
     // AIT-612: a failure on screen follows the page language too.
-    const failures = c => [c.host.consentFailed, c.host.consentPage.loadFailed], failure = failures(this.#copy).indexOf(this.#statusText);
+    const failures = c => [c.host.consentFailed, consentLoadFailed(c)], failure = failures(this.#copy).indexOf(this.#statusText);
     this.#copy = copy; this.#paintReason();
     if (this.#stale) this.#status(copy.host.consentStale); else if (this.#statusText && failure >= 0) this.#status(failures(copy)[failure]);
     if (!this.#ports.saveButton) setText(this.#button, copy.featureConsent.save); this.#root.setAttribute('aria-label', copy.host.consentPage.legend); this.#root.querySelector('fieldset').setAttribute('aria-label', copy.host.consentPage.legend); }
@@ -94,7 +98,8 @@ export class ConsentSettings {
       if (epoch !== this.#epoch) return;
       this.#document = null; this.#savingLabel = null; this.#root.querySelector('.consent-items').replaceChildren();
       // AIT-612: a document that cannot be loaded or used is a failed load, not a failed save.
-      this.#busy = false; this.#status(this.#copy.host.consentPage.loadFailed); this.#paintBusy();
+      // r2: a failed reload is no longer the stale-but-loaded state, so a language switch keeps the error.
+      this.#stale = false; this.#busy = false; this.#status(consentLoadFailed(this.#copy)); this.#paintBusy();
     }
   }
   // AIT-603: the sheet opened for the text feature shows the host's text-consent

@@ -1,6 +1,6 @@
 import { neutralBindingReason } from './reason-text.js';
 import { featureConsentText, reasonSeparator } from './consent-line.js';
-import { ConsentSettings } from './consent-settings.js';
+import { ConsentSettings, consentLoadFailed } from './consent-settings.js';
 // START AiSettings.astro, ai-settings.ts and settings-controls.ts behaviour, ported
 // to a native modal <dialog> inside the component (INSPR D3). The server owns every
 // verdict: this dialog sends option ids and shows only acknowledged state.
@@ -202,7 +202,7 @@ export class SettingsDialog {
     }));
     measure(this.#q('.general-consent-state'), Object.values(c.consentStates), 'status-line general-consent-measure');
     measure(this.#q('.context-text'), helpMeasurements(this.#copy), 'context-measure');
-    measure(this.#q('.save-state'), [this.#copy.host.consentStale, this.#copy.host.consentPage.loading, this.#copy.host.consentPage.saving, this.#copy.host.consentFailed, this.#copy.host.consentPage.loadFailed], 'consent-state-measure');
+    measure(this.#q('.save-state'), [this.#copy.host.consentStale, this.#copy.host.consentPage.loading, this.#copy.host.consentPage.saving, this.#copy.host.consentFailed, consentLoadFailed(this.#copy)], 'consent-state-measure');
     measure(this.#q('.save-state'), SAVE_MESSAGES.map(key => c[key]), 'save-state-measure');
     const notices = [c.callActive, c.toDevice, c.fromDevice, c.consentRequired, c.running, c.conflict, fill(c.notAllowed, { reason: '' })];
     const box = document.createElement('div'); box.className = 'notice-measure'; box.setAttribute('aria-hidden', 'true');
@@ -220,7 +220,7 @@ export class SettingsDialog {
     this.#copy = copy; this.#notice = null; this.#paintCopy(); this.#operator?.setCopy(copy);
     this.#all('.save-state-measure').forEach((n, i) => { n.textContent = copy.settings[SAVE_MESSAGES[i]]; });
     this.#all('.general-consent-measure').forEach((n, i) => { n.textContent = Object.values(copy.settings.consentStates)[i]; });
-    this.#all('.consent-state-measure').forEach((n, i) => { n.textContent = [copy.host.consentStale, copy.host.consentPage.loading, copy.host.consentPage.saving, copy.host.consentFailed, copy.host.consentPage.loadFailed][i]; });
+    this.#all('.consent-state-measure').forEach((n, i) => { n.textContent = [copy.host.consentStale, copy.host.consentPage.loading, copy.host.consentPage.saving, copy.host.consentFailed, consentLoadFailed(copy)][i]; });
     const measurements = helpMeasurements(copy);
     this.#all('.context-measure').forEach((n, i) => { n.textContent = measurements[i] ?? ''; });
     const c = copy.settings, notices = [c.callActive, c.toDevice, c.fromDevice, c.consentRequired, c.running, c.conflict, fill(c.notAllowed, { reason: '' })];
