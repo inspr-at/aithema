@@ -202,7 +202,7 @@ export class SettingsDialog {
     }));
     measure(this.#q('.general-consent-state'), Object.values(c.consentStates), 'status-line general-consent-measure');
     measure(this.#q('.context-text'), helpMeasurements(this.#copy), 'context-measure');
-    measure(this.#q('.save-state'), [this.#copy.host.consentStale, this.#copy.host.consentPage.loading, this.#copy.host.consentPage.saving, this.#copy.host.consentFailed], 'consent-state-measure');
+    measure(this.#q('.save-state'), [this.#copy.host.consentStale, this.#copy.host.consentPage.loading, this.#copy.host.consentPage.saving, this.#copy.host.consentFailed, this.#copy.host.consentPage.loadFailed], 'consent-state-measure');
     measure(this.#q('.save-state'), SAVE_MESSAGES.map(key => c[key]), 'save-state-measure');
     const notices = [c.callActive, c.toDevice, c.fromDevice, c.consentRequired, c.running, c.conflict, fill(c.notAllowed, { reason: '' })];
     const box = document.createElement('div'); box.className = 'notice-measure'; box.setAttribute('aria-hidden', 'true');
@@ -220,7 +220,7 @@ export class SettingsDialog {
     this.#copy = copy; this.#notice = null; this.#paintCopy(); this.#operator?.setCopy(copy);
     this.#all('.save-state-measure').forEach((n, i) => { n.textContent = copy.settings[SAVE_MESSAGES[i]]; });
     this.#all('.general-consent-measure').forEach((n, i) => { n.textContent = Object.values(copy.settings.consentStates)[i]; });
-    this.#all('.consent-state-measure').forEach((n, i) => { n.textContent = [copy.host.consentStale, copy.host.consentPage.loading, copy.host.consentPage.saving, copy.host.consentFailed][i]; });
+    this.#all('.consent-state-measure').forEach((n, i) => { n.textContent = [copy.host.consentStale, copy.host.consentPage.loading, copy.host.consentPage.saving, copy.host.consentFailed, copy.host.consentPage.loadFailed][i]; });
     const measurements = helpMeasurements(copy);
     this.#all('.context-measure').forEach((n, i) => { n.textContent = measurements[i] ?? ''; });
     const c = copy.settings, notices = [c.callActive, c.toDevice, c.fromDevice, c.consentRequired, c.running, c.conflict, fill(c.notAllowed, { reason: '' })];

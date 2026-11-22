@@ -29,7 +29,12 @@ export class ConsentSettings {
     root.addEventListener('change', () => { this.#stale = false; this.#status(''); this.#paintBusy(); });
     this.setCopy(copy);
   }
-  setCopy(copy) { this.#copy = copy; this.#paintReason(); if (this.#stale) this.#status(copy.host.consentStale); if (!this.#ports.saveButton) setText(this.#button, copy.featureConsent.save); this.#root.setAttribute('aria-label', copy.host.consentPage.legend); this.#root.querySelector('fieldset').setAttribute('aria-label', copy.host.consentPage.legend); }
+  setCopy(copy) {
+    // AIT-612: a failure on screen follows the page language too.
+    const failures = c => [c.host.consentFailed, c.host.consentPage.loadFailed], failure = failures(this.#copy).indexOf(this.#statusText);
+    this.#copy = copy; this.#paintReason();
+    if (this.#stale) this.#status(copy.host.consentStale); else if (this.#statusText && failure >= 0) this.#status(failures(copy)[failure]);
+    if (!this.#ports.saveButton) setText(this.#button, copy.featureConsent.save); this.#root.setAttribute('aria-label', copy.host.consentPage.legend); this.#root.querySelector('fieldset').setAttribute('aria-label', copy.host.consentPage.legend); }
   get busy() { return this.#busy; }
   get status() { return this.#statusText; }
   get stale() { return this.#stale; }
@@ -88,7 +93,8 @@ export class ConsentSettings {
     } catch {
       if (epoch !== this.#epoch) return;
       this.#document = null; this.#savingLabel = null; this.#root.querySelector('.consent-items').replaceChildren();
-      this.#busy = false; this.#status(this.#copy.host.consentFailed); this.#paintBusy();
+      // AIT-612: a document that cannot be loaded or used is a failed load, not a failed save.
+      this.#busy = false; this.#status(this.#copy.host.consentPage.loadFailed); this.#paintBusy();
     }
   }
   // AIT-603: the sheet opened for the text feature shows the host's text-consent
@@ -158,8 +164,9 @@ export class ConsentSettings {
   }
   #status(text) {
     this.#statusText = text;
-    // The shared footer owns the stale notice; there is only one live message.
-    setText(this.#root.querySelector('.consent-status'), this.#ports.saveButton && text !== this.#copy.host.consentFailed ? '' : text);
+    // In Settings the shared footer beside Save owns every message, failures included (AIT-612: one error, once,
+    // next to the action that failed); standalone, this status sits above the sheet's own Save.
+    setText(this.#root.querySelector('.consent-status'), this.#ports.saveButton ? '' : text);
   }
   #paintBusy() {
     const fieldset = this.#root.querySelector('fieldset');
