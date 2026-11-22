@@ -675,6 +675,8 @@ test('AIT-188 r3 keyboard: touch width/orientation reset and blur never stick fo
   await setViewport(page, { width: 500, height: 400, isLandscape: true }); await frame(page);
   assert.equal(await footer(), 'none', 'keyboard detected against the new baseline');
   await shadow(page, c => c.shadowRoot.querySelector('.fold').focus({ preventScroll: true })); await frame(page);
+  // AIT-608 r2: the premise of the next assertion is that focus really left the composer.
+  assert.equal(await shadow(page, c => Boolean(c.shadowRoot.activeElement?.matches('textarea,input,[contenteditable="true"]') || c.shadowRoot.activeElement?.closest('.composer'))), false, 'focus left the composer');
   assert.notEqual(await footer(), 'none', 'leaving composer clears keyboard state without resize');
   await setViewport(page, { width: 500, height: 600, isLandscape: true }); await frame(page);
   assert.notEqual(await footer(), 'none', 'keyboard closed');
