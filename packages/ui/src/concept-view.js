@@ -3,6 +3,7 @@ import { consentTimeout } from './consent-timer.js';
 import { isConsentReason } from '../../core/src/settings.js';
 import { paintConsentLine, reasonAction, reasonSeparator } from './consent-line.js';
 import { postJson, sameOrigin } from './post-json.js';
+import { ownerFetch } from './owner-request.js';
 import { reasonText } from './settings-dialog.js';
 import { HTML_MEDIA_TYPE, frameDocument, inspectHTML } from '../../core/src/ui-html.js';
 import { draftsLine, creditCost } from './display.js';
@@ -238,7 +239,7 @@ export class ConceptView {
   sameOrigin(path) { if (this.#erased) throw new DOMException('Conversation erased', 'AbortError'); return sameOrigin(this.root.ownerDocument.defaultView, path, 'Concept routes require same origin'); }
   #api(url, bodyOrInit, options) {
     return this.transport ? this.transport(url, bodyOrInit, options)
-      : options ? postJson(url, bodyOrInit, options) : fetch(url, bodyOrInit);
+      : options ? postJson(url, bodyOrInit, { ...options, view: this.root.ownerDocument.defaultView }) : ownerFetch(this.root.ownerDocument.defaultView, url, bodyOrInit);
   }
   erased() {
     if (this.#erased) return;
@@ -281,7 +282,6 @@ export class ConceptView {
       const ack = await response.json(); if (sessionId === this.#session.id && ack.event) this.receive(ack.event);
     } catch { /* Server idle spending is disabled even if teardown loses this signal. */ }
   }
-  headers() { return this.sessionToken ? { 'x-aithema-session-token': this.sessionToken } : {}; }
   reviseConsent(changed, granted = true, removed) {
     if (!granted) this.cancelConsent();
     // Unknown names still take the session's bounded refresh path. Known names
@@ -974,7 +974,7 @@ export class ConceptView {
     const scopeEpoch = this.#scopeEpoch[html ? 'html' : 'image'];
     const promise = (async () => {
       try {
-        const response = await this.#api(this.sameOrigin(this.path(`/${id}/${html ? 'html' : 'image'}`)), { headers: this.headers(), cache: 'no-store' });
+        const response = await this.#api(this.sameOrigin(this.path(`/${id}/${html ? 'html' : 'image'}`)), { sessionToken: this.sessionToken, cache: 'no-store' });
         const type = response.headers.get('content-type');
         if (!response.ok || !(html ? type === 'application/octet-stream' : ['image/png', 'image/jpeg', 'image/webp'].includes(type))) throw new Error();
         const data = html ? new Uint8Array(await response.arrayBuffer()) : await response.blob();
@@ -1034,7 +1034,7 @@ export class ConceptView {
     }
     try {
       // A real owner-authenticated GET on the image route, never a provider URL.
-      const response = await this.#api(this.sameOrigin(this.path(`/${current.id}/image?download=1`)), { headers: this.headers(), cache: 'no-store' });
+      const response = await this.#api(this.sameOrigin(this.path(`/${current.id}/image?download=1`)), { sessionToken: this.sessionToken, cache: 'no-store' });
       if (!response.ok) throw new Error(); const blob = await response.blob();
       if (epoch !== this.#epoch || sessionId !== this.#session.id || !this.items.some(c => c.id === current.id)) return;
       url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url;

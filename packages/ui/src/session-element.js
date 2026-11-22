@@ -33,6 +33,7 @@ import { settingsStyles } from './settings-styles.js';
 import { SettingsDialog, ICONS, PRESET_ORDER, reasonText, engineView, catalogLabel } from './settings-dialog.js';
 import { LocalConnector } from './local-connector.js';
 import { postJson, postForm, sameOrigin } from './post-json.js';
+import { anySignal, OWNER_EXPORT_MAX_BYTES, ownerFetch, ownerURL } from './owner-request.js';
 import { UPLOAD_LIMITS, UPLOAD_ACCEPT, DOCUMENT_UPLOAD_ACCEPT, UPLOAD_ICONS, uploadLimits, uploadRetryDelay, unclassifiedUploads, planUploads, refusalText, uploadStateText, uploadStateTexts, uploadsPossible, formatBytes, limitsText, dropText } from './uploads.js';
 import { voiceJournal, tabStorage, closeVoiceCall, answerVoicePings, voiceCallAbandoned } from './voice-orphan.js';
 import { node, setText, reconcile, fill } from './dom.js';
@@ -56,6 +57,7 @@ import { overviewStatusText, featureReasonText } from './overview-status-copy.js
 import { emailAskStyles } from './email-ask-styles.js';
 import { buildPaimosPayload, paimosImportUrl } from './paimos-import.js';
 
+const UPLOAD_DEADLINE_MS = 300_000; // a 21 MiB batch on a slow link; other owner requests use the 30 s default
 const PANES = '.transcript-shell, .analysis-content';
 // START's understanding reveal: 560 ms of column, 100–620 ms of the pane fading in (styles.js), with a margin.
 const REVEAL_MS = 700;
@@ -96,7 +98,7 @@ const START_INTENT_KEY = 'aithema-start-intent';
 const startIntentTTL = mode => mode === 'voice' ? 60_000 : 180_000;
 
 export class AithemaSession extends HTMLElement {
-  #erased = null; #erasedIds = new Map(); #confirmations = new Map(); #anchorDepth = 0; #erasureJournal = null; #erasedCreating = false;
+  #erased = null; #erasedIds = new Map(); #inflight = new Map(); #confirmations = new Map(); #anchorDepth = 0; #erasureJournal = null; #erasedCreating = false;
   #consentRefresh; #consentRequestId = null;
   #startIntent = null; #startIntentTimer; #startRetryTimer; #startFromNavigation = false; #checkingStartRestore = null;
   #featureRead = null;
@@ -419,7 +421,7 @@ export class AithemaSession extends HTMLElement {
       return session.operations?.inputRevision === focus.inputRevision && Array.isArray(session.operations.running) && !session.operations.running.includes('reaction');
     };
     try {
-      const response = await this.#api(`${this.#base}/api/sessions/${focus.sessionId}`, { headers: this.#headers(), cache: 'no-store' });
+      const response = await this.#api(`${this.#base}/api/sessions/${focus.sessionId}`, { sessionToken: this.#sessionToken, cache: 'no-store' });
       if (!response.ok || !this.#activeClarify(focus)) return false;
       const session = await response.json();
       if (!this.#activeClarify(focus) || session.id !== focus.sessionId || !Number.isSafeInteger(session.seq) ||
@@ -795,7 +797,7 @@ export class AithemaSession extends HTMLElement {
           <div class="composer-out" aria-hidden="true" inert><p class="composer-out__title"><span></span></p><p class="composer-out__body"><span></span></p>
             <div class="composer-out__bar"><span class="composer-out__steps"><span class="composer-out__give" data-next="give"></span><span class="composer-out__confirm" data-next="confirm"></span><span class="composer-out__none" data-next="none"></span></span>
               <span class="composer-out__actions"><button class="composer-out__upgrade" type="button" aria-haspopup="dialog"><span data-next="give"></span><span data-next="confirm"></span></button>
-                <a class="composer-out__export">${icon('download')}<span></span></a></span></div></div><button class="purpose-new" type="button" hidden></button></div>
+                <a class="composer-out__export" role="link" tabindex="0">${icon('download')}<span></span></a></span></div></div><button class="purpose-new" type="button" hidden></button></div>
         <div class="email-ask-dock"></div><p class="credit-announcement sr-only" role="status" aria-live="polite"></p><p class="email-ask-announcement sr-only" role="status" aria-live="polite"></p></div>
         <div class="drop-overlay" aria-hidden="true"><p><strong></strong><span></span></p></div></section>
       <aside class="understanding" aria-labelledby="understanding-title"><header class="head"><h2 id="understanding-title" data-copy="understanding"></h2><button class="concept-tab" type="button" data-copy="conceptTab"></button></header>
@@ -904,7 +906,7 @@ export class AithemaSession extends HTMLElement {
         consent: this.#consentState() }),
       consentPresentation: this.#options.consentPresentation ?? this.#options.voicePresentation,
       consentDocument: async () => {
-        const response = await this.#api(`${this.#base}/api/sessions/${this.#session.id}/consent`, { headers: this.#headers() });
+        const response = await this.#api(`${this.#base}/api/sessions/${this.#session.id}/consent`, { sessionToken: this.#sessionToken });
         if (!response.ok) throw new Error('Consent document unavailable');
         return response.json();
       },
@@ -960,12 +962,20 @@ export class AithemaSession extends HTMLElement {
       root.querySelector('.understanding > .foot').append(create);
     }
     this.#renderMode();
-    root.querySelector('.export').addEventListener('click', e => {
-      if (!this.#sessionToken || this.#session.processingPreset === 'device') return;
-      e.preventDefault(); void this.#export();
-    });
+    // AIT-625 r6 (gate3c M2): neither export control has an href, in token AND cookie mode, so no
+    // native link action (middle click, new tab, drag, keyboard) can send the owner cookie around
+    // the helper; click and Enter export through #export() (the guarded helper) only.
+    const exportAction = (event, guard) => {
+      if (event.type === 'keydown' && event.key !== 'Enter') return;
+      event.preventDefault();
+      if (this.#session.processingPreset === 'device' || !guard(event.currentTarget)) return;
+      void this.#export();
+    };
+    for (const type of ['click', 'keydown']) {
+      root.querySelector('.export').addEventListener(type, event => exportAction(event, control => control.getAttribute('aria-disabled') !== 'true'));
+      root.querySelector('.composer-out__export').addEventListener(type, event => exportAction(event, control => control.getAttribute('aria-disabled') !== 'true'));
+    }
     root.querySelector('.composer-out__upgrade').addEventListener('click', event => this.openSettings(event.currentTarget, { tab: 'general', anchor: '#email' }));
-    root.querySelector('.composer-out__export').addEventListener('click', event => { event.preventDefault(); if (this.#session.processingPreset !== 'device') void this.#export(); });
     root.querySelector('.purpose-new').addEventListener('click', () => this.#newConversation({ processingPreset: this.#session.processingPreset, settings: this.#session.settings }));
     // r7: discarding is the visitor's own action: release the kept keyboard-up
     // feedback row before the discard repaints (capture phase, ahead of the handlers).
@@ -1295,11 +1305,13 @@ export class AithemaSession extends HTMLElement {
   };
   #startVisible = () => { if (this.#startIntent && this.ownerDocument.visibilityState === 'visible') void this.#refreshFeatures(); };
   #watchPage(on) {
-    const view = this.ownerDocument.defaultView, listen = on ? 'addEventListener' : 'removeEventListener';
-    this.ownerDocument[listen]('visibilitychange', this.#startVisible);
-    view?.[listen]('pagehide', this.#pagehide); view?.[listen]('pageshow', this.#pageshow);
-    view?.[listen]('scroll', this.#syncBandScroll, { passive: true, capture: true });
-    view?.[listen]('resize', this.#syncBandScroll);
+    // Named calls, not a computed `view[listen]`: the AIT-625 scan refuses computed access on a window.
+    const view = this.ownerDocument.defaultView, document = this.ownerDocument;
+    const listen = on ? (target, ...args) => target?.addEventListener(...args) : (target, type, handler, options) => target?.removeEventListener(type, handler, options);
+    listen(document, 'visibilitychange', this.#startVisible);
+    listen(view, 'pagehide', this.#pagehide); listen(view, 'pageshow', this.#pageshow);
+    listen(view, 'scroll', this.#syncBandScroll, { passive: true, capture: true });
+    listen(view, 'resize', this.#syncBandScroll);
     if (on) this.#syncBandScroll();
   }
   // The status line shows the latest action until the connection, pause or call state changes.
@@ -1791,14 +1803,26 @@ export class AithemaSession extends HTMLElement {
     return match ? { id: decodeURIComponent(match[1]), snapshot: !match[2] } : null;
   }
   async #api(url, bodyOrInit = {}, options) {
-    // Uploads, concept and host routes enforce their existing origin policy at the caller.
-    const route = this.#sessionRoute(url);
+    // Every owner request, here and from the concept view and host surface, goes through the
+    // guarded helper (AIT-625): page origin only, resolved once, redirect:'error', deadline.
+    const route = this.#sessionRoute(url), view = this.ownerDocument.defaultView;
     if (route && this.#erasedIds.has(route.id)) throw new DOMException('Conversation erased', 'AbortError');
+    // A finite request for a conversation ends when that conversation is erased (with its deadline
+    // timer), through its body: it stays tracked until the helper reports the body buffered,
+    // failed or timed out (r4; r8 native buffering), so an export still reading cannot download after erasure.
+    // The event stream has its own lifetime; a keepalive request is left to the browser.
+    const init = options ?? bodyOrInit, own = route && !init.stream && !init.keepalive ? new AbortController() : null;
+    const signal = own ? (init.signal ? anySignal([init.signal, own.signal]) : own.signal) : init.signal;
+    const release = own ? () => this.#inflight.get(route.id)?.delete(own) : undefined;
+    if (own) { if (!this.#inflight.has(route.id)) this.#inflight.set(route.id, new Set()); this.#inflight.get(route.id).add(own); }
+    const tracked = { ...(signal ? { signal } : {}), ...(release ? { onSettled: release } : {}) };
     let response;
-    if (options) {
-      const post = bodyOrInit instanceof FormData ? postForm : postJson;
-      response = await post(url, bodyOrInit, options);
-    } else response = await fetch(url, { ...bodyOrInit, ...(route?.snapshot ? { cache: 'no-store' } : {}) });
+    try {
+      if (options) {
+        const post = bodyOrInit instanceof FormData ? postForm : postJson;
+        response = await post(url, bodyOrInit, { ...options, view, ...tracked });
+      } else response = await ownerFetch(view, url, { ...bodyOrInit, ...tracked, ...(route?.snapshot ? { cache: 'no-store' } : {}) });
+    } catch (error) { release?.(); throw error; }
     await this.#observeResponse(url, response);
     return response;
   }
@@ -1815,7 +1839,7 @@ export class AithemaSession extends HTMLElement {
     // The demo owner is an HttpOnly cookie: fetch reads its current value, including
     // rotations by another tab. Explicit-token hosts retain their current configure token.
     confirmation.promise = this.#api(`${this.#base}/api/sessions/${encodeURIComponent(route.id)}`,
-      { headers: this.#headers(), cache: 'no-store' }).catch(() => {}).finally(() => { confirmation.promise = null; });
+      { sessionToken: this.#sessionToken, cache: 'no-store' }).catch(() => {}).finally(() => { confirmation.promise = null; });
     await confirmation.promise;
   }
   #enterErased(id, via) {
@@ -1831,6 +1855,9 @@ export class AithemaSession extends HTMLElement {
       folded: workspace.hasAttribute('data-folded'), panel: root.querySelector('.composer-shell').hasAttribute('data-used-up'),
       focus: Boolean(root.activeElement?.closest('form.composer,.audio-rail,.understanding,.intro,.qcard,.composer-out,.purpose-new,dialog,.fold-strip,.fold,.concept-bar,.email-ask,.concept-access,.drafts-canvas,.settings-open')), painted: false, holds: [] };
     this.#erasedIds.set(id, remembered ?? { via, announced: false });
+    // In-flight finite requests for the erased conversation end now, deadline timers included.
+    for (const controller of this.#inflight.get(id) ?? []) controller.abort(new DOMException('Conversation erased', 'AbortError'));
+    this.#inflight.delete(id);
     // Hold boxes before teardown can change a rail, question or composer reservation.
     for (const selector of ['.intro__card', '.composer-dock', '.composer-shell', 'form.composer', '.qcard', '.audio-rail', '.fold-strip', '.transcript-shell']) {
       const element = root.querySelector(selector); if (!element) continue;
@@ -1942,17 +1969,22 @@ export class AithemaSession extends HTMLElement {
     catch { /* Keep the end action available for another deliberate attempt. */ }
     finally { if (id === this.#session.id) this.#erasedCreating = false; }
   }
-  #headers(headers = {}) {
-    return { ...headers, ...(this.#sessionToken ? { 'x-aithema-session-token': this.#sessionToken } : {}) };
+  // r6: whether the export URL resolves to the page's own origin (the controls carry no href).
+  #exportAvailable() {
+    try { return Boolean(ownerURL(this.ownerDocument.defaultView, `${this.#base}/api/sessions/${this.#session.id}/export`)); }
+    catch { return false; }
   }
   async #export() {
     const sessionId = this.#session.id;
     let url;
     try {
-      const response = await this.#api(`${this.#base}/api/sessions/${sessionId}/export`, { headers: this.#headers() });
+      const response = await this.#api(`${this.#base}/api/sessions/${sessionId}/export`, { sessionToken: this.#sessionToken, maxBytes: OWNER_EXPORT_MAX_BYTES });
       if (!response.ok) throw new Error();
       const blob = await response.blob();
-      if (sessionId !== this.#session.id) return;
+      // r6 (gate3c M4): the helper settles at the body's end (r8: once its native buffer is
+      // complete, before it returns), and erasure keeps the session id; so check the erasure state
+      // itself once the body is consumed.
+      if (sessionId !== this.#session.id || this.#erased || this.#erasedIds.has(sessionId)) return;
       url = URL.createObjectURL(blob);
       const link = document.createElement('a'); link.href = url; link.download = 'aithema-session.zip'; link.click();
     } catch { if (sessionId === this.#session.id) this.#status(this.#copy.controlFailed); }
@@ -2049,14 +2081,16 @@ export class AithemaSession extends HTMLElement {
       exported.removeAttribute('href'); exported.setAttribute('aria-disabled', 'true');
       exported.setAttribute('aria-describedby', reason.id); exported.title = this.#copy.deviceExportUnavailable;
     } else {
-      exported.href = `${this.#base}/api/sessions/${this.#session.id}/export`; exported.removeAttribute('aria-disabled');
+      // r6: no href in any mode; a foreign <base> or no page origin disables the control.
+      exported.removeAttribute('href');
+      if (this.#exportAvailable()) exported.removeAttribute('aria-disabled'); else exported.setAttribute('aria-disabled', 'true');
       exported.removeAttribute('aria-describedby'); exported.title = '';
     }
     if (this.#rail) { const client = this.#voiceClientFor(); if (!this.#rail.session && this.#rail.client !== client) { this.#rail.client = client; this.#renderVoice(); } }
   }
   async #loadCatalog() {
     const sessionId = this.#session.id;
-    const response = await this.#api(`${this.#base}/api/sessions/${sessionId}/settings`, { headers: this.#headers() });
+    const response = await this.#api(`${this.#base}/api/sessions/${sessionId}/settings`, { sessionToken: this.#sessionToken });
     if (!response.ok) throw new Error('Settings unavailable');
     const catalog = await response.json();
     if (sessionId !== this.#session.id) throw new Error('Session changed');
@@ -2102,7 +2136,7 @@ export class AithemaSession extends HTMLElement {
     if (!response.ok) throw Object.assign(new Error('Consent save failed'), { code: response.status === 409 ? ack.error : undefined });
     if (sessionId !== this.#session.id || ack.granted !== body.granted) throw new Error('Consent acknowledgement missing');
     // The current server document confirms the exact decision; HTTP success alone is not consent.
-    const current = await this.#api(`${this.#base}/api/sessions/${sessionId}/consent`, { headers: this.#headers() });
+    const current = await this.#api(`${this.#base}/api/sessions/${sessionId}/consent`, { sessionToken: this.#sessionToken });
     if (this.#erased) return;
     if (!current.ok) throw new Error('Consent confirmation unavailable');
     const doc = await current.json(), items = body.granted ? body.processing.items : [];
@@ -2171,7 +2205,7 @@ export class AithemaSession extends HTMLElement {
       const active = () => !this.#erased && this.#laneStatusRead === read && this.#session.id === sessionId && inputRevision(this.#session) === revision;
       // One read, never a Retry or reconnect: this barrier cannot schedule paid work.
       try {
-        const response = await this.#api(`${this.#base}/api/sessions/${sessionId}`, { headers: this.#headers(), signal: AbortSignal.timeout(2000) });
+        const response = await this.#api(`${this.#base}/api/sessions/${sessionId}`, { sessionToken: this.#sessionToken, signal: AbortSignal.timeout(2000) });
         const snapshot = response.ok ? await response.json() : null;
         if (!active()) return;
         if (snapshot?.id === sessionId && Number.isSafeInteger(snapshot.seq) && snapshot.seq >= this.#invalidatedAt) {
@@ -2617,7 +2651,8 @@ export class AithemaSession extends HTMLElement {
         exportAction.dataset.short = resolveCopy(copy, 'usedUpExportShort', undefined, this.#session.locale);
         exportAction.setAttribute('aria-label', u.export);
       } else { delete exportAction.dataset.short; exportAction.removeAttribute('aria-label'); }
-      out.querySelector('.composer-out__export').href = `${this.#base}/api/sessions/${this.#session.id}/export`;
+      const outExport = out.querySelector('.composer-out__export');
+      if (this.#exportAvailable()) outExport.removeAttribute('aria-disabled'); else outExport.setAttribute('aria-disabled', 'true');
       for (const node of out.querySelectorAll('[data-next]')) { const shown = node.dataset.next === kind && !node.hidden; node.setAttribute('aria-hidden', String(!shown)); node.inert = !shown; }
       const exportLink = out.querySelector('.composer-out__export'), exportShown = !noAction && (this.#combined || kind === 'none' || newConversationEnabled || ['host-limit', 'session'].includes(this.#host?.endReason));
       exportLink.toggleAttribute('data-export', exportShown); exportLink.inert = !exportShown; exportLink.setAttribute('aria-hidden', String(!exportShown));
@@ -3865,7 +3900,7 @@ export class AithemaSession extends HTMLElement {
     const root = this.shadowRoot, input = root.querySelector('.attach-input'), zone = root.querySelector('.conversation');
     this.#images = new ImageInputView({ form: root.querySelector('.composer'), copy: this.#copy, session: () => this.#session, canRead: () => this.#feature('imageInput').available === true,
       changed: () => { if (this.isConnected) { this.#render('composer'); this.#render('transcript'); } },
-      fetchImage: id => this.#api(sameOrigin(this.ownerDocument.defaultView, `${this.#base}/api/sessions/${this.#session.id}/uploads/${encodeURIComponent(id)}/image`), { headers: this.#headers(), cache: 'no-store' }),
+      fetchImage: id => this.#api(sameOrigin(this.ownerDocument.defaultView, `${this.#base}/api/sessions/${this.#session.id}/uploads/${encodeURIComponent(id)}/image`), { sessionToken: this.#sessionToken, cache: 'no-store' }),
       remove: id => { const row = root.querySelector(`.staged-image[data-id="${id}"]`); if (row) void this.#removeImage(id); } });
     root.querySelector('.attach__label').textContent = this.#copy.uploads.attach;
     root.querySelector('.drop-overlay strong').textContent = this.#copy.uploads.dropActive;
@@ -3961,7 +3996,7 @@ export class AithemaSession extends HTMLElement {
     // Started on the next microtask, so a refusal before sending (another origin) can clear it.
     const load = Promise.resolve().then(async () => {
       try {
-        const response = await this.#api(sameOrigin(this.ownerDocument.defaultView, path), { headers: this.#headers(), cache: 'no-store', signal: AbortSignal.timeout(5000) });
+        const response = await this.#api(sameOrigin(this.ownerDocument.defaultView, path), { sessionToken: this.#sessionToken, cache: 'no-store', signal: AbortSignal.timeout(5000) });
         if (!response.ok) throw new Error();
         const body = await response.json();
         if (sessionId === this.#session.id && this.isConnected) { this.#limits = uploadLimits(body.limits); this.#render('composer'); }
@@ -4166,7 +4201,7 @@ export class AithemaSession extends HTMLElement {
       // Keep the uploading state and notice unchanged until a retry succeeds or all attempts fail.
       for (let attempt = 0; attempt < 3; attempt++) {
         if (!current()) return '';
-        response = await this.#api(sameOrigin(this.ownerDocument.defaultView, path), form, { sessionToken: this.#sessionToken, signal });
+        response = await this.#api(sameOrigin(this.ownerDocument.defaultView, path), form, { sessionToken: this.#sessionToken, signal, deadline: UPLOAD_DEADLINE_MS });
         body = await response.json().catch(() => null);
         if (!current()) return '';
         if (response.status !== 429 || body?.error !== 'upload-rate-limit' || attempt === 2) break;
@@ -4548,7 +4583,7 @@ export class AithemaSession extends HTMLElement {
       this.#repeatFeatures();
     };
     try {
-      const response = await this.#api(`${this.#base}/api/sessions/${sessionId}`, { headers: this.#headers() });
+      const response = await this.#api(`${this.#base}/api/sessions/${sessionId}`, { sessionToken: this.#sessionToken });
       if (!active()) return;
       if (!response.ok) {
         // A live consent window still owns failure handling, but its edge must
@@ -4603,7 +4638,7 @@ export class AithemaSession extends HTMLElement {
       // Feature refusals redact immediately. A slow consent read must never
       // keep a refused artifact alive while the host document is refreshed.
       try {
-        const consent = await this.#api(`${this.#base}/api/sessions/${sessionId}/consent`, { headers: this.#headers() });
+        const consent = await this.#api(`${this.#base}/api/sessions/${sessionId}/consent`, { sessionToken: this.#sessionToken });
         const doc = consent.ok ? await consent.json() : null;
         if (!active()) return;
         if (revision !== this.#session.consentRevision || session.seq !== this.#cursor) {
@@ -4631,7 +4666,7 @@ export class AithemaSession extends HTMLElement {
   async #restore() {
     const sessionId = this.#session.id, requestedCursor = this.#cursor;
     try {
-      const response = await this.#api(`${this.#base}/api/sessions/${sessionId}`, { headers: this.#headers() });
+      const response = await this.#api(`${this.#base}/api/sessions/${sessionId}`, { sessionToken: this.#sessionToken });
       if (this.#erased) return;
       if (!response.ok) throw new Error();
       const session = await response.json();
@@ -4672,7 +4707,8 @@ export class AithemaSession extends HTMLElement {
         this.#signalLiveSeq = null; this.#signals?.quiet();
         this.#connectionStatus(attempt ? this.#copy.reconnecting : this.#copy.connecting);
         const response = await this.#api(`${this.#base}/api/sessions/${this.#session.id}/events`, {
-          signal, headers: this.#headers({ 'Last-Event-ID': String(this.#cursor) }),
+          // The event stream is the one unbounded body: its deadline covers the headers only.
+          signal, stream: true, sessionToken: this.#sessionToken, headers: { 'Last-Event-ID': String(this.#cursor) },
         });
         if (signal.aborted) return;
         if (response.status === 400) { await this.#restore(); return; }

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Window } from 'happy-dom';
+import './fixtures/page-origin.js';
 import { Verification } from '../src/verification.js';
 import { en } from '../src/i18n/en.js';
 import { confirmationHost } from '../../../test/fixtures/confirmation-host.js';

@@ -844,7 +844,7 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .understanding > .foot > :is(.create-project,.retry) { grid-area:1/2; justify-self:end; }
 /* Invisible in server modes, but always measured so mode switches move nothing. */
 .export-reason { grid-column:1/-1; font-size:.72rem; line-height:1.4; color:var(--aithema-muted); }
-.export[href] { text-decoration:underline; }
+.export:not([aria-disabled="true"]) { text-decoration:underline; cursor:pointer; }
 .export[aria-disabled="true"] { text-decoration:none; cursor:help; }
 @media(width < 480px) {
   .understanding > .foot { display:grid; grid-template-columns:minmax(0,1fr); grid-template-rows:2.75rem auto 2.75rem; gap:0; }

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import '../../packages/ui/test/fixtures/page-origin.js';
 import { confirmationCopy, confirmationWait, createConfirmationPage } from '../confirmation-page.js';
 import { startChild, temporaryDb } from '../../test/helpers.js';
 

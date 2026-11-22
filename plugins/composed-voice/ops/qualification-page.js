@@ -1,5 +1,7 @@
 import { createPCMCapture, createPCMPlayer } from '/plugins/composed-voice/src/browser-audio.js';
 import { createNetworkRelayClient } from '/plugins/composed-voice/src/network-client.js';
+// AIT-625 r6: the relay's browser requests go through the guarded owner-request helper.
+import { ownerFetch } from '/packages/ui/src/owner-request.js';
 import { createComposedBrowserMedia } from '/plugins/composed-voice/src/client.js';
 import { installQualificationOutputProbe, qualificationObservationWindow } from '/composed/qualification-output-timing.js';
 
@@ -89,7 +91,7 @@ window.composedQualification = {
       }, { onFault: fail }),
     });
     const media = createComposedBrowserMedia({ player, capture: createPCMCapture({ audioProcessing: false, onFault: fail }),
-      openRelay: createNetworkRelayClient({ headers }) });
+      openRelay: createNetworkRelayClient({ headers, ownerFetch }) });
     const timer = setTimeout(finishTiming, qualificationObservationWindow(grant.opaque.spendDeadlineAt));
     const unsubscribe = scripted.subscribe(onTiming);
     try {

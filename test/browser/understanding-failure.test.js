@@ -856,7 +856,10 @@ test('AIT-466 N2: unlocked availability changes preserve the Retry slot and rect
     window.stickyFooter = c.shadowRoot.querySelector('.understanding > .foot');
     window.assessmentAvailable = false;
     const fetchOriginal = window.fetch.bind(window);
-    window.fetch = (url, options) => String(url) === `/api/sessions/${c.session.id}`
+    // AIT-625 r6: the guarded owner-request helper sends the absolute page-origin URL; match the
+    // same-origin snapshot path (a foreign origin falls through).
+    const snapshot = url => { const target = new URL(String(url), location.href); return target.origin === location.origin && target.pathname === `/api/sessions/${c.session.id}`; };
+    window.fetch = (url, options) => snapshot(url)
       ? Promise.resolve(Response.json({ ...c.session, featureMatrix: { best: { text: { available: true },
         analysis: { available: window.assessmentAvailable, reason: window.assessmentAvailable ? null : 'not configured' } } } }))
       : fetchOriginal(url, options);

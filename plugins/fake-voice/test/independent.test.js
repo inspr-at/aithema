@@ -6,6 +6,7 @@ import { createFakeVoice } from '../src/client.js';
 import { manifest } from '../src/manifest.js';
 import { validateManifest } from '../../../packages/core/src/plugins.js';
 import { assertVoicePorts, assertVoiceSession } from '../../../packages/core/src/live-voice.js';
+import '../../../packages/ui/test/fixtures/page-origin.js';
 
 test('AIT-102 grep: fake pipeline has no provider imports, factory, SDK, manifest or token protocol', async () => {
   for (const path of ['plugins/fake-voice/src/client.js', 'plugins/fake-voice/src/server.js', 'plugins/fake-voice/src/manifest.js',

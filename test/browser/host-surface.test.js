@@ -514,7 +514,8 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
     const state = await inShadow(page, c => {
       const r = c.shadowRoot, link = r.querySelector('.composer-out__export');
       return { inert: r.querySelector('form.composer').inert, voiceDisabled: r.querySelector('.voice-start').disabled,
-        exportVisible: link.getClientRects().length > 0 && link.getAttribute('aria-hidden') === 'false', href: link.href,
+        exportVisible: link.getClientRects().length > 0 && link.getAttribute('aria-hidden') === 'false', href: link.getAttribute('href'),
+        exportPath: `/api/sessions/${c.session.id}/export`,
         transcript: c.session.transcript[0].content };
     });
     assert.equal(state.inert, true); assert.equal(state.voiceDisabled, true); assert.equal(state.exportVisible, true);
@@ -524,7 +525,9 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
     });
     assert.ok(titleLines <= 1.01, `${locale}/${reason}: title fits the existing single row at 390 px`);
     assert.ok(state.transcript.length > 0);
-    assert.equal(await page.evaluate(async href => (await fetch(href)).status, state.href), 200);
+    // AIT-625 r6 (gate3c M2): the control has no navigable href; the export route still answers.
+    assert.equal(state.href, null);
+    assert.equal(await page.evaluate(async path => (await fetch(path)).status, state.exportPath), 200);
     assert.equal(await overflow(page), 0);
     await assertExport(locale, '.composer-out__export');
     await assertExport(locale, '.export');

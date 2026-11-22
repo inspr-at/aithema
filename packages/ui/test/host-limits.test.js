@@ -21,7 +21,8 @@ for (const copy of [de, en]) for (const reason of ['one-hour', 'session', 'voice
     assert.equal(root.querySelector('.qcard').inert, true);
     assert.equal(root.querySelector('.voice-start').disabled, true);
     assert.equal(root.querySelector('.composer-out__export').getAttribute('aria-hidden'), 'false');
-    assert.ok(root.querySelector('.composer-out__export').href.endsWith(`/api/sessions/${c.session.id}/export`));
+    // AIT-625 r6 (gate3c M2): the export control has no navigable href; it exports through the helper.
+    assert.equal(root.querySelector('.composer-out__export').hasAttribute('href'), false);
     assert.equal(c.session.transcript[0].content, 'We need a preorder app.');
     t.mock.timers.tick(15_001); await tick(12);
     assert.equal(root.querySelector('form.composer').inert, true, 'an unrelated credit refresh cannot clear a terminal reason');
@@ -74,7 +75,7 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const [reason, [ti
       assert.equal(link.getAttribute('aria-hidden'), 'false');
       assert.equal(link.inert, false);
       assert.equal(link.textContent.trim(), locale === 'de' ? 'Gespräch exportieren' : 'Export conversation');
-      assert.ok(link.href.endsWith(`/api/sessions/${c.session.id}/export`));
+      assert.equal(link.hasAttribute('href'), false, 'AIT-625 r6 (gate3c M2): no navigable export href');
       if (reason === 'one-hour') {
         const label = locale === 'de' ? 'Zeit abgelaufen' : 'Time up';
         assert.equal(root.querySelector('.voice-state').textContent, label);
@@ -135,7 +136,7 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const variant of [
     assert.equal(link.inert, false); assert.equal(link.getAttribute('aria-hidden'), 'false');
     assert.equal(link.textContent.trim(), copy.hostSurface.usedUp.export);
     assert.equal(link.hasAttribute('data-next'), false, 'export owns its own slot');
-    assert.ok(link.href.endsWith(`/api/sessions/${c.session.id}/export`));
+    assert.equal(link.hasAttribute('href'), false, 'AIT-625 r6 (gate3c M2): no navigable export href');
     assert.equal(announcement.getAttribute('aria-live'), 'polite');
     assert.equal(announcement.textContent, `${title} ${body}`);
     assert.equal(changes.length, 1);

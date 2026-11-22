@@ -1,12 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import './fixtures/page-origin.js';
 import { applyEvent, createSession, inputRevision } from '@inspr/aithema-core';
 import { voiceEvents } from '../../core/src/live-voice.js';
 import { manifest } from '../../../plugins/elevenlabs/src/manifest.js';
 import { en } from '../src/i18n/en.js';
 
-const window = new Window();
+const window = new Window({ url: 'http://localhost/' });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
 const tick = () => new Promise(resolve => setImmediate(resolve));
@@ -19,7 +20,7 @@ async function fixture(t) {
   const commands = [], events = voiceEvents();
   let snapshot, voice;
   const fetch = t.mock.method(globalThis, 'fetch', async url => {
-    assert.equal(url, `/api/sessions/${session.id}`, 'only the fixture snapshot is fetched');
+    assert.equal(url, `http://localhost/api/sessions/${session.id}`, 'only the fixture snapshot is fetched');
     return Response.json(snapshot);
   });
   c.configure({ copy: en, session, voiceClient: { manifest, async start({ callId }) {

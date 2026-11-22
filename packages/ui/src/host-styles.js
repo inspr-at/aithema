@@ -201,6 +201,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .composer-out[data-host-limit] .composer-out__export { max-width:none; color:var(--aithema-muted); }
 .composer-out__export::after { content:none; }
 [data-credit-steps-reserve] { display:none; }
+.composer-out__export:not([aria-disabled="true"]) { cursor:pointer; }
 .composer-out__export svg { width:14px; height:14px; flex:none; color:var(--aithema-muted); }
 [data-used-up]:is(.qcard,.question-card) button { color:var(--aithema-muted); background:none; }
 [data-used-up]:is(.qcard,.question-card) :is(.go,.tag,.qhint) { visibility:hidden; }

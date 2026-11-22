@@ -476,8 +476,8 @@ test('library: New and Reset hand the conversation to the host; without a handle
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
     if (String(url).endsWith('/events')) return new Response(new ReadableStream({ start(controller) { if (options.signal?.aborted) controller.close();
       else options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
-    if (String(url) === `/api/library/${created.id}/reset`) return Response.json({ ...entry(replacement.id, '', '2026-10-10T11:00:00Z'), session: replacement }, { status: 201 });
-    if (String(url).startsWith('/api/library')) return Response.json({ items: [], total: 0 });
+    if (String(url).replace(/^http:\/\/localhost(?=\/)/u, '') === `/api/library/${created.id}/reset`) return Response.json({ ...entry(replacement.id, '', '2026-10-10T11:00:00Z'), session: replacement }, { status: 201 });
+    if (String(url).replace(/^http:\/\/localhost(?=\/)/u, '').startsWith('/api/library')) return Response.json({ items: [], total: 0 });
     return Response.json({ balance, limitSlot: null, handover: null, offer: null });
   });
   c.addEventListener('aithema-open-conversation', event => event.preventDefault(), { once: true });

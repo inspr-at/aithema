@@ -1,4 +1,5 @@
 import { adminCopy } from './admin-copy.js';
+import { ownerFetch } from '../packages/ui/src/owner-request.js';
 import { adminModel, renderAdmin, TIERS, esc, fill } from './admin-view.js';
 import { preferredLocale } from './page-preferences.js';
 
@@ -72,7 +73,8 @@ function signedOut() {
   document.body.innerHTML = renderAdmin({ signed: 'expired' }, locale);
 }
 async function read(path, options) {
-  const r = await fetch('/api/operator/admin/' + path, { cache: 'no-store', ...options });
+  // AIT-625 r7: operator requests carry the session cookies too, so they use the guarded helper.
+  const r = await ownerFetch(globalThis.document?.defaultView ?? globalThis, '/api/operator/admin/' + path, { cache: 'no-store', ...options });
   if (r.status === 401) { signedOut(); throw Object.assign(new Error('expired'), { expired: true }); }
   const data = await r.json(); hostNow = Number(r.headers.get('x-aithema-now'));
   if (!r.ok) throw Object.assign(new Error('admin-request'), { status: r.status, data });

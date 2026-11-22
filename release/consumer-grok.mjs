@@ -5,6 +5,7 @@ import { PluginRegistry, publicReasoningManifest } from '@inspr/aithema-core';
 import { SQLiteStorage, SQLiteBudgetLedger, createPluginRuntime, createVoiceHandlers } from '@inspr/aithema-server';
 import { createGrokVoiceProvider } from '@inspr/aithema-plugin-grok-voice/server';
 import { createGrokVoiceClient } from '@inspr/aithema-plugin-grok-voice/client';
+import { ownerFetch } from '@inspr/aithema-ui/owner-request';
 
 export async function testGrokConsumer() {
   // Synthetic account validity follows the wall clock read by both Grok factories.
@@ -97,8 +98,18 @@ export async function testGrokConsumer() {
     for (const action of ['close', 'pause', 'resume', 'heartbeat', 'recover']) control[action] = identity =>
       post(`/${identity.callId}/${action}`, { ...identity, tabId: 'fixture-tab' });
     const client = createGrokVoiceClient({ control,
+      // A Node consumer with an in-process relay. The smoke's happy-dom globals serve the web
+      // components, so the relay sees a browser context; it is given the fixed host page it
+      // serves, and its requests go through the guarded owner-request helper (AIT-625 r6),
+      // whose page fetch is the in-process host for exactly that call (the helper reads
+      // fetch synchronously, before its first await).
       network: { url: 'https://host.test/composed/relay', headers: { 'x-owner': 'fixture-owner' },
-        fetch: (url, init) => handlers.handle(new Request(url, init)) },
+        view: { origin: 'https://host.test', location: { protocol: 'https:', href: 'https://host.test/' }, document: { baseURI: 'https://host.test/' } },
+        ownerFetch: (view, url, init) => {
+          const page = globalThis.fetch;
+          globalThis.fetch = (target, options) => handlers.handle(new Request(target, options));
+          try { return ownerFetch(view, url, init); } finally { globalThis.fetch = page; }
+        } },
       capture: async ({ onAudio }) => { captureAudio = onAudio; return { stop() {} }; },
       player: { play(bytes, format) { played.push({ bytes, format }); }, stop() {} } });
     clientSession = await client.start({ callId: 'installed-grok' }, { deadlineAt: Date.now() + 5000 });

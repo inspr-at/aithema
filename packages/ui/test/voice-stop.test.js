@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import './fixtures/page-origin.js';
 import { createSession } from '@inspr/aithema-core';
 import { AudioRail } from '../src/audio-rail.js';
 import { createVoiceControl } from '../src/voice-control.js';
@@ -9,7 +10,7 @@ import { en } from '../src/i18n/en.js';
 import { createElevenLabsClient } from '../../../plugins/elevenlabs/src/client.js';
 import { fakeSdk } from '../../../plugins/elevenlabs/test/fixtures.js';
 
-const window = new Window();
+const window = new Window({ url: 'http://localhost/' });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
 const tick = () => new Promise(resolve => setImmediate(resolve));
@@ -64,7 +65,7 @@ function fixture(t, { transport, restored = true, component = false, echoPause =
     if (url.endsWith('/heartbeat')) return Response.json({ acknowledged: true, browserLivenessDeadlineAt: Date.now() + 30_000 });
     callId = request.body.callId; return Response.json(receipt());
   });
-  const { control } = createVoiceControl({ sessionId: session.id });
+  const { control } = createVoiceControl({ sessionId: session.id, view: window });
   const client = createElevenLabsClient({ control, sdk, mediaDevices: sdk.mediaDevices, AudioContext: sdk.AudioContext,
     persistEvent: async () => {} });
   const start = client.start;

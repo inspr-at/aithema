@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import './fixtures/page-origin.js';
 import { createSession } from '@inspr/aithema-core';
 import { MODEL_DISPLAY_NAMES, modelDisplayName, wholeCredits, formatCredits, draftsLine, settingsFlag, clockTime } from '../src/display.js';
 import { reasonSeparator } from '../src/consent-line.js';

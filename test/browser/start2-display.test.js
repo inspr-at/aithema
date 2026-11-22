@@ -1788,7 +1788,9 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
         if (state === 'device') { assert.equal(footer.disabled, 'true'); assert.equal(footer.href, null); assert.equal(footer.underline, 'none'); assert.equal(footer.why, copy.deviceExportUnavailable);
           assert.equal(footer.reason, copy.deviceExportUnavailable); assert.equal(footer.reasonVisible, true);
           assert.equal(footer.described, true); assert.equal(footer.tabIndex, 0); assert.equal(footer.role, 'link'); }
-        else { assert.ok(footer.href); assert.equal(footer.underline, 'underline'); assert.equal(footer.reasonVisible, false); }
+        // AIT-625 r6/r7 (gate4c M3): the enabled export is the helper's href-less control, not a link target.
+        else { assert.equal(footer.href, null); assert.equal(footer.role, 'link'); assert.equal(footer.tabIndex, 0); assert.notEqual(footer.disabled, 'true');
+          assert.equal(footer.underline, 'underline'); assert.equal(footer.reasonVisible, false); }
         record(label, `${state}-footer`, footer);
       }
     }

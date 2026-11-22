@@ -2,6 +2,7 @@ import { paintConsentLine } from '../src/consent-line.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import './fixtures/page-origin.js';
 import { applyEvent, createSession, inputRevision, reduceUnderstanding } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
@@ -11,7 +12,7 @@ import { styles, palette } from '../src/styles.js';
 import { settingsStyles } from '../src/settings-styles.js';
 import { entranceStyles } from '../src/entrance-styles.js';
 import { contrast, glassCard, mix, textPairs } from '../../../test/contrast.js';
-const window = new Window();
+const window = new Window({ url: 'http://localhost/' });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
 function setup(options = {}) {
@@ -41,7 +42,8 @@ test('host copy, multiline composer, safe transcript bubbles, export and respons
   const c = setup(), root = c.shadowRoot; turn(c, 't1', '<img src=x onerror=alert(1)>\nHello');
   assert.equal(root.querySelector('ol img'), null); assert.match(root.querySelector('ol').textContent, /<img/);
   assert.equal(root.querySelector('textarea').getAttribute('maxlength'), '8000');
-  assert.equal(root.querySelector('.export').getAttribute('href'), `/api/sessions/${c.session.id}/export`);
+  // AIT-625 r6 (gate3c M2): no navigable href in any mode; the control exports through the helper.
+  assert.equal(root.querySelector('.export').hasAttribute('href'), false); assert.equal(root.querySelector('.export').getAttribute('role'), 'link');
   assert.match(root.querySelector('style').textContent, /min-width:60rem/); assert.match(root.querySelector('style').textContent, /--aithema-accent/);
 });
 test('readiness/aside uses draft truth, five missing rows plus overflow and preserved clarified expansion', () => {
@@ -150,7 +152,7 @@ test('AIT-390: snapshot gap recovery does not replay aithema-event for skipped e
     data: { id: 'gap', role: 'assistant', content: 'Recovered reply' } };
   const snapshot = [first, skipped, gap].reduce(applyEvent, c.session);
   const fetch = t.mock.method(globalThis, 'fetch', async url => {
-    assert.equal(url, `/api/sessions/${c.session.id}`, 'recovery only reads the local session snapshot');
+    assert.equal(url, `http://localhost/api/sessions/${c.session.id}`, 'recovery only reads the local session snapshot');
     return Response.json(snapshot);
   });
   c.receive(first); c.receive(gap);

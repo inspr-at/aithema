@@ -3,6 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import './fixtures/page-origin.js';
 import { createSession } from '../../core/src/session.js';
 import { en } from '../src/i18n/en.js';
 import { firstPaintMarkupFor, firstPaintMarkup, firstPaintStyles } from '../src/first-paint.js';
