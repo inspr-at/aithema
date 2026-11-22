@@ -2190,6 +2190,18 @@ import { createComposedVoice } from '@inspr/aithema-server/composed-voice/server
 import { createComposedBrowserMedia } from '@inspr/aithema-server/composed-voice/client';
 import { createComposedComponentAccounting } from '@inspr/aithema-server/composed-voice/accounting';
 import { createComposedVoiceAuthority } from '@inspr/aithema-server/composed-voice/authority';
+import { ownerFetch } from '@inspr/aithema-ui/owner-request';
+```
+
+In the browser, the relay sends only through the guarded owner-request helper, so
+`network.ownerFetch` is required; without it the client fails closed before sending.
+A cookie host passes nothing else (the cookie rides the same-origin request). An
+explicit-token host passes its session token as `network.sessionToken`; the helper
+sends it, never a raw header:
+
+```js
+const grokVoice = createGrokVoiceClient({ control: voiceControl,
+  network: { url: '/api/voice/grok/relay', ownerFetch, sessionToken } }); // sessionToken: explicit-token hosts only
 ```
 
 Install the module tarballs at the exact coordinate in `release/version.json`,

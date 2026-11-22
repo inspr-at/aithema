@@ -11,6 +11,10 @@
  * Only a runtime with no browser global and no view (a server-side runtime with an injected
  * fetch) keeps the fixed-URL transport: the URL as given, redirect:'error', the same deadline. */
 export const RELAY_REQUEST_DEADLINE_MS = 30_000;
+// AIT-625 r7 (gate4c M2): the helper drops a raw owner header, so an explicit-token host's token
+// rides its `sessionToken` option: the relay's own `sessionToken`, or this header in `headers`,
+// mapped once at construction. In a browser it is never sent as a raw header.
+const OWNER_HEADER = 'x-aithema-session-token';
 // Named typeof checks (no computed global access: the AIT-625 structural scan forbids it).
 const browserRuntime = () => typeof window !== 'undefined' || typeof self !== 'undefined' ||
   typeof document !== 'undefined' || typeof WorkerGlobalScope !== 'undefined';
@@ -24,15 +28,17 @@ function combine(signals) {
   }
   return controller.signal;
 }
-export function createNetworkRelayClient({ url = '/composed/relay', fetch: request = globalThis.fetch, ownerFetch, headers = {}, view = pageView(), deadline = RELAY_REQUEST_DEADLINE_MS } = {}) {
+export function createNetworkRelayClient({ url = '/composed/relay', fetch: request = globalThis.fetch, ownerFetch, headers = {}, sessionToken, view = pageView(), deadline = RELAY_REQUEST_DEADLINE_MS } = {}) {
   const browser = Boolean(view) || browserRuntime();
+  const hostHeaders = Object.fromEntries(Object.entries(headers).filter(([name]) => name.toLowerCase() !== OWNER_HEADER));
+  const token = sessionToken ?? Object.entries(headers).find(([name]) => name.toLowerCase() === OWNER_HEADER)?.[1];
   return async function openRelay(grant) {
     if (browser && typeof ownerFetch !== 'function') throw new Error('Relay requests in a browser require the page origin through the owner-request helper');
     const lifetime = new AbortController(); let connectionId, closed = false, commands = 0, retirementRevision = 0;
     async function post(action, body, binary = false, signal = lifetime.signal) {
       const finite = action !== 'frame' && Number.isFinite(deadline);
       const init = { method: 'POST', credentials: 'same-origin',
-        headers: { ...headers, 'content-type': binary ? 'application/octet-stream' : 'application/json',
+        headers: { ...hostHeaders, ...(!browser && token ? { [OWNER_HEADER]: token } : {}), 'content-type': binary ? 'application/octet-stream' : 'application/json',
           'x-composed-action': action, ...(connectionId ? { 'x-composed-connection': connectionId } : {}) },
         body: binary ? body : JSON.stringify(body ?? {}) };
       // Server-side transport only: its own deadline. In a browser the helper owns the deadline.
@@ -40,7 +46,7 @@ export function createNetworkRelayClient({ url = '/composed/relay', fetch: reque
       const id = !browser && finite ? setTimeout(() => timer.abort(new DOMException('Relay request deadline', 'TimeoutError')), deadline) : null;
       try {
         const response = browser
-          ? await ownerFetch(view, url, { ...init, signal, deadline: finite ? deadline : Infinity, message: 'Relay requests require same origin' })
+          ? await ownerFetch(view, url, { ...init, ...(token ? { sessionToken: token } : {}), signal, deadline: finite ? deadline : Infinity, message: 'Relay requests require same origin' })
           : await request(String(url), { ...init, redirect: 'error', signal: id ? combine([signal, timer.signal]) : signal });
         const value = await response.json();
         if (!response.ok) { const error = new Error('Composed relay request failed'); error.code = value.error; error.status = response.status; throw error; }

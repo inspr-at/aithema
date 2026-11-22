@@ -406,7 +406,8 @@ const player = createPCMPlayer({ onTiming }); // browser-audio.js
 const capture = createPCMCapture({ onTiming });
 const media = createComposedBrowserMedia({ capture, player, control: existingVoiceControl,
   // ownerFetch from @inspr/aithema-ui/owner-request: in a browser the relay sends only through it.
-  openRelay: createNetworkRelayClient({ url: '/composed/relay', headers: ownerHeaders, ownerFetch }) });
+  // An explicit-token host adds `sessionToken`; a cookie host omits it.
+  openRelay: createNetworkRelayClient({ url: '/composed/relay', sessionToken, ownerFetch }) });
 const session = await media.connect(admittedGrant);
 ```
 

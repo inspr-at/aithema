@@ -86,7 +86,11 @@ test('AIT-625 structural: each browser voice relay sends through the injected he
     // r6 (gate3c M1): the browser path is the helper, not a parallel copy of its checks.
     assert.equal(text.match(/\bownerFetch\(/gu)?.length, 1, `${path} sends browser requests through the helper once`);
     assert.doesNotMatch(text, /view\.origin|baseURI|new URL\(/u, `${path} carries no origin check of its own`);
-    assert.deepEqual(offenders(join(ROOT, path), path).filter(found => !/: fetch reference$/u.test(found)), [], `${path} names no owner header`);
+    // r7 (gate4c M2): the relay names the owner header once, only to map a host header into the
+    // helper's sessionToken option (network-relay.test.js proves it never leaves as a raw header).
+    assert.equal(text.match(/x-aithema-session-token/giu)?.length, 1, `${path} names the owner header once, for the mapping`);
+    assert.match(text, /const OWNER_HEADER = 'x-aithema-session-token';/u, `${path} keeps it in the one mapping constant`);
+    assert.deepEqual(offenders(join(ROOT, path), path).filter(found => !/: (fetch reference|owner header prefix|owner header suffix)$/u.test(found)), [], `${path} has no other network or owner-header finding`);
   }
   assert.equal(readFileSync(join(ROOT, RELAYS[0]), 'utf8'), readFileSync(join(ROOT, RELAYS[1]), 'utf8'), 'the two relay copies stay identical');
 });
