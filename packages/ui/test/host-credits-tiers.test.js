@@ -378,9 +378,9 @@ for (const copy of [de, en]) test(`AIT-411: defaults equal independently capture
     // AIT-587 (AIT-553 gate1 L3): the used-up body no longer promises an export it does not always offer.
     .replaceAll(copy === en ? 'Your conversation stays saved. You can read and export it.' : 'Ihr Gespräch bleibt gespeichert. Sie können es lesen und exportieren.',
       copy === en ? 'Your conversation stays saved.' : 'Ihr Gespräch bleibt gespeichert.')
-    // AIT-625 r4 (gate2c M2): the export link is resolved through the owner-origin check, so its
-    // href is the absolute page-origin URL (a later <base> cannot re-point it).
-    .replaceAll('href="/api/sessions/<session>/export"', 'href="http://localhost/api/sessions/<session>/export"');
+    // AIT-625 r6 (gate3c M2): the export control has no navigable href (it exports through the
+    // guarded helper); the link role and keyboard focus stay as attributes in the href's place.
+    .replaceAll('href="/api/sessions/<session>/export"', 'role="link" tabindex="0"');
   assert.deepEqual(actual, expected.map(approvedCopy), 'only approved AIT-435 spaces, AIT-443 daily-cap and AIT-445 v1.1 E‑Mail copy differ from RC13 plus the main hunk');
   assert.deepEqual(actual, baseline.snapshots[copy.display.locale].map(approvedCopy), 'only approved AIT-435 spaces, AIT-443 daily-cap and AIT-445 v1.1 E‑Mail copy differ from the main capture');
   assert.equal(fixture.root.querySelectorAll('[data-credit-option-variant]').length, 0, 'defaults add no option peers');

@@ -412,11 +412,12 @@ test('AIT-625 r4 element: in cookie mode a foreign <base> yields no export link;
   };
   const links = component => ['.export', '.composer-out__export'].map(selector => component.shadowRoot.querySelector(selector));
   const same = await mount();
-  for (const link of links(same)) assert.equal(link.getAttribute('href'), `http://app.test/api/sessions/${same.session.id}/export`, link.className);
+  // r6 (gate3c M2): no navigable href in any mode (the r4 absolute href is gone).
+  for (const link of links(same)) assert.equal(link.hasAttribute('href'), false, link.className);
   const base = window.document.createElement('base'); base.href = 'https://evil.example/'; window.document.head.append(base);
   t.after(() => base.remove());
-  // A base added later cannot re-point the already resolved absolute link.
-  for (const link of links(same)) assert.equal(new URL(link.href).origin, 'http://app.test', link.className);
+  // A base added later leaves nothing to re-point.
+  for (const link of links(same)) assert.equal(link.hasAttribute('href'), false, link.className);
   const foreign = await mount();
   for (const link of links(foreign)) {
     assert.equal(link.hasAttribute('href'), false, `${link.className}: no link to a foreign origin`);

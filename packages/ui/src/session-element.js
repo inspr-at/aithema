@@ -797,7 +797,7 @@ export class AithemaSession extends HTMLElement {
           <div class="composer-out" aria-hidden="true" inert><p class="composer-out__title"><span></span></p><p class="composer-out__body"><span></span></p>
             <div class="composer-out__bar"><span class="composer-out__steps"><span class="composer-out__give" data-next="give"></span><span class="composer-out__confirm" data-next="confirm"></span><span class="composer-out__none" data-next="none"></span></span>
               <span class="composer-out__actions"><button class="composer-out__upgrade" type="button" aria-haspopup="dialog"><span data-next="give"></span><span data-next="confirm"></span></button>
-                <a class="composer-out__export">${icon('download')}<span></span></a></span></div></div><button class="purpose-new" type="button" hidden></button></div>
+                <a class="composer-out__export" role="link" tabindex="0">${icon('download')}<span></span></a></span></div></div><button class="purpose-new" type="button" hidden></button></div>
         <div class="email-ask-dock"></div><p class="credit-announcement sr-only" role="status" aria-live="polite"></p><p class="email-ask-announcement sr-only" role="status" aria-live="polite"></p></div>
         <div class="drop-overlay" aria-hidden="true"><p><strong></strong><span></span></p></div></section>
       <aside class="understanding" aria-labelledby="understanding-title"><header class="head"><h2 id="understanding-title" data-copy="understanding"></h2><button class="concept-tab" type="button" data-copy="conceptTab"></button></header>
@@ -962,12 +962,20 @@ export class AithemaSession extends HTMLElement {
       root.querySelector('.understanding > .foot').append(create);
     }
     this.#renderMode();
-    root.querySelector('.export').addEventListener('click', e => {
-      if (!this.#sessionToken || this.#session.processingPreset === 'device') return;
-      e.preventDefault(); void this.#export();
-    });
+    // AIT-625 r6 (gate3c M2): neither export control has an href, in token AND cookie mode, so no
+    // native link action (middle click, new tab, drag, keyboard) can send the owner cookie around
+    // the helper; click and Enter export through #export() (the guarded helper) only.
+    const exportAction = (event, guard) => {
+      if (event.type === 'keydown' && event.key !== 'Enter') return;
+      event.preventDefault();
+      if (this.#session.processingPreset === 'device' || !guard(event.currentTarget)) return;
+      void this.#export();
+    };
+    for (const type of ['click', 'keydown']) {
+      root.querySelector('.export').addEventListener(type, event => exportAction(event, control => control.getAttribute('aria-disabled') !== 'true'));
+      root.querySelector('.composer-out__export').addEventListener(type, event => exportAction(event, control => control.getAttribute('aria-disabled') !== 'true'));
+    }
     root.querySelector('.composer-out__upgrade').addEventListener('click', event => this.openSettings(event.currentTarget, { tab: 'general', anchor: '#email' }));
-    root.querySelector('.composer-out__export').addEventListener('click', event => { event.preventDefault(); if (this.#session.processingPreset !== 'device') void this.#export(); });
     root.querySelector('.purpose-new').addEventListener('click', () => this.#newConversation({ processingPreset: this.#session.processingPreset, settings: this.#session.settings }));
     // r7: discarding is the visitor's own action: release the kept keyboard-up
     // feedback row before the discard repaints (capture phase, ahead of the handlers).
@@ -1961,10 +1969,10 @@ export class AithemaSession extends HTMLElement {
     catch { /* Keep the end action available for another deliberate attempt. */ }
     finally { if (id === this.#session.id) this.#erasedCreating = false; }
   }
-  // The export URL on the page's own origin (absolute, so a later <base> cannot re-point it), or null.
-  #exportHref() {
-    try { return ownerURL(this.ownerDocument.defaultView, `${this.#base}/api/sessions/${this.#session.id}/export`).href; }
-    catch { return null; }
+  // r6: whether the export URL resolves to the page's own origin (the controls carry no href).
+  #exportAvailable() {
+    try { return Boolean(ownerURL(this.ownerDocument.defaultView, `${this.#base}/api/sessions/${this.#session.id}/export`)); }
+    catch { return false; }
   }
   async #export() {
     const sessionId = this.#session.id;
@@ -1973,7 +1981,9 @@ export class AithemaSession extends HTMLElement {
       const response = await this.#api(`${this.#base}/api/sessions/${sessionId}/export`, { sessionToken: this.#sessionToken });
       if (!response.ok) throw new Error();
       const blob = await response.blob();
-      if (sessionId !== this.#session.id) return;
+      // r6 (gate3c M4): the helper settles at the body's end, before blob() resolves, and erasure
+      // keeps the session id; so check the erasure state itself once the body is consumed.
+      if (sessionId !== this.#session.id || this.#erased || this.#erasedIds.has(sessionId)) return;
       url = URL.createObjectURL(blob);
       const link = document.createElement('a'); link.href = url; link.download = 'aithema-session.zip'; link.click();
     } catch { if (sessionId === this.#session.id) this.#status(this.#copy.controlFailed); }
@@ -2070,11 +2080,9 @@ export class AithemaSession extends HTMLElement {
       exported.removeAttribute('href'); exported.setAttribute('aria-disabled', 'true');
       exported.setAttribute('aria-describedby', reason.id); exported.title = this.#copy.deviceExportUnavailable;
     } else {
-      // r4: the cookie-authenticated link navigates itself, so it is resolved through the same
-      // origin check as every owner request; a foreign <base> or no page origin leaves no link.
-      const href = this.#exportHref();
-      if (href) { exported.href = href; exported.removeAttribute('aria-disabled'); }
-      else { exported.removeAttribute('href'); exported.setAttribute('aria-disabled', 'true'); }
+      // r6: no href in any mode; a foreign <base> or no page origin disables the control.
+      exported.removeAttribute('href');
+      if (this.#exportAvailable()) exported.removeAttribute('aria-disabled'); else exported.setAttribute('aria-disabled', 'true');
       exported.removeAttribute('aria-describedby'); exported.title = '';
     }
     if (this.#rail) { const client = this.#voiceClientFor(); if (!this.#rail.session && this.#rail.client !== client) { this.#rail.client = client; this.#renderVoice(); } }
@@ -2642,8 +2650,8 @@ export class AithemaSession extends HTMLElement {
         exportAction.dataset.short = resolveCopy(copy, 'usedUpExportShort', undefined, this.#session.locale);
         exportAction.setAttribute('aria-label', u.export);
       } else { delete exportAction.dataset.short; exportAction.removeAttribute('aria-label'); }
-      const outHref = this.#exportHref(), outExport = out.querySelector('.composer-out__export');
-      if (outHref) outExport.href = outHref; else outExport.removeAttribute('href');
+      const outExport = out.querySelector('.composer-out__export');
+      if (this.#exportAvailable()) outExport.removeAttribute('aria-disabled'); else outExport.setAttribute('aria-disabled', 'true');
       for (const node of out.querySelectorAll('[data-next]')) { const shown = node.dataset.next === kind && !node.hidden; node.setAttribute('aria-hidden', String(!shown)); node.inert = !shown; }
       const exportLink = out.querySelector('.composer-out__export'), exportShown = !noAction && (this.#combined || kind === 'none' || newConversationEnabled || ['host-limit', 'session'].includes(this.#host?.endReason));
       exportLink.toggleAttribute('data-export', exportShown); exportLink.inert = !exportShown; exportLink.setAttribute('aria-hidden', String(!exportShown));

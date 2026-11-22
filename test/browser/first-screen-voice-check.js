@@ -224,7 +224,8 @@ test('AIT-553 item 3: used-up upgrade copy has an exposed export link; the host 
     positive({ export: record.box });
     assert.equal(record.visible, true, 'used-up upgrade exposes the existing export control');
     assert.equal(record.hidden, 'false'); assert.equal(record.inert, false); assert.equal(record.focused, true);
-    assert.match(record.href, /\/api\/sessions\/[^/]+\/export$/);
+    // AIT-625 r6 (gate3c M2): no navigable href; the control exports through the guarded helper.
+    assert.equal(record.href, null);
   }
 });
 
