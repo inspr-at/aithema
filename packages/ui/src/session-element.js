@@ -33,7 +33,7 @@ import { settingsStyles } from './settings-styles.js';
 import { SettingsDialog, ICONS, PRESET_ORDER, reasonText, engineView, catalogLabel } from './settings-dialog.js';
 import { LocalConnector } from './local-connector.js';
 import { postJson, postForm, sameOrigin } from './post-json.js';
-import { anySignal, ownerFetch } from './owner-request.js';
+import { anySignal, ownerFetch, ownerURL } from './owner-request.js';
 import { UPLOAD_LIMITS, UPLOAD_ACCEPT, DOCUMENT_UPLOAD_ACCEPT, UPLOAD_ICONS, uploadLimits, uploadRetryDelay, unclassifiedUploads, planUploads, refusalText, uploadStateText, uploadStateTexts, uploadsPossible, formatBytes, limitsText, dropText } from './uploads.js';
 import { voiceJournal, tabStorage, closeVoiceCall, answerVoicePings, voiceCallAbandoned } from './voice-orphan.js';
 import { node, setText, reconcile, fill } from './dom.js';
@@ -1800,17 +1800,21 @@ export class AithemaSession extends HTMLElement {
     const route = this.#sessionRoute(url), view = this.ownerDocument.defaultView;
     if (route && this.#erasedIds.has(route.id)) throw new DOMException('Conversation erased', 'AbortError');
     // A finite request for a conversation ends when that conversation is erased (with its deadline
-    // timer). The event stream has its own lifetime; a keepalive request is left to the browser.
+    // timer), through its body: it stays tracked until the helper reports the body consumed,
+    // cancelled, failed or timed out (r4), so an export still reading cannot download after erasure.
+    // The event stream has its own lifetime; a keepalive request is left to the browser.
     const init = options ?? bodyOrInit, own = route && !init.stream && !init.keepalive ? new AbortController() : null;
     const signal = own ? (init.signal ? anySignal([init.signal, own.signal]) : own.signal) : init.signal;
+    const release = own ? () => this.#inflight.get(route.id)?.delete(own) : undefined;
     if (own) { if (!this.#inflight.has(route.id)) this.#inflight.set(route.id, new Set()); this.#inflight.get(route.id).add(own); }
+    const tracked = { ...(signal ? { signal } : {}), ...(release ? { onSettled: release } : {}) };
     let response;
     try {
       if (options) {
         const post = bodyOrInit instanceof FormData ? postForm : postJson;
-        response = await post(url, bodyOrInit, { ...options, view, ...(signal ? { signal } : {}) });
-      } else response = await ownerFetch(view, url, { ...bodyOrInit, ...(signal ? { signal } : {}), ...(route?.snapshot ? { cache: 'no-store' } : {}) });
-    } finally { if (own) this.#inflight.get(route.id)?.delete(own); }
+        response = await post(url, bodyOrInit, { ...options, view, ...tracked });
+      } else response = await ownerFetch(view, url, { ...bodyOrInit, ...tracked, ...(route?.snapshot ? { cache: 'no-store' } : {}) });
+    } catch (error) { release?.(); throw error; }
     await this.#observeResponse(url, response);
     return response;
   }
@@ -1957,6 +1961,11 @@ export class AithemaSession extends HTMLElement {
     catch { /* Keep the end action available for another deliberate attempt. */ }
     finally { if (id === this.#session.id) this.#erasedCreating = false; }
   }
+  // The export URL on the page's own origin (absolute, so a later <base> cannot re-point it), or null.
+  #exportHref() {
+    try { return ownerURL(this.ownerDocument.defaultView, `${this.#base}/api/sessions/${this.#session.id}/export`).href; }
+    catch { return null; }
+  }
   async #export() {
     const sessionId = this.#session.id;
     let url;
@@ -2061,7 +2070,11 @@ export class AithemaSession extends HTMLElement {
       exported.removeAttribute('href'); exported.setAttribute('aria-disabled', 'true');
       exported.setAttribute('aria-describedby', reason.id); exported.title = this.#copy.deviceExportUnavailable;
     } else {
-      exported.href = `${this.#base}/api/sessions/${this.#session.id}/export`; exported.removeAttribute('aria-disabled');
+      // r4: the cookie-authenticated link navigates itself, so it is resolved through the same
+      // origin check as every owner request; a foreign <base> or no page origin leaves no link.
+      const href = this.#exportHref();
+      if (href) { exported.href = href; exported.removeAttribute('aria-disabled'); }
+      else { exported.removeAttribute('href'); exported.setAttribute('aria-disabled', 'true'); }
       exported.removeAttribute('aria-describedby'); exported.title = '';
     }
     if (this.#rail) { const client = this.#voiceClientFor(); if (!this.#rail.session && this.#rail.client !== client) { this.#rail.client = client; this.#renderVoice(); } }
@@ -2629,7 +2642,8 @@ export class AithemaSession extends HTMLElement {
         exportAction.dataset.short = resolveCopy(copy, 'usedUpExportShort', undefined, this.#session.locale);
         exportAction.setAttribute('aria-label', u.export);
       } else { delete exportAction.dataset.short; exportAction.removeAttribute('aria-label'); }
-      out.querySelector('.composer-out__export').href = `${this.#base}/api/sessions/${this.#session.id}/export`;
+      const outHref = this.#exportHref(), outExport = out.querySelector('.composer-out__export');
+      if (outHref) outExport.href = outHref; else outExport.removeAttribute('href');
       for (const node of out.querySelectorAll('[data-next]')) { const shown = node.dataset.next === kind && !node.hidden; node.setAttribute('aria-hidden', String(!shown)); node.inert = !shown; }
       const exportLink = out.querySelector('.composer-out__export'), exportShown = !noAction && (this.#combined || kind === 'none' || newConversationEnabled || ['host-limit', 'session'].includes(this.#host?.endReason));
       exportLink.toggleAttribute('data-export', exportShown); exportLink.inert = !exportShown; exportLink.setAttribute('aria-hidden', String(!exportShown));
