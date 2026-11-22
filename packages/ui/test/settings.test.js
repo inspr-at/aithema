@@ -913,7 +913,13 @@ test('AIT-234 / AIT-612 r3: an invalid consent document never saves; Done closes
   const done = h.q('.done');
   assert.equal(done.disabled, false, 'Done closes the sheet after a failed load');
   assert.equal(done.getAttribute('aria-disabled'), 'false');
-  assert.equal(h.q('.done-label').textContent, en.settings.done);
+  // AIT-612 r4 (TICK r3 M1): was `.done-label` === en.settings.done ("Done") with the check mark; nothing is
+  // finished, so the button reads Close / Schließen (the status says "Close and open it again") with the × icon.
+  assert.equal(en.settings.close, 'Close'); assert.equal(de.settings.close, 'Schließen');
+  assert.equal(h.q('.done-label').textContent, en.settings.close);
+  assert.equal(done.getAttribute('aria-label'), null, 'the accessible name is the visible label');
+  assert.equal([...done.querySelectorAll('*')].filter(n => n.childElementCount === 0 && !n.closest('[aria-hidden="true"]')).map(n => n.textContent).join('').trim(), 'Close');
+  assert.deepEqual([...done.querySelectorAll('svg path')].map(n => n.getAttribute('d')), ['m6 6 12 12M18 6 6 18'], 'the close icon (×), not the check');
   assert.equal(done.getAttribute('aria-describedby'), 'settings-save-status', 'Done carries the reason (the footer status)');
   assert.equal(h.root.getElementById('settings-save-status'), h.q('.save-status'));
   assert.ok(h.root.activeElement === done, 'focus moves to Done');

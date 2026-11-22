@@ -336,6 +336,8 @@ test('AIT-231: a full mock document preserves described items and an invalid one
   // grant, and Done is the next step: enabled, described by the footer status, it closes the sheet.
   assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('.consent-editor input').length), 0);
   assert.deepEqual(await shadow(page, c => { const done = c.shadowRoot.querySelector('.consent-save'); return [done.disabled, done.getAttribute('aria-describedby'), c.shadowRoot.activeElement === done]; }), [false, 'settings-save-status', true]);
+  // AIT-612 r4 (TICK r3 M1): was "Done" with the check mark; after a failed load it reads Close with the × icon.
+  assert.deepEqual(await shadow(page, c => { const done = c.shadowRoot.querySelector('.consent-save'); return [done.querySelector('.done-label').textContent, done.getAttribute('aria-label'), [...done.querySelectorAll('svg path')].map(n => n.getAttribute('d'))]; }), ['Close', null, ['m6 6 12 12M18 6 6 18']]);
   await shadow(page, c => c.shadowRoot.querySelector('.consent-save').click());
   await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
 });
