@@ -44,7 +44,7 @@ const { server, url } = await listen(async request => {
   if (path === '/stats') return Response.json(stats);
   if (path === '/drop') { for (const relay of relays.values()) relay.close(); return Response.json({ ok: true }); }
   if (path === '/' || path === '/denied') return new Response('<!doctype html><script type="importmap">' + JSON.stringify({ imports }) + '</script><meta charset="utf-8"><link rel="icon" href="data:,"><style>*{font-family:Arial,sans-serif;animation:none!important;transition:none!important}body{padding:24px;background:#f8fafc;color:#172033}pre{white-space:pre-wrap}</style><h1>AIT-160 · physical media proof</h1><pre id="proof">Awaiting local fake-device evidence</pre>', { headers: { 'content-type': 'text/html', ...(path === '/denied' ? { 'permissions-policy': 'microphone=()' } : {}) } });
-  if (!/^\/(?:plugins\/(?:composed-voice|grok-voice)\/src|packages\/(?:core\/src|server\/src\/composed))\/[a-z-]+\.js$/u.test(path)) return new Response(null, { status: 404 });
+  if (!/^\/(?:plugins\/(?:composed-voice|grok-voice)\/src|packages\/(?:core\/src|server\/src\/composed))\/[a-z-]+\.js$/u.test(path) && path !== '/packages/ui/src/owner-request.js') return new Response(null, { status: 404 });
   try { return new Response(await readFile(new URL('../..' + path, import.meta.url)), { headers: { 'content-type': 'text/javascript' } }); }
   catch { return new Response(null, { status: 404 }); }
 }, { hostname: '127.0.0.1', port: 0 });

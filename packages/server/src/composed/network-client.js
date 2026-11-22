@@ -1,32 +1,20 @@
 /** Same-origin authenticated fetch bridge. Host headers carry its existing owner
  * authentication; grants and connection capabilities never appear in URLs.
- * AIT-625: this runs in the browser and forwards host credentials (headers and the
- * same-origin cookie), so it applies the owner-request rules itself (this package cannot
- * depend on the UI helper): on a page, the URL is resolved once against document.baseURI
- * and must share the document's actual origin (window.origin; "null" fails closed);
- * every request uses redirect:'error'; finite actions end at a deadline that covers
- * the body. Only the frame long poll is left to the call lifetime, as /events is.
- * A worker is checked against its own origin and location. Only a runtime with no browser
- * global at all (no window, self, document or WorkerGlobalScope: a server-side runtime with
- * an injected fetch) has no page origin to protect; there the URL is used as given, still
- * with redirect:'error'. In any browser context view:null fails closed (AIT-625 r4). */
+ * AIT-625 r6 (gate3c M1): in a browser this module has no network check of its own. Every
+ * credential-bearing request goes through THE guarded owner-request helper
+ * (@inspr/aithema-ui/owner-request `ownerFetch`: the page origin, the URL resolved once
+ * against document.baseURI and checked there, redirect:'error', a deadline over headers and
+ * body), injected by the caller as `ownerFetch` (this package does not depend on the UI
+ * package). Without it, a browser context (a window, self, document or WorkerGlobalScope
+ * global, or an explicit view) fails closed before anything is sent. Only the frame long poll
+ * is left to the call lifetime (no deadline), as /events is.
+ * Only a runtime with no browser global and no view (a server-side runtime with an injected
+ * fetch) keeps the fixed-URL transport: the URL as given, redirect:'error', the same deadline. */
 export const RELAY_REQUEST_DEADLINE_MS = 30_000;
 // Named typeof checks (no computed global access: the AIT-625 structural scan forbids it).
 const browserRuntime = () => typeof window !== 'undefined' || typeof self !== 'undefined' ||
   typeof document !== 'undefined' || typeof WorkerGlobalScope !== 'undefined';
 const pageView = () => (browserRuntime() ? globalThis : null);
-function relayURL(view, url) {
-  if (!view) {
-    if (browserRuntime()) throw new Error('Relay requests require the page origin');
-    return String(url);
-  }
-  const origin = view.origin, base = view.document ? view.document.baseURI : view.location?.href;
-  if (typeof origin !== 'string' || origin === 'null' || !/^https?:$/u.test(view.location?.protocol ?? '') || !base)
-    throw new Error('Relay requests require the page origin');
-  const resolved = new URL(String(url), base);
-  if (resolved.origin !== origin) throw new Error('Relay requests require same origin');
-  return resolved.href;
-}
 function combine(signals) {
   if (typeof AbortSignal.any === 'function') return AbortSignal.any(signals);
   const controller = new AbortController();
@@ -36,18 +24,24 @@ function combine(signals) {
   }
   return controller.signal;
 }
-export function createNetworkRelayClient({ url = '/composed/relay', fetch: request = globalThis.fetch, headers = {}, view = pageView(), deadline = RELAY_REQUEST_DEADLINE_MS } = {}) {
+export function createNetworkRelayClient({ url = '/composed/relay', fetch: request = globalThis.fetch, ownerFetch, headers = {}, view = pageView(), deadline = RELAY_REQUEST_DEADLINE_MS } = {}) {
+  const browser = Boolean(view) || browserRuntime();
   return async function openRelay(grant) {
-    const target = relayURL(view, url);
+    if (browser && typeof ownerFetch !== 'function') throw new Error('Relay requests in a browser require the page origin through the owner-request helper');
     const lifetime = new AbortController(); let connectionId, closed = false, commands = 0, retirementRevision = 0;
     async function post(action, body, binary = false, signal = lifetime.signal) {
-      const timer = new AbortController(), finite = action !== 'frame' && Number.isFinite(deadline);
-      const id = finite ? setTimeout(() => timer.abort(new DOMException('Relay request deadline', 'TimeoutError')), deadline) : null;
+      const finite = action !== 'frame' && Number.isFinite(deadline);
+      const init = { method: 'POST', credentials: 'same-origin',
+        headers: { ...headers, 'content-type': binary ? 'application/octet-stream' : 'application/json',
+          'x-composed-action': action, ...(connectionId ? { 'x-composed-connection': connectionId } : {}) },
+        body: binary ? body : JSON.stringify(body ?? {}) };
+      // Server-side transport only: its own deadline. In a browser the helper owns the deadline.
+      const timer = new AbortController();
+      const id = !browser && finite ? setTimeout(() => timer.abort(new DOMException('Relay request deadline', 'TimeoutError')), deadline) : null;
       try {
-        const response = await request(target, { method: 'POST', credentials: 'same-origin', redirect: 'error', signal: finite ? combine([signal, timer.signal]) : signal,
-          headers: { ...headers, 'content-type': binary ? 'application/octet-stream' : 'application/json',
-            'x-composed-action': action, ...(connectionId ? { 'x-composed-connection': connectionId } : {}) },
-          body: binary ? body : JSON.stringify(body ?? {}) });
+        const response = browser
+          ? await ownerFetch(view, url, { ...init, signal, deadline: finite ? deadline : Infinity, message: 'Relay requests require same origin' })
+          : await request(String(url), { ...init, redirect: 'error', signal: id ? combine([signal, timer.signal]) : signal });
         const value = await response.json();
         if (!response.ok) { const error = new Error('Composed relay request failed'); error.code = value.error; error.status = response.status; throw error; }
         return value;

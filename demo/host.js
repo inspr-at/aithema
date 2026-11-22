@@ -1,6 +1,7 @@
 import '../packages/ui/src/session-element.js';
 import { createDeviceReasoning } from '../plugins/device/src/index.js';
 import { createVoiceControl } from '../packages/ui/src/voice-control.js';
+import { ownerFetch } from '../packages/ui/src/owner-request.js';
 import { createElevenLabsClient } from '../plugins/elevenlabs/src/client.js';
 import { createFakeVoice } from './fake-voice.js';
 import { en } from '../packages/ui/src/i18n/en.js';
@@ -160,7 +161,7 @@ async function adopt(session) {
       const { createGrokVoiceClient } = await import('../plugins/grok-voice/src/client.js');
       if (!active()) return;
       const ports = createVoiceControl({ sessionId: session.id, receive: event => component.receive(event) });
-      grokVoiceClient = createGrokVoiceClient({ control: ports.control, network: { url: '/api/voice/grok/relay' } });
+      grokVoiceClient = createGrokVoiceClient({ control: ports.control, network: { url: '/api/voice/grok/relay', ownerFetch } });
     }
     // The settings Advanced tab connects a local model through this browser-only factory.
     component.configure({ concepts: { previewURL: binding.previewURL }, voiceClient: liveVoiceClient ?? fakeVoice?.client,

@@ -35,6 +35,8 @@ test('AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical playe
   await page.evaluate(async () => {
     const { createComposedBrowserMedia } = await import('/plugins/composed-voice/src/client.js');
     const { createNetworkRelayClient } = await import('/plugins/composed-voice/src/network-client.js');
+    // AIT-625 r6: the relay's browser requests go through the guarded owner-request helper.
+    const { ownerFetch } = await import('/packages/ui/src/owner-request.js');
     const { createPCMCapture, createPCMPlayer } = await import('/plugins/composed-voice/src/browser-audio.js');
     window.timings = []; window.failures = []; window.events = [];
     const onTiming = event => window.timings.push(event);
@@ -47,7 +49,7 @@ test('AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical playe
     };
     const grant = () => fetch('/grant').then(response => response.json());
     const media = createComposedBrowserMedia({ capture, player: window.player,
-      openRelay: createNetworkRelayClient({ headers: { 'x-owner': 'fixture-owner' } }), control: { recover: grant } });
+      openRelay: createNetworkRelayClient({ headers: { 'x-owner': 'fixture-owner' }, ownerFetch }), control: { recover: grant } });
     window.session = await media.connect(await grant());
     void (async () => { for await (const event of window.session.events) window.events.push(event); })();
   });
@@ -89,6 +91,7 @@ test('AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical playe
   await page.evaluate(async () => {
     const { createGrokVoiceClient } = await import('/plugins/grok-voice/src/client.js');
     const { createNetworkRelayClient } = await import('/packages/server/src/composed/network-client.js');
+    const { ownerFetch } = await import('/packages/ui/src/owner-request.js');
     let transport;
     const receipt = async () => {
       const mediaGrant = await fetch('/grant').then(response => response.json());
@@ -97,7 +100,7 @@ test('AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical playe
     };
     const control = { start: receipt, recover: receipt };
     for (const name of ['close', 'pause', 'resume', 'heartbeat']) control[name] = () => transport.command(name);
-    const open = createNetworkRelayClient({ headers: { 'x-owner': 'fixture-owner' } });
+    const open = createNetworkRelayClient({ headers: { 'x-owner': 'fixture-owner' }, ownerFetch });
     window.grokClient = createGrokVoiceClient({ control,
       async openRelay(...args) { transport = await open(...args); return transport; },
       audio: { onTiming: event => window.timings.push({ ...event, grok: true }) } });

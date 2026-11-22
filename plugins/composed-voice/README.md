@@ -405,7 +405,8 @@ Browser wiring (serve these modules from the host's own origin):
 const player = createPCMPlayer({ onTiming }); // browser-audio.js
 const capture = createPCMCapture({ onTiming });
 const media = createComposedBrowserMedia({ capture, player, control: existingVoiceControl,
-  openRelay: createNetworkRelayClient({ url: '/composed/relay', headers: ownerHeaders }) });
+  // ownerFetch from @inspr/aithema-ui/owner-request: in a browser the relay sends only through it.
+  openRelay: createNetworkRelayClient({ url: '/composed/relay', headers: ownerHeaders, ownerFetch }) });
 const session = await media.connect(admittedGrant);
 ```
 
