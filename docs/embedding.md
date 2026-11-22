@@ -978,10 +978,14 @@ import { AithemaSession } from '@inspr/aithema-ui';
 import { en } from '@inspr/aithema-ui/i18n/en';
 import { createVoiceControl } from '@inspr/aithema-ui/voice-control';
 import { AithemaHTMLPreview } from '@inspr/aithema-ui/html-preview';
+import { ownerFetch } from '@inspr/aithema-ui/owner-request';
 
 const token = crypto.randomUUID();
-const response = await fetch('/api/sessions', {
-  method: 'POST', headers: { 'content-type': 'application/json', 'x-aithema-session-token': token },
+// Send owner-authenticated requests through the guarded helper, as the component does: it
+// refuses without a real page origin or off it (window.origin, document.baseURI), refuses
+// redirects, applies a deadline to headers and body, and sets the owner header itself.
+const response = await ownerFetch(window, '/api/sessions', {
+  method: 'POST', sessionToken: token, headers: { 'content-type': 'application/json' },
   body: JSON.stringify({ locale: 'en' })
 });
 if (!response.ok) throw new Error('Session creation failed');
