@@ -444,7 +444,16 @@ export function heldRegressionCheck() {
           for (const [selector, box] of Object.entries(before)) assert.ok(box.width > 0 && box.height > 0, `${selector}: positive idle box`);
           // Main has a measured image slot and the ordinary document-only row.
           const expected = scenario === 'idle-image' ? width === 390 ? 168.03125 : 150.90625 : width === 390 ? 164.078125 : 150;
-          assert.ok(Math.abs(before['.composer'].height - expected) <= .5, `idle composer matches main within 0.5 px: ${before['.composer'].height} vs ${expected}`);
+          // AIT-610 r11: a height mismatch names the reserve's tallest candidates (text, box, lines) and the scrollbar width.
+          const reserveRows = Math.abs(before['.composer'].height - expected) <= .5 ? '' : JSON.stringify(await inShadow(page, c => {
+            const reserve = c.shadowRoot.querySelector('.image-feedback-reserve'), rows = reserve ? [...reserve.children] : [];
+            const box = element => { const r = element.getBoundingClientRect(); return { width: r.width, height: r.height }; };
+            return { scrollbar: window.innerWidth - document.documentElement.clientWidth, reserve: reserve ? box(reserve) : null,
+              feedback: box(c.shadowRoot.querySelector('.composer-feedback')), slot: getComputedStyle(c.shadowRoot.querySelector('.composer')).getPropertyValue('--image-feedback-height'),
+              tallest: rows.map(row => ({ className: row.className, ...box(row), lineHeight: getComputedStyle(row).lineHeight, text: row.textContent }))
+                .sort((a, b) => b.height - a.height).slice(0, 3) };
+          }));
+          assert.ok(Math.abs(before['.composer'].height - expected) <= .5, `idle composer matches main within 0.5 px: ${before['.composer'].height} vs ${expected}${reserveRows && ` ${reserveRows}`}`);
           if (width === 390 && scenario === 'idle-document')
             assert.ok(Math.abs(before['.send'].y - 716.40625) <= .5, 'document-only idle Send matches main within 0.5 px');
           // Native font widths differ by platform; these complete rects come
