@@ -699,14 +699,19 @@ export async function welcomeOnlyFollowCheck(t) {
         await latest(); await settle(page);
         const first = await at();
         await latest(); await settle(page);
-        const second = await at(), trace = await writes(page);
-        const facts = JSON.stringify({ trace, tall, held, before, first, second });
-        assert.deepEqual(second.view.rows, ['host:opener(h)'], `${name}: still only the host welcome`);
+        const second = await at();
+        // A third jump: main alternates, so it is the opposite of the second
+        // (this pair also covers the end-then-start order on every runner).
+        await latest(); await settle(page);
+        const third = await at(), trace = await writes(page);
+        const facts = JSON.stringify({ trace, tall, held, before, first, second, third });
+        assert.deepEqual(third.view.rows, ['host:opener(h)'], `${name}: still only the host welcome`);
         if (tall) {
           assert.ok(first.start && second.end || first.end && second.start,
             `${name}: a welcome taller than the room: one Latest jump shows its start, the other goes to the end: ${facts}`);
+          assert.ok(second.end ? third.start : third.end, `${name}: the third Latest jump alternates again: ${facts}`);
         } else {
-          assert.ok(first.end && second.end, `${name}: a welcome that fits: both Latest jumps go to the end: ${facts}`);
+          assert.ok(first.end && second.end && third.end, `${name}: a welcome that fits: every Latest jump goes to the end: ${facts}`);
         }
         assert.deepEqual(problems, []);
       } finally {
