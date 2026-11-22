@@ -262,12 +262,14 @@ function elementPage() {
   return elementWindow;
 }
 
-test('AIT-625 element: same-origin session requests carry the guard; a foreign <base> stops every one', async t => {
+test('AIT-625 element: same-origin session requests carry the guard; a foreign <base> stops every one; a stalled turn body ends (r2)', async t => {
   const { createSession } = await import('@inspr/aithema-core');
   const { en } = await import('../src/i18n/en.js');
   const window = elementPage();
   // Runtime guard (r2): only the helper may read fetch, on the global or on the page window.
+  const stalled = () => new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode('{')); } }));
   const { calls, strays } = guardFetch(t, (url, init) => String(url).endsWith('/events') ? new Response(new ReadableStream({ start() {} }))
+    : String(url).endsWith('/turns') ? stalled()
     : String(url).endsWith('/locale') && init.method === 'POST' ? Response.json({ error: 'session-not-found' }, { status: 404 }) : Response.json({}), [window]);
   await import('../src/session-element.js');
   const mount = async (act = async () => {}) => {
@@ -293,18 +295,8 @@ test('AIT-625 element: same-origin session requests carry the guard; a foreign <
   assert.equal(window.document.baseURI, 'https://evil.example/');
   assert.deepEqual((await mount()).map(call => String(call.url)), [], 'a foreign base sends nothing');
   base.remove();
-  assert.deepEqual(strays, [], 'nothing but the helper read fetch');
-});
-
-test('AIT-625 r2 element: a turn whose body stalls after the headers ends at the deadline and re-enables the composer', async t => {
-  const { createSession } = await import('@inspr/aithema-core');
-  const { en } = await import('../src/i18n/en.js');
-  const window = elementPage();
-  assert.equal(window.document.baseURI, 'http://app.test/');
-  const { strays } = guardFetch(t, url => String(url).endsWith('/events') ? new Response(new ReadableStream({ start() {} }))
-    : String(url).endsWith('/turns') ? new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode('{')); } }))
-    : Response.json({}), [window]);
-  await import('../src/session-element.js');
+  // r2: a turn whose body stalls after the headers ends at the deadline; the existing error path
+  // re-enables the composer and keeps the statement.
   const tick = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)); };
   const component = window.document.createElement('aithema-session'), session = createSession({ demo: true });
   session.featureMatrix = { best: { text: { available: true, reason: null }, analysis: { available: true, reason: null } } };
@@ -315,9 +307,11 @@ test('AIT-625 r2 element: a turn whose body stalls after the headers ends at the
   const root = component.shadowRoot, send = root.querySelector('.send');
   root.querySelector('textarea').value = 'A statement whose reply stalls';
   root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick();
+  assert.ok(calls.some(call => String(call.url).endsWith('/turns')), 'the turn was sent');
   assert.equal(send.disabled, true, 'the composer waits while the turn is in flight');
   t.mock.timers.tick(30_000); await tick();
-  assert.equal(send.disabled, false, 'the deadline ended the stalled body and the existing error path re-enabled the composer');
+  assert.equal(send.disabled, false, 'the deadline ended the stalled body and the composer is enabled again');
   assert.equal(root.querySelector('textarea').value, 'A statement whose reply stalls', 'the unsent statement is kept');
-  assert.deepEqual(strays, []);
+  assert.deepEqual(strays, [], 'nothing but the helper read fetch');
 });
+
