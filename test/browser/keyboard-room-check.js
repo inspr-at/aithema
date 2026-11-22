@@ -92,6 +92,7 @@ const roomState = c => {
     notice: box(root.querySelector('.composer-notice')), noticePainted: painted(root.querySelector('.composer-notice')),
     band: box(root.querySelector('.band')), scroll: box(scroll), room: Math.max(0, bottom - top), fade,
     footer: box(root.querySelector('.display-foot')), footerShown: getComputedStyle(root.querySelector('.display-foot')).display !== 'none',
+    overlay: workspace.hasAttribute('data-phone-overlay'),
     lines: lines.length, firstLine: lines[0] ?? null,
     status: { text: status?.textContent.trim() ?? '', painted: painted(status), slot: box(slot) },
     hint: hint ? { text: hint.textContent.trim(), painted: painted(hint), box: box(hint) } : null,
@@ -645,7 +646,11 @@ export async function keyboardSettleCheck(t) {
         await capture(page, `${name}-3-after`, { ...after.room, band: after.band });
         // AFTER: the whole state ended at once (one reflow): footer back, full band, keyboard flags clear.
         if (after.room.keyboard || after.band.bandUp) failures.push(`${name}: after: the whole keyboard-up state ended: ${JSON.stringify([after.room.keyboard, after.band.bandUp])}`);
-        if (!after.room.footerShown || !(after.room.footer?.width > 0 && after.room.footer?.height > 0)) failures.push(`${name}: after: the footer is back with a positive box: ${JSON.stringify(after.room.footer)}`);
+        // The footer is back unless the visual viewport is still overlaid (AIT-188: [data-phone-short][data-phone-overlay]
+        // hides it on its own, keyboard state or not): at the settle the viewport is still small, so it stays hidden.
+        if (after.room.overlay !== (end === 'settle')) failures.push(`${name}: after: fixture: the viewport is ${end === 'settle' ? 'still overlaid' : 'unobstructed'}: ${after.room.overlay}`);
+        if (end === 'settle' && after.room.footerShown) failures.push(`${name}: after: the overlaid viewport keeps the footer hidden (AIT-188 overlay rule)`);
+        if (end !== 'settle' && (!after.room.footerShown || !(after.room.footer?.width > 0 && after.room.footer?.height > 0))) failures.push(`${name}: after: the footer is back with a positive box: ${JSON.stringify(after.room.footer)}`);
         if (!(after.band.band?.height > 44 + .5)) failures.push(`${name}: after: the full band is back: ${JSON.stringify(after.band.band)}`);
         if (end === 'viewport-grows' && (await pendingSettles(page)).length) failures.push(`${name}: after: the viewport's growth cancelled the settle`);
         // ONE reflow: a further paint (and any leftover settle) changes nothing.
