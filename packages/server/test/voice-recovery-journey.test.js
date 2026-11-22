@@ -13,7 +13,7 @@ import { styles } from '../../ui/src/styles.js';
 import { en } from '../../ui/src/i18n/en.js';
 import { eventProbe } from '../../../test/voice-test-events.js';
 // AIT-625: a voice control sends its owner requests from a page; this is that page.
-const page = new Window({ url: 'http://localhost/' });
+const page = new Window({ url: 'http://fixture.test/' });
 
 test('AIT-382 / START-416: transport close, Pause, Resume, late settlement and a competing tab', { timeout: 10_000 }, async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
