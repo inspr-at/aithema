@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import './fixtures/page-origin.js';
 import { OverviewStatusSize } from '../src/overview-status-size.js';
 import { overviewStatusCatalog, overviewStatusCandidates, overviewStatusText } from '../src/overview-status-copy.js';
 import { reasonText } from '../src/settings-dialog.js';

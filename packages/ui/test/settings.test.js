@@ -2,6 +2,7 @@ import { BINDING_REASON_CODES } from '../../../test/fixtures/german-server-texts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import './fixtures/page-origin.js';
 import { createSession, applyEvent } from '@inspr/aithema-core';
 import { voiceEvents } from '../../core/src/live-voice.js';
 import { settingsGauges } from '../../core/src/settings.js';

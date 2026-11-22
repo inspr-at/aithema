@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createElevenLabsClient } from '../src/client.js';
 import { fakeSdk, flush } from './fixtures.js';
 import { Window } from 'happy-dom';
+import '../../../packages/ui/test/fixtures/page-origin.js';
 import { RecoveryNotices } from '../../../packages/ui/src/recovery-notices.js';
 import { en } from '../../../packages/ui/src/i18n/en.js';
 

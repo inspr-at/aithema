@@ -3,6 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import './fixtures/page-origin.js';
 import { createSession, applyEvent } from '@inspr/aithema-core';
 import { voiceEvents } from '../../core/src/live-voice.js';
 import { manifest } from '../../../plugins/elevenlabs/src/manifest.js';

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import './fixtures/page-origin.js';
 import { createSession } from '@inspr/aithema-core';
 import { AudioRail } from '../src/audio-rail.js';
 import { createVoiceControl } from '../src/voice-control.js';

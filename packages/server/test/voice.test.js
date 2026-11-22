@@ -13,6 +13,7 @@ import { eventProbe } from '../../../test/voice-test-events.js';
 import { createElevenLabsServer } from '../../../plugins/elevenlabs/src/server.js';
 import { createDemoHost } from '../../../demo/host-ports.js';
 import { Window } from 'happy-dom';
+import '../../ui/test/fixtures/page-origin.js';
 import { AudioRail } from '../../ui/src/audio-rail.js';
 import { createVoiceControl } from '../../ui/src/voice-control.js';
 import { en } from '../../ui/src/i18n/en.js';

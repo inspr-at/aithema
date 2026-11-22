@@ -2,6 +2,7 @@ import { reviseMockConsent } from './consent-helper.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import '../../packages/ui/test/fixtures/page-origin.js';
 import { startChild, temporaryDb } from '../../test/helpers.js';
 import { AudioRail } from '../../packages/ui/src/audio-rail.js';
 import { en } from '../../packages/ui/src/i18n/en.js';

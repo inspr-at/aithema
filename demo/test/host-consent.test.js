@@ -4,6 +4,7 @@ import { ownedRequest, testToken } from '../../test/helpers.js';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Window } from 'happy-dom';
+import '../../packages/ui/test/fixtures/page-origin.js';
 import { runInNewContext } from 'node:vm';
 import { mountConsentPage, consentReturnPath, translatedItem } from '../consent-page.js';
 import { preferredLocale, preferredTheme, remember, mountTheme, themeKey, localeKey } from '../page-preferences.js';

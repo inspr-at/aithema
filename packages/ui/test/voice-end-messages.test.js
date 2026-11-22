@@ -2,6 +2,7 @@ import { reasonSeparator } from '../src/reason-separator.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import './fixtures/page-origin.js';
 import { AudioRail } from '../src/audio-rail.js';
 import { voiceEvents, assertVoiceMediaGrant } from '../../core/src/live-voice.js';
 import { en } from '../src/i18n/en.js';

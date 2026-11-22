@@ -1,6 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import '../packages/ui/test/fixtures/page-origin.js';
 import { mountVersionDetails } from '../packages/ui/src/version-display.js';
 const window = new Window(); globalThis.document = window.document;
 after(() => window.happyDOM.close());

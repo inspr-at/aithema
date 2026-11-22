@@ -1,6 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import './fixtures/page-origin.js';
 import { reasonSeparator } from '../src/consent-line.js';
 import { ActorRole } from '../src/actor-role.js';
 import { actorRoleStyles } from '../src/actor-role-styles.js';

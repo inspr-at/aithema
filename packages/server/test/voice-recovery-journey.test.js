@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import '../../ui/test/fixtures/page-origin.js';
 import { PluginRegistry, createMockReasoning } from '@inspr/aithema-core';
 import { SQLiteStorage, createHandlers, createPluginRuntime, createVoiceProvider,
   createFacadeSecrets, mockPresets } from '../src/index.js';

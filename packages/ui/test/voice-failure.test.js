@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Window } from 'happy-dom';
+import './fixtures/page-origin.js';
 import { createVoiceControl } from '../src/voice-control.js';
 import { AudioRail } from '../src/audio-rail.js';
 import { createElevenLabsClient } from '../../../plugins/elevenlabs/src/client.js';

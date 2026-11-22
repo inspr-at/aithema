@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Window } from 'happy-dom';
+import './fixtures/page-origin.js';
 import ts from 'typescript';
 
 const SRC = fileURLToPath(new URL('../src/', import.meta.url));

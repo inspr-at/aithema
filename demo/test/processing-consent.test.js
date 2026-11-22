@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Window } from 'happy-dom';
+import '../../packages/ui/test/fixtures/page-origin.js';
 import { createSession, processingScope } from '@inspr/aithema-core';
 import { SQLiteStorage } from '@inspr/aithema-server';
 import { createProcessingConsent, qualifyStartBinding } from '../processing-consent.js';

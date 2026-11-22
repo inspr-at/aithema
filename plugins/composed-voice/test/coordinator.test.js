@@ -8,6 +8,7 @@ import { createComposedRelay } from '@inspr/aithema-server/composed-voice/relay'
 import { createComposedBrowserMedia } from '@inspr/aithema-server/composed-voice/client';
 import { createGrokVoiceClient } from '../../grok-voice/src/client.js';
 import { Window } from 'happy-dom';
+import '../../../packages/ui/test/fixtures/page-origin.js';
 import { AudioRail } from '../../../packages/ui/src/audio-rail.js';
 import { de } from '../../../packages/ui/src/i18n/de.js';
 
