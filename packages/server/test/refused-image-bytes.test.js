@@ -1138,28 +1138,67 @@ test('AIT-610 r6: session export shows a pending image lost to a restart as unav
 });
 
 // Specific intake reasons (LEAD 03:0x): only where certain, else 'unsupported'.
-// A minimal Compound File Binary (version 3, 512-byte sectors): header, one FAT
-// sector, one directory sector with the given stream names.
-function cfb(streams) {
-  const sector = 512, header = Buffer.alloc(sector, 0), fat = Buffer.alloc(sector, 0xff), directory = Buffer.alloc(sector, 0);
+// A Compound File Binary (version 3, 512-byte sectors): header, one FAT sector,
+// the directory sectors. AIT-610 r7 (gate6c): the entries are LINKED from the
+// root entry as a real writer links them: each storage's children form a
+// red-black tree ordered by name length, then upper-case name (MS-CFB 2.6.4),
+// built balanced, the deepest incomplete level red. `orphans` leaves every
+// entry unlinked from the root (the r6 fixture's shape). `tree` is a list of
+// names; a storage is [name, [children]].
+function cfb(tree, { orphans = false, directoryStart = 1 } = {}) {
+  const sector = 512, entries = [{ name: 'Root Entry', type: 5, children: [] }];
+  const add = (items, parent) => { for (const item of items) {
+    const [name, children] = Array.isArray(item) ? item : [item, null];
+    const node = { name, type: children ? 1 : 2, children: [] }; entries.push(node); parent.children.push(node);
+    if (children) add(children, node);
+  } };
+  add(tree, entries[0]);
+  const ids = new Map(entries.map((node, id) => [node, id]));
+  const order = (a, b) => a.name.length - b.name.length || (a.name.toUpperCase() < b.name.toUpperCase() ? -1 : a.name.toUpperCase() > b.name.toUpperCase() ? 1 : 0);
+  const links = new Map(entries.map(node => [node, { left: 0xffffffff, right: 0xffffffff, child: 0xffffffff, color: 1 }]));
+  const depth = n => n ? 1 + depth(n >> 1) : 0;
+  const build = (sorted, level, deepest, perfect) => {
+    if (!sorted.length) return 0xffffffff;
+    const mid = sorted.length >> 1, node = sorted[mid], link = links.get(node);
+    link.left = build(sorted.slice(0, mid), level + 1, deepest, perfect);
+    link.right = build(sorted.slice(mid + 1), level + 1, deepest, perfect);
+    link.color = level === deepest && !perfect ? 0 : 1; // 0 red, 1 black
+    return ids.get(node);
+  };
+  if (!orphans) for (const node of entries) if (node.children.length) {
+    const sorted = [...node.children].sort(order), deepest = depth(sorted.length) - 1;
+    links.get(node).child = build(sorted, 0, deepest, sorted.length === 2 ** (deepest + 1) - 1);
+  }
+  const directorySectors = Math.ceil(entries.length / 4);
+  const header = Buffer.alloc(sector, 0), fat = Buffer.alloc(sector, 0xff), directory = Buffer.alloc(sector * directorySectors, 0);
   Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]).copy(header);
   header.writeUInt16LE(0x3e, 0x18); header.writeUInt16LE(3, 0x1a); header.writeUInt16LE(0xfffe, 0x1c); header.writeUInt16LE(9, 0x1e); header.writeUInt16LE(6, 0x20);
-  header.writeUInt32LE(1, 0x2c); header.writeUInt32LE(1, 0x30); header.writeUInt32LE(4096, 0x38);
+  header.writeUInt32LE(1, 0x2c); header.writeUInt32LE(directoryStart, 0x30); header.writeUInt32LE(4096, 0x38);
   header.writeUInt32LE(0xfffffffe, 0x3c); header.writeUInt32LE(0xfffffffe, 0x44);
   header.fill(0xff, 0x4c); header.writeUInt32LE(0, 0x4c);
-  fat.writeUInt32LE(0xfffffffd, 0); fat.writeUInt32LE(0xfffffffe, 4);
-  const entry = (index, name, type) => {
-    const at = index * 128, encoded = Buffer.from(`${name}\0`, 'utf16le');
-    encoded.copy(directory, at); directory.writeUInt16LE(encoded.length, at + 0x40); directory[at + 0x42] = type;
-    directory.writeUInt32LE(0xffffffff, at + 0x44); directory.writeUInt32LE(0xffffffff, at + 0x48); directory.writeUInt32LE(0xffffffff, at + 0x4c);
+  fat.writeUInt32LE(0xfffffffd, 0);
+  for (let i = 1; i <= directorySectors; i++) fat.writeUInt32LE(i === directorySectors ? 0xfffffffe : i + 1, i * 4);
+  entries.forEach((node, index) => {
+    const at = index * 128, encoded = Buffer.from(`${node.name}\0`, 'utf16le'), link = links.get(node);
+    encoded.copy(directory, at); directory.writeUInt16LE(encoded.length, at + 0x40); directory[at + 0x42] = node.type; directory[at + 0x43] = link.color;
+    directory.writeUInt32LE(link.left, at + 0x44); directory.writeUInt32LE(link.right, at + 0x48); directory.writeUInt32LE(link.child, at + 0x4c);
     directory.writeUInt32LE(0xfffffffe, at + 0x74);
-  };
-  entry(0, 'Root Entry', 5);
-  streams.forEach((name, index) => entry(index + 1, name, 2));
+  });
+  // Unused entries: empty names, no links (MS-CFB: type 0, siblings/child NOSTREAM).
+  for (let index = entries.length; index < directorySectors * 4; index++) directory.fill(0xff, index * 128 + 0x44, index * 128 + 0x50);
   return Buffer.concat([header, fat, directory]);
 }
+// The shape an Office writer produces for a password-protected document
+// (MS-OFFCRYPTO 2.3.4.x): EncryptionInfo and EncryptedPackage at the root next
+// to the \x06DataSpaces storage.
+const zipPatched = patch => {
+  const bytes = Buffer.from(docx()), end = bytes.lastIndexOf(Buffer.from([0x50, 0x4b, 5, 6]));
+  assert.ok(bytes.includes(Buffer.from('[Content_Types].xml')), 'an intact Office package');
+  patch(bytes, end); return bytes;
+};
+const encryptedOffice = () => cfb([['\x06DataSpaces', ['Version', 'DataSpaceMap', ['DataSpaceInfo', ['StrongEncryptionDataSpace']], ['TransformInfo', [['StrongEncryptionTransform', ['\x06Primary']]]]]], 'EncryptionInfo', 'EncryptedPackage']);
 for (const [label, name, build, reason] of [
-  ['an encrypted .docx (a CFB with EncryptionInfo and EncryptedPackage)', 'secret.docx', () => cfb(['EncryptionInfo', 'EncryptedPackage']), 'encrypted'],
+  ['an encrypted .docx (a CFB with EncryptionInfo and EncryptedPackage)', 'secret.docx', encryptedOffice, 'encrypted'],
   ['an encrypted .xlsx', 'secret.xlsx', () => cfb(['EncryptedPackage', 'EncryptionInfo']), 'encrypted'],
   ['a legacy .doc renamed .docx (a CFB without the encryption streams)', 'old.docx', () => cfb(['WordDocument', '1Table']), 'legacy'],
   ['a CFB with only one of the encryption streams', 'half.docx', () => cfb(['EncryptionInfo', 'WordDocument']), 'legacy'],
@@ -1168,6 +1207,19 @@ for (const [label, name, build, reason] of [
   ['an unknown binary named .docx', 'blob.docx', () => Buffer.concat([Buffer.from([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1, 0]), Buffer.alloc(64, 7)]), 'unsupported'],
   ['a damaged CFB named .docx (directory sector outside the file)', 'broken.docx', () => { const bytes = cfb(['EncryptionInfo', 'EncryptedPackage']); bytes.writeUInt32LE(40, 0x30); return bytes; }, 'unsupported'],
   ['a CFB named .txt (not an Office suffix)', 'secret.txt', () => cfb(['EncryptionInfo', 'EncryptedPackage']), 'unsupported'],
+  // AIT-610 r7 (gate6c): certainty. 'legacy' only after a valid directory walk from
+  // the root with at least one directory sector read; 'encrypted' only when both
+  // streams are LINKED from the root; ZIP 'malformed' only for structural damage.
+  ['a CFB whose encryption streams are orphans (not linked from the root)', 'orphans.docx', () => cfb(['EncryptionInfo', 'EncryptedPackage'], { orphans: true }), 'legacy'],
+  ['a CFB whose directory chain ends before any directory sector', 'nodir.docx', () => cfb(['EncryptionInfo', 'EncryptedPackage'], { directoryStart: 0xfffffffe }), 'unsupported'],
+  ['a CFB whose first directory entry is not the root', 'noroot.docx', () => { const bytes = encryptedOffice(); bytes[1024 + 0x42] = 1; return bytes; }, 'unsupported'],
+  ['a CFB whose directory tree loops', 'cycle.docx', () => { const bytes = cfb(['EncryptionInfo', 'EncryptedPackage']); bytes.writeUInt32LE(2, 1024 + 128 + 0x44); return bytes; }, 'unsupported'],
+  ['a CFB whose root child is outside the directory', 'dangling.docx', () => { const bytes = cfb(['EncryptionInfo', 'EncryptedPackage']); bytes.writeUInt32LE(99, 1024 + 0x4c); return bytes; }, 'unsupported'],
+  ['an intact .docx in ZIP64 form (an unsupported ZIP feature)', 'big.docx', () => zipPatched((bytes, end) => { bytes.writeUInt16LE(0xffff, end + 8); bytes.writeUInt16LE(0xffff, end + 10); }), 'unsupported'],
+  ['an intact .docx with an unsupported compression method', 'bzip.docx', () => zipPatched(bytes => {
+    const central = bytes.indexOf(Buffer.from([0x50, 0x4b, 1, 2])), local = bytes.readUInt32LE(central + 42);
+    bytes.writeUInt16LE(12, central + 10); bytes.writeUInt16LE(12, local + 8);
+  }), 'unsupported'],
 ]) test(`AIT-610 r6 intake reason: ${label} is refused before persistence as '${reason}'`, async t => {
   const f = await fixture(t);
   const postUploads = f.storage.postUploads.bind(f.storage), admittedDocuments = [];
