@@ -703,7 +703,7 @@ export async function keyboardHostLateAddCheck(t) {
         await contact(page, 'remove', locale);
         await settleLong(page);
         const removed = await readBand(page), removedRoom = await read(page);
-        failures.push(...headerKept(`${name} added -> removed`, added, removed));
+        failures.push(...headerKept(`${name} before -> removed`, before, removed));
         await capture(page, `${name}-3-after-contact-removed`, { ...removedRoom, band: removed });
         if (!removed.keyboard) failures.push(`${name}: removed: the keyboard stays up`);
         failures.push(...stableBoxes(`${name} added -> removed (band)`, added, removed, ['band', 'orb', 'pause', 'gear', 'notice', 'more']));
