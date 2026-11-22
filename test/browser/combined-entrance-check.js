@@ -21,9 +21,10 @@ const allowed={available:true},blocked={available:false,reason:'current processi
 const c=document.createElement('aithema-session');document.body.append(c);globalThis.c=c;
 const nativeFetch=fetch;
 globalThis.fetch=async(target,options={})=>{
- // The guarded owner-request helper sends absolute page-origin URLs; route on the path.
- const url=new URL(String(target),location.href).pathname;
- if(!url.startsWith('/api/sessions/'))return nativeFetch(target,options);
+ // The guarded owner-request helper sends absolute page-origin URLs; route on the path of a
+ // same-origin request only (AIT-625 r6, gate3c Low): a foreign origin is never served here.
+ const resolved=new URL(String(target),location.href),url=resolved.pathname;
+ if(resolved.origin!==location.origin||!url.startsWith('/api/sessions/'))return nativeFetch(target,options);
  if(url.endsWith('/events'))return new Response(new ReadableStream({start(controller){options.signal?.addEventListener('abort',()=>controller.close(),{once:true})}}));
  if(String(url).endsWith('/consent'))return Response.json({consentRevision:c.session.consentRevision,selected:[],features:{}});
  if(String(url).endsWith('/turns')){if(failSend)return Response.json({error:'fixture failure'},{status:503});const b=JSON.parse(options.body);sent.push(b);return Response.json({seq:c.session.seq+1,type:'turn.final',data:{id:b.clientEventId,role:'user',content:b.content,...b.voiceCallId?{voiceCallId:b.voiceCallId}:{}}})}
