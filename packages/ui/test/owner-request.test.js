@@ -684,7 +684,7 @@ test('AIT-637 element: both disabled states x both controls are muted, described
   assert.notEqual(en.exportUnavailable, de.exportUnavailable, 'AIT-100 B2: EN and DE differ');
   // Style rules: the composer control gets the footer's muted look (no underline, muted ink,
   // cursor default, as it shows no tip); the footer keeps its rule and shows a tip in both states.
-  const rule = (css, selector) => css.match(new RegExp(`${selector.replace(/[.[\]"]/gu, '\\$&')}\\s*\\{([^}]*)\\}`, 'u'))?.[1].replace(/\s+/gu, '');
+  const rule = (css, selector) => css.match(new RegExp(`${selector.replace(/[.[\]]/gu, '\\$&')}\\s*\\{([^}]*)\\}`, 'u'))?.[1].replace(/\s+/gu, '');
   const composerRule = rule(hostStyles, '.composer-out__export[aria-disabled="true"]');
   assert.ok(composerRule, 'a disabled rule exists for the composer export');
   for (const declaration of ['text-decoration:none', 'color:var(--aithema-muted)', 'cursor:default']) assert.ok(composerRule.includes(declaration), `composer: ${declaration}`);
