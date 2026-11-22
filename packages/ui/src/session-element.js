@@ -1498,14 +1498,14 @@ export class AithemaSession extends HTMLElement {
       const idle = this.#renderReserveIdle(shell) ? Math.min(padding, parseFloat(css.getPropertyValue('--aithema-render-reserve')) || 0) : 0;
       if (pane.width > 0 && pane.height > 0 && (measured || !listElement.children.length)
         && contentEnd + padding - idle <= shell.clientHeight + .5) end = 0;
-      // AIT-603 r11 (Spec 4: nothing has arrived, so nothing follows): on the
-      // combined phone image layout a transcript holding only the host welcome
-      // keeps its reading position, also when the clamped welcome is taller
-      // than a short reading pane (CI Linux metrics at 390x664 DE 125 %).
-      const rows = [...listElement.children].filter(inFlow);
-      if (this.#combined && this.#imageLayout && this.ownerDocument.defaultView.matchMedia('(max-width:600px)').matches
-        && rows.length && rows.every(row => row.hasAttribute('data-host-opener'))) end = before;
     }
+    // AIT-603 r11 (Spec 4: nothing has arrived, so nothing follows): on the
+    // combined phone image layout a transcript holding only the host welcome
+    // keeps its reading position, also when the clamped welcome is taller
+    // than a short reading pane (CI Linux metrics at 390x664 DE 125 %).
+    const rows = [...(shell.querySelector('ol')?.children ?? [])].filter(row => !row.hidden && row.getClientRects().length);
+    if (this.#combined && this.#imageLayout && this.ownerDocument.defaultView.matchMedia('(max-width:600px)').matches
+      && rows.length && rows.every(row => row.hasAttribute('data-host-opener'))) end = before;
     shell.scrollTop = end;
     // An inline capture can be taller than the combined phone's reading pane.
     // Reveal its entry controls before native focus; bottom-follow alone can
