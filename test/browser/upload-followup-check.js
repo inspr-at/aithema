@@ -450,8 +450,14 @@ export function heldRegressionCheck() {
             const box = element => { const r = element.getBoundingClientRect(); return { width: r.width, height: r.height }; };
             return { scrollbar: window.innerWidth - document.documentElement.clientWidth, reserve: reserve ? box(reserve) : null,
               feedback: box(c.shadowRoot.querySelector('.composer-feedback')), slot: getComputedStyle(c.shadowRoot.querySelector('.composer')).getPropertyValue('--image-feedback-height'),
-              tallest: rows.map(row => ({ className: row.className, ...box(row), lineHeight: getComputedStyle(row).lineHeight, text: row.textContent }))
-                .sort((a, b) => b.height - a.height).slice(0, 3) };
+              // Grid items stretch to the reserve's height: a candidate's own height is its content's (a row's tallest
+              // child, the document notice's stacked children), with the text column's width.
+              tallest: rows.map(row => {
+                const parts = [...row.children].map(box), document = row.classList.contains('image-feedback-document-reserve');
+                const content = document ? parts.reduce((sum, part) => sum + part.height, 0) : Math.max(0, ...parts.map(part => part.height));
+                const column = row.querySelector('.image-refusals__list') ?? row;
+                return { className: row.className, ...box(row), content, columnWidth: column.getBoundingClientRect().width, lineHeight: getComputedStyle(row).lineHeight, text: row.textContent };
+              }).sort((a, b) => b.content - a.content).slice(0, 4) };
           }));
           assert.ok(Math.abs(before['.composer'].height - expected) <= .5, `idle composer matches main within 0.5 px: ${before['.composer'].height} vs ${expected}${reserveRows && ` ${reserveRows}`}`);
           if (width === 390 && scenario === 'idle-document')
