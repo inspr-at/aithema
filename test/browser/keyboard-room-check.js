@@ -282,6 +282,36 @@ const bandState = c => {
   const moreTarget = more ? (() => { const after = getComputedStyle(more, '::after'); const r = more.getBoundingClientRect();
     return { content: after.content, height: parseFloat(after.height) || 0, width: parseFloat(after.width) || r.width, hit: (() => {
       const x = r.left + r.width / 2, y = r.top + r.height / 2 + 14; const hit = c.shadowRoot.elementFromPoint(x, y); return hit === more || more.contains(hit); })() }; })() : null;
+  // r3 (TICK r2 M1, Codex gate1c), inside bandState ($eval serializes only this function): the notice line's insets against the field text's, and every
+  // 44 px hit target of the dock and the band (an overlap ::after counts with its own box).
+  const insetState = c => {
+    const root = c.shadowRoot, rect = n => { const r = n.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
+    const hitOf = n => { if (!n) return null; const r = n.getBoundingClientRect(), a = getComputedStyle(n, '::after');
+      if (a.content === 'none' || a.position !== 'absolute') return rect(n);
+      const width = parseFloat(a.width) || r.width, height = parseFloat(a.height) || 0;
+      return { x: r.x + (parseFloat(a.left) || 0), y: r.y + (parseFloat(a.top) || 0), width, height }; };
+    const composer = root.querySelector('.composer'), field = root.querySelector('textarea'), first = root.querySelector('.composer-notice__first');
+    if (!composer || !field) return {};
+    const d = composer.getBoundingClientRect(), dc = getComputedStyle(composer), f = field.getBoundingClientRect(), fc = getComputedStyle(field);
+    const text = (() => { const node = [...(first?.childNodes ?? [])].find(n => n.nodeType === 3 && n.textContent.trim()); if (!node) return null;
+      const range = document.createRange(); range.selectNodeContents(node); const r = range.getClientRects()[0]; return r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null; })();
+    const fieldText = { left: f.left + parseFloat(fc.borderLeftWidth) + parseFloat(fc.paddingLeft), top: f.top + parseFloat(fc.borderTopWidth) + parseFloat(fc.paddingTop) };
+    const action = root.querySelector('.composer-feedback .composer-reason[data-consent-feature="text"] > .consent-action');
+    const targets = [['field', field], ['mic', root.querySelector('.composer-mic')], ['send', root.querySelector('.send')], ['consent action', action],
+      ...[...root.querySelectorAll('.composer-feedback :is(button, a[href])')].filter(n => n !== action).map(n => ['feedback control', n])]
+      .filter(([, n]) => n && n.checkVisibility({ visibilityProperty: true }) && n.getBoundingClientRect().width > .5).map(([name, n]) => [name, hitOf(n)]);
+    const header = [...root.querySelectorAll('.band .header-actions :is(button, [slot]), .band .header-actions slot')]
+      .flatMap(n => n.localName === 'slot' ? n.assignedElements() : [n])
+      .filter(n => n.checkVisibility({ visibilityProperty: true }) && n.getBoundingClientRect().width > .5 && n.getBoundingClientRect().height > .5)
+      .map(n => [n.className || n.localName, rect(n)]);
+    return {
+      composerBox: rect(composer), composerBorder: { bottom: parseFloat(dc.borderBottomWidth), left: parseFloat(dc.borderLeftWidth) },
+      noticeText: text, fieldText,
+      insets: text ? { fieldLeft: +(fieldText.left - d.left).toFixed(2), fieldTop: +(fieldText.top - d.top).toFixed(2),
+        noticeLeft: +(text.x - d.left).toFixed(2), noticeBottom: +(d.bottom - (text.y + text.height)).toFixed(2) } : null,
+      moreHit: hitOf(root.querySelector('.composer-notice__more')), targets, header,
+    };
+  };
   const status = root.querySelector('.audio-rail .voice-state');
   return {
     keyboard: root.querySelector('.workspace').hasAttribute('data-phone-keyboard'),
@@ -308,36 +338,6 @@ const bandState = c => {
     notice: box(notice), noticeLines, noticeLineHeight: notice ? parseFloat(getComputedStyle(notice).lineHeight) || 0 : 0, more: box(more), moreTarget,
     mic: box(root.querySelector('.composer-mic')), send: box(root.querySelector('.send')), dock: box(root.querySelector('.composer-dock')),
     ...insetState(c),
-  };
-};
-// r3 (TICK r2 M1, Codex gate1c): the notice line's insets against the field text's, and every
-// 44 px hit target of the dock and the band (an overlap ::after counts with its own box).
-const insetState = c => {
-  const root = c.shadowRoot, rect = n => { const r = n.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
-  const hitOf = n => { if (!n) return null; const r = n.getBoundingClientRect(), a = getComputedStyle(n, '::after');
-    if (a.content === 'none' || a.position !== 'absolute') return rect(n);
-    const width = parseFloat(a.width) || r.width, height = parseFloat(a.height) || 0;
-    return { x: r.x + (parseFloat(a.left) || 0), y: r.y + (parseFloat(a.top) || 0), width, height }; };
-  const composer = root.querySelector('.composer'), field = root.querySelector('textarea'), first = root.querySelector('.composer-notice__first');
-  if (!composer || !field) return {};
-  const d = composer.getBoundingClientRect(), dc = getComputedStyle(composer), f = field.getBoundingClientRect(), fc = getComputedStyle(field);
-  const text = (() => { const node = [...(first?.childNodes ?? [])].find(n => n.nodeType === 3 && n.textContent.trim()); if (!node) return null;
-    const range = document.createRange(); range.selectNodeContents(node); const r = range.getClientRects()[0]; return r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null; })();
-  const fieldText = { left: f.left + parseFloat(fc.borderLeftWidth) + parseFloat(fc.paddingLeft), top: f.top + parseFloat(fc.borderTopWidth) + parseFloat(fc.paddingTop) };
-  const action = root.querySelector('.composer-feedback .composer-reason[data-consent-feature="text"] > .consent-action');
-  const targets = [['field', field], ['mic', root.querySelector('.composer-mic')], ['send', root.querySelector('.send')], ['consent action', action],
-    ...[...root.querySelectorAll('.composer-feedback :is(button, a[href])')].filter(n => n !== action).map(n => ['feedback control', n])]
-    .filter(([, n]) => n && n.checkVisibility({ visibilityProperty: true }) && n.getBoundingClientRect().width > .5).map(([name, n]) => [name, hitOf(n)]);
-  const header = [...root.querySelectorAll('.band .header-actions :is(button, [slot]), .band .header-actions slot')]
-    .flatMap(n => n.localName === 'slot' ? n.assignedElements() : [n])
-    .filter(n => n.checkVisibility({ visibilityProperty: true }) && n.getBoundingClientRect().width > .5 && n.getBoundingClientRect().height > .5)
-    .map(n => [n.className || n.localName, rect(n)]);
-  return {
-    composerBox: rect(composer), composerBorder: { bottom: parseFloat(dc.borderBottomWidth), left: parseFloat(dc.borderLeftWidth) },
-    noticeText: text, fieldText,
-    insets: text ? { fieldLeft: +(fieldText.left - d.left).toFixed(2), fieldTop: +(fieldText.top - d.top).toFixed(2),
-      noticeLeft: +(text.x - d.left).toFixed(2), noticeBottom: +(d.bottom - (text.y + text.height)).toFixed(2) } : null,
-    moreHit: hitOf(root.querySelector('.composer-notice__more')), targets, header,
   };
 };
 const intersects = (a, b) => a && b && a.x < b.x + b.width - .5 && b.x < a.x + a.width - .5 && a.y < b.y + b.height - .5 && b.y < a.y + a.height - .5;
