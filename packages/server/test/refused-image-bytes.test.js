@@ -1114,7 +1114,7 @@ for (const [label, name, text, mime] of [
   const served = await f.handlers.handle(ownedRequest(`http://localhost/api/sessions/${f.session.id}/uploads/${upload.id}/image`));
   assert.equal(served.status, 404, 'never served for image rendering (transcript, preview)');
   const turn = await f.handlers.handle(ownedRequest(`http://localhost/api/sessions/${f.session.id}/turns`, { method: 'POST',
-    body: JSON.stringify({ clientEventId: `guard-turn-${name}`, content: 'Look', attachments: [upload.id] }) }));
+    body: JSON.stringify({ clientEventId: `guard-turn-${name.replace(/[^a-zA-Z0-9_-]/gu, '-')}`, content: 'Look', attachments: [upload.id] }) }));
   assert.equal(turn.status, 409, 'a document is never image input to a model lane');
   const current = f.storage.get(f.session.id);
   for (const lane of ['reaction', 'understanding']) assert.deepEqual(imageReferences(reasoningRequest(current, lane)), [], `${lane}: no image input`);
