@@ -161,11 +161,13 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
   // restart): staged-refused 'unavailable' with a fresh staging window, so the
   // visitor sees the instruction to attach it again before expiry removes it.
   const lost = () => ({ status: 'staged-refused', reason: 'unavailable', expiresAt: now() + STAGING_MS });
-  // Recovery before every expiry pass (AIT-610 r4): a staged-pending image with
-  // neither a job nor a held original (lost to a restart, or its job's final
-  // write failed) becomes staged-refused 'unavailable' first. Returns false if
-  // a recovery write failed: expiry must then not run, or it would discard the
-  // pending row before the visitor sees the instruction to attach it again.
+  // Boot recovery (resume): a staged-pending image with neither a job nor an
+  // original held in this process was lost to a restart and becomes
+  // staged-refused 'unavailable'. Returns false if a recovery write failed
+  // (AIT-610 r4): the session stays in `unrecovered` and its expiry does not run
+  // until a retry succeeds, so the pending row is never discarded before the
+  // visitor sees the instruction to attach it again.
+  const unrecovered = new Set();
   function recover(id) {
     if (signal.aborted) return true;
     let recovered = true;
@@ -179,12 +181,15 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
     return recovered;
   }
   function expire(id) {
-    if (!recover(id)) {
-      // Keep the rows; try again shortly. Nothing expires in this session until
-      // every lost image is recorded as 'unavailable'.
-      clearTimeout(expiryTimers.get(id));
-      if (!signal.aborted) { const timer = setTimeout(() => expire(id), RECOVERY_RETRY_MS); timer.unref?.(); expiryTimers.set(id, timer); }
-      return;
+    if (unrecovered.has(id)) {
+      if (!recover(id)) {
+        // Keep the rows; try again shortly. Nothing expires in this session
+        // until every lost image is recorded as 'unavailable'.
+        clearTimeout(expiryTimers.get(id));
+        if (!signal.aborted) { const timer = setTimeout(() => expire(id), RECOVERY_RETRY_MS); timer.unref?.(); expiryTimers.set(id, timer); }
+        return;
+      }
+      unrecovered.delete(id);
     }
     for (const event of storage.expireStagedUploads(id, now())) { jobs.get(event.data.id)?.controller.abort(); publish(id, event); }
     clearTimeout(expiryTimers.get(id)); expiryTimers.delete(id);
@@ -390,13 +395,15 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
       }
     },
     resume() {
-      // Boot expiry recovers first (expire -> recover): a staged image whose
-      // original is gone becomes staged-refused 'unavailable', so expiry never
-      // discards it silently. If that write fails, the session's expiry waits
-      // (retried), and the row's fallback job below records 'unavailable'.
+      // Recovery before boot expiry: a staged image whose original is gone
+      // becomes staged-refused 'unavailable', so expiry never discards it
+      // silently. If that write fails, the session's expiry waits (retried in
+      // expire), and the row's fallback job below records 'unavailable'.
+      for (const id of storage.list()) if (!recover(id)) unrecovered.add(id);
       for (const id of storage.list()) expire(id);
       for (const id of storage.list()) for (const upload of storage.get(id).uploads) {
-        if (!['pending', 'staged-pending'].includes(upload.state) || jobs.has(upload.id) || signal.aborted) continue;
+        // An image another handler set in this process holds is that set's job.
+        if (!['pending', 'staged-pending'].includes(upload.state) || jobs.has(upload.id) || heldInProcess.has(upload.id) || signal.aborted) continue;
         // Old durable backlogs may exceed today's admission budget. Drain their
         // metadata through the same FIFO and refuse new bodies until it clears.
         pendingUploadRequests++;

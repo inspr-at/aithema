@@ -366,8 +366,8 @@ drop). Two other byte paths follow their own rules, listed below.
   `staged-refused` with its reason. The original is then dropped and zeroed.
   Ownership and the job are registered before anything that can throw, so an
   exception cannot strand an original; shutdown zeroes every original it still
-  holds. A restart loses originals still waiting. Recovery runs before every
-  expiry pass: such a row becomes `staged-refused` with reason `unavailable`
+  holds. A restart loses originals still waiting. Recovery runs at boot, before
+  boot expiry: such a row becomes `staged-refused` with reason `unavailable`
   (never `deadline`, never silently discarded) and a fresh staging window. If
   that write fails, the session's expiry waits and is retried, and the row's
   own job records `unavailable`; a pending image row is never expired. The
