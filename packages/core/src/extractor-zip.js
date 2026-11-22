@@ -50,7 +50,13 @@ export function inspectZip(bytes, limits) {
     const localNameLength = u16(localAt + 26), dataAt = localAt + 30 + localNameLength + u16(localAt + 28);
     if (dataAt + compressedSize > directoryAt) fail();
     if (decoder.decode(bytes.subarray(localAt + 30, localAt + 30 + localNameLength)) !== name) fail();
-    if (!(flags & 8) && (u32(localAt + 14) !== crc || u32(localAt + 18) !== compressedSize || u32(localAt + 22) !== size)) fail();
+    if (!(flags & 8)) {
+      // AIT-610 r8: ZIP64 size sentinels in the local header (the real sizes in
+      // its ZIP64 extra field) are a feature, not damage. Every caller still
+      // sees reason 'malformed'; only upload intake reads `feature`.
+      if (u32(localAt + 18) === 0xffffffff || u32(localAt + 22) === 0xffffffff) unsupported();
+      if (u32(localAt + 14) !== crc || u32(localAt + 18) !== compressedSize || u32(localAt + 22) !== size) fail();
+    }
     ranges.push([localAt, dataAt + compressedSize]);
     entries.set(name, { name, method, crc, size, compressedSize, dataAt });
     cursor = next;

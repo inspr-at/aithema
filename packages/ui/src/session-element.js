@@ -92,6 +92,8 @@ function textKeys(values) {
 const lockedIdentity = identity => identity?.verificationRequired === true && identity.assessmentUnlocked !== true;
 // Each natural read owns at most five journal-driven repeats, with no timer.
 const REPEAT_LIMIT = 5;
+// AIT-610 r8: the one bounded retry after a failed reconciliation read.
+const UPLOADS_RECONCILE_RETRY_MS = 1000;
 const START_INTENT_KEY = 'aithema-start-intent';
 const startIntentTTL = mode => mode === 'voice' ? 60_000 : 180_000;
 
@@ -102,6 +104,8 @@ export class AithemaSession extends HTMLElement {
   #featureRead = null;
   // AIT-610 r7: the one in-flight GET /uploads reconciliation; callers share it.
   #uploadsReconcile = null;
+  #uploadsGeneration = 0;
+  #uploadsRetried = -1;
   #signals; #signalState; #signalLiveSeq = null; #signalReplay = new WeakSet();
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #clarifyWaitTimer; #clarifyRefresh = 0;
@@ -2065,7 +2069,8 @@ export class AithemaSession extends HTMLElement {
     this.#host?.updateStreaming();
     // A snapshot replaces the upload rows wholesale; the refusal view learns
     // them only through the one reconciliation path (AIT-610 r7). A read, not
-    // paid work.
+    // paid work. A new apply generation (r8).
+    this.#uploadsGeneration++;
     void this.#reconcileUploads();
   }
   #clearLaneStatusPending() {
@@ -4410,16 +4415,39 @@ export class AithemaSession extends HTMLElement {
   // idempotent (only pending rows move; the view takes each refusal once);
   // bounded (one read in flight, callers share it; no read without a pending
   // row or a refused row the view has not taken).
+  //
+  // AIT-610 r8 (gate7c):
+  // - fresh: a read is keyed by the connect/apply generation it began in
+  //   (#uploadsGeneration, bumped by every stream connect and snapshot apply).
+  //   A call after a newer connect never takes an older read's answer as its
+  //   own: it waits for that read, then reads again while a row is pending;
+  // - refused rows a snapshot already carries reach the refusal view directly,
+  //   no read needed;
+  // - a failed read is retried once after a short delay per generation; the
+  //   next connect or apply reads again;
+  // - the read goes through the same-origin guard of the existing GET on this
+  //   route (#loadLimits): no owner-authenticated request to a foreign baseUrl.
   #reconcileUploads() {
-    const sessionId = this.#session.id;
-    if (this.#uploadsReconcile?.sessionId === sessionId) return this.#uploadsReconcile.promise;
+    const sessionId = this.#session.id, generation = this.#uploadsGeneration;
+    if (this.#erased || this.#session.processingPreset === 'device' || this.#session.tombstone) return Promise.resolve();
     const images = () => (this.#session.uploads ?? []).filter(upload => upload.kind === 'image' && !upload.erased);
-    if (this.#erased || this.#session.processingPreset === 'device' || this.#session.tombstone ||
-      !images().some(upload => upload.state === 'staged-pending' || this.#images?.unreceived(upload))) return Promise.resolve();
-    const read = { sessionId, promise: null };
+    let delivered = false;
+    for (const upload of images()) if (this.#images?.unreceived(upload)) { this.#images.receive(upload); delivered = true; }
+    if (delivered) { this.#render('composer'); this.#host?.update(); }
+    const current = this.#uploadsReconcile;
+    if (current?.sessionId === sessionId) {
+      if (current.generation === generation) return current.promise;
+      return current.followUp ??= current.promise.then(() => this.#reconcileUploads());
+    }
+    if (!images().some(upload => upload.state === 'staged-pending')) return Promise.resolve();
+    let url;
+    try { url = sameOrigin(this.ownerDocument.defaultView, `${this.#base}/api/sessions/${sessionId}/uploads`); } catch { return Promise.resolve(); }
+    const read = { sessionId, generation, promise: null, followUp: null };
     read.promise = (async () => {
+      let failed = false;
       try {
-        const response = await this.#api(`${this.#base}/api/sessions/${sessionId}/uploads`, { headers: this.#headers() });
+        const response = await this.#api(url, { headers: this.#headers(), cache: 'no-store' });
+        failed = !response.ok;
         const body = response.ok ? await response.json() : null;
         if (this.#erased || this.#session.id !== sessionId || !Array.isArray(body?.uploads)) return;
         const reported = new Map(body.uploads.filter(upload => upload?.kind === 'image' && upload.state === 'staged-refused').map(upload => [upload.id, upload]));
@@ -4431,11 +4459,23 @@ export class AithemaSession extends HTMLElement {
         });
         for (const upload of images()) if (this.#images?.unreceived(upload)) { this.#images.receive(upload); changed = true; }
         if (changed) { this.#render('composer'); this.#host?.update(); }
-      } catch { /* the next connect or snapshot reconciles again */ }
-      finally { if (this.#uploadsReconcile === read) this.#uploadsReconcile = null; }
+      } catch { failed = true; }
+      finally {
+        if (this.#uploadsReconcile === read) this.#uploadsReconcile = null;
+        if (failed) this.#retryReconcile(sessionId, generation);
+      }
     })();
     this.#uploadsReconcile = read;
     return read.promise;
+  }
+  // One retry per connect/apply generation, after a short delay.
+  #retryReconcile(sessionId, generation) {
+    if (this.#uploadsRetried === generation || generation !== this.#uploadsGeneration) return;
+    this.#uploadsRetried = generation;
+    const timer = setTimeout(() => {
+      if (!this.#erased && this.isConnected && this.#session.id === sessionId && this.#uploadsGeneration === generation) void this.#reconcileUploads();
+    }, UPLOADS_RECONCILE_RETRY_MS);
+    timer?.unref?.();
   }
   async #restore() {
     const sessionId = this.#session.id, requestedCursor = this.#cursor;
@@ -4490,6 +4530,8 @@ export class AithemaSession extends HTMLElement {
         // A reconnect may follow a host restart: grants held in memory may be gone (D6).
         if (attempt++ > 0) void this.#refreshFeatures();
         // Any stream, the first included, may follow a restart that lost staged originals.
+        // A new connect generation: no read that began before it answers for it (r8).
+        this.#uploadsGeneration++;
         void this.#reconcileUploads();
         let replaying = true;
         for await (const event of serverEvents(reader)) {

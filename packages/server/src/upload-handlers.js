@@ -283,7 +283,11 @@ function cfbRootStreams(bytes) {
       ? Buffer.from(bytes.buffer, bytes.byteOffset + at, length - 2).toString('utf16le') : null;
   };
   const root = entries[0];
-  if (bytes[root + 0x42] !== 5 || name(root) !== 'Root Entry') return null;
+  // AIT-610 r8 (gate7c): every pointer the walk can reach is checked; the root
+  // has no siblings and a stream has no child (MS-CFB 2.6.1/2.6.3), so any
+  // value there is an inconsistency (doubt: generic), never ignored.
+  if (bytes[root + 0x42] !== 5 || name(root) !== 'Root Entry' ||
+    u32(root + 0x44) !== CFB_NOSTREAM || u32(root + 0x48) !== CFB_NOSTREAM) return null;
   const streams = new Set(), seen = new Set([0]), stack = [[u32(root + 0x4c), true]];
   while (stack.length) {
     const [id, top] = stack.pop();
@@ -292,6 +296,7 @@ function cfbRootStreams(bytes) {
     seen.add(id);
     const at = entries[id], type = bytes[at + 0x42], entryName = name(at);
     if (type !== 1 && type !== 2 || bytes[at + 0x43] > 1 || entryName === null) return null;
+    if (type === 2 && u32(at + 0x4c) !== CFB_NOSTREAM) return null;
     if (type === 2 && top) streams.add(entryName);
     stack.push([u32(at + 0x44), top], [u32(at + 0x48), top]);
     if (type === 1) stack.push([u32(at + 0x4c), false]);
