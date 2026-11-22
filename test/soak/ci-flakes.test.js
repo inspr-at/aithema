@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 const files = ['packages/ui/test/concepts.test.js', 'packages/ui/test/host-surface.test.js',
@@ -17,6 +17,7 @@ async function run(label, args) {
   let output = '';
   child.stdout.on('data', data => { output += data; }); child.stderr.on('data', data => { output += data; });
   const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
+  if (process.env.AITHEMA_EVIDENCE_DIR) await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
   if (process.env.AITHEMA_EVIDENCE_DIR) await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `${label}.log`), output);
   console.log(`${label}: exit=${code}, duration_ms=${Math.round(performance.now() - started)}; ${output.split('\n').filter(line => /^# (tests|pass|fail|duration_ms)/.test(line)).join('; ')}`);
   if (code !== 0) console.log(output.slice(-45000));
