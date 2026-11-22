@@ -155,7 +155,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
       // Chrome transfers attachment navigations to its download manager.
       if (exporting && request.isNavigationRequest() && new URL(request.url()).pathname.endsWith('/export')
         && request.failure()?.errorText === 'net::ERR_ABORTED') return;
-      fail(new Error(`Demo request failed: ${request.failure()?.errorText} ${request.method()} ${new URL(request.url()).pathname}`));
+      fail(new Error(`Demo request failed: ${request.failure()?.errorText} ${request.method()} ${new URL(request.url()).pathname} (${request.resourceType()}${request.isNavigationRequest() ? ', navigation' : ''}, response ${request.response()?.status() ?? 'none'}, step ${smokeStep})`));
     };
     page.on('console', consoleError); page.on('pageerror', fail); page.on('error', fail);
     page.on('response', responseError); page.on('requestfailed', requestError);
