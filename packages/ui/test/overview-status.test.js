@@ -4,7 +4,7 @@ import { Window } from 'happy-dom';
 import { applyEvent, createSession, inputRevision } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
-const window = new Window();
+const window = new Window({ url: 'http://localhost/' });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
 const { HostSurface } = await import('../src/host-surface.js');

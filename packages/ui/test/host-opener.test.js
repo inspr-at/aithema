@@ -5,7 +5,7 @@ import { createSession, inputRevision } from '../../core/src/session.js';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 beforeEach(t => t.mock.timers.enable({ apis: ['Date'], now: 1_800_000_000_000 }));
-const window = new Window();
+const window = new Window({ url: 'http://localhost/' });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
 const tick = () => new Promise(resolve => setImmediate(resolve));

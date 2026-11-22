@@ -205,7 +205,7 @@ test('Withdraw upload posts to the owner route, keeps the row in place as a tomb
   assert.ok(root.activeElement === button, 'focus survives a live update'); assert.equal(button.isConnected, true);
   button.click(); await tick(); await tick();
   const call = calls.find(entry => entry.url.endsWith('/withdraw'));
-  assert.equal(call.url, `/api/sessions/${c.session.id}/uploads/u1/withdraw`); assert.equal(call.options.method, 'POST');
+  assert.equal(call.url, `http://localhost/api/sessions/${c.session.id}/uploads/u1/withdraw`); assert.equal(call.options.method, 'POST');
   assert.equal(new Headers(call.options.headers).get('x-aithema-session-token'), 'owner-fixture');
   assert.equal(root.querySelector('[data-id="upload:u1"]'), chip, 'the withdrawn chip keeps its node and place');
   assert.equal(chip.dataset.state, 'withdrawn'); assert.equal(chip.querySelector('.upload__name').textContent, en.uploads.withdrawn);
@@ -229,7 +229,7 @@ test('attaching sends one multipart request with the owner header, announces it 
   assert.equal(root.querySelector('#attach-limits').textContent, root.querySelector('.attach').title);
   await choose(root, [file('brief.pdf', 1200), file('notes.md', 30)]);
   const post = calls.find(call => call.options.method === 'POST');
-  assert.equal(post.url, `/api/sessions/${c.session.id}/uploads`);
+  assert.equal(post.url, `http://localhost/api/sessions/${c.session.id}/uploads`);
   assert.equal(new Headers(post.options.headers).get('x-aithema-session-token'), 'owner-fixture');
   assert.equal(new Headers(post.options.headers).has('content-type'), false, 'the browser sets the multipart boundary');
   assert.match(post.options.body.get('clientEventId'), /^[0-9a-f-]{36}$/u); assert.deepEqual(post.options.body.getAll('files').map(f => f.name), ['brief.pdf', 'notes.md']);

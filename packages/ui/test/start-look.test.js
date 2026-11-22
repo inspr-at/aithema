@@ -12,7 +12,7 @@ import { styles, palette, themeStyles } from '../src/styles.js';
 import { entranceStyles } from '../src/entrance-styles.js';
 import { orbStyles } from '../src/orb.js';
 import { AudioRail } from '../src/audio-rail.js';
-const window = new Window();
+const window = new Window({ url: 'http://localhost/' });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
 test.after(async () => window.happyDOM.close());

@@ -8,7 +8,7 @@ import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 import { QuestionCard, questionCardMarkup } from '../src/question-card.js';
 
-const window = new Window();
+const window = new Window({ url: 'http://localhost/' });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
 const tick = () => new Promise(resolve => setImmediate(resolve));

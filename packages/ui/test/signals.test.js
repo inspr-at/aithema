@@ -6,7 +6,7 @@ import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 import { styles } from '../src/styles.js';
 import { reasonSeparator } from '../src/consent-line.js';
-const window = new Window();
+const window = new Window({ url: 'http://localhost/' });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
 function setup(copy = en) {

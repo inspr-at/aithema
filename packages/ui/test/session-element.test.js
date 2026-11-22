@@ -11,7 +11,7 @@ import { styles, palette } from '../src/styles.js';
 import { settingsStyles } from '../src/settings-styles.js';
 import { entranceStyles } from '../src/entrance-styles.js';
 import { contrast, glassCard, mix, textPairs } from '../../../test/contrast.js';
-const window = new Window();
+const window = new Window({ url: 'http://localhost/' });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
 function setup(options = {}) {
@@ -150,7 +150,7 @@ test('AIT-390: snapshot gap recovery does not replay aithema-event for skipped e
     data: { id: 'gap', role: 'assistant', content: 'Recovered reply' } };
   const snapshot = [first, skipped, gap].reduce(applyEvent, c.session);
   const fetch = t.mock.method(globalThis, 'fetch', async url => {
-    assert.equal(url, `/api/sessions/${c.session.id}`, 'recovery only reads the local session snapshot');
+    assert.equal(url, `http://localhost/api/sessions/${c.session.id}`, 'recovery only reads the local session snapshot');
     return Response.json(snapshot);
   });
   c.receive(first); c.receive(gap);

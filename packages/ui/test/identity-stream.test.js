@@ -318,7 +318,7 @@ for (const copy of [en, de]) test(`AIT-484 journal: one end state, silent host, 
 for (const route of ['events', 'credits', 'identity/unlock', 'restore', 'voice-close']) test(`AIT-484 exact not-found: ${route} confirms once then stops`, async t => {
   const h = fixture484(t, { voiceClient: await voice470(t), host: { verification: { delivery: true }, credits: true },
     session: { identity: pending470({ pollVerification: true }), featureMatrix: unlocked470 } });
-  const { control } = createVoiceControl({ sessionId: 'conversation-a', receive: event => h.c.receive(event) });
+  const { control } = createVoiceControl({ sessionId: 'conversation-a', receive: event => h.c.receive(event), view: window });
   await h.reconnect();
   // Settle the coalesced reconnect refresh before isolating the selected not-found route.
   t.mock.timers.tick(250); await tick(8);
@@ -411,7 +411,7 @@ for (const provider of ['elevenlabs', 'grok']) test(`AIT-484 ${provider}: real c
   const { createGrokVoiceClient } = await import('../../../plugins/grok-voice/src/client.js');
   const { fakeSdk } = await import('../../../plugins/elevenlabs/test/fixtures.js');
   let h, sdk = fakeSdk(), disconnected = 0;
-  const ports = createVoiceControl({ sessionId: 'conversation-a', receive: event => h.c.receive(event) }), { control } = ports;
+  const ports = createVoiceControl({ sessionId: 'conversation-a', receive: event => h.c.receive(event), view: window }), { control } = ports;
   const client = provider === 'elevenlabs' ? createElevenLabsClient({ control, sdk, mediaDevices: sdk.mediaDevices,
     AudioContext: sdk.AudioContext, persistEvent: async () => {} }) : createGrokVoiceClient({ control, now: () => Date.now(),
     async openRelay() { const frames = voiceEvents(); return { frames, async disconnect() { disconnected++; frames.end(); }, async sendAudio() {}, async command() { return { acknowledged: true }; } }; },
@@ -697,7 +697,7 @@ for (const provider of ['elevenlabs', 'grok']) test(`AIT-484 connecting ${provid
   const opened = Promise.withResolvers(), release = Promise.withResolvers();
   t.after(() => release.resolve());
   let h;
-  const { control } = createVoiceControl({ sessionId: 'conversation-a', receive: event => h.c.receive(event) });
+  const { control } = createVoiceControl({ sessionId: 'conversation-a', receive: event => h.c.receive(event), view: window });
   const sdk = fakeSdk(); sdk.beforeCreated = async () => { opened.resolve(); await release.promise; };
   const client = provider === 'elevenlabs' ? createElevenLabsClient({ control, sdk, mediaDevices: sdk.mediaDevices,
     AudioContext: sdk.AudioContext, persistEvent: async () => {} }) : createGrokVoiceClient({ control, now: () => Date.now(),

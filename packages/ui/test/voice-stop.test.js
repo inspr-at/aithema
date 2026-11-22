@@ -9,7 +9,7 @@ import { en } from '../src/i18n/en.js';
 import { createElevenLabsClient } from '../../../plugins/elevenlabs/src/client.js';
 import { fakeSdk } from '../../../plugins/elevenlabs/test/fixtures.js';
 
-const window = new Window();
+const window = new Window({ url: 'http://localhost/' });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
 const tick = () => new Promise(resolve => setImmediate(resolve));

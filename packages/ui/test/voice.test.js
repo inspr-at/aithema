@@ -15,7 +15,7 @@ import { createVoiceControl } from '../src/voice-control.js';
 import { createElevenLabsClient } from '../../../plugins/elevenlabs/src/client.js';
 import { watchVoicePlayback } from '../../../plugins/elevenlabs/src/playback.js';
 import { eventProbe } from '../../../test/voice-test-events.js';
-const window = new Window();
+const window = new Window({ url: 'http://localhost/' });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
 const tick = () => new Promise(resolve => setImmediate(resolve));
@@ -706,7 +706,7 @@ for (const change of [
     if (url.endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
       options.signal.addEventListener('abort', () => controller.close(), { once: true });
     } }));
-    assert.equal(url, `/api/sessions/${session.id}`);
+    assert.equal(url, `http://localhost/api/sessions/${session.id}`);
     refreshes++;
     const snapshot = c.session;
     snapshot.featureMatrix.best.html = { available: drafts, reason: drafts ? null : 'current processing consent required' };

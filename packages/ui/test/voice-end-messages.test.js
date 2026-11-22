@@ -9,7 +9,7 @@ import { de } from '../src/i18n/de.js';
 const flush = async () => { for (let i = 0; i < 8; i++) await new Promise(setImmediate); };
 function fixture(t, { copy = en, start } = {}) {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
-  const window = new Window(), root = window.document.createElement('div'), events = voiceEvents(), requests = [];
+  const window = new Window({ url: 'http://localhost/' }), root = window.document.createElement('div'), events = voiceEvents(), requests = [];
   window.document.body.append(root);
   const session = { callId: 'call', providerSessionId: 'segment', events,
     async setInput() {}, async setOutput() {}, async updateContext() {},
@@ -169,7 +169,7 @@ for (const [copy, text] of [[en, 'Voice connection failed. Retry or continue typ
 test('AIT-502 v2.2: voice control preserves resumed bound refusal metadata', async t => {
   const { createVoiceControl } = await import('../src/voice-control.js');
   t.mock.method(globalThis, 'fetch', async () => Response.json({ error: 'deadline', reason: 'time-limit', timeLimit: 'call' }, { status: 504 }));
-  const { control } = createVoiceControl({ sessionId: 'fixture', sessionToken: 'fixture' });
+  const { control } = createVoiceControl({ sessionId: 'fixture', sessionToken: 'fixture', view: window });
   await assert.rejects(control.recover({ callId: 'call' }), error => error.code === 'deadline' && error.reason === 'time-limit' && error.timeLimit === 'call');
 });
 

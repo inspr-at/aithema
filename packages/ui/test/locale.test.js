@@ -55,7 +55,7 @@ test('AIT-127: locale repaints the same conversation, composer, focus and contro
   assert.equal(orb.getAttribute('aria-label'), de.reveal.label);
   assert.equal(root.querySelector('.aithema-reveal__row').getAttribute('aria-label'), de.reveal.label);
   assert.deepEqual([...root.querySelectorAll('.aithema-reveal__link')].map(n => n.title), de.reveal.links.map(link => link.subtitle));
-  assert.deepEqual(posts.map(p => p.url), [`/api/sessions/${session.id}/locale`]);
+  assert.deepEqual(posts.map(p => p.url), [`http://localhost/api/sessions/${session.id}/locale`]);
 });
 
 for (const state of ['connecting', 'active']) test(`AIT-127: switching with an empty transcript and a ${state} call keeps the call`, async t => {
@@ -133,7 +133,7 @@ test('AIT-127: changing device locale does not consume a server settings acknowl
   c.configure({ session: { ...session, processingPreset: 'device' }, copy: en, copyForLocale: locale => ({ en, de })[locale] });
   c.remove(); let serverSeq = session.seq;
   t.mock.method(globalThis, 'fetch', async (url, init) => {
-    assert.equal(url, `/api/sessions/${session.id}/locale`);
+    assert.equal(url, `http://localhost/api/sessions/${session.id}/locale`);
     const event = { sessionId: session.id, seq: ++serverSeq, type: 'session.locale-changed', data: { locale: JSON.parse(init.body).locale } };
     return Response.json({ event });
   });

@@ -24,7 +24,7 @@ after(async () => {
 const flush = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)); };
 const rateLimit = retryAfterMs => Object.assign(new Error('Offline 429'), { status: 429, code: 'limit', retryAfterMs });
 function fixture(t, provider, { startError, recoveryError } = {}) {
-  const window = new Window(), root = window.document.createElement('div'); window.document.body.append(root);
+  const window = new Window({ url: 'http://localhost/' }), root = window.document.createElement('div'); window.document.body.append(root);
   const requests = [], streams = [], sdk = fakeSdk(); let capture, failStart = Boolean(startError), failRecovery = Boolean(recoveryError), generation = 0;
   const receipt = request => {
     const providerSessionId = `fixture-${++generation}`, until = Date.now() + 180_000;
@@ -208,7 +208,7 @@ for (const seconds of [5, 120, null]) test(`AIT-361: control preserves HTTP 429 
   t.mock.method(globalThis, 'fetch', async () => Response.json({ error: 'limit' }, {
     status: 429, headers: seconds === null ? {} : { 'retry-after': String(seconds) },
   }));
-  const { control } = createVoiceControl({ sessionId: 'offline-fixture' });
+  const { control } = createVoiceControl({ sessionId: 'offline-fixture', view: window });
   for (const action of ['start', 'recover']) await assert.rejects(control[action]({ callId: 'offline-call' }), error => {
     assert.equal(error.status, 429); assert.equal(error.retryAfterMs, seconds === null ? undefined : seconds * 1000); return true;
   });
