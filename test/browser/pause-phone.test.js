@@ -702,7 +702,10 @@ test('AIT-188 r3 keyboard: touch width/orientation reset and blur never stick fo
   // the injected clock below), in one reflow, not at once. Was: 'leaving composer clears keyboard state without resize' at once.
   assert.equal(await footer(), 'none', 'leaving composer keeps the keyboard-up state until the settle');
   assert.ok(await settleKeyboard(page) > 0, 'a keyboard settle was pending'); await frame(page);
-  assert.notEqual(await footer(), 'none', 'leaving composer clears keyboard state after the settle without resize');
+  // AIT-618 r5 (TICK r4 M1): the settle ends the state only when the viewport is no longer keyboard-small (here it is
+  // still 400 against the 600 baseline), so the state is kept until the viewport grows (the next step). Was: 'leaving
+  // composer clears keyboard state after the settle without resize'.
+  assert.equal(await footer(), 'none', 'leaving composer keeps the keyboard-up state after the settle while the viewport stays keyboard-small');
   await setViewport(page, { width: 500, height: 600, isLandscape: true }); await frame(page);
   assert.notEqual(await footer(), 'none', 'keyboard closed');
   await shadow(page, c => c.shadowRoot.querySelector('textarea').focus({ preventScroll: true })); await frame(page);

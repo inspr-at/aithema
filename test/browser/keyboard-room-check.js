@@ -603,63 +603,236 @@ export async function keyboardHostBandCheck(t) {
   }
 }
 
+// (e2) AIT-618 r5 (Codex gate3c M4, TICK decision (a): a GROW-ONLY latch). The keyboard opens with the pause
+// column free (one 44 px row); then the host adds Contact into the pause column while the keyboard is up. The row
+// goes 44 -> 88 ONCE: only Pause moves (y 0 -> 44, x 170 kept), the extra 44 px come out of the transcript pane,
+// and the field, Mic, Send, the notice and the consent rows keep their boxes. Focus on Pause stays on Pause. No band
+// target intersects another, and a whole transcript line stays at vv308. The host removing Contact again while the
+// keyboard is up never takes the row back to 44. 320x568 vv308/vv340, EN/DE, image dock.
+export async function keyboardHostLateAddCheck(t) {
+  const { open, read, capture } = await harness(t);
+  const readBand = page => page.$eval('aithema-session', bandState);
+  const [width, height] = [320, 568];
+  const targets = band => [['orb', band.orb], ['pause', band.pause], ...band.header];
+  const crossings = (tag, band) => {
+    const failures = [], all = targets(band);
+    for (const [part, box] of all) if (!(box?.width > 0 && box?.height > 0)) failures.push(`${tag}: ${part} positive box: ${JSON.stringify(box)}`);
+    for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++)
+      if (intersects(all[i][1], all[j][1])) failures.push(`${tag}: the ${all[i][0]} and ${all[j][0]} targets intersect: ${JSON.stringify([all[i][1], all[j][1]])}`);
+    return failures;
+  };
+  const contact = (page, change, locale) => page.$eval('aithema-session', (c, change, locale) => {
+    if (change === 'remove') c.querySelector('[slot="contact-launcher"]')?.remove();
+    else { const button = document.createElement('button'); button.type = 'button'; button.slot = 'contact-launcher';
+      button.textContent = locale === 'de' ? 'Kontakt' : 'Contact'; button.style.cssText = 'width:44px;height:44px;overflow:hidden'; c.append(button); }
+  }, change, locale);
+  const pauseFocused = page => page.$eval('aithema-session', c => Boolean(c.shadowRoot.activeElement?.closest('.voice-cell--pause')));
+  for (const viewport of [308, 340]) for (const locale of ['en', 'de']) {
+    const name = `${width}x${height}-vv${viewport}-${locale}-host-header-contact-added-while-up`;
+    await t.test(name, async () => {
+      const problems = [], failures = [];
+      const page = await open({ width, height, locale, intake: 'image', host: { library: true } }, problems);
+      try {
+        await reply(page, true); await settleLong(page);
+        await keyboardUp(page, viewport); await settleLong(page);
+        const up = await readBand(page), upRoom = await read(page);
+        if (!up.keyboard) failures.push(`${name}: the keyboard flag is set`);
+        if (Math.abs((up.band?.height ?? 0) - 44) > .5) failures.push(`${name}: fixture: the keyboard opens with the pause column free (one 44 px row): ${JSON.stringify(up.band)}`);
+        // Focus on Pause (a keyboard user's Tab, or a tap that focuses it); the keyboard-up state stays.
+        await page.$eval('aithema-session', c => [...c.shadowRoot.querySelectorAll('.voice-cell--pause > button')].find(b => b.checkVisibility())?.focus({ preventScroll: true }));
+        await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+        const before = await readBand(page), room = await read(page);
+        await capture(page, `${name}-1-before`, { ...room, band: before });
+        if (!(await pauseFocused(page))) failures.push(`${name}: fixture: focus is on Pause`);
+        if (!before.keyboard) failures.push(`${name}: before: the keyboard-up state stays with focus on Pause`);
+        failures.push(...stableBoxes(`${name} up -> focus on Pause (band)`, up, before, ['band', 'orb', 'pause', 'gear', 'notice', 'more']));
+        failures.push(...stableBoxes(`${name} up -> focus on Pause (dock)`, upRoom, room, ['mic', 'send', 'feedback', 'dock', 'field']));
+        await contact(page, 'add', locale);
+        await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+        const added = await readBand(page), addedRoom = await read(page);
+        await capture(page, `${name}-2-after-contact-added`, { ...addedRoom, band: added });
+        const names = added.header.map(([part]) => part).join(' ');
+        if (added.header.length <= before.header.length) failures.push(`${name}: fixture: Contact joined the header: ${names}`);
+        if (!added.keyboard) failures.push(`${name}: added: the keyboard stays up`);
+        if (Math.abs((added.band?.height ?? 0) - 88) > .5) failures.push(`${name}: added: the row grows to 88 px once the host control enters the pause column: ${JSON.stringify(added.band)}`);
+        if (Math.abs((added.pause?.x ?? -1) - 170) > .5 || Math.abs((added.pause?.y ?? -1) - ((before.pause?.y ?? 0) + 44)) > .5) failures.push(`${name}: added: only Pause moves, x 170 kept, y +44: ${JSON.stringify([before.pause, added.pause])}`);
+        for (const key of ['width', 'height']) if (Math.abs((added.pause?.[key] ?? -1) - (before.pause?.[key] ?? -2)) > .5) failures.push(`${name}: added: Pause keeps its ${key}: ${JSON.stringify([before.pause, added.pause])}`);
+        failures.push(...crossings(`${name} added`, added));
+        failures.push(...stableBoxes(`${name} before -> added (band)`, before, added, ['orb', 'gear', 'notice', 'more']));
+        failures.push(...stableBoxes(`${name} before -> added (dock)`, room, addedRoom, ['mic', 'send', 'feedback', 'dock', 'field']));
+        if (!(await pauseFocused(page))) failures.push(`${name}: added: focus stays on Pause`);
+        if (addedRoom.lines < 1) failures.push(`${name}: added: at least one whole transcript line is visible: ${JSON.stringify(brief(addedRoom))}`);
+        if (!(addedRoom.scroll?.height < room.scroll?.height - 43.5)) failures.push(`${name}: added: the 44 px come out of the transcript pane: ${room.scroll?.height} -> ${addedRoom.scroll?.height}`);
+        // Grow-only: Contact removed while the keyboard is up keeps 88.
+        await contact(page, 'remove', locale);
+        await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+        const removed = await readBand(page), removedRoom = await read(page);
+        await capture(page, `${name}-3-after-contact-removed`, { ...removedRoom, band: removed });
+        if (!removed.keyboard) failures.push(`${name}: removed: the keyboard stays up`);
+        failures.push(...stableBoxes(`${name} added -> removed (band)`, added, removed, ['band', 'orb', 'pause', 'gear', 'notice', 'more']));
+        failures.push(...stableBoxes(`${name} added -> removed (dock)`, addedRoom, removedRoom, ['mic', 'send', 'feedback', 'dock', 'field']));
+        t.diagnostic(`${name}: band ${before.band?.height} -> ${added.band?.height} -> ${removed.band?.height}; pause ${JSON.stringify(before.pause)} -> ${JSON.stringify(added.pause)}; Send y ${room.send?.y} / ${addedRoom.send?.y}; lines ${room.lines} / ${addedRoom.lines}; header ${JSON.stringify(added.header)}`);
+      } finally { await page.close(); }
+      none(failures, name);
+      assert.deepEqual(problems, []);
+    });
+  }
+}
+
 // (f) AIT-618 r4 (TICK Q1 (a), Codex gate2c M1): ONE keyboard-up state. Footer, dock, feedback latch,
 // notice/More and the compact band open together (focus in the composer, the viewport obstructed) and
-// end together, in ONE reflow: when the viewport grows back, or (AIT-188's stale-height escape) at the
-// settle (~1 s, an injected clock here) after focus left the composer. A header tap and a real Pause that
-// disables the composer move nothing before that end. 320x568 vv308, EN/DE, image dock.
-const settleParts = { room: ['dock', 'mic', 'send', 'feedback', 'field', 'notice'], band: ['band', 'pause'] };
+// end together, in ONE reflow, when the viewport grows back. A header tap and a real Pause that disables
+// the composer move nothing before that end. 320x568 vv308, EN/DE, image dock.
+// r5 (TICK r4 M1): the settle (~1 s, an injected clock here) after focus left the composer is only
+// AIT-188's stale-height escape: it ends the state only when the viewport is no longer keyboard-small, by
+// the measure that opens it. With the viewport held at 308 (a host text field took focus, the keyboard
+// stays up) the state is KEPT at the settle, every box as during, until the viewport grows: ONE reflow.
+const settleParts = { room: ['dock', 'mic', 'send', 'feedback', 'field', 'notice', 'band'], band: ['band', 'pause'] };
+const keptState = (tag, from, to) => {
+  const failures = [];
+  if (!to.room.keyboard || !to.band.bandUp) failures.push(`${tag}: the ONE keyboard-up state is kept (footer, dock and band together): ${JSON.stringify([to.room.keyboard, to.band.bandUp])}`);
+  if (to.room.footerShown !== from.room.footerShown) failures.push(`${tag}: the footer stays as it was: ${from.room.footerShown} -> ${to.room.footerShown}`);
+  if (to.room.lines !== from.room.lines) failures.push(`${tag}: the transcript keeps its whole lines: ${from.room.lines} -> ${to.room.lines}`);
+  if (to.band.noticeLines !== from.band.noticeLines) failures.push(`${tag}: the notice keeps its lines: ${from.band.noticeLines} -> ${to.band.noticeLines}`);
+  failures.push(...stableBoxes(`${tag} (dock)`, from.room, to.room, settleParts.room));
+  failures.push(...stableBoxes(`${tag} (band)`, from.band, to.band, settleParts.band));
+  return failures;
+};
+const setViewportMock = (page, { height, scale = 1, event = true }) => page.evaluate(({ height, scale, event }) => {
+  globalThis.k1Viewport ??= visualViewport;
+  const viewport = new EventTarget(); Object.assign(viewport, { height, offsetTop: 0, scale });
+  Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
+  if (event) window.dispatchEvent(new Event('resize'));
+}, { height, scale, event });
+const restoreViewport = (page, { event = true } = {}) => page.evaluate(event => {
+  Object.defineProperty(window, 'visualViewport', { configurable: true, value: globalThis.k1Viewport });
+  if (event) window.dispatchEvent(new Event('resize'));
+}, event);
 export async function keyboardSettleCheck(t) {
   const { open, read, capture } = await harness(t);
   const readBand = page => page.$eval('aithema-session', bandState);
   const [width, height, viewport] = [320, 568, 308];
   const both = async page => ({ room: await read(page), band: await readBand(page) });
-  for (const locale of ['en', 'de']) for (const cause of ['header-tap', 'pause-disables-composer']) for (const end of ['settle', 'viewport-grows']) {
-    const name = `${width}x${height}-vv${viewport}-${locale}-image-dock-${cause}-ends-by-${end}`;
+  // The ONE reflow when the state ends: footer back, full band, keyboard flags clear; a further paint (and any
+  // leftover settle) changes nothing.
+  const endedOnce = async (page, name, after) => {
+    const failures = [];
+    if (after.room.keyboard || after.band.bandUp) failures.push(`${name}: after: the whole keyboard-up state ended: ${JSON.stringify([after.room.keyboard, after.band.bandUp])}`);
+    if (after.room.overlay) failures.push(`${name}: after: fixture: the viewport is unobstructed: ${after.room.overlay}`);
+    if (!after.room.footerShown || !(after.room.footer?.width > 0 && after.room.footer?.height > 0)) failures.push(`${name}: after: the footer is back with a positive box: ${JSON.stringify(after.room.footer)}`);
+    if (!(after.band.band?.height > 44 + .5)) failures.push(`${name}: after: the full band is back: ${JSON.stringify(after.band.band)}`);
+    if ((await pendingSettles(page)).length) failures.push(`${name}: after: no settle is left pending`);
+    await fireSettle(page); await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+    const later = await both(page);
+    failures.push(...stableBoxes(`${name} after -> later (dock)`, after.room, later.room, settleParts.room));
+    failures.push(...stableBoxes(`${name} after -> later (band)`, after.band, later.band, settleParts.band));
+    if (later.room.footerShown !== after.room.footerShown) failures.push(`${name}: after -> later: the footer stays`);
+    return failures;
+  };
+  // Opens the state at vv308, moves focus out (a header tap or a real Pause) and checks nothing moved.
+  const leave = async (page, name, cause, failures) => {
+    await reply(page, true); await settleLong(page);
+    await keyboardUp(page, viewport); await settleLong(page);
+    const before = await both(page);
+    await capture(page, `${name}-1-before`, { ...before.room, band: before.band });
+    if (cause === 'header-tap') await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.settings-open').focus());
+    else await togglePause(page, true);
+    await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+    const during = await both(page), settles = await pendingSettles(page);
+    await capture(page, `${name}-2-during`, { ...during.room, band: during.band, settles });
+    const editing = await page.$eval('aithema-session', c => Boolean(c.shadowRoot.activeElement?.closest('.composer')));
+    if (editing) failures.push(`${name}: fixture: focus left the composer`);
+    // DURING: focus is out, the viewport is still small, the settle has not run: nothing moves.
+    if (!before.room.keyboard || !before.band.bandUp) failures.push(`${name}: before: the keyboard-up state is open: ${JSON.stringify([before.room.keyboard, before.band.bandUp])}`);
+    failures.push(...keptState(`${name} before -> during`, before, during));
+    if (page.settleClock && !settles.length) failures.push(`${name}: during: a settle is pending`);
+    return { before, during, settles };
+  };
+  for (const locale of ['en', 'de']) for (const cause of ['header-tap', 'pause-disables-composer']) for (const end of ['settle-held-small', 'viewport-grows']) {
+    const name = `${width}x${height}-vv${viewport}-${locale}-image-dock-${cause}-${end === 'settle-held-small' ? 'settle-held-small' : 'ends-by-viewport-grows'}`;
     await t.test(name, async () => {
       const problems = [], failures = [];
       const page = await open({ width, height, locale, intake: 'image' }, problems);
       try {
         if (!page.settleClock) failures.push(`${name}: the keyboard settle clock is injectable (layout.js keyboardSettle)`);
-        await reply(page, true); await settleLong(page);
-        await keyboardUp(page, viewport); await settleLong(page);
-        const before = await both(page);
-        await capture(page, `${name}-1-before`, { ...before.room, band: before.band });
-        if (cause === 'header-tap') await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.settings-open').focus());
-        else await togglePause(page, true);
-        await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
-        const during = await both(page), settles = await pendingSettles(page);
-        await capture(page, `${name}-2-during`, { ...during.room, band: during.band, settles });
-        const editing = await page.$eval('aithema-session', c => Boolean(c.shadowRoot.activeElement?.closest('.composer')));
-        if (editing) failures.push(`${name}: fixture: focus left the composer`);
-        // DURING: focus is out, the viewport is still small, the settle has not run: nothing moves.
-        if (!before.room.keyboard || !before.band.bandUp) failures.push(`${name}: before: the keyboard-up state is open: ${JSON.stringify([before.room.keyboard, before.band.bandUp])}`);
-        if (!during.room.keyboard || !during.band.bandUp) failures.push(`${name}: during: the ONE keyboard-up state stays until its end (footer, dock and band together): ${JSON.stringify([during.room.keyboard, during.band.bandUp])}`);
-        if (during.room.footerShown !== before.room.footerShown) failures.push(`${name}: during: the footer stays as it was: ${before.room.footerShown} -> ${during.room.footerShown}`);
-        failures.push(...stableBoxes(`${name} before -> during (dock)`, before.room, during.room, settleParts.room));
-        failures.push(...stableBoxes(`${name} before -> during (band)`, before.band, during.band, settleParts.band));
-        if (page.settleClock && end === 'settle' && !settles.length) failures.push(`${name}: during: a settle is pending`);
-        if (end === 'settle') await fireSettle(page);
-        else await page.evaluate(() => { Object.defineProperty(window, 'visualViewport', { configurable: true, value: globalThis.k1Viewport }); window.dispatchEvent(new Event('resize')); });
-        await settleLong(page);
+        const { before, during, settles } = await leave(page, name, cause, failures);
+        let kept = null;
+        if (end === 'settle-held-small') {
+          // r5 (TICK r4 M1): the settle elapses with the viewport held at 308: the state is KEPT, after = during.
+          const fired = await fireSettle(page); await settleLong(page);
+          kept = await both(page);
+          await capture(page, `${name}-3-after-settle`, { ...kept.room, band: kept.band, fired });
+          if (!kept.room.overlay) failures.push(`${name}: after the settle: fixture: the viewport is still overlaid`);
+          failures.push(...keptState(`${name} during -> after the settle`, during, kept));
+          // A further paint still keeps it (no re-armed settle ends it later while the viewport is small).
+          await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+          await fireSettle(page); await settleLong(page);
+          failures.push(...keptState(`${name} after the settle -> a further paint`, during, await both(page)));
+        }
+        // The viewport grows back: ONE reflow.
+        await restoreViewport(page); await settleLong(page);
         const after = await both(page);
-        await capture(page, `${name}-3-after`, { ...after.room, band: after.band });
-        // AFTER: the whole state ended at once (one reflow): footer back, full band, keyboard flags clear.
-        if (after.room.keyboard || after.band.bandUp) failures.push(`${name}: after: the whole keyboard-up state ended: ${JSON.stringify([after.room.keyboard, after.band.bandUp])}`);
-        // The footer is back unless the visual viewport is still overlaid (AIT-188: [data-phone-short][data-phone-overlay]
-        // hides it on its own, keyboard state or not): at the settle the viewport is still small, so it stays hidden.
-        if (after.room.overlay !== (end === 'settle')) failures.push(`${name}: after: fixture: the viewport is ${end === 'settle' ? 'still overlaid' : 'unobstructed'}: ${after.room.overlay}`);
-        if (end === 'settle' && after.room.footerShown) failures.push(`${name}: after: the overlaid viewport keeps the footer hidden (AIT-188 overlay rule)`);
-        if (end !== 'settle' && (!after.room.footerShown || !(after.room.footer?.width > 0 && after.room.footer?.height > 0))) failures.push(`${name}: after: the footer is back with a positive box: ${JSON.stringify(after.room.footer)}`);
-        if (!(after.band.band?.height > 44 + .5)) failures.push(`${name}: after: the full band is back: ${JSON.stringify(after.band.band)}`);
-        if (end === 'viewport-grows' && (await pendingSettles(page)).length) failures.push(`${name}: after: the viewport's growth cancelled the settle`);
-        // ONE reflow: a further paint (and any leftover settle) changes nothing.
-        await fireSettle(page); await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
-        const later = await both(page);
-        failures.push(...stableBoxes(`${name} after -> later (dock)`, after.room, later.room, settleParts.room));
-        failures.push(...stableBoxes(`${name} after -> later (band)`, after.band, later.band, settleParts.band));
-        if (later.room.footerShown !== after.room.footerShown) failures.push(`${name}: after -> later: the footer stays`);
-        t.diagnostic(`${name}: settles ${JSON.stringify(settles)}; before/during/after keyboard ${before.room.keyboard}/${during.room.keyboard}/${after.room.keyboard}, band ${before.band.band?.height}/${during.band.band?.height}/${after.band.band?.height}; pause ${JSON.stringify(before.band.pause)} -> ${JSON.stringify(during.band.pause)}; Send y ${before.room.send?.y} / ${during.room.send?.y} / ${after.room.send?.y}`);
+        await capture(page, `${name}-${end === 'settle-held-small' ? '4' : '3'}-after-viewport-grows`, { ...after.room, band: after.band });
+        failures.push(...await endedOnce(page, name, after));
+        t.diagnostic(`${name}: settles ${JSON.stringify(settles)}; before/during/kept/after keyboard ${before.room.keyboard}/${during.room.keyboard}/${kept?.room.keyboard}/${after.room.keyboard}, band ${before.band.band?.height}/${during.band.band?.height}/${kept?.band.band?.height}/${after.band.band?.height}; pause ${JSON.stringify(during.band.pause)}; Send y ${during.room.send?.y} / ${kept?.room.send?.y} / ${after.room.send?.y}; lines ${during.room.lines}/${kept?.room.lines}/${after.room.lines}`);
+      } finally { await page.close(); }
+      none(failures, name);
+      assert.deepEqual(problems, []);
+    });
+  }
+  // r5 (TICK r4 M1, Codex gate3c M2): the same timer in three more cases, header tap, EN/DE.
+  // - stale height: the keyboard closed without a resize event; at the settle the measure says not small: it ends in one reflow;
+  // - partial recovery: 308 -> 340 before the deadline (568 - 340 = 228, still keyboard-small): kept at the settle, no
+  //   reflow mid-recovery; full growth then ends it in one reflow;
+  // - zoomed and obstructed: the settle elapses while zoomed: kept (still small), also once the zoom ends at 308; the
+  //   zoomed close (the zoomed viewport covers the layout height again) still ends it.
+  for (const locale of ['en', 'de']) for (const kind of ['stale-height', 'partial-recovery', 'zoomed']) {
+    const name = `${width}x${height}-vv${viewport}-${locale}-image-dock-header-tap-settle-${kind}`;
+    await t.test(name, async () => {
+      const problems = [], failures = [];
+      const page = await open({ width, height, locale, intake: 'image' }, problems);
+      try {
+        const { during } = await leave(page, name, 'header-tap', failures);
+        if (kind === 'stale-height') {
+          await restoreViewport(page, { event: false }); await settleLong(page);
+          const stale = await both(page);
+          failures.push(...keptState(`${name} during -> restored without a resize event`, during, stale));
+          await fireSettle(page); await settleLong(page);
+          const after = await both(page);
+          await capture(page, `${name}-3-after-settle`, { ...after.room, band: after.band });
+          failures.push(...await endedOnce(page, name, after));
+        } else if (kind === 'partial-recovery') {
+          await setViewportMock(page, { height: 340 }); await settleLong(page);
+          const mid = await both(page);
+          await capture(page, `${name}-3-vv340-before-settle`, { ...mid.room, band: mid.band });
+          if (!mid.room.keyboard || !mid.band.bandUp) failures.push(`${name}: at 340 the state is still open: ${JSON.stringify([mid.room.keyboard, mid.band.bandUp])}`);
+          await fireSettle(page); await settleLong(page);
+          const kept = await both(page);
+          await capture(page, `${name}-4-vv340-after-settle`, { ...kept.room, band: kept.band });
+          failures.push(...keptState(`${name} vv340 before -> after the settle`, mid, kept));
+          await restoreViewport(page); await settleLong(page);
+          const after = await both(page);
+          await capture(page, `${name}-5-after-viewport-grows`, { ...after.room, band: after.band });
+          failures.push(...await endedOnce(page, name, after));
+        } else {
+          // Pinch zoom x2 with the keyboard still up: the visual viewport is 154 CSS px (154 x 2 = 308 device-scaled).
+          await setViewportMock(page, { height: viewport / 2, scale: 2 }); await settleLong(page);
+          await fireSettle(page); await settleLong(page);
+          const zoomed = await both(page);
+          if (!zoomed.room.keyboard || !zoomed.band.bandUp) failures.push(`${name}: zoomed and obstructed: the state is kept at the settle: ${JSON.stringify([zoomed.room.keyboard, zoomed.band.bandUp])}`);
+          await setViewportMock(page, { height: viewport }); await settleLong(page);
+          const unzoomed = await both(page);
+          await capture(page, `${name}-3-unzoomed-vv308-after-settle`, { ...unzoomed.room, band: unzoomed.band });
+          failures.push(...keptState(`${name} during -> zoom ends at 308 after the settle`, during, unzoomed));
+          // The zoomed close: zoomed again, the keyboard closes (284 x 2 = 568): the state ends.
+          await setViewportMock(page, { height: viewport / 2, scale: 2 }); await settleLong(page);
+          await setViewportMock(page, { height: height / 2, scale: 2 }); await settleLong(page);
+          const closed = await both(page);
+          if (closed.room.keyboard || closed.band.bandUp) failures.push(`${name}: the zoomed close ends the state: ${JSON.stringify([closed.room.keyboard, closed.band.bandUp])}`);
+          await restoreViewport(page); await settleLong(page);
+          const after = await both(page);
+          failures.push(...await endedOnce(page, name, after));
+        }
       } finally { await page.close(); }
       none(failures, name);
       assert.deepEqual(problems, []);
@@ -689,7 +862,11 @@ export async function keyboardSettleCheck(t) {
         await settleLong(page);
         await keyboardUp(page, viewport); await settleLong(page);
         await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.settings-open').focus()); await settleLong(page);
+        // r5 (TICK r4 M1): the settle ends the state only on a stale height (the keyboard closed without a resize event).
+        await restoreViewport(page, { event: false });
         await fireSettle(page); await settleLong(page);
+        const ended = await both(page);
+        if (ended.room.keyboard || ended.band.bandUp) failures.push(`${name}: fixture: the settle ended the state on the stale height: ${JSON.stringify([ended.room.keyboard, ended.band.bandUp])}`);
         await drop(viewport - 40); await settleLong(page);
         const second = await both(page);
         if (second.room.keyboard || second.band.bandUp) failures.push(`${name}: after the settle a further height drop with focus outside opens no state: ${JSON.stringify([second.room.keyboard, second.band.bandUp])}`);
