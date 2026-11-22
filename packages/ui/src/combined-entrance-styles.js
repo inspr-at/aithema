@@ -386,30 +386,30 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-notice__more { flex:none; position:relative; min-height:0; height:auto; padding-block:0; line-height:inherit; }
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-notice__more::after { content:''; position:absolute; left:0; right:0; top:-8px; height:44px; }
   /* r3 (TICK r2 M1, Codex gate1c Medium 3): the notice line keeps a real inset
-     from the dock's rounded bottom edge (13 px with the border, at least the
+     from the dock's rounded bottom edge (12 px with the border, at least the
      field text's 11 px top inset; the text starts at the field text's left
      inset), and "More"'s 44 px target stays inside the dock: it overlaps
-     15 px UP (the 8 px row gap and 7 px of the row above, which a floor row's
-     consent target leaves free: it ends 8 px (image floor, 44 px) or 7.2 px
-     (document floor, 3.75em) above the row's bottom), then the line (1lh,
-     17.4 px) and 11.6 of the 12 px padding. */
-  .workspace[data-entrance="combined"][data-phone-keyboard] .composer { padding-bottom:12px; }
-  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-notice__more::after { top:-15px; }
+     16 px UP (the 8 px row gap and 8 px of the row above, which the image
+     floor row's consent target leaves free: it ends 8 px above the row's
+     bottom), then the line (1lh, 17.4 px) and 10.6 of the 11 px padding. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer { padding-bottom:11px; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-notice__more::after { top:-16px; }
+  /* The document floor (3.75em, 43.2 px) leaves 7.2 px under its consent target: 1 px more above the line. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer[data-document-input] .composer-notice-slot { padding-top:1px; }
   /* Where the row above has no free 8 px the slot gives them: the feedback row
      collapsed (the field's row is directly above), or a row with its own
-     controls (Try again, Discard): 7 px, as the overlap takes 7. */
+     controls (Try again, Discard): 8 px, as the overlap takes 8. */
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.composer-feedback > .composer-reason:is([data-shortcut],:empty)):not(:has(.composer-feedback[data-saved])):not(:has(.composer-feedback[data-keyboard-kept])):not(:has(.composer-feedback :is(button, a, input, [tabindex]))) .composer-notice-slot,
-  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.composer-feedback :is(button, a[href]):not(.composer-reason[data-consent-feature="text"] *)) .composer-notice-slot { padding-top:7px; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:has(.composer-feedback :is(button, a[href]):not(.composer-reason[data-consent-feature="text"] *)) .composer-notice-slot { padding-top:8px; }
   /* A pending consent row without a floor (a plain dock) stays one line (k1),
      but its action's 44 px target runs from the 8 px gap above it to 36 px
      below its top. The slot holds the rest of that target, so "More" starts
-     where the consent target ends: 44 px minus the 1 px the More target's
-     15 px overlap leaves above the gap, minus the row's line (.72rem at the
+     where the consent target ends: 44 px minus the row's line (.72rem at the
      reason's 1.3 line height, 14.98 px). It stays while the keyboard is up
      after consent clears (layout.js latches [data-keyboard-consent] with the
      kept row), so clearing moves nothing; the row's box stays one line. */
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer:not([data-image-input]):not([data-document-input]):has(.composer-feedback[data-keyboard-consent]) .composer-notice-slot,
-  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:not([data-image-input]):not([data-document-input]):has(.composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action) .composer-notice-slot { padding-top:calc(44px - 1px - .72rem * 1.3); }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer:not([data-image-input]):not([data-document-input]):has(.composer-feedback > .composer-reason[data-consent-feature="text"] > .consent-action) .composer-notice-slot { padding-top:calc(44px - .72rem * 1.3); }
 }
 /* AIT-618 r2 (TICK (b)): while the phone keyboard is up the voice band is ONE
    44 px row. The rail moves up into the band's first row, so the small orb
