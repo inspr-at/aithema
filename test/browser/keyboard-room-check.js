@@ -245,3 +245,116 @@ export async function keyboardHintCheck(t) {
     }
   }
 }
+
+// (c) AIT-618 r2, TICK's decision (a)+(b) after r1: while the phone keyboard is
+// up the voice band is ONE 44 px row (the small band orb at the start, the
+// pause/resume control and the settings gear, each at its keyboard-down
+// horizontal position and size; the volume control and the wave/level line
+// are hidden and leave the focus order), and the AI notice is ONE text line
+// with its 44 px "More" target as an overlap (k1's consent-action pattern).
+// Both change only when the keyboard opens or closes: the row is 44 px whether
+// a reply plays or is paused, and nothing moves within the keyboard-up state.
+// A reply playing/paused is emulated with the attributes the session sets
+// (band orb data-voice, rail data-state, the pause control's aria-pressed):
+// this check is about geometry, and no provider or audio runs here.
+const bandState = c => {
+  const root = c.shadowRoot, box = n => { if (!n) return null; const r = n.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
+  const painted = n => Boolean(n) && n.checkVisibility({ visibilityProperty: true, opacityProperty: true }) && n.getBoundingClientRect().height > .5
+    && n.getBoundingClientRect().width > .5 && [...(function* up(e) { for (; e && e !== root; e = e.parentElement ?? e.parentNode?.host) yield e; })(n)].every(e => getComputedStyle(e).clipPath === 'none');
+  const cell = root.querySelector('.voice-cell--pause');
+  const pause = [...(cell?.querySelectorAll(':scope > button') ?? [])].find(painted) ?? null;
+  const output = [...root.querySelectorAll('.voice-cell--output > button, .voice-signal, .voice-wave')];
+  const notice = root.querySelector('.composer-notice'), more = root.querySelector('.composer-notice__more');
+  const noticeLines = (() => { if (!notice) return 0; const tops = new Set(); const walker = document.createTreeWalker(notice, NodeFilter.SHOW_TEXT);
+    for (let n; (n = walker.nextNode());) { if (!n.textContent.trim() || !n.parentElement.checkVisibility()) continue; const range = document.createRange(); range.selectNodeContents(n);
+      for (const r of range.getClientRects()) if (r.width > .5 && r.height > .5) tops.add(Math.round(r.top)); } return tops.size; })();
+  const moreTarget = more ? (() => { const after = getComputedStyle(more, '::after'); const r = more.getBoundingClientRect();
+    return { content: after.content, height: parseFloat(after.height) || 0, width: parseFloat(after.width) || r.width, hit: (() => {
+      const x = r.left + r.width / 2, y = r.top + r.height / 2 + 14; const hit = c.shadowRoot.elementFromPoint(x, y); return hit === more || more.contains(hit); })() }; })() : null;
+  const status = root.querySelector('.audio-rail .voice-state');
+  return {
+    keyboard: root.querySelector('.workspace').hasAttribute('data-phone-keyboard'),
+    band: box(root.querySelector('.band')), orb: box(root.querySelector('.band-orb')), orbPainted: painted(root.querySelector('.band-orb .orb') ?? root.querySelector('.band-orb')),
+    orbVoice: root.querySelector('.band-orb .orb')?.dataset.voice ?? null,
+    pause: box(pause), pauseName: pause ? (pause.getAttribute('aria-label') || pause.textContent).trim() : '', pausePressed: pause?.getAttribute('aria-pressed') ?? null,
+    pauseHit: pause ? (() => { const r = pause.getBoundingClientRect(); const hit = c.shadowRoot.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return hit === pause || pause.contains(hit); })() : false,
+    gear: box(root.querySelector('.settings-open')), gearPainted: painted(root.querySelector('.settings-open')),
+    gearName: (root.querySelector('.settings-open')?.textContent ?? '').trim(),
+    outputPainted: output.filter(painted).map(n => n.className.baseVal ?? n.className),
+    outputFocusable: [...root.querySelectorAll('.voice-cell--output > button')].filter(n => n.checkVisibility({ visibilityProperty: true }) && !n.disabled && n.tabIndex >= 0).map(n => n.className),
+    status: status ? { inTree: status.checkVisibility({ visibilityProperty: true }) || getComputedStyle(status).display !== 'none' && getComputedStyle(status).visibility !== 'hidden', role: status.getAttribute('role') } : null,
+    notice: box(notice), noticeLines, noticeLineHeight: notice ? parseFloat(getComputedStyle(notice).lineHeight) || 0 : 0, more: box(more), moreTarget,
+    mic: box(root.querySelector('.composer-mic')), send: box(root.querySelector('.send')), dock: box(root.querySelector('.composer-dock')),
+  };
+};
+const reply = (page, playing) => page.$eval('aithema-session', (c, playing) => {
+  const root = c.shadowRoot;
+  root.querySelector('.band-orb .orb')?.setAttribute('data-voice', playing ? 'speaking' : 'paused');
+  const rail = root.querySelector('.audio-rail'); if (rail) rail.dataset.state = playing ? 'speaking' : 'paused';
+  for (const pause of root.querySelectorAll('.voice-cell--pause > button')) pause.setAttribute('aria-pressed', String(!playing));
+}, playing);
+
+export async function keyboardBandCheck(t) {
+  const { open, read, capture } = await harness(t);
+  const readBand = page => page.$eval('aithema-session', bandState);
+  const [width, height] = [320, 568];
+  for (const viewport of [308, 340]) for (const intake of ['image', 'document']) for (const locale of ['en', 'de']) {
+    const name = `${width}x${height}-vv${viewport}-${locale}-${intake}-dock-band`;
+    await t.test(name, async () => {
+      const problems = [], failures = [];
+      const page = await open({ width, height, locale, intake }, problems);
+      try {
+        await reply(page, true); await settleLong(page);
+        const down = await readBand(page);
+        await capture(page, `${name}-keyboard-down-playing`, { ...(await read(page)), band: down });
+        for (const part of ['band', 'orb', 'pause', 'gear']) if (!(down[part]?.width > 0 && down[part]?.height > 0)) failures.push(`${name}: keyboard down: ${part} positive box: ${JSON.stringify(down[part])}`);
+        if (!down.outputPainted.length) failures.push(`${name}: fixture: the volume control shows with the keyboard down`);
+        await keyboardUp(page, viewport); await settleLong(page);
+        const states = [];
+        const step = async (label, playing) => {
+          await reply(page, playing); await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
+          const room = await read(page), band = await readBand(page);
+          states.push([label, room, band]); await capture(page, `${name}-keyboard-up-${label}`, { ...room, band });
+        };
+        await step('pending-playing', true);
+        await step('pending-paused', false);
+        await page.evaluate(() => grant());
+        await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason[data-consent-feature="text"]'), { timeout: 15_000 });
+        await step('cleared-paused', false);
+        await step('cleared-playing', true);
+        await wait(page, 2000); await step('cleared-playing-plus-2s', true);
+        const [, firstRoom, first] = states[0];
+        for (const [label, room, band] of states) {
+          const tag = `${name} ${label}`;
+          if (!band.keyboard) failures.push(`${tag}: the keyboard stays up`);
+          if (room.lines < 1) failures.push(`${tag}: at least one whole transcript line is visible: ${JSON.stringify(brief(room))}`);
+          if (!(band.band?.width > 0) || Math.abs(band.band.height - 44) > .5) failures.push(`${tag}: the band is one 44 px row: ${JSON.stringify(band.band)}`);
+          for (const part of ['orb', 'pause', 'gear']) {
+            const a = down[part], b = band[part];
+            if (!(b?.width > 0 && b?.height > 0)) { failures.push(`${tag}: ${part} stays, positive box: ${JSON.stringify(b)}`); continue; }
+            for (const key of ['x', 'width', 'height']) if (Math.abs(a[key] - b[key]) > .5) failures.push(`${tag}: ${part} keeps its keyboard-down ${key}: ${a[key]} -> ${b[key]}`);
+            if (b.y < band.band.y - .5 || b.y + b.height > band.band.y + band.band.height + .5) failures.push(`${tag}: ${part} sits inside the 44 px band: ${JSON.stringify([b, band.band])}`);
+          }
+          if (!band.orbPainted) failures.push(`${tag}: the small orb is painted`);
+          if (!band.gearPainted || !band.gearName) failures.push(`${tag}: the gear is painted and keeps its name: ${band.gearName}`);
+          if (!band.pauseName || !band.pauseHit) failures.push(`${tag}: pause/resume keeps its name and is reachable: ${JSON.stringify([band.pauseName, band.pauseHit])}`);
+          if (band.outputPainted.length || band.outputFocusable.length) failures.push(`${tag}: the volume control and level line are hidden and out of the focus order: ${JSON.stringify([band.outputPainted, band.outputFocusable])}`);
+          if (band.status && !band.status.inTree) failures.push(`${tag}: the rail's status stays in the accessibility tree: ${JSON.stringify(band.status)}`);
+          if (band.noticeLines !== 1 || !(band.notice?.height > 0) || band.notice.height > band.noticeLineHeight * 1.5 + .5) failures.push(`${tag}: the AI notice is one text line: ${JSON.stringify([band.noticeLines, band.notice, band.noticeLineHeight])}`);
+          if (!band.moreTarget || Math.max(band.moreTarget.height, band.more?.height ?? 0) < 44 - .5 || !(band.more?.width > 0 && band.more?.height > 0)) failures.push(`${tag}: "More" keeps a 44 px target over its line: ${JSON.stringify([band.more, band.moreTarget])}`);
+          failures.push(...stableBoxes(`${tag} vs pending-playing`, first, band, ['band', 'orb', 'pause', 'gear', 'mic', 'send', 'notice', 'more']));
+          failures.push(...stableBoxes(`${tag} vs pending-playing (dock)`, firstRoom, room, ['mic', 'send', 'feedback', 'dock', 'field']));
+        }
+        await keyboardDown(page); await settleLong(page);
+        const back = await readBand(page);
+        await capture(page, `${name}-keyboard-closed`, { ...(await read(page)), band: back });
+        if (back.keyboard) failures.push(`${name}: the keyboard flag clears`);
+        if (!back.outputPainted.length) failures.push(`${name}: the volume control returns when the keyboard closes`);
+        failures.push(...stableBoxes(`${name} keyboard down -> closed`, down, back, ['band', 'orb', 'pause', 'gear']));
+        t.diagnostic(`${name}: band down/up ${down.band?.height} / ${first.band?.height}; lines ${states.map(([label, room]) => `${label}=${room.lines}`).join(' ')}; room ${states.map(([, room]) => room.room.toFixed(1)).join('/')}; notice ${first.notice?.height} (${first.noticeLines} line); pause x ${down.pause?.x} -> ${first.pause?.x}`);
+      } finally { await page.close(); }
+      none(failures, name);
+      assert.deepEqual(problems, []);
+    });
+  }
+}
