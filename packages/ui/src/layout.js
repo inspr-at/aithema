@@ -110,9 +110,11 @@ export class ConversationFold {
   setCopy(copy) { this.copy = copy; this.paint(); }
   paint() {
     const c = this.copy.layout;
-    // Keep this edge control focusable: leaving the phone composer must still
-    // dismiss its keyboard layout even when folding is unavailable.
-    this.button.setAttribute('aria-disabled', String(!this.canFold()));
+    // AIT-608 (TICK): with nothing to fold the control is hidden (band styles keep its slot) and inert, so it is
+    // out of the tab order and the accessibility tree; it appears unchanged once foldable.
+    const foldable = this.canFold();
+    this.button.setAttribute('aria-disabled', String(!foldable));
+    this.button.inert = !foldable;
     this.button.setAttribute('aria-expanded', String(!this.folded));
     this.button.setAttribute('aria-label', this.folded ? c.unfold : c.fold);
     this.button.title = this.folded ? c.unfold : c.fold;

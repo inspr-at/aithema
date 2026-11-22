@@ -100,6 +100,24 @@ test('fold hides the whole middle, updates its two-line message and restores bot
   fold.update({ transcript: [], openQuestion: null }); assert.equal(root.querySelector('.fold-question').hidden, true);
 });
 
+// AIT-608 (TICK decision): nothing to fold, the fold control is hidden (its slot kept) and inert, so it is out of the
+// tab order and the accessibility tree; once foldable it is operable again. The browser check measures the box.
+test('AIT-608: the fold control is inert while there is nothing to fold and operable once foldable', async t => {
+  const window = new Window(); t.after(() => window.happyDOM.close());
+  const root = window.document.createElement('div');
+  root.innerHTML = '<div class="workspace"><div class="conversation"><div class="transcript-shell"></div></div><aside class="understanding"><div class="analysis-content"></div></aside><button class="fold"></button><section class="fold-view" hidden><button class="fold-strip"><span class="fold-text"></span><span class="fold-who"></span><span class="fold-question" hidden></span></button><div class="canvas-empty"><span></span></div></section></div>';
+  let can = false;
+  const fold = new ConversationFold({ root, copy: en, onChange: () => {}, canFold: () => can }), button = root.querySelector('.fold');
+  assert.equal(button.getAttribute('aria-disabled'), 'true');
+  assert.equal(button.inert, true, 'nothing to fold: inert (no focus, no accessibility node)');
+  can = true; fold.update({ transcript: [], openQuestion: null });
+  assert.equal(button.getAttribute('aria-disabled'), 'false');
+  assert.equal(button.inert, false, 'foldable: operable');
+  can = false; fold.update({ transcript: [], openQuestion: null });
+  assert.equal(button.inert, true, 'drafts gone again: hidden again');
+  assert.match(bandStyles, /(?:^|\n)\.fold\[aria-disabled="true"\] \{[^}]*visibility:hidden;/u, 'hidden with its slot kept, not display:none');
+});
+
 test('round-2 band, strip and footer text tokens retain 4.5:1 contrast in both themes', () => {
   for (const [theme, tokens] of Object.entries(palette)) {
     const backgrounds = [tokens.paper, tokens.surface, mix(tokens.accent, tokens.paper, .07), mix(tokens.surface, tokens.paper, .75)];
