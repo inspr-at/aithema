@@ -674,7 +674,16 @@ test('AIT-188 r3 keyboard: touch width/orientation reset and blur never stick fo
   assert.notEqual(await footer(), 'none', 'width/orientation establishes a new unobstructed baseline');
   await setViewport(page, { width: 500, height: 400, isLandscape: true }); await frame(page);
   assert.equal(await footer(), 'none', 'keyboard detected against the new baseline');
-  await shadow(page, c => c.shadowRoot.querySelector('.fold').focus({ preventScroll: true })); await frame(page);
+  // AIT-608 r2: the fold is hidden and inert on this ready screen, so focus moves to the first visible,
+  // enabled control outside the composer instead (the dismissal comes from the root focusout, not the fold).
+  const outside = await shadow(page, c => {
+    const n = [...c.shadowRoot.querySelectorAll('button,a[href]')].find(b => !b.disabled && !b.inert && !b.closest('[inert],.composer,.display-foot') &&
+      b.checkVisibility({ visibilityProperty: true, opacityProperty: true }) && b.getBoundingClientRect().width > 0 && b.getBoundingClientRect().height > 0);
+    n?.focus({ preventScroll: true });
+    return n && c.shadowRoot.activeElement === n ? n.className || n.tagName : null;
+  }); await frame(page);
+  t.diagnostic(`focus moved to: ${outside}`);
+  assert.ok(outside, 'a visible control outside the composer took focus');
   // AIT-608 r2: the premise of the next assertion is that focus really left the composer.
   assert.equal(await shadow(page, c => Boolean(c.shadowRoot.activeElement?.matches('textarea,input,[contenteditable="true"]') || c.shadowRoot.activeElement?.closest('.composer'))), false, 'focus left the composer');
   assert.notEqual(await footer(), 'none', 'leaving composer clears keyboard state without resize');
