@@ -32,8 +32,8 @@ import { actorRoleStyles } from './actor-role-styles.js';
 import { settingsStyles } from './settings-styles.js';
 import { SettingsDialog, ICONS, PRESET_ORDER, reasonText, engineView, catalogLabel } from './settings-dialog.js';
 import { LocalConnector } from './local-connector.js';
-import { sameOrigin } from './post-json.js';
-import { ownerFetch, ownerForm, ownerJson } from './owner-request.js';
+import { postJson, postForm, sameOrigin } from './post-json.js';
+import { ownerFetch } from './owner-request.js';
 import { UPLOAD_LIMITS, UPLOAD_ACCEPT, DOCUMENT_UPLOAD_ACCEPT, UPLOAD_ICONS, uploadLimits, uploadRetryDelay, unclassifiedUploads, planUploads, refusalText, uploadStateText, uploadStateTexts, uploadsPossible, formatBytes, limitsText, dropText } from './uploads.js';
 import { voiceJournal, tabStorage, closeVoiceCall, answerVoicePings, voiceCallAbandoned } from './voice-orphan.js';
 import { node, setText, reconcile, fill } from './dom.js';
@@ -1705,8 +1705,8 @@ export class AithemaSession extends HTMLElement {
     if (route && this.#erasedIds.has(route.id)) throw new DOMException('Conversation erased', 'AbortError');
     let response;
     if (options) {
-      const post = bodyOrInit instanceof FormData ? ownerForm : ownerJson;
-      response = await post(view, url, bodyOrInit, options);
+      const post = bodyOrInit instanceof FormData ? postForm : postJson;
+      response = await post(url, bodyOrInit, { ...options, view });
     } else response = await ownerFetch(view, url, { ...bodyOrInit, ...(route?.snapshot ? { cache: 'no-store' } : {}) });
     await this.#observeResponse(url, response);
     return response;

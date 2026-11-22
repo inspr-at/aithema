@@ -2,8 +2,8 @@ import { resolveCopy } from './copy-resolve.js';
 import { consentTimeout } from './consent-timer.js';
 import { isConsentReason } from '../../core/src/settings.js';
 import { paintConsentLine, reasonAction, reasonSeparator } from './consent-line.js';
-import { sameOrigin } from './post-json.js';
-import { ownerFetch, ownerJson } from './owner-request.js';
+import { postJson, sameOrigin } from './post-json.js';
+import { ownerFetch } from './owner-request.js';
 import { reasonText } from './settings-dialog.js';
 import { HTML_MEDIA_TYPE, frameDocument, inspectHTML } from '../../core/src/ui-html.js';
 import { draftsLine, creditCost } from './display.js';
@@ -239,7 +239,7 @@ export class ConceptView {
   sameOrigin(path) { if (this.#erased) throw new DOMException('Conversation erased', 'AbortError'); return sameOrigin(this.root.ownerDocument.defaultView, path, 'Concept routes require same origin'); }
   #api(url, bodyOrInit, options) {
     return this.transport ? this.transport(url, bodyOrInit, options)
-      : options ? ownerJson(this.root.ownerDocument.defaultView, url, bodyOrInit, options) : ownerFetch(this.root.ownerDocument.defaultView, url, bodyOrInit);
+      : options ? postJson(url, bodyOrInit, { ...options, view: this.root.ownerDocument.defaultView }) : ownerFetch(this.root.ownerDocument.defaultView, url, bodyOrInit);
   }
   erased() {
     if (this.#erased) return;

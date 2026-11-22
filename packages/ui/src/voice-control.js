@@ -1,4 +1,4 @@
-import { ownerJson } from './owner-request.js';
+import { postJson } from './post-json.js';
 
 /** Only public call identity and transport credentials cross this port. */
 // `view` is the page whose origin the owner routes must share (AIT-625); the host page by default.
@@ -10,7 +10,7 @@ export function createVoiceControl({ baseUrl = '', sessionId, sessionToken, rece
   const base = `${baseUrl.replace(/\/$/u, '')}/api/sessions/${sessionId}/voice`;
   const post = async (url, body, options = {}) => {
     if (erased) return { closureConfirmed: true };
-    const response = await ownerJson(view, url, body, { sessionToken, signal: options.signal });
+    const response = await postJson(url, body, { sessionToken, signal: options.signal, view });
     const refusal = response.status === 404 ? response.clone() : null;
     const value = await response.json().catch(() => null);
     if (refusal && value?.error === 'session-not-found' && Object.keys(value).length === 1)

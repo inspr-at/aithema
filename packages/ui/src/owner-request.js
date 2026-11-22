@@ -32,13 +32,3 @@ export async function ownerFetch(view, url, { sessionToken, headers, signal, dea
     return await fetch(resolved.href, { ...init, headers: sent, redirect: 'error', signal: signal ? AbortSignal.any([signal, timer.signal]) : timer.signal });
   } finally { clearTimeout(id); }
 }
-
-// Every non-GET request from the client is JSON: the server accepts POST bodies only as
-// application/json and answers anything else with 415, except the document upload route,
-// which takes multipart/form-data (ownerForm; the browser sets the boundary itself).
-export function ownerJson(view, url, body = {}, { verb = 'POST', headers, ...options } = {}) {
-  return ownerFetch(view, url, { ...options, method: verb, headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify(body) });
-}
-export function ownerForm(view, url, form, { verb = 'POST', ...options } = {}) {
-  return ownerFetch(view, url, { ...options, method: verb, body: form });
-}
