@@ -1445,19 +1445,21 @@ export class AithemaSession extends HTMLElement {
   // the list's visible rows are all the welcome, no voice notice paints text,
   // and no other shell child (reply-failure recovery, any later row) has a
   // visible box. Latest and empty notice reservations are no content.
+  #painted(node) {
+    if (node.hidden || ['hidden', 'collapse'].includes(this.ownerDocument.defaultView.getComputedStyle(node).visibility)) return false;
+    const box = node.getBoundingClientRect(); return box.width > 0 && box.height > 0;
+  }
+  // A voice notice in the transcript shell paints text (e.g. "please repeat").
+  #noticeShown(shell) {
+    return [...shell.children].filter(child => child.classList.contains('voice-notices')).flatMap(child => [...child.querySelectorAll('.voice-notice')])
+      .some(notice => this.#painted(notice) && (notice.innerText ?? notice.textContent).trim());
+  }
   #onlyWelcomeVisible(shell) {
-    const view = this.ownerDocument.defaultView;
-    const painted = node => {
-      if (node.hidden || ['hidden', 'collapse'].includes(view.getComputedStyle(node).visibility)) return false;
-      const box = node.getBoundingClientRect(); return box.width > 0 && box.height > 0;
-    };
     const list = shell.querySelector('ol');
     const rows = [...(list?.children ?? [])].filter(row => !row.hidden && row.getClientRects().length);
     if (!rows.length || !rows.every(row => row.hasAttribute('data-host-opener'))) return false;
-    return [...shell.children].every(child => child === list || child.classList.contains('transcript-latest')
-      || (child.classList.contains('voice-notices')
-        ? ![...child.querySelectorAll('.voice-notice')].some(notice => painted(notice) && (notice.innerText ?? notice.textContent).trim())
-        : !painted(child)));
+    return !this.#noticeShown(shell) && [...shell.children].every(child => child === list
+      || child.classList.contains('transcript-latest') || child.classList.contains('voice-notices') || !this.#painted(child));
   }
   #scrollToLatest() {
     if (this.#fold?.folded || this.#longReply) return;
@@ -1601,9 +1603,13 @@ export class AithemaSession extends HTMLElement {
     if (mini) mini.hidden = true;
     signal?.removeAttribute('data-read-full');
     let held = false;
+    // AIT-603 r13: on the combined entrance a recovery notice painted after the
+    // host welcome is the newest content; following it does not hold the
+    // welcome (already read) at its start, which would leave the notice below.
+    const welcomeThenNotice = this.#combined && latest?.hasAttribute('data-host-opener') && this.#noticeShown(shell);
     // Until the send receipt appends its turn, an offer can still be the last
     // item. Keep its entry visible instead of holding the previous reply.
-    if (latest && !(offer && this.#sending) && latest.dataset.id !== this.#tailReply && (!this.shadowRoot.querySelector('.qcard').hidden || this.#navigation && !latest.classList.contains('user'))) {
+    if (latest && !welcomeThenNotice && !(offer && this.#sending) && latest.dataset.id !== this.#tailReply && (!this.shadowRoot.querySelector('.qcard').hidden || this.#navigation && !latest.classList.contains('user'))) {
       const top = shell.getBoundingClientRect().top + parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).paddingTop);
       const room = shell.getBoundingClientRect().bottom - top;
       if (latest.getBoundingClientRect().height > room) {
