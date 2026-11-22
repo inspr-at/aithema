@@ -147,6 +147,9 @@ function xmlRoot(text, whole) {
     while (i < text.length && space(text.charCodeAt(i))) i++;
     if (i >= text.length) return open();
     if (text[i] !== '<') return null;
+    // A token cut by a truncated prefix ('<!DO', '<!-', '<') cannot be told
+    // apart from a prolog item: fail closed.
+    if (!whole && text.length - i < 10) return 'incomplete';
     let end;
     if (text.startsWith('<?', i)) end = until(i + 2, '?>');
     else if (text.startsWith('<!--', i)) end = until(i + 4, '-->');
