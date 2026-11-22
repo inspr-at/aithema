@@ -1020,7 +1020,7 @@ for (const copy of [en, de]) test(`AIT-610 r6: ${copy.display.locale} a reconnec
 // AIT-610 r8 options: `sampleAtRequest` reads the server state when the GET
 // arrives (a read that started before a restart answers the old state);
 // `uploadsStatus(n)` answers the n-th GET /uploads with that status; `baseUrl`.
-function reconcileFixture(t, copy, { events, snapshot = s => s, uploadsGate = null, lostFrom = 1, sampleAtRequest = false, uploadsStatus = () => 200, baseUrl = '' } = {}) {
+function reconcileFixture(t, copy, { events, snapshot = s => s, uploadsGate = null, lostFrom = 1, sampleAtRequest = false, uploadsStatus = () => 200, baseUrl = '', uploadsBody = null, uploadsStall = () => false, reads = [] } = {}) {
   const staged = { id: 'img-1', kind: 'image', state: 'staged-pending', filename: 'photo.png', mediaType: 'image/png', bytes: 2048, expiresAt: Date.now() + 600_000, at: at(10) };
   const c = document.createElement('aithema-session'), session = createSession({ demo: true, locale: copy === de ? 'de' : 'en' });
   session.uploads = [staged];
@@ -1034,7 +1034,11 @@ function reconcileFixture(t, copy, { events, snapshot = s => s, uploadsGate = nu
     if (url.endsWith('/events')) return events(++counts.streams, options, open);
     if (url.endsWith('/uploads') && !options.method) {
       const status = uploadsStatus(++counts.uploads), sampled = sampleAtRequest ? lost(c.session.uploads) : null;
+      reads.push({ url, signal: options.signal });
+      // r9: a stalled read answers only its abort signal (the read timeout or a cancel).
+      if (uploadsStall(counts.uploads)) await new Promise((_, reject) => options.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true }));
       await uploadsGate?.promise;
+      if (uploadsBody) return Response.json({ uploads: uploadsBody(counts.uploads, c.session.uploads), limits: UPLOAD_LIMITS });
       if (status !== 200) return new Response(null, { status });
       return Response.json({ uploads: sampled ?? lost(c.session.uploads), limits: UPLOAD_LIMITS });
     }
@@ -1231,4 +1235,83 @@ for (const copy of [en, de]) for (const reason of ['encrypted', 'legacy', 'malfo
 });
 test('AIT-610 r9: the legacy Office copy keys are removed in EN and DE', () => {
   for (const copy of [en, de]) for (const key of ['legacyWord', 'legacyExcel', 'legacyPowerPoint']) assert.equal(copy.uploads.reasons[key], undefined, `${copy.display.locale} ${key}`);
+});
+
+
+// AIT-610 r9 (gate8c CLIENT-RECONCILE M1/M2): a reconcile response is applied
+// only while its generation AND session are current; a read has a deadline; a
+// session switch aborts the old read; teardown cancels the read, its queued
+// follow-up and the retry timer.
+test('AIT-610 r9: a stale reconcile response (begun before a newer connect) never marks the row refused', async t => {
+  let release; const uploadsGate = { promise: new Promise(resolve => { release = resolve; }) };
+  const { c, counts } = reconcileFixture(t, en, { uploadsGate,
+    // The read that began before the reconnect answers 'refused'; the fresh one says still pending.
+    uploadsBody: (n, uploads) => n === 1 ? uploads.map(u => ({ ...u, state: 'staged-refused', reason: 'deadline' })) : uploads,
+    events: (n, options, open) => n === 1 ? closed() : open(options) });
+  for (let i = 0; i < 6; i++) await tick();
+  assert.equal(counts.uploads, 1);
+  t.mock.timers.tick(1000);
+  for (let i = 0; i < 12; i++) await tick();
+  assert.ok(counts.streams >= 2, 'reconnected');
+  release();
+  for (let i = 0; i < 12; i++) await tick();
+  assert.equal(c.session.uploads[0].state, 'staged-pending', 'the stale answer was not applied');
+  assert.equal(counts.uploads, 2, 'the fresh read ran');
+});
+test('AIT-610 r9: a stalled reconcile GET times out and its queued follow-up runs', async t => {
+  const { c, counts, shown } = reconcileFixture(t, en, { uploadsStall: n => n === 1, lostFrom: 2,
+    events: (n, options, open) => n === 1 ? closed() : open(options) });
+  for (let i = 0; i < 6; i++) await tick();
+  t.mock.timers.tick(1000);
+  for (let i = 0; i < 12; i++) await tick();
+  assert.ok(counts.streams >= 2, 'reconnected');
+  assert.equal(counts.uploads, 1, 'the follow-up waits for the stalled read');
+  t.mock.timers.tick(10_000);
+  for (let i = 0; i < 12; i++) await tick();
+  assert.equal(counts.uploads, 2, 'the read timed out and the follow-up read ran');
+  assert.equal(c.session.uploads[0].state, 'staged-refused');
+  assert.ok(shown().includes(en.imageRefusals.unavailable), shown());
+});
+test('AIT-610 r9: detach then reattach: the old retry timer never fires', async t => {
+  const hang = options => new Promise((_, reject) => options.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true }));
+  const { c, counts } = reconcileFixture(t, en, { uploadsStatus: () => 503,
+    // The reattached element's stream never connects: no new generation.
+    events: (n, options, open) => n === 1 ? open(options) : hang(options) });
+  for (let i = 0; i < 12; i++) await tick();
+  assert.equal(counts.uploads, 1, 'the first read failed; a retry is scheduled');
+  c.remove(); document.body.append(c);
+  for (let i = 0; i < 6; i++) await tick();
+  t.mock.timers.tick(1000);
+  for (let i = 0; i < 12; i++) await tick();
+  assert.equal(counts.uploads, 1, 'the retry timer of the detached element did not fire');
+});
+test('AIT-610 r9: detach cancels the in-flight reconcile read and its queued follow-up', async t => {
+  const reads = [];
+  const { c, counts } = reconcileFixture(t, en, { uploadsStall: n => n === 1, reads,
+    events: (n, options, open) => n === 1 ? closed() : open(options) });
+  for (let i = 0; i < 6; i++) await tick();
+  t.mock.timers.tick(1000);
+  for (let i = 0; i < 12; i++) await tick();
+  assert.ok(counts.streams >= 2, 'reconnected: a follow-up is queued behind the stalled read');
+  c.remove();
+  for (let i = 0; i < 6; i++) await tick();
+  assert.equal(reads[0].signal?.aborted, true, 'the in-flight read was aborted');
+  t.mock.timers.tick(20_000);
+  for (let i = 0; i < 12; i++) await tick();
+  assert.equal(counts.uploads, 1, 'no follow-up read after detach');
+});
+test('AIT-610 r9: a session switch aborts the old reconcile read: one read for the new session', async t => {
+  const reads = [];
+  const { c } = reconcileFixture(t, en, { uploadsStall: () => true, reads, events: (n, options, open) => open(options) });
+  for (let i = 0; i < 6; i++) await tick();
+  assert.equal(reads.length, 1);
+  const next = createSession({ demo: true, locale: 'en' });
+  next.uploads = [{ id: 'img-2', kind: 'image', state: 'staged-pending', filename: 'next.png', mediaType: 'image/png', bytes: 2048, expiresAt: Date.now() + 600_000, at: at(11) }];
+  next.featureMatrix = c.session.featureMatrix;
+  c.configure({ copy: en, copyForLocale: locale => ({ en, de })[locale], session: next, sessionToken: 'owner-fixture', baseUrl: '', entrance: 'choice' });
+  for (let i = 0; i < 12; i++) await tick();
+  assert.equal(reads[0].signal?.aborted, true, 'the old session\'s read was aborted');
+  const live = reads.filter(read => !read.signal?.aborted);
+  assert.equal(live.length, 1, 'one read in flight');
+  assert.ok(live[0].url.includes(`/api/sessions/${next.id}/uploads`), live[0].url);
 });
