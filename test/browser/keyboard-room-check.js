@@ -302,7 +302,10 @@ const reply = (page, playing) => page.$eval('aithema-session', (c, playing) => {
   const root = c.shadowRoot;
   root.querySelector('.band-orb .orb')?.setAttribute('data-voice', playing ? 'speaking' : 'paused');
   const rail = root.querySelector('.audio-rail'); if (rail) rail.dataset.state = playing ? 'speaking' : 'paused';
-  for (const pause of root.querySelectorAll('.voice-cell--pause > button')) pause.setAttribute('aria-pressed', String(!playing));
+  // Only the painted control is pressed, as in the product (the cell's other button stays hidden;
+  // pressing it too would paint its resume icon, which sets its own visibility).
+  const pause = [...root.querySelectorAll('.voice-cell--pause > button')].find(n => n.checkVisibility({ visibilityProperty: true }) && n.getBoundingClientRect().width > .5);
+  pause?.setAttribute('aria-pressed', String(!playing));
 }, playing);
 
 export async function keyboardBandCheck(t) {
@@ -358,7 +361,7 @@ export async function keyboardBandCheck(t) {
             failures.push(`${tag}: pause/resume keeps its name and its keyboard-down reachability: ${JSON.stringify([band.pauseName, [down.pauseHit, down.pauseHitBy, down.pauseInert, down.pauseDisabled], [band.pauseHit, band.pauseHitBy, band.pauseInert, band.pauseDisabled]])}`);
           // Like for like: the keyboard-down state with the same reply state (playing or paused).
           const same = /paused/u.test(label) ? downPaused : down;
-          if (!down.pauseHitLive || band.pauseHitLive !== same.pauseHitLive) failures.push(`${tag}: with the rail live nothing covers pause, as with the keyboard down: ${JSON.stringify([[down.pauseHitLive, down.pauseHitLiveBy], [same.pauseHitLive, same.pauseHitLiveBy], [band.pauseHitLive, band.pauseHitLiveBy, band.pauseClass]])}`);
+          if (!down.pauseHitLive || !downPaused.pauseHitLive || band.pauseHitLive !== same.pauseHitLive) failures.push(`${tag}: with the rail live nothing covers pause, as with the keyboard down: ${JSON.stringify([[down.pauseHitLive, down.pauseHitLiveBy], [same.pauseHitLive, same.pauseHitLiveBy], [band.pauseHitLive, band.pauseHitLiveBy, band.pauseClass]])}`);
           if (band.outputPainted.length || band.outputFocusable.length) failures.push(`${tag}: the volume control and level line are hidden and out of the focus order: ${JSON.stringify([band.outputPainted, band.outputFocusable])}`);
           if (band.status?.text && !band.status.inTree) failures.push(`${tag}: the rail's status stays in the accessibility tree: ${JSON.stringify(band.status)}`);
           if (band.noticeLines !== 1 || !(band.notice?.height > 0) || band.notice.height > band.noticeLineHeight * 1.5 + .5) failures.push(`${tag}: the AI notice is one text line: ${JSON.stringify([band.noticeLines, band.notice, band.noticeLineHeight])}`);
