@@ -208,7 +208,9 @@ test('AIT-610 r8: a foreign baseUrl receives no reconciliation GET /uploads (the
   for (let i = 0; i < 12; i++) await tick();
   t.mock.timers.tick(1000);
   for (let i = 0; i < 12; i++) await tick();
-  assert.ok(counts.streams >= 1, 'the stream opened');
+  // AIT-610 r10: since AIT-625 (merged) the event stream is an owner request through the same
+  // guarded helper, so a foreign baseUrl receives no stream either.
+  assert.equal(counts.streams, 0, 'no owner-authenticated stream reaches another origin');
   assert.equal(counts.uploads, 0, 'no owner-authenticated read reaches another origin');
 });
 
