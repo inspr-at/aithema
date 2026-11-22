@@ -332,8 +332,12 @@ test('AIT-231: a full mock document preserves described items and an invalid one
   // AIT-612: an unusable document is a failed LOAD, said once in the footer beside Save, not under the consent text.
   await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings .save-status').textContent === 'Could not load consent. Close and open it again.');
   assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.consent-status').textContent), '');
-  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.consent-save').disabled), true);
+  // AIT-612 r3 (TICK r2 decision (b)): was `.consent-save` (Done) disabled === true. Fails closed still: no items to
+  // grant, and Done is the next step: enabled, described by the footer status, it closes the sheet.
   assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('.consent-editor input').length), 0);
+  assert.deepEqual(await shadow(page, c => { const done = c.shadowRoot.querySelector('.consent-save'); return [done.disabled, done.getAttribute('aria-describedby'), c.shadowRoot.activeElement === done]; }), [false, 'settings-save-status', true]);
+  await shadow(page, c => c.shadowRoot.querySelector('.consent-save').click());
+  await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
 });
 test('AIT-197 C1: all three refusals have one action each; stage survives a paused reload', async t => {
   const page = await fixture(t); await scene(page, 'de', 'light', 390, ['html', 'voice', 'analysis']);
