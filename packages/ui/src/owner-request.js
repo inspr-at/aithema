@@ -23,8 +23,9 @@ export function ownerURL(view, url, message = 'Owner routes require same origin'
 export async function ownerFetch(view, url, { sessionToken, headers, signal, deadline = OWNER_REQUEST_DEADLINE_MS, message, ...init } = {}) {
   const resolved = ownerURL(view, url, message);
   signal?.throwIfAborted();
-  const sent = new Headers(headers); sent.delete(HEADER);
-  if (sessionToken) sent.set(HEADER, sessionToken);
+  // A plain object keeps the caller's names; any caller-supplied owner header is dropped.
+  const sent = Object.fromEntries(Object.entries(headers ?? {}).filter(([name]) => name.toLowerCase() !== HEADER));
+  if (sessionToken) sent[HEADER] = sessionToken;
   const timer = new AbortController();
   const id = Number.isFinite(deadline) ? setTimeout(() => timer.abort(new DOMException('Owner request deadline', 'TimeoutError')), deadline) : null;
   try {
