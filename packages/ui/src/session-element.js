@@ -3915,7 +3915,11 @@ export class AithemaSession extends HTMLElement {
     this.#detectedImages = new WeakSet(); this.#unclassifiedUploads = new WeakSet();
     clearTimeout(this.#imageIntentTimer); this.#imageIntent = null;
     if (this.#session) for (const upload of this.#session.uploads ?? []) if (stagedImage(upload) && !upload.erased) {
-      void this.#api(sameOrigin(this.ownerDocument.defaultView, `${this.#base}/api/sessions/${this.#session.id}/uploads/${encodeURIComponent(upload.id)}/withdraw`), {}, { sessionToken: this.#sessionToken, keepalive: true }).catch(() => {});
+      // AIT-610 r8: a foreign baseUrl is refused before sending; the refusal
+      // must not throw out of disconnectedCallback (the host's removal).
+      let url;
+      try { url = sameOrigin(this.ownerDocument.defaultView, `${this.#base}/api/sessions/${this.#session.id}/uploads/${encodeURIComponent(upload.id)}/withdraw`); } catch { continue; }
+      void this.#api(url, {}, { sessionToken: this.#sessionToken, keepalive: true }).catch(() => {});
     }
     this.#images?.destroy();
     clearTimeout(this.#uploadRetryTimer); this.#uploadRetryTimer = null;
