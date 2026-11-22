@@ -192,7 +192,7 @@ export const de = {
     unavailable: 'Nicht verfügbar', consentNeeded: 'Einwilligung nötig', limited: 'Derzeit nicht verfügbar', notOffered: 'Nicht mehr angeboten',
     loadingOption: 'Wird geladen …', loading: 'Die Optionen dieses Hosts werden geladen …', loadFailed: 'Die Einstellungen konnten nicht geladen werden.', reload: 'Erneut versuchen',
     autosave: 'Änderungen werden automatisch gespeichert.', saving: 'Wird gespeichert …', saved: 'Änderungen gespeichert', failed: 'Ihre Auswahl konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.',
-    retry: 'Erneut versuchen', done: 'Fertig', continue: 'Weiter', closePending: 'Warten, bis das Speichern bestätigt ist …',
+    retry: 'Erneut versuchen', done: 'Fertig', close: 'Schließen', continue: 'Weiter', closePending: 'Warten, bis das Speichern bestätigt ist …',
     conflict: 'Ihre Einstellungen wurden in einem anderen Fenster geändert. Die gespeicherte Auswahl wird angezeigt.',
     notAllowed: 'Hier nicht verfügbar: {reason}. Ihre gespeicherte Auswahl bleibt unverändert.',
     callActive: 'Ein Anruf läuft. Änderungen gelten erst für einen neuen Anruf. Beenden Sie diesen Anruf daher zuerst.', endCallApply: 'Anruf beenden und übernehmen',

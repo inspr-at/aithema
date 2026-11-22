@@ -190,7 +190,7 @@ export const en = {
     unavailable: 'Unavailable', consentNeeded: 'Consent needed', limited: 'Currently unavailable', notOffered: 'No longer offered',
     loadingOption: 'Loading…', loading: 'Loading the options this host offers…', loadFailed: 'The settings could not be loaded.', reload: 'Try again',
     autosave: 'Changes save automatically.', saving: 'Saving…', saved: 'Changes saved', failed: 'Your selection could not be saved. Please try again.',
-    retry: 'Try again', done: 'Done', continue: 'Continue', closePending: 'Waiting for the current save to be acknowledged…',
+    retry: 'Try again', done: 'Done', close: 'Close', continue: 'Continue', closePending: 'Waiting for the current save to be acknowledged…',
     conflict: 'Your settings changed in another window. The saved selection is shown.',
     notAllowed: 'Not available here: {reason}. Your saved selection is unchanged.',
     callActive: 'A voice call is running. Changes apply only to a new call, so end this call first.', endCallApply: 'End call and apply',

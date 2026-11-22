@@ -72,7 +72,7 @@ export const ICONS = Object.freeze({
   model: svg('<path d="M5 3h14a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H9l-6 3V5a2 2 0 0 1 2-2Z"/>'),
   local: svg('<path d="M6 4v3m0 4v9m6-16v9m0 4v3m6-16v3m0 4v9"/><circle cx="6" cy="9" r="2"/><circle cx="12" cy="15" r="2"/><circle cx="18" cy="9" r="2"/>'),
   gear: svg('<circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M4.9 4.9l2.1 2.1m10 10 2.1 2.1M4.9 19.1 7 17m10-10 2.1-2.1"/>'),
-  check: svg('<path d="m5 12 5 5 9-10"/>'), chevron: svg(CHEVRON), disclosureChevron: svg(CHEVRON, '5 5 14 14'), arrow: svg('<path d="M5 12h14m-6-6 6 6-6 6"/>'),
+  check: svg('<path d="m5 12 5 5 9-10"/>'), close: svg('<path d="m6 6 12 12M18 6 6 18"/>'), chevron: svg(CHEVRON), disclosureChevron: svg(CHEVRON, '5 5 14 14'), arrow: svg('<path d="M5 12h14m-6-6 6 6-6 6"/>'),
   text: svg('<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M5 9h2m2 0h2m2 0h2m2 0h2M5 12h2m2 0h2m2 0h2m2 0h2M6 15h12"/>'),
   off: svg('<circle cx="12" cy="12" r="9"/><path d="m6 18 12-12"/>'),
 });
@@ -892,10 +892,14 @@ export class SettingsDialog {
     this.#dialog.dataset.consentStale = String(Boolean(consentActive && this.#consentEditor.stale));
     this.#q('.save-status').textContent = consentActive ? this.#consentEditor.status : this.#status || c.autosave;
     this.#q('.save-retry').dataset.visible = String(this.#failed && !this.#saving);
-    this.#q('.done-label').textContent = this.#consentEditor?.active ? this.#consentEditor.loadFailed ? c.done : this.#consentEditor.saveLabel : this.#continue ? c.continue : c.done;
+    this.#q('.done-label').textContent = this.#consentEditor?.active ? this.#consentEditor.loadFailed ? c.close : this.#consentEditor.saveLabel : this.#continue ? c.continue : c.done;
     this.#q('.done').dataset.withdraw = String(Boolean(this.#consentEditor?.active && this.#consentEditor.saveLabel === this.#copy.featureConsent.withdraw));
     this.#q('.consent-save-sizer').textContent = this.#copy.featureConsent.withdraw;
     const done = this.#q('.done');
+    // AIT-612 r4 (TICK r3 M1): after a failed load nothing is finished, so the button reads Close with the close icon
+    // (×), never the check mark. Same svg box, so the footer does not move.
+    const glyph = consentActive && this.#consentEditor.loadFailed ? 'close' : 'check', mark = done.querySelector('svg');
+    if (mark.dataset.icon !== glyph) { mark.outerHTML = ICONS[glyph].replace('<svg ', `<svg data-icon="${glyph}" `); }
     // ConsentSettings owns the shared button while its editor is active.
     if (!this.#consentEditor?.active) done.disabled = Boolean(this.#pendingPreset);
     done.setAttribute('aria-disabled', String(done.disabled || consentActive && this.#consentEditor.busy));
