@@ -1027,3 +1027,16 @@ for (const copy of [en, de]) for (const [reason, expected] of [
   assert.ok(typeof (expected() ?? '') === 'string' && (expected() === null || expected().length > 0), `copy for ${reason}`);
   assert.ok(notice.startsWith(copy.uploads.refused.replace('{list}', named)), notice);
 });
+
+// AIT-610 r6: a host copy without the r6 keys (typeReason, the reason copy)
+// still names a document refused with a specific reason, with the generic
+// file-type wording, never the size wording.
+for (const copy of [en, de]) test(`AIT-610 r6: ${copy.display.locale} a host copy without typeReason falls back to the file-type wording`, () => {
+  const { typeReason, ...uploads } = copy.uploads;
+  assert.ok(typeReason);
+  const older = { ...copy, uploads: { ...uploads, reasons: { ...uploads.reasons, legacy: undefined } } };
+  for (const reason of ['encrypted', 'legacy', 'malformed']) {
+    assert.equal(refusalText(older, { refused: [{ name: 'report.docx', reason }], limits: UPLOAD_LIMITS }, copy.display.locale),
+      older.uploads.refused.replace('{list}', older.uploads.type.replace('{name}', 'report.docx')), reason);
+  }
+});
