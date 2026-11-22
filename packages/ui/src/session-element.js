@@ -1278,11 +1278,13 @@ export class AithemaSession extends HTMLElement {
   };
   #startVisible = () => { if (this.#startIntent && this.ownerDocument.visibilityState === 'visible') void this.#refreshFeatures(); };
   #watchPage(on) {
-    const view = this.ownerDocument.defaultView, listen = on ? 'addEventListener' : 'removeEventListener';
-    this.ownerDocument[listen]('visibilitychange', this.#startVisible);
-    view?.[listen]('pagehide', this.#pagehide); view?.[listen]('pageshow', this.#pageshow);
-    view?.[listen]('scroll', this.#syncBandScroll, { passive: true, capture: true });
-    view?.[listen]('resize', this.#syncBandScroll);
+    // Named calls, not a computed `view[listen]`: the AIT-625 scan refuses computed access on a window.
+    const view = this.ownerDocument.defaultView, document = this.ownerDocument;
+    const listen = on ? (target, ...args) => target?.addEventListener(...args) : (target, type, handler, options) => target?.removeEventListener(type, handler, options);
+    listen(document, 'visibilitychange', this.#startVisible);
+    listen(view, 'pagehide', this.#pagehide); listen(view, 'pageshow', this.#pageshow);
+    listen(view, 'scroll', this.#syncBandScroll, { passive: true, capture: true });
+    listen(view, 'resize', this.#syncBandScroll);
     if (on) this.#syncBandScroll();
   }
   // The status line shows the latest action until the connection, pause or call state changes.
