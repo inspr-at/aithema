@@ -922,7 +922,7 @@ test('a reconnect re-reads feature verdicts, so a host restart that dropped cons
     const root = c.shadowRoot;
     assert.equal(refreshed, 1); assert.equal(root.querySelector('.send').disabled, true);
     assert.equal([...root.querySelectorAll('.composer-reason .consent-wide')].map(n => n.textContent).join(''), `${en.featureConsent.text}\u00a0· ${en.featureConsent.action}`);
-    assert.equal(root.querySelector('.composer-reason .consent-action .consent-wide').getAttribute('aria-label'), `${en.featureConsent.action}: ${en.featureConsent.textActionReason}`);
+    assert.equal(root.querySelector('.composer-reason .consent-action').getAttribute('aria-describedby') && root.querySelector(`#${root.querySelector('.composer-reason .consent-action').getAttribute('aria-describedby')}`).textContent, en.featureConsent.text);
     assert.equal(root.querySelector('.notice').textContent, 'The overview needs your consentGive consent…');
     assert.equal(root.querySelector('.status__label').textContent, en.connected);
   } finally { c.remove(); await new Promise(resolve => setImmediate(resolve)); globalThis.fetch = originalFetch; }
@@ -940,7 +940,7 @@ test('the German bundle covers every English key and renders the component in Ge
   const root = c.shadowRoot;
   assert.equal(root.querySelector('.send').textContent, 'Senden');
   assert.equal([...root.querySelectorAll('.composer-reason .consent-wide')].map(n => n.textContent).join(''), `${de.featureConsent.text}\u00a0· ${de.featureConsent.action}`);
-    assert.equal(root.querySelector('.composer-reason .consent-action .consent-wide').getAttribute('aria-label'), `${de.featureConsent.action}: ${de.featureConsent.textActionReason}`);
+    assert.equal(root.querySelector('.composer-reason .consent-action').getAttribute('aria-describedby') && root.querySelector(`#${root.querySelector('.composer-reason .consent-action').getAttribute('aria-describedby')}`).textContent, de.featureConsent.text);
   assert.match(root.querySelector('.features').textContent, /Auswertung/);
 });
 test('every text pair reaches WCAG AA in light and dark, placeholder, bubbles, cards and tints included (AIT-116 D9, AIT-118)', () => {
@@ -1441,20 +1441,22 @@ test('AIT-286: shared failure sentence uses warning ink; composer consent keeps 
 
 
 test('AIT-290: consent opener keeps its full name and node across repaints, then clears when available', () => {
-  for (const [copy, name] of [[de, 'Einwilligen…: Nachrichten brauchen Ihre Einwilligung'],
-    [en, 'Give consent…: messages need your consent']]) {
+  // AIT-603 r5 (Codex gate4c M3): the button is named by its visible action
+  // alone (wide and narrow); the host's full sentence is its description, from
+  // one hidden node, so it is the same at every width and never repeated.
+  for (const [copy, name] of [[de, 'Einwilligen…'], [en, 'Give consent…']]) {
     const line = document.createElement('small'); line.className = 'composer-reason';
     let opened;
     const options = { copy, feature: 'text', verdict: { available: false, rawReason: 'current processing consent required' }, open: action => { opened = action; } };
     assert.equal(paintConsentLine(line, options), true);
     const action = line.querySelector('button');
     assert.equal(action.hasAttribute('aria-label'), false);
-    assert.equal(action.querySelector('.consent-wide').getAttribute('aria-label'), name);
-    assert.equal(action.querySelector('.consent-narrow').getAttribute('aria-label'), `${copy.featureConsent.actionNarrow}: ${copy.featureConsent.textActionReason}`);
-    for (const label of action.querySelectorAll('[aria-label]')) {
-      assert.equal(label.getAttribute('role'), 'group', 'a named responsive label needs a role that permits naming');
-    }
-    assert.equal(line.querySelector('.consent-line-copy').id, action.getAttribute('aria-describedby'));
+    assert.equal(action.querySelector('.consent-wide').textContent, name);
+    assert.equal(action.querySelector('.consent-narrow').textContent, copy.featureConsent.actionNarrow);
+    assert.equal(action.querySelectorAll('[aria-label], [role]').length, 0, 'the visible action names the button; no responsive label overrides it');
+    const description = line.querySelector(`#${action.getAttribute('aria-describedby')}`);
+    assert.equal(description?.textContent, copy.featureConsent.text, 'the description is the full sentence');
+    assert.equal(description.hidden, true, 'the description node is not painted (the visible label is)');
     paintConsentLine(line, options);
     assert.equal(line.querySelector('button'), action, 'live repaint preserves the opener');
     action.click(); assert.equal(opened, action, 'same action opens consent');
@@ -1513,6 +1515,67 @@ for (const mode of ['grant', 'withdraw', 'wrong-contract', 'wrong-items']) test(
   const refused = mode.startsWith('wrong-');
   assert.equal(root.querySelector('dialog.settings').open, refused);
   if (refused) assert.equal(root.querySelector('.save-status').textContent, en.host.consentFailed);
+});
+
+// AIT-612 (TICK AIT-603 r4 L1): in Settings, a failed consent save shows "could not be saved" ONCE, next to the
+// action that failed (the shared footer beside Save), not again under the consent text. A failed load says the
+// consent could not be LOADED (AIT-321 design d1cda502 said "saved"), once, in the same place; the footer
+// reserves both texts so nothing moves.
+for (const copy of [de, en]) for (const path of ['save', 'load']) test(`AIT-612 ${copy.display.locale}: a failed consent ${path} shows one error, next to Save`, async t => {
+  const c = setup({ copy }), root = c.shadowRoot;
+  const doc = { contract: 'legacy-v1', selected: [], features: { text: ['mock-processing'] }, items: [
+    { id: 'mock-processing', version: 1, title: 'Processing', recipients: 'Host', text: 'Process messages' },
+  ] };
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    if (String(url).endsWith('/consent')) {
+      if (options.method === 'POST') return Response.json({ error: 'unavailable' }, { status: 500 });
+      return path === 'load' ? new Response('unavailable', { status: 500 }) : Response.json(doc);
+    }
+    if (String(url).endsWith('/features')) return Response.json({ featureMatrix: c.session.featureMatrix });
+    return Response.json({});
+  });
+  const session = c.session;
+  session.featureMatrix.best.text = { available: false, reason: 'current processing consent required' };
+  c.configure({ session, copy });
+  root.querySelector('.composer-reason .consent-action').click();
+  await new Promise(resolve => setImmediate(resolve));
+  if (path === 'save') {
+    const box = root.querySelector('.consent-items input'); assert.ok(box, 'the document loaded'); box.checked = true;
+    root.querySelector('.done').click(); await new Promise(resolve => setImmediate(resolve)); await new Promise(resolve => setImmediate(resolve));
+  }
+  const dialog = root.querySelector('dialog.settings');
+  assert.equal(dialog.open, true);
+  const text = path === 'save' ? copy.host.consentFailed : copy.host.consentPage.loadFailed;
+  assert.equal(typeof text, 'string');
+  const reserves = '.consent-state-measure, .save-state-measure, .context-measure';
+  const shown = needle => [...dialog.querySelectorAll('*')].filter(n => n.childElementCount === 0 && n.textContent.includes(needle) && !n.matches(reserves));
+  assert.deepEqual(shown(text).map(n => n.className), ['save-status'], 'one error, in the footer next to Save');
+  assert.equal(dialog.querySelector('.consent-status').textContent, '', 'the sheet does not repeat it under the consent text');
+  if (path === 'load') assert.deepEqual(shown(copy.host.consentFailed), [], 'a failed load never says "could not be saved"');
+  assert.ok([...dialog.querySelectorAll('.consent-state-measure')].some(n => n.textContent === text), 'the footer reserves the error (no layout shift)');
+});
+
+// AIT-612 r2 (gate M1): a host copy bundle without host.consentPage.loadFailed: the footer shows the stock
+// failed-load copy (not a blank line beside a disabled Save), and its reserve holds that same text.
+for (const copy of [de, en]) test(`AIT-612 r2 ${copy.display.locale}: a host copy without loadFailed shows the stock failed load in the footer`, async t => {
+  const { loadFailed, ...consentPage } = copy.host.consentPage;
+  const hostCopy = { ...copy, host: { ...copy.host, consentPage } };
+  const c = setup({ copy: hostCopy }), root = c.shadowRoot;
+  t.mock.method(globalThis, 'fetch', async url => {
+    if (String(url).endsWith('/consent')) return new Response('unavailable', { status: 500 });
+    if (String(url).endsWith('/features')) return Response.json({ featureMatrix: c.session.featureMatrix });
+    return Response.json({});
+  });
+  const session = c.session;
+  session.featureMatrix.best.text = { available: false, reason: 'current processing consent required' };
+  c.configure({ session, copy: hostCopy });
+  root.querySelector('.composer-reason .consent-action').click();
+  await new Promise(resolve => setImmediate(resolve));
+  const dialog = root.querySelector('dialog.settings');
+  assert.equal(dialog.open, true);
+  assert.equal(typeof loadFailed, 'string');
+  assert.equal(dialog.querySelector('.save-status').textContent, loadFailed, 'the footer explains the disabled Save');
+  assert.ok([...dialog.querySelectorAll('.consent-state-measure')].some(n => n.textContent === loadFailed), 'the footer reserves the stock text (no layout shift)');
 });
 
 for (const copy of [de, en]) test(`AIT-349: ${copy.display.locale} interruption retains full text and row identity through duplicate/reloaded events`, () => {

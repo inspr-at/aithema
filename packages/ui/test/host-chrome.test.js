@@ -229,7 +229,7 @@ for (const locale of ['de', 'en']) {
 
 // AIT-587 r2 (TICK decision, item 2): a connection timer that restarts on reconnect reads as call time. The footer
 // shows "Connected" with the dot only; the connection's start is in the status's title and accessible description,
-// in the page's local time with the daily-cap time format. No number ticks.
+// in the page's local time with the daily-cap time format (AIT-609: the locale short time, no leading zero). No number ticks.
 for (const locale of ['de', 'en']) test(`AIT-587: connected shows no running number; "since" lives in title and description, ${locale}`, async t => {
   const copy = { en, de }[locale], start = Date.UTC(2026, 10, 20, 20, 4, 30);
   t.mock.timers.enable({ apis: ['Date'], now: start });
@@ -242,7 +242,7 @@ for (const locale of ['de', 'en']) test(`AIT-587: connected shows no running num
   for (let i = 0; i < 20 && !r.querySelector('.status').hasAttribute('data-connected'); i++) await flush();
   const status = r.querySelector('.status'), timer = r.querySelector('.connection-timer');
   assert.ok(status.hasAttribute('data-connected'), 'the stream connected');
-  const time = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', ...(locale === 'de' ? { hour12: false } : {}) }).format(start);
+  const time = new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit', ...(locale === 'de' ? { hour12: false } : {}) }).format(start);
   const since = (locale === 'de' ? 'Verbunden seit {time}' : 'Connected since {time}').replace('{time}', time);
   assert.equal(copy.connectedSince, locale === 'de' ? 'Verbunden seit {time}' : 'Connected since {time}');
   assert.equal(status.title, since);
@@ -270,7 +270,7 @@ for (const locale of ['de', 'en']) test(`AIT-587 r3: the phone status has the sa
   const flush = () => new Promise(resolve => setImmediate(resolve));
   for (let i = 0; i < 20 && !r.querySelector('.status').hasAttribute('data-connected'); i++) await flush();
   const phone = r.querySelector('.phone-status');
-  const time = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', ...(locale === 'de' ? { hour12: false } : {}) }).format(start);
+  const time = new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit', ...(locale === 'de' ? { hour12: false } : {}) }).format(start);
   const since = copy.connectedSince.replace('{time}', time);
   assert.equal(r.querySelector('.phone-status__label').textContent, copy.connected);
   assert.equal(phone.title, since, 'the phone status has the title');

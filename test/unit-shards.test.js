@@ -48,12 +48,12 @@ test('AIT-456: three is the smallest count with average-file growth room; the bo
   // A fixed duration fixture keeps this boundary test independent of future
   // test-file additions and timing refreshes. Discovery is checked above.
   // The fixture passes count 3 explicitly, so it stays independent of the
-  // repository default (pinned separately below, four since AIT-599).
+  // repository default (pinned separately below, five since AIT-624).
   const files = Array.from({ length: 9 }, (_, index) => `measured-${index}`);
   const weights = Object.fromEntries(files.map(file => [file, 180]));
   const fixtureCount = 3;
   assert.equal(unitUnknownFileSeconds, 8);
-  assert.equal(unitShardCount, 4);
+  assert.equal(unitShardCount, 5);
   for (const count of [1, 2]) assert.throws(() => assertUnitHeadroom(packUnitTests(files, weights, count)), /exceeds 420/u);
   assert.equal(packUnitTests(files, weights, fixtureCount).shards.length, fixtureCount);
   const withGrowth = count => packUnitTests([...files,
@@ -161,7 +161,7 @@ test('AIT-456: workflow retains attempt-specific evidence and grants only the ag
   assert.deepEqual(ci.permissions, { contents: 'read' });
   assert.deepEqual(ci.jobs.test.permissions, { contents: 'read', actions: 'read' });
   const download = ci.jobs.test.steps.find(step => step.name === 'Download unit result manifests');
-  assert.equal(download.with.pattern, 'unit-timings-*-of-4-attempt-*');
+  assert.equal(download.with.pattern, 'unit-timings-*-of-5-attempt-*');
   const verify = ci.jobs.test.steps.find(step => step.run?.includes('check-unit-results.js'));
   assert.deepEqual(verify.env, { GH_TOKEN: '${{ github.token }}' });
   for (const id of ['test', 'unit']) {

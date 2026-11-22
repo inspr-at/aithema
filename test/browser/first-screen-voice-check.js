@@ -106,7 +106,26 @@ async function retain(page, name, record) {
   await writeFile(join(dir, `${name}.json`), JSON.stringify(record, null, 2));
 }
 
-test('AIT-553 item 1: idle pause is neutral and unpressed in both entrances; call transitions pin the combined composer', { timeout: 120_000 }, async t => {
+// AIT-603 r11: this file, rc26-look-check and rc26-look-r2-check derive their
+// choice-capable fixtures from the shared combined fixture by replacing its
+// literal entrance:'combined'. PR-A r10 rewrote that literal for its own
+// choice case, so every such replace silently did nothing and each "choice"
+// case mounted the combined entrance (no mode switch, no idle Start, End on the
+// composer mic). The hook must stay, and a choice case must mount choice.
+test('AIT-603 r11: the shared combined fixture keeps the entrance hook, so a choice case mounts the choice entrance', { timeout: 120_000 }, async t => {
+  assert.ok(combinedFixture.includes("entrance:'combined'"), "the shared fixture keeps its literal entrance:'combined' hook");
+  assert.ok(html.includes("entrance:new URL(location.href).searchParams.get('entrance')||'combined'"), 'this fixture reads the entrance from the URL');
+  const { page, server } = await harness(t);
+  for (const variant of variants) {
+    for (const entrance of ['combined', 'choice']) {
+      await open(page, server, variant, entrance);
+      const combined = await page.evaluate(() => c.shadowRoot.querySelector('.workspace')?.dataset.entrance === 'combined');
+      assert.equal(combined, entrance === 'combined', `${variant.width}-${variant.locale} ${entrance}: the ${entrance} entrance mounts`);
+    }
+  }
+});
+
+test('AIT-553 item 1: idle pause is neutral and unpressed in both entrances; call transitions pin the combined composer',{ timeout: 120_000 }, async t => {
   const { page, server } = await harness(t), records = [];
   for (const variant of variants) {
     const label = `${variant.width}-${variant.locale}-${variant.theme}`;
@@ -963,7 +982,8 @@ test('AIT-587: the footer shows Connected without a running number; since lives 
     const where = `${label}: ${JSON.stringify(after)}`;
     const [connected, since] = variant.locale === 'de' ? ['Verbunden', 'Verbunden seit'] : ['Connected', 'Connected since'];
     assert.equal(after.label, connected, `the footer says ${connected}: ${where}`);
-    assert.match(after.title, new RegExp(`^${since} \\d{2}:\\d{2}(?: [AP]M)?$`, 'u'), `title: ${where}`);
+    // AIT-609 (TICK decision): clockTime is the locale short time without a leading zero (EN "8:00 AM", DE "8:00").
+    assert.match(after.title, new RegExp(`^${since} \\d{1,2}:\\d{2}(?: [AP]M)?$`, 'u'), `title: ${where}`);
     assert.equal(after.description, after.title, `accessible description: ${where}`);
     if (variant.width === 390) {
       // AIT-587 r3 (Codex gate2c Low): the phone element itself, not the clipped desktop status.
@@ -1054,5 +1074,66 @@ test('AIT-587: the fold icon keeps 3:1 when enabled at rest, hover and focus; th
     assert.equal(rest.ariaDisabled, 'false', `enabled: ${where}`);
     assert.equal(hover.hover, true, `hovered: ${where}`); assert.equal(focus.focusVisible, true, `keyboard focus: ${where}`);
     for (const state of [rest, hover, focus]) assert.ok(state.ratio >= 3, `${state.state}: fold icon ${state.ratio}:1 >= 3:1: ${where}`);
+  }
+});
+
+// AIT-608 (TICK decision): on the ready screen there is nothing to fold, so the fold control is hidden until there is:
+// visibility:hidden keeps its slot (nothing moves when it appears), and while hidden it is out of the tab order and the
+// accessibility tree. Once foldable it appears unchanged, in the same box (0 px), focusable and named.
+test('AIT-608: the ready fold is hidden, unfocusable and not in the a11y tree; it appears in the same box once foldable', { timeout: 300_000 }, async t => {
+  const { page, server } = await harness(t), records = [];
+  const flush = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const crop = record => ({ x: Math.max(0, record.box[0] - 60), y: Math.max(0, record.box[1] - 60), width: record.box[2] + 240, height: record.box[3] + 120 });
+  const measure = async state => {
+    const record = await page.evaluate(state => {
+      const fold = c.shadowRoot.querySelector('.fold'), b = fold.getBoundingClientRect();
+      fold.focus();
+      const focused = c.shadowRoot.activeElement === fold; fold.blur();
+      return { state, ariaDisabled: fold.getAttribute('aria-disabled'), visibility: getComputedStyle(fold).visibility,
+        iconVisibility: getComputedStyle(fold.querySelector('svg')).visibility, inert: fold.inert, focused,
+        name: fold.getAttribute('aria-label'), box: [b.x, b.y, b.width, b.height] };
+    }, state);
+    const names = [];
+    const walk = node => { if (!node) return; if (node.role === 'button' && node.name) names.push(node.name); for (const child of node.children ?? []) walk(child); };
+    walk(await page.accessibility.snapshot({ interestingOnly: false }));
+    return { ...record, inTree: names.includes(record.name) };
+  };
+  for (const width of [390, 1440]) for (const locale of ['en', 'de']) for (const theme of ['light', 'dark']) {
+    const label = `${width}-${locale}-${theme}`;
+    await open(page, server, { width, height: width < 600 ? 844 : 1000, locale, theme });
+    await page.evaluate(async () => { await document.fonts.ready; });
+    await flush();
+    const ready = await measure('ready');
+    await retainR2(page, `ait608-fold-${label}-ready`, ready, crop(ready));
+    // Visuals available: there is something to fold and the control appears.
+    await page.evaluate(async locale => {
+      const copy = (await import(`/packages/ui/src/i18n/${locale}.js`))[locale];
+      const prior = globalThis.fetch;
+      globalThis.fetch = async (url, options) => { const response = await prior(url, options);
+        if (!/\/api\/sessions\/[^/?]+$/u.test(String(url))) return response;
+        const snapshot = await response.json(); snapshot.featureMatrix.best.images = { available: true }; return Response.json(snapshot); };
+      const session = c.session; session.featureMatrix.best.images = { available: true }; c.configure({ copy, session });
+    }, locale);
+    await page.waitForFunction(() => c.shadowRoot.querySelector('.fold').getAttribute('aria-disabled') === 'false', { timeout: 10_000 })
+      .catch(error => { throw new Error(`${label}: the fold did not become foldable`, { cause: error }); });
+    await flush();
+    const foldable = await measure('foldable');
+    await retainR2(page, `ait608-fold-${label}-foldable`, foldable, crop(foldable));
+    records.push({ label, ready, foldable });
+  }
+  await retainR2(page, 'ait608-fold', records);
+  for (const { label, ready, foldable } of records) {
+    const where = `${label}: ${JSON.stringify({ ready, foldable })}`;
+    for (const state of [ready, foldable]) assert.ok(state.box[2] > 0 && state.box[3] > 0, `${state.state}: positive width and height: ${where}`);
+    assert.equal(ready.ariaDisabled, 'true', `ready: nothing to fold: ${where}`);
+    assert.equal(ready.visibility, 'hidden', `ready: the fold is not visible: ${where}`);
+    assert.equal(ready.iconVisibility, 'hidden', `ready: its icon is not visible: ${where}`);
+    assert.equal(ready.focused, false, `ready: the fold cannot take focus: ${where}`);
+    assert.equal(ready.inTree, false, `ready: the fold is not in the accessibility tree: ${where}`);
+    assert.equal(foldable.visibility, 'visible', `foldable: the fold appears: ${where}`);
+    assert.equal(foldable.focused, true, `foldable: the fold takes focus: ${where}`);
+    assert.equal(foldable.inert, false, `foldable: not inert: ${where}`);
+    assert.equal(foldable.inTree, true, `foldable: the fold is in the accessibility tree: ${where}`);
+    assert.deepEqual(foldable.box, ready.box, `the fold's box is the same before and after it appears (0 px): ${where}`);
   }
 });

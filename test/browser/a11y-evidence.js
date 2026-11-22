@@ -175,10 +175,12 @@ export async function auditMainSurfaces(t, evidence) {
     const opener = await page.$('aithema-session >>> .composer-reason .consent-action');
     const expected = await page.evaluate(async ({ locale, narrow }) => {
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
-      return `${copy.featureConsent[narrow ? 'actionNarrow' : 'action']}: ${copy.featureConsent.textActionReason}`;
+      return { name: copy.featureConsent[narrow ? 'actionNarrow' : 'action'], description: copy.featureConsent.text };
     }, { locale, narrow });
-    const name = (await page.accessibility.snapshot({ root: opener })).name;
-    assert.equal(name, expected, 'responsive consent button keeps its complete label-first name');
+    // AIT-603 r5 (Codex gate4c M3): the visible action names the button; the full sentence is its description.
+    const { name, description } = await page.accessibility.snapshot({ root: opener });
+    assert.equal(name, expected.name, 'responsive consent button is named by its visible action');
+    assert.equal(description, expected.description, 'the full consent sentence is the description at every width');
     await opener.dispose();
     return name;
   };

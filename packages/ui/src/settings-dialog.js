@@ -1,6 +1,7 @@
 import { neutralBindingReason } from './reason-text.js';
 import { featureConsentText, reasonSeparator } from './consent-line.js';
-import { ConsentSettings } from './consent-settings.js';
+import { ConsentSettings, consentLoadFailed } from './consent-settings.js';
+import { resolveCopy } from './copy-resolve.js';
 // START AiSettings.astro, ai-settings.ts and settings-controls.ts behaviour, ported
 // to a native modal <dialog> inside the component (INSPR D3). The server owns every
 // verdict: this dialog sends option ids and shows only acknowledged state.
@@ -72,7 +73,7 @@ export const ICONS = Object.freeze({
   model: svg('<path d="M5 3h14a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H9l-6 3V5a2 2 0 0 1 2-2Z"/>'),
   local: svg('<path d="M6 4v3m0 4v9m6-16v9m0 4v3m6-16v3m0 4v9"/><circle cx="6" cy="9" r="2"/><circle cx="12" cy="15" r="2"/><circle cx="18" cy="9" r="2"/>'),
   gear: svg('<circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M4.9 4.9l2.1 2.1m10 10 2.1 2.1M4.9 19.1 7 17m10-10 2.1-2.1"/>'),
-  check: svg('<path d="m5 12 5 5 9-10"/>'), chevron: svg(CHEVRON), disclosureChevron: svg(CHEVRON, '5 5 14 14'), arrow: svg('<path d="M5 12h14m-6-6 6 6-6 6"/>'),
+  check: svg('<path d="m5 12 5 5 9-10"/>'), close: svg('<path d="m6 6 12 12M18 6 6 18"/>'), chevron: svg(CHEVRON), disclosureChevron: svg(CHEVRON, '5 5 14 14'), arrow: svg('<path d="M5 12h14m-6-6 6 6-6 6"/>'),
   text: svg('<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M5 9h2m2 0h2m2 0h2m2 0h2M5 12h2m2 0h2m2 0h2m2 0h2M6 15h12"/>'),
   off: svg('<circle cx="12" cy="12" r="9"/><path d="m6 18 12-12"/>'),
 });
@@ -191,7 +192,7 @@ export class SettingsDialog {
       <footer class="settings__footer"><div class="footer-links"><details class="disclosure"><summary data-help="providers"><span data-text="providers"></span>${ICONS.disclosureChevron}</summary>
           <div class="disclosure__body"><p class="disclosure-processing"></p><div class="disclosure-provider"><p class="disclosure-recipient"></p><p class="disclosure-geography"></p></div><p data-text="gaugeNote"></p><p data-text="history"></p></div></details>
           <button type="button" class="link footer-consent" data-help="consent" data-text="manageConsent"></button></div>
-        <div class="save-state"><span class="save-check">${ICONS.check}</span><span class="save-info" aria-hidden="true">${icon('info')}</span><p class="save-status" role="status" aria-live="polite"></p>
+        <div class="save-state"><span class="save-check">${ICONS.check}</span><span class="save-info" aria-hidden="true">${icon('info')}</span><p class="save-status" id="settings-save-status" role="status" aria-live="polite"></p>
           <button type="button" class="save-retry" data-text="retry" data-visible="false"></button></div>
         <button type="button" class="done">${ICONS.check}<span class="done-label"></span><span class="consent-save-sizer" aria-hidden="true"></span></button></footer></div>`;
     this.#dialog.setAttribute('aria-labelledby', 'settings-title');
@@ -202,7 +203,7 @@ export class SettingsDialog {
     }));
     measure(this.#q('.general-consent-state'), Object.values(c.consentStates), 'status-line general-consent-measure');
     measure(this.#q('.context-text'), helpMeasurements(this.#copy), 'context-measure');
-    measure(this.#q('.save-state'), [this.#copy.host.consentStale, this.#copy.host.consentPage.loading, this.#copy.host.consentPage.saving, this.#copy.host.consentFailed], 'consent-state-measure');
+    measure(this.#q('.save-state'), [this.#copy.host.consentStale, this.#copy.host.consentPage.loading, this.#copy.host.consentPage.saving, this.#copy.host.consentFailed, consentLoadFailed(this.#copy)], 'consent-state-measure');
     measure(this.#q('.save-state'), SAVE_MESSAGES.map(key => c[key]), 'save-state-measure');
     const notices = [c.callActive, c.toDevice, c.fromDevice, c.consentRequired, c.running, c.conflict, fill(c.notAllowed, { reason: '' })];
     const box = document.createElement('div'); box.className = 'notice-measure'; box.setAttribute('aria-hidden', 'true');
@@ -220,7 +221,7 @@ export class SettingsDialog {
     this.#copy = copy; this.#notice = null; this.#paintCopy(); this.#operator?.setCopy(copy);
     this.#all('.save-state-measure').forEach((n, i) => { n.textContent = copy.settings[SAVE_MESSAGES[i]]; });
     this.#all('.general-consent-measure').forEach((n, i) => { n.textContent = Object.values(copy.settings.consentStates)[i]; });
-    this.#all('.consent-state-measure').forEach((n, i) => { n.textContent = [copy.host.consentStale, copy.host.consentPage.loading, copy.host.consentPage.saving, copy.host.consentFailed][i]; });
+    this.#all('.consent-state-measure').forEach((n, i) => { n.textContent = [copy.host.consentStale, copy.host.consentPage.loading, copy.host.consentPage.saving, copy.host.consentFailed, consentLoadFailed(copy)][i]; });
     const measurements = helpMeasurements(copy);
     this.#all('.context-measure').forEach((n, i) => { n.textContent = measurements[i] ?? ''; });
     const c = copy.settings, notices = [c.callActive, c.toDevice, c.fromDevice, c.consentRequired, c.running, c.conflict, fill(c.notAllowed, { reason: '' })];
@@ -526,6 +527,9 @@ export class SettingsDialog {
     return true;
   }
   async #done() {
+    // AIT-612 r5 (gate4c M1): after a failed consent load the button reads Close and only closes: no Settings save
+    // (pending edits, unconfirmed defaults) runs, and no failed or blocked save keeps the sheet open.
+    if (this.#consentEditor?.active && this.#consentEditor.loadFailed) { this.close(); return; }
     if (this.#pendingPreset || this.#voiceConfirm || this.#switchBusy) return;
     // Done owns this interaction only. Later navigation, edits or reopening
     // cancel its close while the save still records the explicit confirmation.
@@ -892,14 +896,20 @@ export class SettingsDialog {
     this.#dialog.dataset.consentStale = String(Boolean(consentActive && this.#consentEditor.stale));
     this.#q('.save-status').textContent = consentActive ? this.#consentEditor.status : this.#status || c.autosave;
     this.#q('.save-retry').dataset.visible = String(this.#failed && !this.#saving);
-    this.#q('.done-label').textContent = this.#consentEditor?.active ? this.#consentEditor.saveLabel : this.#continue ? c.continue : c.done;
+    this.#q('.done-label').textContent = this.#consentEditor?.active ? this.#consentEditor.loadFailed ? resolveCopy(this.#copy, 'settings.close') : this.#consentEditor.saveLabel : this.#continue ? c.continue : c.done;
     this.#q('.done').dataset.withdraw = String(Boolean(this.#consentEditor?.active && this.#consentEditor.saveLabel === this.#copy.featureConsent.withdraw));
     this.#q('.consent-save-sizer').textContent = this.#copy.featureConsent.withdraw;
     const done = this.#q('.done');
+    // AIT-612 r4 (TICK r3 M1): after a failed load nothing is finished, so the button reads Close with the close icon
+    // (×), never the check mark. Same svg box, so the footer does not move.
+    const glyph = consentActive && this.#consentEditor.loadFailed ? 'close' : 'check', mark = done.querySelector('svg');
+    if (mark.dataset.icon !== glyph) { mark.outerHTML = ICONS[glyph].replace('<svg ', `<svg data-icon="${glyph}" `); }
     // ConsentSettings owns the shared button while its editor is active.
     if (!this.#consentEditor?.active) done.disabled = Boolean(this.#pendingPreset);
     done.setAttribute('aria-disabled', String(done.disabled || consentActive && this.#consentEditor.busy));
     if (this.#pendingPreset) done.setAttribute('aria-describedby', 'settings-notice');
+    // AIT-612 r3 (TICK (b)): after a failed load, Done carries the reason (the footer status) with the action.
+    else if (consentActive && this.#consentEditor.loadFailed) done.setAttribute('aria-describedby', 'settings-save-status');
     else done.removeAttribute('aria-describedby');
     this.#dialog.setAttribute('aria-busy', String(this.#busy || Boolean(this.#pendingPreset) || consentActive && this.#consentEditor.busy));
     this.#dialog.dataset.saveState = this.#failed ? 'failed' : this.#busy ? 'saving' : this.#status === c.saved ? 'saved' : 'idle';

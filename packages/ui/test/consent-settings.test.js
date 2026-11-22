@@ -48,14 +48,15 @@ test('AIT-231: invalid described items leave the existing visitor failure state 
   const h = fixture(t, en, { document: { contract: 'v1', selected: [], features: { voice: ['speech'] },
     items: [{ id: 'speech', version: 1, title: 'Speech', recipients: 'Processor', text: '' }] } });
   await h.editor.open('voice');
-  assert.equal(h.root.querySelector('.consent-status').textContent, en.host.consentFailed);
+  // AIT-612: a document that cannot be used is a failed LOAD, not a failed save.
+  assert.equal(h.root.querySelector('.consent-status').textContent, en.host.consentPage.loadFailed);
   assert.equal(h.root.querySelector('.consent-save').disabled, true);
   assert.equal(h.root.querySelectorAll('input').length, 0);
 });
 test('AIT-197: missing mapping fails closed and a closed editor ignores a late document', async t => {
   const h = fixture(t); await h.editor.open('analysis');
   assert.equal(h.root.querySelector('.consent-save').disabled, true);
-  assert.equal(h.root.querySelector('.consent-status').textContent, en.host.consentFailed);
+  assert.equal(h.root.querySelector('.consent-status').textContent, en.host.consentPage.loadFailed, 'AIT-612: a missing mapping is a failed load');
   const loading = Promise.withResolvers(), late = fixture(t, en, { load: () => loading.promise });
   const opening = late.editor.open('voice'); late.editor.close(); loading.resolve({}); await opening;
   assert.equal(late.root.hidden, true); assert.equal(late.root.querySelectorAll('input').length, 0);
@@ -131,6 +132,92 @@ for (const copy of [de, en]) test(`AIT-603 ${copy.display.locale}: the text feat
   assert.equal([...host.root.querySelectorAll('p')].some(p => !p.hidden && p.textContent === long), false);
   const stock = fixture(t, copy, { document: text, load: async () => { throw new Error('unavailable'); } });
   await stock.editor.open('text');
-  assert.equal(stock.root.querySelector('.consent-status').textContent, copy.host.consentFailed);
+  assert.equal(stock.root.querySelector('.consent-status').textContent, copy.host.consentPage.loadFailed, 'AIT-612: a failed load says so');
   assert.equal(reason(stock)?.textContent, copy.featureConsent.text); assert.equal(reason(stock).hidden, false);
+});
+
+// AIT-612 (TICK AIT-603 r4 L1, AIT-321 design d1cda502): one error, once. A failed load says the consent could
+// not be LOADED; a failed save keeps "could not be saved". Standalone, the sheet's own status sits above its Save.
+for (const copy of [de, en]) test(`AIT-612 ${copy.display.locale}: a failed load and a failed save each say what failed, once`, async t => {
+  assert.equal(typeof copy.host.consentPage.loadFailed, 'string'); assert.notEqual(copy.host.consentPage.loadFailed, copy.host.consentFailed);
+  const failedLoad = fixture(t, copy, { load: async () => { throw new Error('unavailable'); } });
+  await failedLoad.editor.open('voice');
+  assert.equal(failedLoad.root.querySelector('.consent-status').textContent, copy.host.consentPage.loadFailed);
+  assert.equal(failedLoad.editor.status, copy.host.consentPage.loadFailed);
+  assert.equal(failedLoad.root.textContent.includes(copy.host.consentFailed), false, 'a failed load never says "could not be saved"');
+  // The visitor switches language while the failure shows: it follows the page language.
+  const other = copy === de ? en : de;
+  failedLoad.editor.setCopy(other);
+  assert.equal(failedLoad.root.querySelector('.consent-status').textContent, other.host.consentPage.loadFailed);
+});
+
+// AIT-612 r2 (gate M1): an existing host copy bundle without host.consentPage.loadFailed still explains a failed
+// load: the key resolves through the shipped locale copy (copy-resolve), never to a blank status.
+const withoutLoadFailed = copy => { const { loadFailed, ...consentPage } = copy.host.consentPage; return { ...copy, host: { ...copy.host, consentPage } }; };
+for (const copy of [de, en]) test(`AIT-612 r2 ${copy.display.locale}: a host copy without loadFailed shows the stock failed-load copy`, async t => {
+  const hostCopy = withoutLoadFailed(copy);
+  assert.equal(hostCopy.host.consentPage.loadFailed, undefined);
+  const h = fixture(t, hostCopy, { load: async () => { throw new Error('unavailable'); } });
+  await h.editor.open('voice');
+  assert.equal(h.root.querySelector('.consent-status').textContent, copy.host.consentPage.loadFailed);
+  assert.equal(h.editor.status, copy.host.consentPage.loadFailed);
+  // A language switch to another bundle without the key keeps the failure explained.
+  const other = withoutLoadFailed(copy === de ? en : de);
+  h.editor.setCopy(other);
+  assert.equal(h.root.querySelector('.consent-status').textContent, (copy === de ? en : de).host.consentPage.loadFailed);
+});
+
+// AIT-612 r2 (gate Low): a successful stale reload sets the stale notice; a later reload that fails is a failed load,
+// and a language switch keeps the failure (it must not bring back the "loaded" stale notice).
+for (const copy of [de, en]) test(`AIT-612 r2 ${copy.display.locale}: a failed reload after a stale reload keeps the load error through a language switch`, async t => {
+  const doc = { contract: 'v1', features: { voice: ['host-speech'] }, selected: [], items: [{ id: 'host-speech', title: 'Speech', recipients: 'Voice processor', text: 'Speech purpose', version: 1 }] };
+  let fail = false;
+  const h = fixture(t, copy, { load: async () => { if (fail) throw new Error('unavailable'); return doc; } });
+  await h.editor.open('voice');
+  await h.editor.open('voice', { reload: true });
+  assert.equal(h.editor.stale, true); assert.equal(h.editor.status, copy.host.consentStale);
+  fail = true; await h.editor.open('voice', { reload: true });
+  assert.equal(h.editor.status, copy.host.consentPage.loadFailed);
+  assert.equal(h.editor.stale, false, 'a failed reload is not a stale-but-loaded state');
+  const other = copy === de ? en : de;
+  h.editor.setCopy(other);
+  assert.equal(h.root.querySelector('.consent-status').textContent, other.host.consentPage.loadFailed);
+});
+
+// AIT-612 r2 (TICK L2): opening the sheet again loads the document again, so the failed-load copy names that next step.
+test('AIT-612 r2: the failed-load copy says to close and open the sheet again (EN/DE)', async t => {
+  assert.equal(en.host.consentPage.loadFailed, 'Could not load consent. Close and open it again.');
+  assert.equal(de.host.consentPage.loadFailed, 'Die Einwilligung konnte nicht geladen werden. Schließen und erneut öffnen.');
+  let loads = 0, fail = true;
+  const doc = { contract: 'v1', features: { voice: ['host-speech'] }, selected: [], items: [{ id: 'host-speech', title: 'Speech', recipients: 'Voice processor', text: 'Speech purpose', version: 1 }] };
+  const h = fixture(t, en, { load: async () => { loads++; if (fail) throw new Error('unavailable'); return doc; } });
+  await h.editor.open('voice');
+  assert.equal(h.editor.status, en.host.consentPage.loadFailed);
+  h.editor.close(); fail = false; await h.editor.open('voice');
+  assert.equal(loads, 2, 'reopening retries the load'); assert.equal(h.root.querySelectorAll('input').length, 1);
+});
+
+// AIT-612 r5 (gate4c M3): a pointer click on the shared Save leaves focus on it without :focus-visible. When the
+// stale-consent reload that follows fails, the failed-load state still draws the ring on that button (data-focus-ring),
+// so keyboard users see where focus is, even though focus never moved.
+test('AIT-612 r5: a pointer Save whose stale reload fails still shows the ring on the shared button', async t => {
+  const window = new Window(); globalThis.document = window.document;
+  t.after(() => window.happyDOM.close());
+  const root = document.createElement('section'), button = document.createElement('button');
+  document.body.append(root, button);
+  const doc = { contract: 'v1', features: { voice: ['host-speech'] }, selected: [], items: [{ id: 'host-speech', title: 'Speech', recipients: 'Voice processor', text: 'Speech purpose', version: 1 }] };
+  let fail = false;
+  const editor = new ConsentSettings({ root, copy: en, ports: { saveButton: button, done() {},
+    load: async () => { if (fail) throw new Error('unavailable'); return doc; },
+    save: async () => { fail = true; throw Object.assign(new Error('stale'), { code: 'consent-stale' }); } } });
+  await editor.open('voice');
+  root.querySelector('input').checked = true;
+  // A pointer press: focus lands on the button with no ring marker.
+  button.focus(); assert.equal(window.document.activeElement, button); assert.equal('focusRing' in button.dataset, false);
+  button.click();
+  for (let i = 0; i < 5; i++) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(editor.loadFailed, true, 'the stale reload failed');
+  assert.equal(editor.status, en.host.consentPage.loadFailed);
+  assert.equal(window.document.activeElement, button, 'focus stays on the shared button');
+  assert.equal('focusRing' in button.dataset, true, 'the failed-load state shows the ring on the focused button');
 });
