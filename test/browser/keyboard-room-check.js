@@ -640,6 +640,9 @@ export async function keyboardHostLateAddCheck(t) {
         if (Math.abs((up.band?.height ?? 0) - 44) > .5) failures.push(`${name}: fixture: the keyboard opens with the pause column free (one 44 px row): ${JSON.stringify(up.band)}`);
         // Focus on Pause (a keyboard user's Tab, or a tap that focuses it); the keyboard-up state stays.
         const focusInfo = await page.$eval('aithema-session', c => {
+          // The fixture has no live voice stage, so the idle rail is inert (audio-rail.js, session-element.js: the rail is
+          // inert unless the stage is live); emulate the live stage here, as reply() emulates the playing state.
+          const rail = c.shadowRoot.querySelector('.audio-rail'); if (rail) rail.inert = false;
           const pause = c.shadowRoot.querySelector('.voice-cell--pause > .pause'); pause?.focus({ preventScroll: true });
           const active = c.shadowRoot.activeElement;
           return { found: Boolean(pause), disabled: pause?.disabled, inert: Boolean(pause?.closest('[inert]')), tabIndex: pause?.tabIndex,
