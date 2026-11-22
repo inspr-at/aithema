@@ -330,7 +330,7 @@ test('AIT-231: a full mock document preserves described items and an invalid one
   page.state.document = { contract: 'fixture-contract', items: [{ ...CONSENT_ITEMS[0], text: '' }], features, selected: [] };
   await page.locator('aithema-session >>> .notice button').click();
   // AIT-612: an unusable document is a failed LOAD, said once in the footer beside Save, not under the consent text.
-  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings .save-status').textContent === 'Could not load consent.');
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings .save-status').textContent === 'Could not load consent. Close and open it again.');
   assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.consent-status').textContent), '');
   assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.consent-save').disabled), true);
   assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('.consent-editor input').length), 0);

@@ -182,3 +182,16 @@ for (const copy of [de, en]) test(`AIT-612 r2 ${copy.display.locale}: a failed r
   h.editor.setCopy(other);
   assert.equal(h.root.querySelector('.consent-status').textContent, other.host.consentPage.loadFailed);
 });
+
+// AIT-612 r2 (TICK L2): opening the sheet again loads the document again, so the failed-load copy names that next step.
+test('AIT-612 r2: the failed-load copy says to close and open the sheet again (EN/DE)', async t => {
+  assert.equal(en.host.consentPage.loadFailed, 'Could not load consent. Close and open it again.');
+  assert.equal(de.host.consentPage.loadFailed, 'Die Einwilligung konnte nicht geladen werden. Schließen und erneut öffnen.');
+  let loads = 0, fail = true;
+  const doc = { contract: 'v1', features: { voice: ['host-speech'] }, selected: [], items: [{ id: 'host-speech', title: 'Speech', recipients: 'Voice processor', text: 'Speech purpose', version: 1 }] };
+  const h = fixture(t, en, { load: async () => { loads++; if (fail) throw new Error('unavailable'); return doc; } });
+  await h.editor.open('voice');
+  assert.equal(h.editor.status, en.host.consentPage.loadFailed);
+  h.editor.close(); fail = false; await h.editor.open('voice');
+  assert.equal(loads, 2, 'reopening retries the load'); assert.equal(h.root.querySelectorAll('input').length, 1);
+});
