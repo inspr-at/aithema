@@ -137,23 +137,29 @@ test('AIT-625 helper: the deadline covers the response headers only, so a stream
 });
 
 test('AIT-625 element: same-origin session requests carry the guard; a foreign <base> stops every one', async t => {
-  const calls = stubFetch(t, url => String(url).endsWith('/events') ? new Response(new ReadableStream({ start() {} })) : Response.json({}));
+  const calls = stubFetch(t, (url, init) => String(url).endsWith('/events') ? new Response(new ReadableStream({ start() {} }))
+    : String(url).endsWith('/locale') && init.method === 'POST' ? Response.json({ error: 'session-not-found' }, { status: 404 }) : Response.json({}));
   const { createSession } = await import('@inspr/aithema-core');
   const { en } = await import('../src/i18n/en.js');
   const window = page('http://app.test/');
   for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
   t.after(() => window.happyDOM.close());
   await import('../src/session-element.js');
-  const mount = async () => {
+  const mount = async (act = async () => {}) => {
     const before = calls.length, component = window.document.createElement('aithema-session');
-    component.configure({ copy: structuredClone(en), session: createSession({ demo: true }), sessionToken: 'tok' });
+    component.configure({ copy: structuredClone(en), session: createSession({ demo: true }), sessionToken: 'tok', copyForLocale: () => structuredClone(en) });
     window.document.body.append(component);
     await new Promise(resolve => setTimeout(resolve, 30));
+    await act(component); await new Promise(resolve => setTimeout(resolve, 30));
     component.remove();
     return calls.slice(before);
   };
-  const same = await mount();
+  let sessionId;
+  // A locale POST answered 404 session-not-found triggers the owner-authenticated confirmation GET.
+  const same = await mount(async component => { sessionId = component.session.id; await component.changeLocale('de'); });
   assert.ok(same.some(call => String(call.url).endsWith('/events')), 'the connected element opens its event stream');
+  assert.ok(same.some(call => String(call.url).endsWith('/locale')), 'the locale request was sent');
+  assert.ok(same.some(call => String(call.url) === `http://app.test/api/sessions/${sessionId}` && (call.init.method ?? 'GET') === 'GET'), 'the 404 confirmation was sent');
   for (const { url, init } of same) {
     assert.equal(new URL(url).origin, 'http://app.test', String(url)); assert.equal(init.redirect, 'error'); assert.ok(init.signal instanceof AbortSignal);
     assert.equal(new Headers(init.headers).get(HEADER), 'tok');
