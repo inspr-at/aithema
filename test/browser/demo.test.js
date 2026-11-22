@@ -140,6 +140,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
     const failure = Promise.withResolvers();
     const fail = error => failure.reject(error);
     let reloading = false, exporting = false, smokeStep = 'session creation';
+    const exportAborts = [];
     const isSameOrigin = requestUrl => new URL(requestUrl).origin === new URL(url).origin;
     const consoleError = message => { if (message.type() === 'error') fail(new Error(`Browser console error: ${message.text()}`)); };
     const responseError = response => {
@@ -155,6 +156,10 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
       // Chrome transfers attachment navigations to its download manager.
       if (exporting && request.isNavigationRequest() && new URL(request.url()).pathname.endsWith('/export')
         && request.failure()?.errorText === 'net::ERR_ABORTED') return;
+      // AIT-625 r6 DIAGNOSTIC (not final): record a fetch export that Chrome reports aborted after its
+      // 200 headers, and let the ZIP download checks below decide.
+      if (exporting && request.resourceType() === 'fetch' && new URL(request.url()).pathname.endsWith('/export')
+        && request.failure()?.errorText === 'net::ERR_ABORTED' && request.response()?.status() === 200) { exportAborts.push(Date.now()); return; }
       fail(new Error(`Demo request failed: ${request.failure()?.errorText} ${request.method()} ${new URL(request.url()).pathname} (${request.resourceType()}${request.isNavigationRequest() ? ', navigation' : ''}, response ${request.response()?.status() ?? 'none'}, step ${smokeStep})`));
     };
     page.on('console', consoleError); page.on('pageerror', fail); page.on('error', fail);
@@ -309,6 +314,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         const bytes = await readFile(join(directory, download.guid));
         assert.equal(bytes.readUInt32LE(0), 0x04034b50, 'The completed download must be a ZIP');
         assert.ok(bytes.includes(Buffer.from(content)), 'The downloaded export must contain the person turn');
+        console.log(`AIT-625 r6 diagnostic: export fetch aborts reported ${exportAborts.length}, download ${download.state} ${bytes.length} bytes`);
         exporting = false;
 
         smokeStep = 'phone settings geometry';
