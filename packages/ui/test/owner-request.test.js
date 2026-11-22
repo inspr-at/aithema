@@ -746,3 +746,115 @@ test('AIT-637 element: both disabled states x both controls are muted, described
     assert.equal(reason.style.visibility, 'hidden'); assert.equal(reason.getAttribute('aria-hidden'), 'true');
   }
 });
+
+// AIT-637 r2 (gate1c M1-M4; TICK F1): a disabled footer control does not turn accent on hover; a
+// host copy bundle without exportUnavailable still disables both controls with the shipped text;
+// click and Enter re-check the page origin live (a removed foreign <base> exports, an added one
+// blocks), and both controls agree afterwards; an in-place locale change repaints the footer tip,
+// the reason line and the composer description in both disabled states.
+test('AIT-637 r2 element: hover, missing host copy, a live <base> change and an in-place locale change', async t => {
+  const { createSession } = await import('@inspr/aithema-core');
+  const { en } = await import('../src/i18n/en.js');
+  const { de } = await import('../src/i18n/de.js');
+  const { styles } = await import('../src/styles.js');
+  // M1 / TICK F1: one selector; the enabled footer hover is unchanged.
+  assert.ok(styles.includes('.export:not([aria-disabled="true"]):hover, .create-project:hover { color:var(--aithema-accent); background:transparent; }'),
+    'the footer hover accent applies only to an enabled control');
+  assert.doesNotMatch(styles, /(^|[\s,}])\.export:hover/u, 'no hover rule matches a disabled footer control');
+  const window = elementPage();
+  const { calls } = guardFetch(t, url => String(url).endsWith('/events') ? new Response(new ReadableStream({ start() {} }))
+    : String(url).endsWith('/export') ? Response.json({ error: 'fixture' }, { status: 404 }) : Response.json({}), [window]);
+  await import('../src/session-element.js');
+  const tick = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)); };
+  const mount = async ({ locale = 'en', preset, copies = { en: structuredClone(en), de: structuredClone(de) } } = {}) => {
+    const session = createSession({ demo: true });
+    session.locale = locale; if (preset) session.processingPreset = preset;
+    const component = window.document.createElement('aithema-session');
+    component.configure({ copy: copies[locale], session, sessionToken: 'tok', copyForLocale: next => copies[next] });
+    window.document.body.append(component); await tick();
+    t.after(() => component.remove());
+    return component;
+  };
+  const described = (root, control) => (control.getAttribute('aria-describedby') ?? '').split(/\s+/u).filter(Boolean)
+    .map(id => root.querySelector(`#${id}`)?.textContent ?? '').join(' ');
+  const parts = root => ({ footer: root.querySelector('.export'), composer: root.querySelector('.composer-out__export'), reason: root.querySelector('.export-reason') });
+  const assertDisabled = (root, text, label) => {
+    const { footer, composer, reason } = parts(root);
+    for (const control of [footer, composer]) {
+      assert.equal(control.getAttribute('aria-disabled'), 'true', `${label} ${control.className}: aria-disabled`);
+      assert.equal(described(root, control), text, `${label} ${control.className}: description`);
+    }
+    assert.equal(footer.title, text, `${label}: footer tip`);
+    assert.equal(reason.textContent, text, `${label}: footer reason line`);
+    assert.equal(reason.style.visibility, 'visible', `${label}: footer reason line visible`);
+  };
+  const assertEnabled = (root, label) => {
+    const { footer, composer, reason } = parts(root);
+    for (const control of [footer, composer]) {
+      assert.equal(control.hasAttribute('aria-disabled'), false, `${label} ${control.className}: enabled`);
+      assert.equal(control.hasAttribute('aria-describedby'), false, `${label} ${control.className}: no description`);
+    }
+    assert.equal(footer.title, '', `${label}: no footer tip`);
+    assert.equal(reason.style.visibility, 'hidden', `${label}: footer reason line hidden`);
+  };
+  const exports = () => calls.filter(call => String(call.url).endsWith('/export')).length;
+  const foreignBase = () => { const base = window.document.createElement('base'); base.href = 'https://evil.example/'; window.document.head.append(base); t.after(() => base.remove()); return base; };
+  const click = control => control.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+  const enter = control => control.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+
+  // M2: a host copy bundle from before this change (no exportUnavailable) falls back to the shipped text.
+  for (const locale of ['en', 'de']) {
+    const copies = { en: structuredClone(en), de: structuredClone(de) };
+    delete copies.en.exportUnavailable; delete copies.de.exportUnavailable;
+    const base = foreignBase();
+    try {
+      const root = (await mount({ locale, copies })).shadowRoot, before = exports();
+      assertDisabled(root, (locale === 'de' ? de : en).exportUnavailable, `old host copy/${locale}`);
+      for (const control of Object.values(parts(root)).slice(0, 2)) { click(control); enter(control); }
+      await tick();
+      assert.equal(exports(), before, `old host copy/${locale}: nothing is sent`);
+    } finally { base.remove(); }
+  }
+
+  // M3: a live <base> change; click and Enter re-check availability, and both controls agree after.
+  {
+    const base = foreignBase();
+    const root = (await mount()).shadowRoot, { footer, composer } = parts(root);
+    assertDisabled(root, en.exportUnavailable, 'foreign <base> at mount');
+    base.remove();
+    let before = exports();
+    click(footer); await tick();
+    assert.equal(exports(), before + 1, 'the foreign <base> is gone: a footer click exports');
+    assertEnabled(root, 'after the footer click');
+    const again = foreignBase();
+    before = exports();
+    enter(composer); await tick();
+    assert.equal(exports(), before, 'a foreign <base> was added: composer Enter sends nothing');
+    assertDisabled(root, en.exportUnavailable, 'after the blocked composer Enter');
+    again.remove();
+    before = exports();
+    enter(composer); await tick();
+    assert.equal(exports(), before + 1, 'the foreign <base> is gone again: composer Enter exports');
+    assertEnabled(root, 'after the composer Enter');
+    const third = foreignBase();
+    before = exports();
+    click(footer); await tick();
+    assert.equal(exports(), before, 'a foreign <base> was added: a footer click sends nothing');
+    assertDisabled(root, en.exportUnavailable, 'after the blocked footer click');
+    third.remove();
+  }
+
+  // M4: an in-place locale change EN -> DE repaints the tip, the reason line and the description.
+  for (const state of ['device', 'noorigin']) {
+    const base = state === 'noorigin' ? foreignBase() : null;
+    try {
+      const component = await mount({ preset: state === 'device' ? 'device' : undefined }), root = component.shadowRoot;
+      const text = state === 'device' ? 'deviceExportUnavailable' : 'exportUnavailable';
+      assertDisabled(root, en[text], `${state}/en`);
+      component.receive({ sessionId: component.session.id, seq: component.session.seq + 1, type: 'session.locale-changed', data: { locale: 'de' } });
+      await tick();
+      assert.equal(component.session.locale, 'de', `${state}: the locale changed in place`);
+      assertDisabled(root, de[text], `${state}/de in place`);
+    } finally { base?.remove(); }
+  }
+});
