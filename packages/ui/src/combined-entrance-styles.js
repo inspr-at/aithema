@@ -376,5 +376,31 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"][data-phone-short] .composer-reason { position:static; width:auto; height:auto; clip-path:none; }
   .workspace[data-entrance="combined"] .composer-dock { position:fixed; z-index:9; left:var(--aithema-gutter); right:var(--aithema-gutter); bottom:calc(var(--phone-bottom,0px) + var(--phone-footer,57px) + 12px); }
   .workspace[data-entrance="combined"] .phone-dock-backdrop { display:block; position:fixed; z-index:8; left:0; right:0; bottom:var(--phone-bottom,0px); height:calc(var(--phone-dock,250px) + var(--phone-footer,57px) + 24px); background:var(--aithema-paper); mask-image:linear-gradient(to bottom,transparent,#000 12px); }
+  /* AIT-618 r2 (TICK (a)): while the keyboard is up the AI notice is ONE text
+     line. Its first sentence yields with "…" (the full text stays in the
+     node), "More" keeps its 44 px target as an overlap that starts in the
+     8 px row gap above it and grows down over the dock's own padding, as k1's
+     consent action does; it never reaches the feedback row's target. */
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-notice__phone { display:flex; align-items:baseline; gap:.3em; min-width:0; white-space:nowrap; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-notice__first { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-notice__more { flex:none; position:relative; min-height:0; height:auto; padding-block:0; line-height:inherit; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .composer-notice__more::after { content:''; position:absolute; left:0; right:0; top:-8px; height:44px; }
+}
+/* AIT-618 r2 (TICK (b)): while the phone keyboard is up the voice band is ONE
+   44 px row. The rail moves up into the band's first row, so the small orb
+   (start), pause/resume and the gear keep their keyboard-down horizontal
+   positions and sizes; the volume control, the level line, the mic and end
+   cells are hidden (visibility: out of the tree's focus order, their cells
+   keep the columns, so pause never shifts). The rail's status leaves the
+   paint but stays in the accessibility tree (its live region still speaks).
+   The row is 44 px whether a reply plays or is paused; it changes only when
+   the keyboard opens or closes (layout.js measures the band after the flag). */
+@media(max-width:599px) {
+  .workspace[data-entrance="combined"][data-phone-keyboard] .band:has(> .audio-rail) { --band-height:44px; grid-template-rows:44px; height:44px; min-height:44px; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .band > .audio-rail { grid-row:1; height:44px; min-height:44px; pointer-events:none; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .band > .audio-rail > :is(.voice-cell--output, .voice-signal, .voice-cell--mic, .voice-cell--end) { visibility:hidden; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .band > .audio-rail > .voice-cell--pause { pointer-events:auto; }
+  .workspace[data-entrance="combined"][data-phone-keyboard] .band > .audio-rail .voice-state {
+    visibility:visible; position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 }
 `;
