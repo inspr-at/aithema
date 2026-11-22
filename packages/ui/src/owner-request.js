@@ -6,8 +6,8 @@
 //   origin, so neither a host baseUrl elsewhere nor a foreign <base> receives anything;
 // - fetches exactly that resolved URL with redirect:'error', so no redirect can forward the header;
 // - aborts when the caller's signal aborts, or when the deadline passes. The deadline covers the
-//   headers AND the body of a finite request (the body is read here); only a request marked
-//   `stream: true` (the event stream) gets its body unread, bounded by its caller's signal.
+//   headers AND every body read of a finite request; only a request marked `stream: true` (the
+//   event stream) keeps a headers-only deadline, its body bounded by its caller's signal.
 // packages/ui/test/owner-request.test.js fails when any other module names the header or calls fetch.
 const HEADER = 'x-aithema-session-token';
 /** Default deadline for a finite request (headers and body); a `stream: true` body is not cut by it. */
@@ -45,20 +45,36 @@ export async function ownerFetch(view, url, { sessionToken, headers, signal, dea
   if (sessionToken) sent[HEADER] = sessionToken;
   const timer = new AbortController();
   const id = Number.isFinite(deadline) ? setTimeout(() => timer.abort(new DOMException('Owner request deadline', 'TimeoutError')), deadline) : null;
+  // A body nobody reads must not keep a server-side runtime alive until the deadline.
+  id?.unref?.();
   const combined = signal ? anySignal([signal, timer.signal]) : timer.signal;
   let stop;
   // Settles with the abort even when a body source does not observe the signal.
   const aborted = new Promise((resolve, reject) => { stop = () => reject(combined.reason); combined.addEventListener('abort', stop, { once: true }); });
   aborted.catch(() => {});
+  const finish = () => { clearTimeout(id); combined.removeEventListener('abort', stop); };
+  let response;
   try {
-    const response = await Promise.race([fetch(resolved.href, { ...init, headers: sent, redirect: 'error', signal: combined }), aborted]);
-    if (stream || !response?.body) return response;
-    // A finite body is read under the same deadline, so a stall after the headers still ends.
-    const body = await Promise.race([response.arrayBuffer(), aborted]);
-    return new Response(NULL_BODY.has(response.status) ? null : body, { status: response.status, statusText: response.statusText, headers: response.headers });
+    response = await Promise.race([fetch(resolved.href, { ...init, headers: sent, redirect: 'error', signal: combined }), aborted]);
   } catch (error) {
-    // Report the deadline or the caller's reason, not the body reader's generic failure.
-    if (combined.aborted) throw combined.reason ?? error;
-    throw error;
-  } finally { clearTimeout(id); combined.removeEventListener('abort', stop); }
+    finish();
+    // Report the deadline or the caller's reason, not the transport's generic failure.
+    throw combined.aborted ? combined.reason ?? error : error;
+  }
+  if (stream || !response?.body) { finish(); return response; }
+  // A finite body stays under the same deadline: every read races it, so a stall after the
+  // headers still ends (and the caller's error path runs). The timer stops when the body ends.
+  const reader = response.body.getReader();
+  const body = new ReadableStream({
+    async pull(controller) {
+      try {
+        const { value, done } = await Promise.race([reader.read(), aborted]);
+        if (done) { finish(); controller.close(); } else controller.enqueue(value);
+      } catch (error) {
+        finish(); controller.error(combined.aborted ? combined.reason ?? error : error); reader.cancel().catch(() => {});
+      }
+    },
+    cancel(reason) { finish(); return reader.cancel(reason); },
+  });
+  return new Response(NULL_BODY.has(response.status) ? null : body, { status: response.status, statusText: response.statusText, headers: response.headers });
 }
