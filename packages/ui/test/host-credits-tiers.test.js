@@ -1,14 +1,15 @@
 // AIT-298: focused unit workers keep cumulative DOM work within the unchanged
 // three-minute file deadline under merge-group CPU contention.
-// AIT-621: split from host-credits.test.js (with host-credits-flows.test.js) so
-// each half stays well inside that deadline on the CI runner. Credits display,
-// tiers, the conversation projection and the AIT-411/AIT-443 panel copy.
+// AIT-621: split from host-credits.test.js (with host-credits-voice.test.js) so
+// each half stays well inside that deadline on the CI runner. Credit display,
+// tiers, the AIT-135 A2 email-tier flows, the conversation projection and the
+// AIT-411/AIT-443/AIT-587 panel copy.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
-import { tick, balance, setup, userTurn } from './host-surface-helpers.js';
+import { window, tick, identity, balance, setup, userTurn, a2Setup, a2Allowances } from './host-surface-helpers.js';
 
 for (const copy of [de, en]) for (const exhausted of [false, true]) {
   test(`AIT-445: drafts name the address day cap with 800 credits left (${copy.display.locale}, exhausted=${exhausted})`, async t => {
@@ -65,6 +66,225 @@ for (const [copy, loadingName] of [[de, 'Credits werden geladen'], [en, 'Loading
     assert.ok(total.textContent.length > 0);
   });
 }
+
+test('AIT-164: mail Settings saves and raises the tier before the confirmation request finishes', async t => {
+  let finish, requested;
+  const waiting = new Promise(resolve => { finish = resolve; });
+  const { root, c, calls } = a2Setup(t, { delivery: true, link: async body => { requested = body; await waiting; return Response.json({ identity: identity({ status: 'verification-pending', address: body.address, delivery: 'sent' }) }); } });
+  await tick(10); c.openSettings(undefined, { tab: 'general', anchor: '#email' }); await tick();
+  root.querySelector('.verify-entry').click(); await tick();
+  const form = root.querySelector('.verify-dialog .verify-form'); form.querySelector('input').value = 'mail-reader@example.test'; form.requestSubmit();
+  await tick(12);
+  assert.deepEqual(requested, { address: 'mail-reader@example.test' });
+  assert.ok(calls.findIndex(call => call.method === 'PUT') < calls.findIndex(call => call.path === '/identity/request' && call.method === 'POST'));
+  assert.match(root.querySelector('.host-credits__total').textContent, /1,800/u);
+  assert.equal(form.querySelector('.verify-send').textContent, en.hostSurface.email.save);
+  finish(); await tick(12); assert.equal(root.querySelector('.host-verify').dataset.emailState, 'pending');
+});
+
+test('AIT-164: mail Settings cannot bypass saving while its first privacy-notice read is still pending', async t => {
+  let release, reads = 0;
+  const first = new Promise(resolve => { release = resolve; });
+  const { root, c, calls } = a2Setup(t, { delivery: true,
+    visitorRead: read => ++reads === 1 ? first.then(read) : read(),
+    link: body => Response.json({ identity: identity({ status: 'verification-pending', address: body.address, delivery: 'sent' }) }),
+  });
+  await tick(8); c.openSettings(undefined, { tab: 'general', anchor: '#email' }); await tick();
+  root.querySelector('.verify-entry').click(); await tick();
+  const form = root.querySelector('.verify-dialog .verify-form'); form.querySelector('input').value = 'mail-reader@example.test'; form.requestSubmit(); await tick(12);
+  const put = calls.findIndex(call => call.method === 'PUT'), link = calls.findIndex(call => call.method === 'POST' && call.path === '/identity/request');
+  assert.ok(put >= 0 && link > put, 'the saved-tier acknowledgement must precede C1');
+  assert.deepEqual(calls[put].body, { address: 'mail-reader@example.test', noticeVersion: 'ait-135-v1' });
+  assert.match(root.querySelector('.host-credits__total').textContent, /1,800/u);
+  release(); await tick(8);
+});
+
+for (const copy of [de, en]) test(`AIT-135 A2 B: server tiers in a group, one unit line, no countdown (${copy === de ? 'de' : 'en'})`, async t => {
+  const { c, root } = a2Setup(t, { copy }); await tick(8);
+  const popup = root.querySelector('.host-credits .footer-popup');
+  assert.equal(popup.getAttribute('role'), 'group');
+  assert.equal(popup.querySelector('.host-credits__current').hidden, true, 'the anonymous balance already names its tier');
+  assert.match(popup.querySelector('.host-credits__next').textContent, copy === de ? /1\.800\u00a0Credits/u : /1,800\u00a0credits/u);
+  assert.equal(popup.querySelector('.credits-email').textContent, copy === de ? 'E‑Mail-Adresse angeben' : 'Add your email address');
+  assert.equal(popup.querySelector('.host-credits__equivalence').textContent, copy === de ? '1 Credit = 1 US-Cent' : '1 Credit = 1 US cent');
+  assert.equal(root.querySelector('.host-credits__deadline')?.textContent ?? '', '');
+  popup.querySelector('.credits-email').click(); await tick(6);
+  assert.equal(root.querySelector('dialog.settings').open, true);
+  assert.equal(root.querySelector('[data-tab="general"]').getAttribute('aria-selected'), 'true');
+  assert.equal(root.activeElement?.id, 'email-input');
+  c.remove();
+});
+
+test('AIT-135 A2 B: used-up composer preserves the form, offers the actual delta and disables new work', async t => {
+  const { root } = a2Setup(t, { spent: 12_000_000, voiceClient: {} }); await tick(8);
+  assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'false');
+  assert.equal(root.querySelector('form.composer').inert, true);
+  assert.equal(root.querySelector('.composer-out__give').textContent, 'Add your email address to get 600 more credits.');
+  assert.equal(root.querySelector('.voice-state').textContent, 'Voice unavailable right now');
+  assert.equal(root.querySelector('.voice-state').getAttribute('aria-live'), 'off', 'one region announces exhaustion');
+  assert.equal(root.querySelector('.voice-start').disabled, true);
+  assert.equal(root.querySelector('.host-credits__amount').textContent, '0');
+  assert.equal(root.querySelector('.host-credits__used-up').getAttribute('aria-hidden'), 'false');
+});
+
+test('AIT-135 A2 B: no next tier offers export, including the privacy release gate', async t => {
+  for (const options of [{ address: 'reader@example.test', spent: 18_000_000 }, { privacy: false, spent: 12_000_000 }]) {
+    const { c, root } = a2Setup(t, options); await tick(8);
+    assert.equal(root.querySelector('.composer-out').dataset.next, 'none');
+    assert.equal(root.querySelector('.composer-out__export').getAttribute('aria-hidden'), 'false');
+    assert.equal(root.querySelector('.credits-email').hidden, true);
+    c.remove();
+  }
+});
+
+test('AIT-135 A2 B: Escape dismisses a pinned credits group and returns focus to the credits button', async t => {
+  const { root } = a2Setup(t); await tick(8);
+  const line = root.querySelector('.host-credits'), button = root.querySelector('.host-credits__button');
+  button.click(); root.querySelector('.credits-email').focus();
+  root.querySelector('.credits-email').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  assert.equal(button.getAttribute('aria-expanded'), 'false');
+  assert.equal(line.hasAttribute('data-dismissed'), true);
+  assert.equal(root.activeElement, button);
+});
+
+for (const copy of [de, en]) test(`AIT-135 A2 C: inline save, edit and normal delete use acknowledged tiers (${copy === de ? 'de' : 'en'})`, async t => {
+  const { c, root, calls } = a2Setup(t, { copy }); await tick(8);
+  c.openSettings(undefined, { tab: 'general' }); await tick();
+  const section = root.querySelector('.host-verify'), input = section.querySelector('#email-input');
+  assert.match(section.querySelector('.m-lead').textContent, copy === de ? /1\.200.*1\.800/u : /1,200.*1,800/u);
+  assert.equal(section.querySelector('.m-pp').getAttribute('href'), '/privacy?locale=' + (copy === de ? 'de' : 'en'));
+  input.value = 'reader@example.test'; section.querySelector('.m-form').requestSubmit(); await tick(10);
+  const savedReads = calls.filter(call => call.path === '').length;
+  assert.ok(savedReads > 0, 'saving a higher tier refreshes features below the ceiling');
+  assert.deepEqual(calls.find(call => call.method === 'PUT').body, { address: 'reader@example.test', noticeVersion: 'ait-135-v1' });
+  assert.equal(section.dataset.emailState, 'saved');
+  assert.match(section.querySelector('.m-tier').textContent, copy === de ? /Guthaben: 1\.800\u00a0Credits/u : /Credit: 1,800\u00a0credits/u);
+  assert.doesNotMatch(section.querySelector('.m-tier').textContent, /1[.,]455/u, 'Settings shows the tier only');
+  assert.equal(root.activeElement, section.querySelector('.m-change'));
+  const select = t.mock.method(input, 'select'); section.querySelector('.m-change').click();
+  assert.equal(input.value, 'reader@example.test'); assert.equal(root.activeElement, input); assert.equal(select.mock.callCount(), 1);
+  section.querySelector('.m-cancel').click(); section.querySelector('.m-delete').click();
+  assert.equal(root.activeElement, section.querySelector('.m-keep'));
+  assert.match(section.querySelector('.m-delete-normal').textContent, copy === de ? /1\.200.*855/u : /1,200.*855/u);
+  section.querySelector('.m-del').click(); await tick(10);
+  assert.ok(calls.filter(call => call.path === '').length > savedReads, 'deleting a tier refreshes features below the ceiling');
+  assert.equal(section.dataset.emailState, 'capture'); assert.equal(root.activeElement, input);
+  assert.equal(input.value, '', 'acknowledged deletion clears the cancelled edit');
+  assert.equal(calls.filter(call => call.method === 'DELETE').length, 1);
+});
+
+test('AIT-135 A2 C: validation is calm, clears while typing, and saving keeps the button label', async t => {
+  let finish; const saving = new Promise(resolve => { finish = resolve; });
+  const { root, calls } = a2Setup(t, { save: () => saving }); await tick(8);
+  const input = root.querySelector('#email-input'), form = root.querySelector('.host-verify .m-form'), button = root.querySelector('.host-verify .m-save');
+  input.value = 'reader'; form.requestSubmit(); await tick();
+  assert.equal(input.getAttribute('aria-invalid'), 'true'); assert.equal(calls.filter(c => c.method === 'PUT').length, 0);
+  input.value = 'reader@example.test'; input.dispatchEvent(new window.Event('input', { bubbles: true }));
+  assert.equal(input.getAttribute('aria-invalid'), 'false'); form.requestSubmit(); await tick();
+  assert.equal(button.textContent, 'Save'); assert.match(root.querySelector('.host-verify .m-msg').textContent, /Saving/u);
+  finish(); await tick(10);
+});
+
+test('AIT-135 A2 C: deleting an over-spent address works and restores the used-up state', async t => {
+  const { root, calls } = a2Setup(t, { address: 'reader@example.test', spent: 15_000_000 }); await tick(8);
+  root.querySelector('.host-verify .m-delete').click();
+  assert.match(root.querySelector('.host-verify .m-delete-over').textContent, /1,500\u00a0credits.*used up/u);
+  root.querySelector('.host-verify .m-del').click(); await tick(10);
+  assert.equal(calls.filter(c => c.method === 'DELETE').length, 1);
+  assert.match(root.querySelector('.host-verify .m-msg').textContent, /deleted.*used up/u);
+  assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'false');
+});
+
+test('AIT-135 A2 C: no privacy document offers no collection input or confirmation dialog', async t => {
+  const { root, calls } = a2Setup(t, { privacy: false }); await tick(8);
+  assert.equal(root.querySelector('.host-verify').dataset.emailState, 'unavailable');
+  assert.equal(root.querySelector('.host-verify .m-form').inert, true);
+  assert.equal(root.querySelector('.verify-entry').hidden, true);
+  assert.equal(root.querySelector('dialog.verify-dialog').open, false);
+  assert.equal(calls.filter(c => ['POST', 'PUT'].includes(c.method)).length, 0);
+});
+
+test('AIT-135 A2 C: handover purpose and the short 90-day notice accompany the host privacy link', async t => {
+  const { root } = a2Setup(t, { handover: true }); await tick(8);
+  assert.match(root.querySelector('.host-verify .m-notice').textContent, /For a personal follow-up we ask you separately\./u);
+  assert.match(root.querySelector('.host-verify .m-notice').textContent, /After 90 days without use, we delete it automatically\./u);
+  assert.doesNotMatch(root.querySelector('.host-verify .m-notice').textContent, /Use means|cookie/u);
+  assert.equal(root.querySelector('.host-verify .m-pp').getAttribute('href'), '/privacy?locale=en');
+});
+
+
+test('AIT-135 A2 B: the supplied open question stays readable and its answers rest when credit runs out', async t => {
+  const { root } = a2Setup(t, { spent: 12_000_000, voiceClient: {}, question: { question_short: 'What would help next?', options: [{ text: 'Discuss the goals', likely: true }, { text: 'Discuss resources' }] } }); await tick(8);
+  const card = root.querySelector('.question-card');
+  assert.equal(card.hidden, false); assert.equal(card.inert, true);
+  assert.equal(card.querySelector('.qtext').textContent, 'What would help next?');
+  assert.ok([...card.querySelectorAll('button')].every(button => button.disabled));
+  assert.equal(root.querySelector('.pause').disabled, true);
+});
+
+test('AIT-135 A2 C: an address saved before the privacy gate closes remains deletable', async t => {
+  const { root, calls } = a2Setup(t, { privacy: false, address: 'reader@example.test', spent: 18_000_000 }); await tick(8);
+  root.querySelector('.host-verify .m-change').click();
+  assert.equal(root.querySelector('.host-verify').dataset.emailState, 'saved');
+  root.querySelector('.host-verify .m-delete').click(); root.querySelector('.host-verify .m-del').click(); await tick(10);
+  assert.equal(calls.filter(call => call.method === 'DELETE').length, 1);
+  assert.equal(root.querySelector('.host-verify').dataset.emailState, 'unavailable');
+});
+
+
+for (const copy of [de, en]) test(`AIT-135 A2 C: delivery saves the given tier before AIT-131 sends the confirmation (${copy.display.locale})`, async t => {
+  let address = null, status = 'guest';
+  const h = setup(t, { copy, session: { identity: identity(), demo: true }, host: { verification: true, credits: true }, routes: {
+    'GET /visitor/email': () => Response.json({ visitor: { address }, notice: { version: 'ait-135-v1', deliveryEnabled: true } }),
+    'GET /identity': () => Response.json({ identity: identity({ address, status }), delivery: true }),
+    'GET /credits': () => Response.json({ balance, limitSlot: null, tiers: { allowancesMicro: a2Allowances, current: address ? 'emailGiven' : 'anonymous', next: 'emailConfirmed', delta: 6_000_000, canConfirm: true } }),
+    'PUT /visitor/email': body => { address = body.address; return Response.json({ visitor: { address } }); },
+    'POST /identity/request': body => { address = body.address; status = 'verification-pending'; return Response.json({ identity: identity({ address, status }) }); },
+  } }); await tick(10);
+  h.root.querySelector('.verify-entry').click(); await tick(6);
+  const dialog = h.root.querySelector('dialog.verify-dialog');
+  assert.match(dialog.querySelector('.verify__lead').textContent, copy === de ? /1\.800.*2\.400/u : /1,800.*2,400/u);
+  assert.match(dialog.querySelector('.m-notice').textContent, /90/u);
+  dialog.querySelector('input').value = 'reader@example.test'; dialog.querySelector('form').requestSubmit(); await tick(12);
+  const writes = h.calls.filter(call => ['PUT', 'POST'].includes(call.method) && ['/visitor/email', '/identity/request'].includes(call.path));
+  assert.deepEqual(writes.map(call => [call.method, call.path]), [['PUT', '/visitor/email'], ['POST', '/identity/request']]);
+  assert.equal(h.root.querySelector('.host-verify').dataset.emailState, 'pending');
+});
+
+
+test('AIT-135 A2 C: equal allowances and disabled confirmation never promise an increase', async t => {
+  const { root } = setup(t, { session: { demo: true, identity: identity() }, host: { verification: true, credits: true }, routes: {
+    'GET /credits': () => Response.json({ balance, limitSlot: null, tiers: { current: 'anonymous', next: null, delta: 0, canConfirm: false,
+      allowancesMicro: { anonymous: 5_000_000, emailGiven: 5_000_000, emailConfirmed: 8_000_000 } } }),
+  } }); await tick(8);
+  assert.equal(root.querySelector('.host-verify .m-lead-mail').textContent, 'Credit: 500\u00a0credits');
+  assert.equal(root.querySelector('.credits-email').hidden, true);
+  root.querySelector('.verify-entry').click(); await tick();
+  assert.equal(root.querySelector('.verify__lead-mail').textContent, 'Credit: 500\u00a0credits');
+});
+
+
+test('AIT-135 A2 B: saving after exhaustion refreshes the authoritative verdict instead of keeping budget denied', async t => {
+  const { root, calls } = a2Setup(t, { spent: 12_000_000, blocked: true }); await tick(8);
+  assert.equal(root.querySelector('textarea').disabled, true);
+  root.querySelector('#email-input').value = 'reader@example.test'; root.querySelector('.host-verify .m-form').requestSubmit(); await tick(16);
+  assert.ok(calls.some(call => call.path === ''), 'the host snapshot is read after the allowance rises');
+  assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'true');
+  assert.equal(root.querySelector('textarea').disabled, false);
+});
+
+test('AIT-135 A2 B: an exhausted visible app notices a CLI allowance increase without an SSE event', async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  let raised = false;
+  const { c, root, calls } = setup(t, { host: { credits: true }, routes: {
+    'GET /credits': () => Response.json({ balance: { owner: { limitMicro: raised ? 18_000_000 : 12_000_000, committedMicro: 12_000_000, availableMicro: raised ? 6_000_000 : 0 } }, exhausted: !raised, limitSlot: null }),
+  } }); await tick(8);
+  assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'false');
+  raised = true; t.mock.timers.tick(15_001); await tick(12);
+  assert.equal(calls.filter(call => call.path === '/credits').length, 2);
+  assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'true');
+  c.remove(); const reads = calls.length; t.mock.timers.tick(15_001); await tick(); assert.equal(calls.length, reads, 'detached apps stop polling');
+});
 
 for (const copy of [de, en]) for (const state of ['anonymous', 'emailGiven', 'emailConfirmed', 'exhausted', 'dailyCap']) {
   test(`AIT-395: conversation projection ${state} (${copy.display.locale})`, async t => {
@@ -288,4 +508,15 @@ test('AIT-411 defaults: a saved low-credit ask still restores after the balance 
     } });
   await tick(12);
   assert.equal(root.querySelector('.email-ask').getAttribute('aria-hidden'), 'false', 'the default keeps the prior saved-ask restoration policy');
+});
+
+// AIT-587 (AIT-553 gate1 L3, RC25 look 15): the used-up panel promises export only beside an export control.
+for (const copy of [en, de]) test(`AIT-587: the give/confirm used-up panel never promises export without the export link (${copy.display.locale})`, async t => {
+  const { root } = a2Setup(t, { copy, spent: 12_000_000, voiceClient: {} }); await tick(8);
+  const out = root.querySelector('.composer-out'), body = out.querySelector('.composer-out__body [data-active="true"]');
+  assert.equal(out.getAttribute('aria-hidden'), 'false', 'the used-up panel shows');
+  assert.equal(out.dataset.next, 'give', 'the choice entrance offers the next tier');
+  assert.ok(body?.textContent, 'one body sentence is active');
+  assert.equal(out.querySelector('.composer-out__export').hasAttribute('data-export'), false, 'no export link in this state');
+  assert.doesNotMatch(body.textContent, /export/iu, `no export promise without its control: ${body.textContent}`);
 });
