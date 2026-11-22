@@ -186,10 +186,26 @@ test('AIT-625 r2 helper: the document\'s actual origin decides, not its URL (a s
 
 test('AIT-625 r2 helper: without AbortSignal.any the signals are still combined', async () => {
   const { anySignal } = await helper();
-  const a = new AbortController(), b = new AbortController(), combined = anySignal([a.signal, b.signal], undefined);
+  // r4 (gate2c Low): null, not undefined, so the default AbortSignal.any is not selected.
+  const a = new AbortController(), b = new AbortController(), combined = anySignal([a.signal, b.signal], null);
   assert.equal(combined.aborted, false); b.abort(new Error('second')); assert.equal(combined.aborted, true); assert.equal(combined.reason.message, 'second');
   const early = new AbortController(); early.abort(new Error('early'));
-  assert.equal(anySignal([new AbortController().signal, early.signal], undefined).reason.message, 'early');
+  assert.equal(anySignal([new AbortController().signal, early.signal], null).reason.message, 'early');
+});
+
+test('AIT-625 r4 helper: the fallback really runs when the runtime has no AbortSignal.any', async t => {
+  const { anySignal } = await helper();
+  const native = Object.getOwnPropertyDescriptor(AbortSignal, 'any');
+  let nativeCalls = 0;
+  // A spy proves the fallback path ran: the native combinator is never reached.
+  Object.defineProperty(AbortSignal, 'any', { configurable: true, writable: true, value: undefined });
+  t.after(() => { if (native) Object.defineProperty(AbortSignal, 'any', native); else delete AbortSignal.any; });
+  const a = new AbortController(), b = new AbortController(), combined = anySignal([a.signal, b.signal], AbortSignal.any);
+  assert.equal(AbortSignal.any, undefined, 'premise: no native AbortSignal.any');
+  a.abort(new Error('first')); assert.equal(combined.aborted, true); assert.equal(combined.reason.message, 'first');
+  if (native) { AbortSignal.any = (...args) => { nativeCalls++; return native.value.apply(AbortSignal, args); }; }
+  anySignal([new AbortController().signal], null);
+  assert.equal(nativeCalls, 0, 'the fallback never calls the native combinator');
 });
 
 test('AIT-625 helper: a caller-supplied owner header is never forwarded unguarded', async t => {
@@ -231,6 +247,18 @@ test('AIT-625 helper: for a stream (events) the deadline covers the response hea
   });
   const response = await ownerFetch(page(`${origin}/`), '/api/sessions/s1/events', { deadline: 100, stream: true });
   assert.equal(await response.text(), 'ab');
+});
+
+// r4 (gate2c M3): only a SUCCESSFUL event stream leaves its body to the caller's signal.
+const pendingAfter = (promise, ms) => Promise.race([promise, new Promise((resolve, reject) => {
+  setTimeout(() => reject(new Error(`still pending after ${ms} ms`)), ms).unref?.();
+})]);
+test('AIT-625 r4 helper: an event stream answered with an error keeps its body under the deadline', async t => {
+  const { ownerFetch } = await helper();
+  stubFetch(t, () => new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode('{')); } }), { status: 404 }));
+  const response = await ownerFetch(page(), '/api/sessions/s1/events', { deadline: 50, stream: true });
+  assert.equal(response.status, 404);
+  await assert.rejects(pendingAfter(response.clone().json(), 2_000), error => error.name === 'TimeoutError');
 });
 
 test('AIT-625 r2 helper (real HTTP): a finite request whose body stalls after the headers ends at the deadline', async t => {
@@ -317,3 +345,79 @@ test('AIT-625 element: same-origin session requests carry the guard; a foreign <
   assert.deepEqual(strays, [], 'nothing but the helper read fetch');
 });
 
+// r4 (gate2c M3): a /events 404 whose body stalls settles at the deadline and the stream reconnects.
+test('AIT-625 r4 element: a stalled /events error body ends at the deadline and reconnecting continues', async t => {
+  const { createSession } = await import('@inspr/aithema-core');
+  const { en } = await import('../src/i18n/en.js');
+  const window = elementPage();
+  const stalled = () => new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode('{')); } }), { status: 404 });
+  const { calls, strays } = guardFetch(t, url => String(url).endsWith('/events') ? stalled() : Response.json({}), [window]);
+  await import('../src/session-element.js');
+  const tick = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)); };
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const component = window.document.createElement('aithema-session');
+  component.configure({ copy: structuredClone(en), session: createSession({ demo: true }), sessionToken: 'tok' });
+  window.document.body.append(component); await tick();
+  t.after(() => component.remove());
+  const events = () => calls.filter(call => String(call.url).endsWith('/events')).length;
+  assert.equal(events(), 1, 'the event stream was requested');
+  t.mock.timers.tick(30_000); await tick();
+  t.mock.timers.tick(1_000); await tick();
+  assert.equal(events(), 2, 'the stalled error body ended at the deadline and the stream reconnected');
+  assert.deepEqual(strays, [], 'nothing but the helper read fetch');
+});
+
+// r4 (gate2c M4): erasure aborts a finite request until its body is consumed, not only until headers.
+test('AIT-625 r4 element: erasure during an export body read aborts it and starts no download', async t => {
+  const { createSession } = await import('@inspr/aithema-core');
+  const { en } = await import('../src/i18n/en.js');
+  const window = elementPage();
+  let held;
+  const { calls } = guardFetch(t, url => String(url).endsWith('/events') ? new Response(new ReadableStream({ start() {} }))
+    : String(url).endsWith('/export') ? new Response(new ReadableStream({ start(controller) { held = controller; controller.enqueue(new Uint8Array([80, 75])); } }))
+      : Response.json({}), [window]);
+  const downloads = t.mock.method(URL, 'createObjectURL', () => 'blob:fixture');
+  t.mock.method(URL, 'revokeObjectURL', () => {});
+  await import('../src/session-element.js');
+  const tick = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)); };
+  const component = window.document.createElement('aithema-session');
+  component.configure({ copy: structuredClone(en), session: createSession({ demo: true }), sessionToken: 'tok' });
+  window.document.body.append(component); await tick();
+  t.after(() => component.remove());
+  component.shadowRoot.querySelector('.export').click(); await tick();
+  assert.ok(calls.some(call => String(call.url).endsWith('/export')), 'the export was requested');
+  assert.ok(held, 'the export body is being read');
+  component.receive({ seq: component.session.seq + 1, type: 'session.erased', data: { at: '2026-11-22T12:00:00.000Z' } }); await tick();
+  try { held.enqueue(new Uint8Array([3, 4])); held.close(); } catch { /* the aborted read already cancelled the body */ }
+  await tick();
+  assert.equal(downloads.mock.callCount(), 0, 'an erased conversation starts no download');
+});
+
+// r4 (gate2c M2): the cookie-authenticated export link is resolved through the same origin check.
+test('AIT-625 r4 element: in cookie mode a foreign <base> yields no export link; the same-origin link is absolute', async t => {
+  const { createSession } = await import('@inspr/aithema-core');
+  const { en } = await import('../src/i18n/en.js');
+  const window = elementPage();
+  guardFetch(t, url => String(url).endsWith('/events') ? new Response(new ReadableStream({ start() {} })) : Response.json({}), [window]);
+  await import('../src/session-element.js');
+  const tick = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)); };
+  const mount = async () => {
+    const component = window.document.createElement('aithema-session');
+    component.configure({ copy: structuredClone(en), session: createSession({ demo: true }) });
+    window.document.body.append(component); await tick();
+    t.after(() => component.remove());
+    return component;
+  };
+  const links = component => ['.export', '.composer-out__export'].map(selector => component.shadowRoot.querySelector(selector));
+  const same = await mount();
+  for (const link of links(same)) assert.equal(link.getAttribute('href'), `http://app.test/api/sessions/${same.session.id}/export`, link.className);
+  const base = window.document.createElement('base'); base.href = 'https://evil.example/'; window.document.head.append(base);
+  t.after(() => base.remove());
+  // A base added later cannot re-point the already resolved absolute link.
+  for (const link of links(same)) assert.equal(new URL(link.href).origin, 'http://app.test', link.className);
+  const foreign = await mount();
+  for (const link of links(foreign)) {
+    assert.equal(link.hasAttribute('href'), false, `${link.className}: no link to a foreign origin`);
+  }
+  assert.equal(foreign.shadowRoot.querySelector('.export').getAttribute('aria-disabled'), 'true');
+});
