@@ -125,27 +125,32 @@ function prefixBytes(bytes) {
 //   'incomplete'  a prolog item or the root name runs past a truncated prefix
 //                 (fail closed: the caller refuses the file)
 //   <name>        the root element's name, e.g. 'svg', 'svg:svg', 'note'.
-function xmlRoot(text, whole) {
+// `steps` (optional, AIT-610 r11) counts the characters the scan visits,
+// every indexOf span included, so tests prove linearity without a clock.
+function xmlRoot(text, whole, steps) {
+  const visit = n => { if (steps) steps.prefix += n; };
   const space = code => code === 0x20 || code === 0x09 || code === 0x0a || code === 0x0d;
   const open = () => whole ? null : 'incomplete';
-  const until = (at, token) => { const end = text.indexOf(token, at); return end < 0 ? -1 : end + token.length; };
+  const find = (token, at) => { const end = text.indexOf(token, at); visit((end < 0 ? text.length : end + token.length) - at); return end; };
+  const until = (at, token) => { const end = find(token, at); return end < 0 ? -1 : end + token.length; };
   const name = /[A-Za-z_][\w.:-]*/uy;
   let i = text.charCodeAt(0) === 0xfeff ? 1 : 0;
   for (;;) {
-    while (i < text.length && space(text.charCodeAt(i))) i++;
+    while (i < text.length && space(text.charCodeAt(i))) { i++; visit(1); }
     if (i >= text.length) return open();
     if (text[i] !== '<') return null;
     // A token cut by a truncated prefix ('<!DO', '<!-', '<') cannot be told
     // apart from a prolog item: fail closed.
     if (!whole && text.length - i < 10) return 'incomplete';
     let end;
+    visit(9); // the token checks read at most 9 characters
     if (text.startsWith('<?', i)) end = until(i + 2, '?>');
     else if (text.startsWith('<!--', i)) end = until(i + 4, '-->');
     else if (/^<!doctype/iu.test(text.slice(i, i + 9))) {
       end = -1;
       for (let j = i + 9, subset = false; j >= 0 && j < text.length;) {
-        const c = text[j];
-        if (c === '"' || c === "'") { const close = text.indexOf(c, j + 1); j = close < 0 ? -1 : close + 1; }
+        const c = text[j]; visit(1);
+        if (c === '"' || c === "'") { const close = find(c, j + 1); j = close < 0 ? -1 : close + 1; }
         else if (subset && text.startsWith('<!--', j)) j = until(j + 4, '-->');
         else if (subset && text.startsWith('<?', j)) j = until(j + 2, '?>');
         else if (c === '[' && !subset) { subset = true; j++; }
@@ -157,6 +162,7 @@ function xmlRoot(text, whole) {
       name.lastIndex = i + 1;
       const root = name.exec(text);
       if (!root) return null;
+      visit(root[0].length + 1);
       // r6 (gate5c): the name must END there (whitespace, '/' or '>'), so
       // plain text such as '<svg=' is not an svg root. A name that runs to the
       // end of a truncated prefix cannot be decided: fail closed.
@@ -180,20 +186,25 @@ const extensions = EXTRACTOR_EXTENSIONS;
 // the whole file (it returns before any text decoding). Everything else must be
 // UTF-8 text without control bytes; its root decides SVG versus document, and
 // its subtype comes from the bounded prefix.
-function sniffText(bytes, maxBytes) {
+function sniffText(bytes, maxBytes, steps) {
   const limits = { ...EXTRACTOR_LIMITS, maxBytes };
   if (bytes.length > maxBytes || binarySignatures.some(signature => startsWith(bytes, signature))) return sniffDocument(bytes, limits);
-  for (let i = 0; i < bytes.length; i++) {
+  let i = 0;
+  for (; i < bytes.length; i++) {
     const byte = bytes[i];
-    if (byte < 32 && byte !== 9 && byte !== 10 && byte !== 12 && byte !== 13) return unsupported;
+    if (byte < 32 && byte !== 9 && byte !== 10 && byte !== 12 && byte !== 13) break;
   }
+  if (steps) steps.bytes += Math.min(i + 1, bytes.length);
+  if (i < bytes.length) return unsupported;
+  if (steps) steps.bytes += bytes.length; // isUtf8: one native pass over the bytes
   if (!isUtf8(bytes)) return unsupported; // UTF-16 and legacy encodings included
-  const head = prefixBytes(bytes), root = xmlRoot(new TextDecoder('utf-8').decode(head), head.length === bytes.length);
+  const head = prefixBytes(bytes), root = xmlRoot(new TextDecoder('utf-8').decode(head), head.length === bytes.length, steps);
   if (root === 'incomplete') return unsupported;
   if (root && /^(?:[^:]*:)?svg$/iu.test(root)) return { mediaType: 'image/svg+xml', reason: 'unsupported' };
   return sniffDocument(head, limits);
 }
-export function sniffUploadDocument(bytes, filename, maxBytes = EXTRACTOR_LIMITS.maxBytes) {
+// `steps` is an optional { bytes, prefix } counter (AIT-610 r11, tests only).
+export function sniffUploadDocument(bytes, filename, maxBytes = EXTRACTOR_LIMITS.maxBytes, steps) {
   const gif = bytes.length >= 6 && /^GIF8[79]a$/u.test(Buffer.from(bytes.subarray(0, 6)).toString('ascii'));
   // Raster signatures that sniffDocument does not name (AIT-610 r3). BMP: 'BM'
   // plus its zero reserved fields (a text file never carries NUL bytes). TIFF:
@@ -209,7 +220,7 @@ export function sniffUploadDocument(bytes, filename, maxBytes = EXTRACTOR_LIMITS
   const excluded = /^(?:heic|heix|hevc|hevx|heim|heis|hevm|hevs|mif1|msf1|avif|avis)$/u.test(brand);
   const detected = excluded ? { mediaType: /^avi/u.test(brand) ? 'image/avif' : 'image/heic', reason: 'unsupported' }
     : gif ? { mediaType: 'image/gif', reason: 'unsupported' } : other ? { mediaType: other, reason: 'unsupported' }
-      : netpbm(bytes) ? { mediaType: 'image/x-portable-anymap', reason: 'unsupported' } : sniffText(bytes, maxBytes);
+      : netpbm(bytes) ? { mediaType: 'image/x-portable-anymap', reason: 'unsupported' } : sniffText(bytes, maxBytes, steps);
   const extension = /\.([a-z0-9]+)$/iu.exec(filename)?.[1].toLowerCase(), expected = extensions[extension];
   if (detected.reason) return detected;
   // Text subtypes are heuristic: an empty markdown/CSV/JSON file still belongs
