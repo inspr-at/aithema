@@ -46,7 +46,7 @@ function staticString(node) {
     if (left !== undefined && right !== undefined) return left + right;
   }
 }
-function offenders(path, label = path, approvedFetch, file = parse(path)) {
+function offenders(path, label = path, { approvedFetch, mapsOwnerHeader = false, file = parse(path) } = {}) {
   const found = new Set();
   const globals = new Set(['globalThis', 'window', 'self', 'top', 'parent', 'frames', 'view', 'defaultView', 'navigator', 'Reflect']);
   const NETWORK = new Set(['fetch', 'XMLHttpRequest', 'setRequestHeader', 'Headers', 'sendBeacon', 'EventSource', 'WebSocket', 'eval', 'Function']);
@@ -67,8 +67,10 @@ function offenders(path, label = path, approvedFetch, file = parse(path)) {
     }
     else if (literal(node)) {
       const value = node.text;
-      if (/x-aithema-/iu.test(value) && value !== 'x-aithema-now') found.add(`${label}: owner header prefix`);
-      if (/session[-_\s]*token$/iu.test(value)) found.add(`${label}: owner header suffix`);
+      if (!(mapsOwnerHeader && value === HEADER)) {
+        if (/x-aithema-/iu.test(value) && value !== 'x-aithema-now') found.add(`${label}: owner header prefix`);
+        if (/session[-_\s]*token$/iu.test(value)) found.add(`${label}: owner header suffix`);
+      }
       if (value === 'fetch') found.add(`${label}: fetch in a string`);
     } else if (ts.isElementAccessExpression(node)) {
       // A computed property on a global or a window (`globalThis['fe' + 'tch']`) can name anything.
@@ -737,17 +739,16 @@ function nativeActions(file, label) {
   return [...findings];
 }
 function servedJavaScriptOffenders(path, label, source) {
-  const file = parse(path, source), relay = RELAYS.includes(label);
+  const file = parse(path, source), relay = RELAYS.includes(label), helper = label === 'packages/ui/src/owner-request.js';
   const transport = relay ? 'request' : ['plugins/device/src/index.js', 'packages/core/src/chat-completions.js'].includes(label) ? 'fetchImpl' : null;
   const approvedFetch = node => {
-    if (label === 'packages/ui/src/owner-request.js') return true;
+    if (helper) return true;
     if (relay && ts.isBindingElement(node.parent) && node.parent.propertyName === node && node.parent.name.getText(file) === 'request') return true;
     const callee = ts.isPropertyAccessExpression(node.parent) && node.parent.name === node ? node.parent : node;
     const call = callee.parent;
     return ts.isCallExpression(call) && call.expression === callee && omitsCredentials(call);
   };
-  const findings = offenders(path, label, approvedFetch, file).filter(item =>
-    !(relay && [`${label}: owner header prefix`, `${label}: owner header suffix`].includes(item)));
+  const findings = offenders(path, label, { approvedFetch, mapsOwnerHeader: helper || relay, file });
   walkAst(file, node => {
     if (transport && ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === transport && !omitsCredentials(node))
       findings.push(`${label}: ${transport} must use credentials: 'omit'`);

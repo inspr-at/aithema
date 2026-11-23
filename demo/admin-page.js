@@ -172,8 +172,10 @@ function wire() {
 addEventListener('beforeunload', event => {
   if (state && ['credits', 'confirm', 'mail'].some(id => section(id)?.dirty)) { event.preventDefault(); event.returnValue = ''; }
 });
-document.documentElement.lang = locale === 'en' ? 'en' : 'de'; document.title = C.title + ' · Aithema';
-if (document.querySelector('.ad-page')?.dataset.signed === 'loading') {
+const signed = document.querySelector('.ad-page')?.dataset.signed ?? 'out';
+if (document.documentElement.lang !== C.locale) document.body.innerHTML = renderAdmin({ signed }, locale);
+document.documentElement.lang = C.locale; document.title = C.title + ' · Aithema';
+if (signed === 'loading') {
   wireOperatorLogout(document.querySelector('.ad-who'), {
     showError: failed => { logoutFailed = failed; showOperatorStatus(); },
     onLogout: () => { state = undefined; },
@@ -182,6 +184,6 @@ if (document.querySelector('.ad-page')?.dataset.signed === 'loading') {
     if (!error.expired) { loadStatus = C.loadFailed; showOperatorStatus(); }
   }
 } else {
-  document.body.innerHTML = renderAdmin({ signed: document.querySelector('.ad-page')?.dataset.signed ?? 'out' }, locale);
-  guardOperatorLogin(document.querySelector('.ad-login'), { admin: true });
+  const login = document.querySelector('.ad-login');
+  if (login) guardOperatorLogin(login, { admin: true });
 }
