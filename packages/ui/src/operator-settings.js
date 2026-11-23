@@ -1,14 +1,15 @@
 import { reasonSeparator } from './consent-line.js';
-import { guardOperatorLogin, supportsOperatorActions, wireOperatorLogout } from './operator-actions.js';
+import { guardOperatorLogin, isOperatorRoute, supportsOperatorActions, wireOperatorLogout } from './operator-actions.js';
 // The final General section: a guarded sign-in destination and logout request.
 // Auth state comes from the host, never from visitor identity or a local role.
-function adminHref(value) {
+function adminHref(value, baseURI) {
   if (typeof value !== 'string' || !value || /[\s\\\u0000-\u001f\u007f]/u.test(value)) return null;
   try {
-    if (/^https?:\/\//iu.test(value)) return new URL(value).hostname ? value : null;
     // Reject other schemes and network paths, including browser backslash aliases.
-    if (/^(?:[a-z][a-z\d+.-]*:|\/\/)/iu.test(value)) return null;
-    return new URL(value, 'https://host.invalid/').origin === 'https://host.invalid' ? value : null;
+    if (!/^https?:\/\//iu.test(value) && /^(?:[a-z][a-z\d+.-]*:|\/\/)/iu.test(value)) return null;
+    const base = /^https?:\/\//iu.test(baseURI) ? baseURI : 'https://host.invalid/';
+    const url = new URL(value, base);
+    return url.hostname && !isOperatorRoute(url.pathname) ? value : null;
   } catch { return null; }
 }
 
@@ -41,7 +42,7 @@ export class OperatorSettings {
     }
     s.querySelector('.operator-login span').textContent = c.operatorLogin.replace('{provider}', this.operator.provider);
     s.querySelector('.operator-name').textContent = c.operatorName.replace('{name}', this.operator.name ?? '');
-    const href = adminHref(this.operator.adminUrl);
+    const href = adminHref(this.operator.adminUrl, s.ownerDocument.baseURI);
     let admin = s.querySelector('.operator-admin');
     if (!href) s.querySelectorAll('.operator-admin, .operator-admin-separator').forEach(node => node.remove());
     else {

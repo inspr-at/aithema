@@ -4,6 +4,10 @@ import { postJson } from './post-json.js';
 const operatorLoginRoute = '/api/operator/login/';
 const operatorLogoutRoute = '/api/operator/logout/';
 
+export function isOperatorRoute(pathname) {
+  return /^\/api\/operator(?:\/|$)/u.test(pathname);
+}
+
 export function supportsOperatorActions(operator) {
   return operator?.url === operatorLoginRoute && operator.logoutUrl === operatorLogoutRoute;
 }

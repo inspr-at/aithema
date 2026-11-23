@@ -53,7 +53,8 @@ async function page(t, options = {}) {
 }
 
 test('consent return normalizes paths and rejects external or disguised network paths', () => {
-  for (const path of ['//evil', 'https://evil/', '/\\evil/', '/\nevil', '/.//evil/', '/a/..//evil/', '/%2e//evil/', '/\0']) assert.equal(consentReturnPath(path, 'http://localhost'), '/');
+  for (const path of ['//evil', 'https://evil/', '/\\evil/', '/\nevil', '/.//evil/', '/a/..//evil/', '/%2e//evil/', '/\0',
+    '/api/operator/admin/state', '/other/../api/operator/admin/state']) assert.equal(consentReturnPath(path, 'http://localhost'), '/');
   for (const path of ['/', '/?x=1#settings', '/local/#settings']) assert.equal(consentReturnPath(path, 'http://localhost'), path);
   assert.equal(consentReturnPath('/?context=✓&existing=%C3%A4#übersicht', 'http://localhost'), '/?context=%E2%9C%93&existing=%C3%A4#%C3%BCbersicht');
 });

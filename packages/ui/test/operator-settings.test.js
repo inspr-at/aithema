@@ -61,7 +61,8 @@ for (const copy of [de, en]) test(`AIT-165 final General section: muted operator
 for (const copy of [de, en]) {
   const operator = { provider: 'Zitadel', url: '/api/operator/login/', logoutUrl: '/api/operator/logout/', name: 'Ada' };
   for (const adminUrl of [undefined, '', null, 123, 'javascript:alert(1)', 'data:text/html,admin', 'mailto:admin@example.test',
-    '//other.test/admin', '/\\other.test/admin', '\\other.test/admin', 'https://', 'https://[invalid', 'java\nscript:alert(1)', ' /admin']) {
+    '//other.test/admin', '/\\other.test/admin', '\\other.test/admin', 'https://', 'https://[invalid', 'java\nscript:alert(1)', ' /admin',
+    '/api/operator/admin/state', '/other/../api/operator/admin/state']) {
     test(`AIT-223 no admin anchor, keeping the logout separator for ${JSON.stringify(adminUrl)} (${copy.display.locale})`, async () => {
       const window = new Window();
       try {

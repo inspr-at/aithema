@@ -1,4 +1,5 @@
 import { activeTurns } from '../../core/src/session.js';
+import { isOperatorRoute } from './operator-actions.js';
 
 // Field/code-point, item, turn and UTF-8 byte limits: contract v1 (AEON-1441).
 export const PAIMOS_PAYLOAD_MAX_BYTES = 512 * 1024;
@@ -23,7 +24,7 @@ export function paimosImportUrl({ paimosImportUrl: value, paimosImportVersion } 
   if (paimosImportVersion !== 1 || typeof value !== 'string' || !/^https?:\/\//iu.test(value) || /[\s\\]/u.test(value)) return null;
   try {
     const url = new URL(value);
-    return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.href : null;
+    return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password && !isOperatorRoute(url.pathname) ? url.href : null;
   } catch { return null; }
 }
 

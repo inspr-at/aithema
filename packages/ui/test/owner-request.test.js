@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { join, posix, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Window } from 'happy-dom';
 import './fixtures/page-origin.js';
@@ -668,8 +668,28 @@ function omitsCredentials(call) {
 
 const OPERATOR_PATH = /\/api\/operator(?:[/?#]|$)/u;
 const OPERATOR_ACTIONS = 'packages/ui/src/operator-actions.js';
+function memberName(node) {
+  if (ts.isPropertyAccessExpression(node)) return node.name.text;
+  if (ts.isElementAccessExpression(node)) return staticString(node.argumentExpression);
+  if (ts.isIdentifier(node)) return node.text;
+}
+function importedGuards(file, label) {
+  const guards = new Map();
+  for (const statement of file.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    const specifier = statement.moduleSpecifier.text;
+    const path = specifier.startsWith('/') ? specifier.slice(1) : posix.normalize(posix.join(posix.dirname(label), specifier));
+    const expected = path === 'packages/ui/src/owner-request.js' ? ['ownerFetch', 'ownerURL'] : path === 'packages/ui/src/post-json.js' ? ['postJson'] : [];
+    const bindings = statement.importClause?.namedBindings;
+    if (bindings && ts.isNamedImports(bindings)) for (const entry of bindings.elements) {
+      const name = (entry.propertyName ?? entry.name).text;
+      if (expected.includes(name)) guards.set(entry.name.text, name === 'postJson' ? 0 : 1);
+    }
+  }
+  return guards;
+}
 function nativeOperatorRoutes(file, label) {
-  const found = new Set();
+  const found = new Set(), guards = importedGuards(file, label);
   walkAst(file, node => {
     const value = ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node) ? node.text : staticString(node);
     if (!value || !OPERATOR_PATH.test(value)) return;
@@ -677,16 +697,44 @@ function nativeOperatorRoutes(file, label) {
     while (ts.isBinaryExpression(arg.parent) && arg.parent.operatorToken.kind === ts.SyntaxKind.PlusToken ||
       ts.isParenthesizedExpression(arg.parent) || ts.isTemplateSpan(arg.parent) || ts.isTemplateExpression(arg.parent)) arg = arg.parent;
     const parent = arg.parent;
-    if (ts.isCallExpression(parent) && ts.isIdentifier(parent.expression)) {
-      const guard = parent.expression.text;
-      if (['ownerFetch', 'ownerURL'].includes(guard) && parent.arguments[1] === arg || guard === 'postJson' && parent.arguments[0] === arg) return;
-    }
+    if (ts.isCallExpression(parent) && ts.isIdentifier(parent.expression) && parent.arguments[guards.get(parent.expression.text)] === arg) return;
     if (label === OPERATOR_ACTIONS && ts.isVariableDeclaration(parent) && parent.initializer === arg &&
       (parent.name.getText(file) === 'operatorLoginRoute' && value === '/api/operator/login/' ||
         parent.name.getText(file) === 'operatorLogoutRoute' && value === '/api/operator/logout/')) return;
     found.add(`${label}: operator route outside the guarded helper`);
   });
   return [...found];
+}
+function nativeActions(file, label) {
+  const findings = new Set();
+  const formMember = name => ['action', 'formaction'].includes(name?.toLowerCase());
+  const safePaimosForm = node => {
+    if (label !== 'packages/ui/src/session-element.js' || !['form.action = action', 'form.submit()'].includes(node.getText(file))) return false;
+    let scope = node.parent;
+    while (scope && !ts.isMethodDeclaration(scope)) scope = scope.parent;
+    return scope?.name.getText(file) === '#createProject';
+  };
+  // These destinations are checked by consentReturnPath and paimosImportUrl.
+  const safeNavigation = new Map([
+    ['demo/consent-page.js', 'location.assign(new URL(consentReturnPath(path, location.origin), location.origin).href)'],
+    [OPERATOR_ACTIONS, "view.location.assign(new URL('/?operator=signed-out#settings-general', view.origin).href)"],
+  ]);
+  walkAst(file, node => {
+    if (ts.isCallExpression(node) && (ts.isPropertyAccessExpression(node.expression) || ts.isElementAccessExpression(node.expression))) {
+      const called = memberName(node.expression), receiver = memberName(node.expression.expression);
+      if ((['submit', 'requestSubmit'].includes(called) || called === 'setAttribute' && formMember(staticString(node.arguments[0]))) && !safePaimosForm(node))
+        findings.add(`${label}: native form submission or action`);
+      if (receiver === 'location' && ['assign', 'replace'].includes(called) && node.getText(file) !== safeNavigation.get(label))
+        findings.add(`${label}: unguarded location navigation`);
+    }
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      (ts.isPropertyAccessExpression(node.left) || ts.isElementAccessExpression(node.left))) {
+      const target = memberName(node.left), receiver = memberName(node.left.expression);
+      if (formMember(target) && receiver !== 'dataset' && !safePaimosForm(node)) findings.add(`${label}: native form action`);
+      if (target === 'location' || target === 'href' && receiver === 'location') findings.add(`${label}: unguarded location navigation`);
+    }
+  });
+  return [...findings];
 }
 function servedJavaScriptOffenders(path, label, source) {
   const file = parse(path, source), relay = RELAYS.includes(label);
@@ -704,7 +752,7 @@ function servedJavaScriptOffenders(path, label, source) {
     if (transport && ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === transport && !omitsCredentials(node))
       findings.push(`${label}: ${transport} must use credentials: 'omit'`);
   });
-  return [...new Set([...findings, ...nativeOperatorRoutes(file, label)])];
+  return [...new Set([...findings, ...nativeOperatorRoutes(file, label), ...nativeActions(file, label)])];
 }
 function servedOffenders(root, isServed) {
   return servedModules(root, isServed).flatMap(path => {
@@ -746,9 +794,12 @@ for (const [name, source] of [
   ['overridden omit', "export const read = (route, init) => fetch(route, { credentials: 'omit', ...init });"],
   ['native POST form', 'export const markup = `<form action="/api/operator/logout/" method="post"></form>`;'],
   ['assembled native form action', 'export const markup = route => `<form method="post" action="${route}"></form>`;'],
+  ['imported native form action', "import { route } from './routes.js'; export const go = form => { form.action = route; };"],
   ['native operator navigation', "export const go = () => location.assign('/api/operator/admin/state');"],
+  ['imported operator navigation', "import { route } from './routes.js'; export const go = () => location.assign(route);"],
   ['assembled operator navigation', "export const go = () => location.assign('/api/' + 'operator/admin/state');"],
   ['native operator link', 'export const markup = `<a href="/api/operator/admin/state">State</a>`;'],
+  ['lookalike guard binding', "import { ownerFetch } from './unrelated.js'; export const go = view => ownerFetch(view, '/api/operator/admin/state');"],
 ]) test(`AIT-633 served scan rejects ${name}`, () => {
   const probe = mkdtempSync(join(tmpdir(), 'ait-633-served-')), label = 'plugins/device/src/index.js';
   try {
