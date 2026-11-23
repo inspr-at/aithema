@@ -467,6 +467,21 @@ export const latchFeedback = (root, keyboardUp = root.querySelector('.workspace'
 // viewport still small keeps the state. Tests replace set/clear with their own clock
 // (code-health rule 6); the element reads them at call time.
 const clearLateHeader = root => { for (const node of root.querySelectorAll('.band > .header-actions > [data-keyboard-late]')) node.removeAttribute('data-keyboard-late'); };
+// The keyboard-up rail starts in the header row and can move down once.
+// The action columns stay fixed even when the rail has its own row.
+const latchKeyboardRailRow = band => {
+  if (!band || band.hasAttribute('data-keyboard-rail-row')) return false;
+  const pause = band.querySelector(':scope > .audio-rail > .voice-cell--pause');
+  if (!pause) return false;
+  const cell = pause.getBoundingClientRect();
+  const occupied = [...band.querySelectorAll('.header-actions > *')].some(node => {
+    if (node.hidden) return false;
+    const box = node.getBoundingClientRect();
+    return box.width > .5 && box.height > .5 && box.left < cell.right - .5 && cell.left < box.right - .5;
+  });
+  if (occupied) band.setAttribute('data-keyboard-rail-row', '');
+  return occupied;
+};
 export const keyboardSettle = { ms: 1000, set: (fn, ms) => setTimeout(fn, ms), clear: id => clearTimeout(id) };
 export class PhoneComposerViewport {
   constructor(root, { onNoticesChange = () => {}, onCompactChange = () => {}, followsTranscript = () => true,
@@ -478,6 +493,7 @@ export class PhoneComposerViewport {
     this.paint = () => {
       const view = this.view, viewport = view?.visualViewport;
       const height = viewport?.height ?? view?.innerHeight ?? 0;
+      const workspace = root.querySelector('.workspace'), band = root.querySelector('.band');
       // Pinch zoom is a reading gesture; do not move controls while zooming.
       // r9 (Codex gatepra8 Low): the keyboard closing while zoomed still
       // releases the kept feedback row and its held height. r10 (Codex
@@ -487,17 +503,20 @@ export class PhoneComposerViewport {
       // composer render cannot latch the row again while still zoomed.
       if (viewport && viewport.scale !== 1) {
         if ((this.fullHeight ?? 0) - height * viewport.scale < 150) {
-          root.querySelector('.workspace')?.removeAttribute('data-phone-keyboard');
-          root.querySelector('.workspace')?.removeAttribute('data-phone-keyboard-band');
-          root.querySelector('.band')?.removeAttribute('data-keyboard-rail-row');
+          workspace?.removeAttribute('data-phone-keyboard');
+          workspace?.removeAttribute('data-phone-keyboard-band');
+          band?.removeAttribute('data-keyboard-rail-row');
           clearLateHeader(root);
           if (this.settleTimer) keyboardSettle.clear(this.settleTimer);
           this.settleTimer = null; this.keyboardSettled = false;
           latchFeedback(root, false);
+        } else if (workspace?.hasAttribute('data-phone-keyboard-band') && latchKeyboardRailRow(band)) {
+          // A host can occupy the pause column while zoomed. Reserve the
+          // second row without refitting the dock against the zoomed viewport.
+          workspace.style.setProperty('--phone-band', `${band.getBoundingClientRect().height}px`);
         }
         return;
       }
-      const workspace = root.querySelector('.workspace');
       const footer = root.querySelector('.display-foot');
       const geometry = footerGeometry(footer, this);
       const footerFocused = root.ownerDocument.activeElement === root.host && footer.contains(root.activeElement);
@@ -581,21 +600,14 @@ export class PhoneComposerViewport {
       // entering the pause column while the keyboard is up grows it 44 -> 88
       // once (only Pause moves down; the transcript pane gives the 44 px), and
       // it never goes back to 44 until the keyboard-up state ends.
-      const band = root.querySelector('.band'), pauseCell = band?.querySelector(':scope > .audio-rail > .voice-cell--pause');
       // r6 (Codex gate4c Medium, TICK M4 (b)): a host control that appeared
       // while the keyboard was up (session-element.js marks it) sits at the
       // header's left end only while that state lasts.
-      if (!keyboardUp || !wasUp) clearLateHeader(root);
-      let railRow = Boolean(keyboardUp && wasUp && band?.hasAttribute('data-keyboard-rail-row'));
-      if (keyboardUp && !railRow && pauseCell) {
-        const cell = pauseCell.getBoundingClientRect();
-        railRow = [...band.querySelectorAll('.header-actions > *')].some(node => {
-          if (node.hidden) return false;
-          const box = node.getBoundingClientRect();
-          return box.width > .5 && box.height > .5 && box.left < cell.right - .5 && cell.left < box.right - .5;
-        });
+      if (!keyboardUp || !wasUp) {
+        clearLateHeader(root);
+        band?.removeAttribute('data-keyboard-rail-row');
       }
-      band?.toggleAttribute('data-keyboard-rail-row', railRow);
+      if (keyboardUp) latchKeyboardRailRow(band);
       // r6/r7 (AIT-603, TICK r5/r6 M1): with the keyboard up the feedback row
       // only grows. The keyboard-open transition (and every keyboard-up paint)
       // latches whatever the row shows now, so feedback that clears by itself
@@ -613,7 +625,7 @@ export class PhoneComposerViewport {
       const values = {
         '--phone-height': height + (viewport?.offsetTop ?? 0),
         '--phone-bottom': Math.max(0, (view?.innerHeight ?? height) - height - (viewport?.offsetTop ?? 0)),
-        '--phone-band': root.querySelector('.band').getBoundingClientRect().height,
+        '--phone-band': band.getBoundingClientRect().height,
         '--phone-footer': root.querySelector('.display-foot').getBoundingClientRect().height,
         '--phone-dock': root.querySelector('.composer-dock').getBoundingClientRect().height,
       };
