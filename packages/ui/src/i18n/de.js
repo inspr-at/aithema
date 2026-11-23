@@ -340,7 +340,7 @@ export const de = {
       timeout: ['Warten Sie, bis das lokale Modell fertig geladen oder eine andere Anfrage abgeschlossen hat.', 'Ein größeres Modell braucht womöglich mehr Zeit oder Speicher.'],
     },
   },
-  notConfigured: 'Nicht eingerichtet', deviceExportUnavailable: 'Kein Download: Das Gespräch bleibt nur in diesem Tab.',
+  notConfigured: 'Nicht eingerichtet', deviceExportUnavailable: 'Kein Download: Das Gespräch bleibt nur in diesem Tab.', exportUnavailable: 'Der Export ist auf dieser Seite nicht verfügbar.',
   deviceConnectFirst: 'Verbinden Sie zuerst ein lokales Modell', deviceConversation: 'Auf meinem Gerät: dieses Gespräch bleibt in diesem Tab',
   deviceUnavailable: 'Lokales Modell nicht verfügbar',
   // Art. 50(1) AI notice (AIT-119). A host may reword it; an empty part falls back to this default.

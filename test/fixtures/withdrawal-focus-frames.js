@@ -121,10 +121,13 @@ export async function withdrawalFocusFrames(t, { transcriptTop = false } = {}) {
       // The immutable capture and every independent geometry assertion stay.
       // AIT-625 r6 (gate3c M2): the export control has no navigable href (it exports
       // through the guarded helper); role="link" tabindex="0" stand in the href's place.
+      // AIT-637 (TICK AIT-625 M1 + L1): the composer export control's reason lives in a visually
+      // hidden description element right after the attach limits (empty while export is available).
       const expectedHTML = localizedHTML
         .replace('<form class="composer" aria-hidden="false">', '<form class="composer" aria-hidden="false"><div class="staged-images" hidden=""></div>')
-        .replaceAll(/href="\/api\/sessions\/[^"/]+\/export"/g, 'role="link" tabindex="0"');
-      assert.equal(mounted.html, expectedHTML, 'default composer DOM keeps main document picker under AIT-556 and differs only by approved AIT-435 NBSP, AIT-443 daily-cap, AIT-445 v1.1 E‑Mail copy, AIT-510 hidden image staging, AIT-587 copy and AIT-625 export control without href');
+        .replaceAll(/href="\/api\/sessions\/[^"/]+\/export"/g, 'role="link" tabindex="0"')
+        .replace(/(<span class="sr-only" id="attach-limits">[^<]*<\/span>)/u, '$1<span class="sr-only" id="composer-export-reason"></span>');
+      assert.equal(mounted.html, expectedHTML, 'default composer DOM keeps main document picker under AIT-556 and differs only by approved AIT-435 NBSP, AIT-443 daily-cap, AIT-445 v1.1 E‑Mail copy, AIT-510 hidden image staging, AIT-587 copy, AIT-625 export control without href and AIT-637 hidden export reason');
       assert.deepEqual(mounted.composer, mainLayout.frames[process.platform][`${width}/${locale}`], 'default composer geometry equals independently captured main before fixture setup');
       assert.equal(mounted.scrollTop, 0, 'default mount ignores queued no-op viewport resize before fixture setup');
       // Keep main's explicit first-row setup and every existing assertion; the

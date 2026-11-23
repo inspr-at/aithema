@@ -752,6 +752,9 @@ export class AithemaSession extends HTMLElement {
       this.#dialog.setCopy(copy); this.#connector?.setCopy(copy); this.#concept.setCopy(copy); this.#host?.setCopy(copy);
       this.#mountReveal();
       this.#paint('features'); this.#paint('transcript'); this.#paint('aside'); this.#paint('composer');
+      // AIT-637 r2 (gate1c M4): the export reason line, tip and description in the new locale (the
+      // [data-copy] pass above wrote the device line into the reason slot whatever the state).
+      this.#paintExport();
     });
     this.dispatchEvent(new CustomEvent('aithema-locale', { detail: { locale: this.#session.locale }, bubbles: true, composed: true }));
   }
@@ -801,7 +804,7 @@ export class AithemaSession extends HTMLElement {
         ${this.#combined ? '</div>' : ''}
         <div class="phone-dock-backdrop" aria-hidden="true"></div><div class="composer-dock">${questionCardMarkup}<div class="composer-shell"><form class="composer">${this.#combined ? combinedNoticeMarkup : ''}<label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000" rows="2"></textarea><div class="composer-paused" hidden><span></span> <button class="composer-resume" type="button"></button></div><div class="purpose-pause-copy" role="status" hidden></div>
           <div class="composer-actions"><button class="attach" type="button" aria-describedby="attach-limits ai-notice">${UPLOAD_ICONS.attach}<span class="attach__label"></span></button>
-            <span class="sr-only" id="attach-limits"></span><input class="attach-input" type="file" multiple hidden tabindex="-1" accept="${UPLOAD_ACCEPT}">
+            <span class="sr-only" id="attach-limits"></span><span class="sr-only" id="composer-export-reason"></span><input class="attach-input" type="file" multiple hidden tabindex="-1" accept="${UPLOAD_ACCEPT}">
             <span class="composer-feedback"><span class="sr-only" id="upload-retry-reason"></span><small class="composer-reason" role="status" id="composer-reason"></small><small class="composer-saved-sizer" aria-hidden="true">${icon('check')}<span></span></small><small class="composer-saved" aria-hidden="true">${icon('check')}<span></span></small><small class="composer-saved-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></small>${this.#combined ? '<span class="composer-feedback-reserve" aria-hidden="true" inert></span>' : ''}</span>${this.#combined ? '<span class="composer-status-slot"><small class="composer-status" id="composer-status" role="status"></small><span class="composer-status-reserve" aria-hidden="true"></span></span><button class="composer-mic" type="button" aria-describedby="composer-status composer-notice"></button>' : ''}<button class="send" aria-describedby="ai-notice">${icon('arrowRight')}<span class="visually-hidden"></span></button></div></form>
           <div class="composer-out" aria-hidden="true" inert><p class="composer-out__title"><span></span></p><p class="composer-out__body"><span></span></p>
             <div class="composer-out__bar"><span class="composer-out__steps"><span class="composer-out__give" data-next="give"></span><span class="composer-out__confirm" data-next="confirm"></span><span class="composer-out__none" data-next="none"></span></span>
@@ -895,6 +898,13 @@ export class AithemaSession extends HTMLElement {
     legal.addEventListener('slotchange', syncLegal); syncLegal();
     root.querySelector('slot[name="brand"]').addEventListener('slotchange', () => this.#watchBrand());
     this.#watchBrand();
+    const account = root.querySelector('slot[name="account"]');
+    let hasAccount = account.assignedElements().length > 0;
+    account.addEventListener('slotchange', () => {
+      const hadAccount = hasAccount;
+      hasAccount = account.assignedElements().length > 0;
+      this.#paintKeyboardHeader(account.parentElement, hasAccount && !hadAccount);
+    });
     for (const slot of root.querySelectorAll('slot[name="sidebar-contact"], slot[name="contact-launcher"]')) slot.addEventListener('slotchange', this.#syncContactSlots);
     this.#syncContactSlots();
     this.#fold = new ConversationFold({ root, copy: this.#copy, canFold: () => this.#concept?.canShowCanvas() ?? false, onChange: folded => {
@@ -974,15 +984,17 @@ export class AithemaSession extends HTMLElement {
     // AIT-625 r6 (gate3c M2): neither export control has an href, in token AND cookie mode, so no
     // native link action (middle click, new tab, drag, keyboard) can send the owner cookie around
     // the helper; click and Enter export through #export() (the guarded helper) only.
-    const exportAction = (event, guard) => {
+    const exportAction = event => {
       if (event.type === 'keydown' && event.key !== 'Enter') return;
       event.preventDefault();
-      if (this.#session.processingPreset === 'device' || !guard(event.currentTarget)) return;
+      // AIT-637 r2 (gate1c M3): re-check availability live (the page origin now, not at the last
+      // paint) and repaint both controls, so a removed foreign <base> exports and an added one blocks.
+      if (this.#erased || this.#paintExport()) return;
       void this.#export();
     };
     for (const type of ['click', 'keydown']) {
-      root.querySelector('.export').addEventListener(type, event => exportAction(event, control => control.getAttribute('aria-disabled') !== 'true'));
-      root.querySelector('.composer-out__export').addEventListener(type, event => exportAction(event, control => control.getAttribute('aria-disabled') !== 'true'));
+      root.querySelector('.export').addEventListener(type, exportAction);
+      root.querySelector('.composer-out__export').addEventListener(type, exportAction);
     }
     root.querySelector('.composer-out__upgrade').addEventListener('click', event => this.openSettings(event.currentTarget, { tab: 'general', anchor: '#email' }));
     root.querySelector('.purpose-new').addEventListener('click', () => this.#newConversation({ processingPreset: this.#session.processingPreset, settings: this.#session.settings }));
@@ -1978,6 +1990,31 @@ export class AithemaSession extends HTMLElement {
     catch { /* Keep the end action available for another deliberate attempt. */ }
     finally { if (id === this.#session.id) this.#erasedCreating = false; }
   }
+  // AIT-637: why neither export control can export, or null when they can. r2 (gate1c M2): through
+  // the shipped locale fallback, so a host copy bundle without the key still yields a reason.
+  #exportUnavailableReason() {
+    const key = this.#session.processingPreset === 'device' ? 'deviceExportUnavailable' : this.#exportAvailable() ? null : 'exportUnavailable';
+    return key && resolveCopy(this.#copy, key, null, this.#session.locale);
+  }
+  // AIT-637 r2 (gate1c M3/M4): ONE paint for both export controls (disabled state, description,
+  // the footer's reason line and tip), from one reason, at the same moments: a mode change, the
+  // used-up paint, a locale change, and every click or Enter (a live origin re-check). Erasure
+  // owns both controls (inert, disabled), so nothing repaints them then. Returns the reason.
+  #paintExport() {
+    const why = this.#exportUnavailableReason();
+    if (this.#erased) return why;
+    const root = this.shadowRoot, footer = root.querySelector('.export'), reason = root.querySelector('.export-reason');
+    const composer = root.querySelector('.composer-out__export'), description = root.querySelector('#composer-export-reason');
+    setText(reason, why ?? resolveCopy(this.#copy, 'deviceExportUnavailable', null, this.#session.locale));
+    reason.style.visibility = why ? 'visible' : 'hidden'; reason.setAttribute('aria-hidden', String(!why));
+    setText(description, why ?? '');
+    for (const [control, described] of [[footer, reason], [composer, description]]) {
+      if (why) { control.setAttribute('aria-disabled', 'true'); control.setAttribute('aria-describedby', described.id); }
+      else { control.removeAttribute('aria-disabled'); control.removeAttribute('aria-describedby'); }
+    }
+    footer.title = why ?? '';
+    return why;
+  }
   // r6: whether the export URL resolves to the page's own origin (the controls carry no href).
   #exportAvailable() {
     try { return Boolean(ownerURL(this.ownerDocument.defaultView, `${this.#base}/api/sessions/${this.#session.id}/export`)); }
@@ -2081,20 +2118,12 @@ export class AithemaSession extends HTMLElement {
     const create = this.shadowRoot.querySelector('.create-project');
     // Keep the footer's space while removing the device handoff from sight and interaction.
     if (create) { create.style.visibility = device ? 'hidden' : ''; create.inert = device || this.shadowRoot.querySelector('.understanding').dataset.overview !== 'current'; }
-    const reason = this.shadowRoot.querySelector('.export-reason');
-    setText(reason, this.#copy.deviceExportUnavailable);
-    reason.style.visibility = device ? 'visible' : 'hidden'; reason.setAttribute('aria-hidden', String(!device));
+    // r6: no href in any mode. AIT-637: a control that cannot export (device preset; a foreign
+    // <base> or no page origin) says why, in place: the footer's reason line and tip, and the
+    // composer control's accessible description (#paintExport).
     exported.setAttribute('aria-label', this.#copy.export);
-    exported.setAttribute('role', 'link'); exported.tabIndex = 0;
-    if (device) {
-      exported.removeAttribute('href'); exported.setAttribute('aria-disabled', 'true');
-      exported.setAttribute('aria-describedby', reason.id); exported.title = this.#copy.deviceExportUnavailable;
-    } else {
-      // r6: no href in any mode; a foreign <base> or no page origin disables the control.
-      exported.removeAttribute('href');
-      if (this.#exportAvailable()) exported.removeAttribute('aria-disabled'); else exported.setAttribute('aria-disabled', 'true');
-      exported.removeAttribute('aria-describedby'); exported.title = '';
-    }
+    exported.setAttribute('role', 'link'); exported.tabIndex = 0; exported.removeAttribute('href');
+    this.#paintExport();
     if (this.#rail) { const client = this.#voiceClientFor(); if (!this.#rail.session && this.#rail.client !== client) { this.#rail.client = client; this.#renderVoice(); } }
   }
   async #loadCatalog() {
@@ -2665,8 +2694,7 @@ export class AithemaSession extends HTMLElement {
         exportAction.dataset.short = resolveCopy(copy, 'usedUpExportShort', undefined, this.#session.locale);
         exportAction.setAttribute('aria-label', u.export);
       } else { delete exportAction.dataset.short; exportAction.removeAttribute('aria-label'); }
-      const outExport = out.querySelector('.composer-out__export');
-      if (this.#exportAvailable()) outExport.removeAttribute('aria-disabled'); else outExport.setAttribute('aria-disabled', 'true');
+      this.#paintExport();
       for (const node of out.querySelectorAll('[data-next]')) { const shown = node.dataset.next === kind && !node.hidden; node.setAttribute('aria-hidden', String(!shown)); node.inert = !shown; }
       const exportLink = out.querySelector('.composer-out__export'), exportShown = !noAction && (this.#combined || kind === 'none' || newConversationEnabled || ['host-limit', 'session'].includes(this.#host?.endReason));
       exportLink.toggleAttribute('data-export', exportShown); exportLink.inert = !exportShown; exportLink.setAttribute('aria-hidden', String(!exportShown));
@@ -3065,6 +3093,7 @@ export class AithemaSession extends HTMLElement {
       const text = brand?.textContent.replace(/\s+/gu, ' ').trim() || 'Host';
       setText(root.querySelector('.host-version__label'), text);
       root.querySelector('.host-version').hidden = !renderHostVersion(root.querySelector('.host-version__value'), this.#options.host?.version ?? {});
+      this.#paintKeyboardHeader();
     };
     const Observer = this.ownerDocument.defaultView?.MutationObserver;
     if (Observer) {
@@ -3282,23 +3311,26 @@ export class AithemaSession extends HTMLElement {
     cell.hidden = !launcher;
     root.querySelector('.workspace').toggleAttribute('data-contact', contact);
     this.toggleAttribute('data-contact-launcher', launcher);
-    // AIT-618 r6 (Codex gate4c Medium, TICK M4 (a)+(b)): a host control that
-    // appears while the keyboard-up state is open takes the left end of the
-    // header controls (the pause column, which the grow-only row frees), so
-    // no other header control moves; only Pause does (y 0 -> 44, x kept).
-    // The keyboard-layout paint runs here at once, not at the next resize.
-    // layout.js clears the mark when the keyboard-up state ends or opens.
-    if (!root.querySelector('.workspace').hasAttribute('data-phone-keyboard-band')) return;
-    if (appears) cell.setAttribute('data-keyboard-late', '');
-    this.#phoneViewport?.paint();
+    this.#paintKeyboardHeader(cell, appears);
   };
+  #paintKeyboardHeader(cell, appears = false) {
+    if (!this.shadowRoot.querySelector('.workspace').hasAttribute('data-phone-keyboard-band')) return;
+    // New controls take the left end, including when the host fills both
+    // header slots in succession. The keyboard lifecycle clears these marks.
+    if (appears) {
+      cell.parentElement.querySelector('[data-keyboard-late="latest"]')?.setAttribute('data-keyboard-late', '');
+      cell.setAttribute('data-keyboard-late', 'latest');
+    }
+    this.#phoneViewport?.paint();
+  }
   #observePanes() {
     this.#paneObserver?.disconnect();
     const Observer = this.ownerDocument.defaultView?.ResizeObserver;
     if (Observer) {
-      this.#paneObserver = new Observer(() => {
+      this.#paneObserver = new Observer(entries => {
         const band = this.shadowRoot.querySelector('.band');
         this.#syncRailFit();
+        if (entries.some(({ target }) => target.matches('.header-actions, .band-identity'))) this.#paintKeyboardHeader();
         this.shadowRoot.querySelector('.edge-column').style.setProperty('--band-height', `${band.getBoundingClientRect().height}px`);
         this.#syncPanes();
       });

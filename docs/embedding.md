@@ -1205,6 +1205,11 @@ the phone frame follows the approved voice-specific rows.
 
 The host's `<h1 slot="brand">` is visible beside the orb and remains the page's
 heading; without it the default brand keeps its previous hidden presentation.
+
+For the header's `slot="account"` and `slot="contact-launcher"`, supply a
+44 × 44 px icon control with an `aria-label` in the current language. Clip
+wider content to that box in the compact keyboard-up band.
+
 At 600 px and above, legal links in `slot="legal"` stand at the right of the footer
 bar on the entrance and in conversation. Below 600 px, an always-visible
 **Rechtliches** / **Legal** button at the 12 px right gutter opens those links
@@ -2190,18 +2195,38 @@ import { createComposedVoice } from '@inspr/aithema-server/composed-voice/server
 import { createComposedBrowserMedia } from '@inspr/aithema-server/composed-voice/client';
 import { createComposedComponentAccounting } from '@inspr/aithema-server/composed-voice/accounting';
 import { createComposedVoiceAuthority } from '@inspr/aithema-server/composed-voice/authority';
-import { ownerFetch } from '@inspr/aithema-ui/owner-request';
 ```
 
-In the browser, the relay sends only through the guarded owner-request helper, so
-`network.ownerFetch` is required; without it the client fails closed before sending.
-A cookie host passes nothing else (the cookie rides the same-origin request). An
-explicit-token host passes its session token as `network.sessionToken`; the helper
-sends it, never a raw header:
+**Breaking for browser relay hosts (AIT-625).** A relay using the built-in
+browser network client requires `network.ownerFetch`. Opening the relay
+throws before any request is sent if the helper is missing. Import
+`ownerFetch` from `@inspr/aithema-ui/owner-request` and inject it. For explicit
+token authentication, pass the token as `network.sessionToken` in place of
+the raw `x-aithema-session-token` header. The relay still maps that legacy
+header to the token option if present. Cookie-authenticated hosts inject
+`ownerFetch` and omit `sessionToken`.
+
+Before (RC28):
 
 ```js
-const grokVoice = createGrokVoiceClient({ control: voiceControl,
-  network: { url: '/api/voice/grok/relay', ownerFetch, sessionToken } }); // sessionToken: explicit-token hosts only
+const grokVoice = createGrokVoiceClient({
+  control: voiceControl,
+  network: {
+    url: '/api/voice/grok/relay',
+    headers: { 'x-aithema-session-token': sessionToken },
+  },
+});
+```
+
+After (RC29):
+
+```js
+import { ownerFetch } from '@inspr/aithema-ui/owner-request';
+
+const grokVoice = createGrokVoiceClient({
+  control: voiceControl,
+  network: { url: '/api/voice/grok/relay', ownerFetch, sessionToken },
+});
 ```
 
 Install the module tarballs at the exact coordinate in `release/version.json`,
@@ -2548,11 +2573,6 @@ the inferred marker, across all command states.
 Use the existing light-DOM `slot="account"` for the host's account content. When
 the role control is available, that slot appears only in the desktop popover;
 when absent, no account line appears. The phone role sheet has no account line.
-On a phone, a control that a host inserts while the on-screen keyboard is up,
-into `slot="account"`, or into `slot="contact-launcher"` while the page is also
-pinch-zoomed, can overlap the pause control while Aithema's compact keyboard
-layout is active; header content already in place at load is not affected
-(known limitation, AIT-635).
 No address, verification claim or account label is invented by the module. The
 phone gear opens the role section and an entry to the existing AI processing
 settings. On desktop, the role trigger follows the AI notice in the left footer
