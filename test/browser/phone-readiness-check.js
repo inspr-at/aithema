@@ -79,6 +79,7 @@ async function measure(page) {
   });
   return page.$eval('aithema-session', host => {
     const root = host.shadowRoot, workspace = root.querySelector('.workspace'), scroll = root.querySelector('.conversation-scroll');
+    const { scrollHeight: documentScrollHeight, clientHeight: documentClientHeight } = document.scrollingElement;
     const read = selector => {
       const node = root.querySelector(selector);
       if (!node?.checkVisibility({ visibilityProperty: true })) return null;
@@ -98,6 +99,7 @@ async function measure(page) {
       feedback: read('.composer-feedback'), reason: read('.composer-reason'),
       refusalFormats: read('.composer-reason .upload-notice-formats'),
       scrollTop: scroll.scrollTop, scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight,
+      documentScrollHeight, documentClientHeight,
       pageTop: window.scrollY, fade: getComputedStyle(scroll).maskImage,
       clamp: workspace.style.getPropertyValue('--opener-lines'),
     };
@@ -210,6 +212,9 @@ export async function phoneReadinessCheck(t) {
         for (const key of ['card', 'route', 'conversation', 'scroll', 'opener', 'band', 'footer', 'dock', 'shell', 'slot', 'backdrop', 'feedback', ...controls]) positive(key, ready[key]);
         close(ready.slot.height, 44, 'real bound image slot');
         close(ready.scrollTop, 0, 'the entrance starts at its top');
+        assert.equal(ready.documentClientHeight, item.height, 'document viewport height');
+        assert.ok(ready.documentScrollHeight <= ready.documentClientHeight + epsilon,
+          `the document must not scroll: ${ready.documentScrollHeight} vs ${ready.documentClientHeight} px`);
         const cardHeight = item.longCard ? 122 : item.locale === 'de' ? 102 : 85;
         assert.ok(Math.abs(ready.card.height - cardHeight) <= 4, `host card is approximately ${cardHeight} px high: ${ready.card.height}`);
         const shortfall = Math.max(0, bottom(ready.card) - bottom(ready.scroll));
