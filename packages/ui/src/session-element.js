@@ -889,6 +889,13 @@ export class AithemaSession extends HTMLElement {
     legal.addEventListener('slotchange', syncLegal); syncLegal();
     root.querySelector('slot[name="brand"]').addEventListener('slotchange', () => this.#watchBrand());
     this.#watchBrand();
+    const account = root.querySelector('slot[name="account"]');
+    let hasAccount = account.assignedElements().length > 0;
+    account.addEventListener('slotchange', () => {
+      const hadAccount = hasAccount;
+      hasAccount = account.assignedElements().length > 0;
+      this.#paintKeyboardHeader(account.parentElement, hasAccount && !hadAccount);
+    });
     for (const slot of root.querySelectorAll('slot[name="sidebar-contact"], slot[name="contact-launcher"]')) slot.addEventListener('slotchange', this.#syncContactSlots);
     this.#syncContactSlots();
     this.#fold = new ConversationFold({ root, copy: this.#copy, canFold: () => this.#concept?.canShowCanvas() ?? false, onChange: folded => {
@@ -3072,6 +3079,7 @@ export class AithemaSession extends HTMLElement {
       const text = brand?.textContent.replace(/\s+/gu, ' ').trim() || 'Host';
       setText(root.querySelector('.host-version__label'), text);
       root.querySelector('.host-version').hidden = !renderHostVersion(root.querySelector('.host-version__value'), this.#options.host?.version ?? {});
+      this.#paintKeyboardHeader();
     };
     const Observer = this.ownerDocument.defaultView?.MutationObserver;
     if (Observer) {
@@ -3289,23 +3297,26 @@ export class AithemaSession extends HTMLElement {
     cell.hidden = !launcher;
     root.querySelector('.workspace').toggleAttribute('data-contact', contact);
     this.toggleAttribute('data-contact-launcher', launcher);
-    // AIT-618 r6 (Codex gate4c Medium, TICK M4 (a)+(b)): a host control that
-    // appears while the keyboard-up state is open takes the left end of the
-    // header controls (the pause column, which the grow-only row frees), so
-    // no other header control moves; only Pause does (y 0 -> 44, x kept).
-    // The keyboard-layout paint runs here at once, not at the next resize.
-    // layout.js clears the mark when the keyboard-up state ends or opens.
-    if (!root.querySelector('.workspace').hasAttribute('data-phone-keyboard-band')) return;
-    if (appears) cell.setAttribute('data-keyboard-late', '');
-    this.#phoneViewport?.paint();
+    this.#paintKeyboardHeader(cell, appears);
   };
+  #paintKeyboardHeader(cell, appears = false) {
+    if (!this.shadowRoot.querySelector('.workspace').hasAttribute('data-phone-keyboard-band')) return;
+    // New controls take the left end, including when the host fills both
+    // header slots in succession. The keyboard lifecycle clears these marks.
+    if (appears) {
+      cell.parentElement.querySelector('[data-keyboard-late="latest"]')?.setAttribute('data-keyboard-late', '');
+      cell.setAttribute('data-keyboard-late', 'latest');
+    }
+    this.#phoneViewport?.paint();
+  }
   #observePanes() {
     this.#paneObserver?.disconnect();
     const Observer = this.ownerDocument.defaultView?.ResizeObserver;
     if (Observer) {
-      this.#paneObserver = new Observer(() => {
+      this.#paneObserver = new Observer(entries => {
         const band = this.shadowRoot.querySelector('.band');
         this.#syncRailFit();
+        if (entries.some(({ target }) => target.matches('.header-actions, .band-identity'))) this.#paintKeyboardHeader();
         this.shadowRoot.querySelector('.edge-column').style.setProperty('--band-height', `${band.getBoundingClientRect().height}px`);
         this.#syncPanes();
       });
