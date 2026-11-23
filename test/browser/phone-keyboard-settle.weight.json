@@ -1,5 +1,5 @@
 {
-  "seconds": 38,
+  "seconds": 40,
   "provisional": true,
-  "evidence": "AIT-635: retain the larger AIT-618 remote sample for the two existing registrations (ed1ebc3e: 19.521647667s + 4.30007425s = 23.821721917s). Add the two passing top-level AIT-635 timings without screenshots from remote lane run 28d00e3e29-17645 (Contact during zoom: 3.440365042s; late account: 3.037821042s). Provisional reservation = ceil(1.25 * (23.821721917 + 3.440365042 + 3.037821042)) = 38s. Rolling-main CI timings replace this lane reservation."
+  "evidence": "AIT-635 r2: preserve the measured AIT-618 reserve basis of 23.821721917s (ed1ebc3e). At workload head 559796e3, passing lane runs 559796e35c-1778 (with captures) and 559796e35c-6090 (without captures) measured 29.006996043s and 26.861144084s across all five top-level registrations. The three AIT-635 registrations contributed 7.520468459s and 7.194118709s. With the retained basis, the larger sample is 31.342190376s, so ceil(1.25 * 31.342190376) = 40s. Rolling-main CI timings replace this provisional reservation."
 }
