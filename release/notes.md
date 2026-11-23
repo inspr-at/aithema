@@ -10,23 +10,23 @@ when a download is unavailable.
 
 ## What visitors notice
 
-- **Steady phone typing (AIT-603, #499, #500).** On phones the welcome and the readiness card are visible without scrolling when a host uses image concepts. The combined entrance is a host opt-in, and the default entrance remains `'choice'`.
+- **Welcome visible on phones (AIT-603, #499, #500).** On sites that use the combined start screen with image concepts, the welcome and readiness card fit on a phone without scrolling.
 - **Calmer ready screen (AIT-608, #503).** Controls that cannot do anything yet are no longer shown.
 - **Consent errors once (AIT-612, #505).** A failed consent save shows one clear message.
-- **Natural clock times (AIT-609, #504).** Times read naturally in English and German.
-- **More room while typing (AIT-618, #507).** Typing on a small phone leaves room for your message instead of hints you cannot use. The combined entrance is a host opt-in, and the default entrance remains `'choice'`.
-- **Safer owner requests (AIT-625, #506).** Your conversation data is only ever sent to the site you are on, never to another address.
-- **Clear export status (AIT-637, #509).** When export is not possible, the button says so instead of failing silently.
+- **Natural clock times (AIT-609, #504).** Times show the hour without a leading zero, for example 9:04 PM.
+- **More room while typing (AIT-618, #507).** On a small phone with the keyboard open, the combined start screen keeps room for your message instead of hints you cannot use there.
+- **Requests stay on-site (AIT-625, #506).** Requests that carry your conversation to the site's own server can no longer be sent or redirected to another address.
+- **Clear export status (AIT-637, #509).** When export is not possible, the export link says why instead of failing silently.
 
 ## Was Besucher bemerken
 
-- **Ruhiges Tippen am Handy (AIT-603, #499, #500).** Auf dem Handy sind Begrüßung und Bereitschaftsfeld ohne Scrollen sichtbar, wenn ein Host Bildkonzepte nutzt. Der kombinierte Einstieg ist eine Host-Option und der Standardeinstieg bleibt `'choice'`.
+- **Begrüßung am Handy sichtbar (AIT-603, #499, #500).** Auf Websites mit kombiniertem Startbildschirm und Bildkonzepten passen Begrüßung und Bereitschaftsfeld ohne Scrollen auf das Handy.
 - **Ruhigerer Startbildschirm (AIT-608, #503).** Bedienelemente, die noch nichts tun können, werden nicht mehr angezeigt.
-- **Einwilligungsfehler einmal (AIT-612, #505).** Ein fehlgeschlagenes Speichern der Einwilligung zeigt eine klare Meldung.
-- **Natürliche Uhrzeiten (AIT-609, #504).** Uhrzeiten lesen sich auf Englisch und Deutsch natürlich.
-- **Mehr Platz beim Tippen (AIT-618, #507).** Beim Tippen auf kleinen Handys bleibt Platz für die Nachricht statt für Hinweise, die dort nicht nutzbar sind. Der kombinierte Einstieg ist eine Host-Option und der Standardeinstieg bleibt `'choice'`.
-- **Sicherere Anfragen (AIT-625, #506).** Ihre Gesprächsdaten gehen nur an die Seite, auf der Sie sind, nie an eine andere Adresse.
-- **Klarer Export-Status (AIT-637, #509).** Wenn der Export nicht geht, sagt es die Schaltfläche, statt still zu scheitern.
+- **Einwilligungsfehler nur einmal (AIT-612, #505).** Ein fehlgeschlagenes Speichern der Einwilligung zeigt eine klare Meldung.
+- **Natürliche Uhrzeiten (AIT-609, #504).** Uhrzeiten zeigen die Stunde ohne führende Null, zum Beispiel 9:04 Uhr.
+- **Mehr Platz beim Tippen (AIT-618, #507).** Auf kleinen Handys mit offener Tastatur bleibt im kombinierten Startbildschirm Platz für die Nachricht statt für Hinweise, die dort nicht nutzbar sind.
+- **Anfragen ohne Umleitung (AIT-625, #506).** Anfragen, die Ihr Gespräch an den Server der Website übermitteln, lassen sich nicht mehr an eine andere Adresse senden oder umleiten.
+- **Klarer Export-Status (AIT-637, #509).** Wenn kein Export möglich ist, nennt der Export-Link den Grund, statt still zu scheitern.
 
 ## For hosts
 
@@ -73,11 +73,14 @@ The same migration applies to direct browser calls to `createNetworkRelayClient(
   action on one row while the keyboard is up. If feedback clears during
   typing, its held height can persist until the keyboard closes. This keeps
   Mic and Send steady. In RC28 the composer's consent action was named
-  “Give consent…: messages need your consent” (DE “Einwilligen…: Nachrichten
-  brauchen Ihre Einwilligung”). Its accessible name is now the visible action
-  alone, with the full host sentence as its accessible description. The
-  settings sheet reveals that sentence when opened. The shipped copy key
-  `featureConsent.textActionReason` is unused, so overrides have no effect.
+  “Give consent…: messages need your consent” at wide widths and
+  “Review: messages need your consent” at narrow widths (DE
+  “Einwilligen…: Nachrichten brauchen Ihre Einwilligung” and
+  “Ansehen: Nachrichten brauchen Ihre Einwilligung”, respectively). Its
+  accessible name is now the visible action alone, with the full host
+  sentence as its accessible description. The settings sheet reveals that
+  sentence when opened. The shipped copy key `featureConsent.textActionReason`
+  is unused, so overrides have no effect.
 - AIT-608. The ready screen's unavailable fold control is now hidden and
   inert, including for keyboard and assistive technology. Its layout space
   is reserved until the control becomes available.

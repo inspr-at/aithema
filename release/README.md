@@ -163,16 +163,19 @@ and the default entrance remains `'choice'`.
 `# Next release — unreleased`, with zero entries to fold. The [host release
 notes](notes.md#for-hosts) describe the code at L.
 
-- AIT-603 keeps the welcome and readiness visible on phones in the combined
-  entrance with a host image concept layout. The combined entrance is a host
-  opt-in, and the default entrance remains `'choice'`. With the keyboard up,
-  the short reason and action use one row, and a held feedback row can
+- AIT-603. On sites that use the combined start screen with image concepts,
+  the welcome and readiness card fit on a phone without scrolling. The
+  combined entrance is a host opt-in, and the default entrance remains
+  `'choice'`. With the keyboard up, the short reason and action use one row,
+  and a held feedback row can
   preserve its height after the feedback clears. In RC28 the composer's
-  consent action was named “Give consent…: messages need your consent”
-  (DE “Einwilligen…: Nachrichten brauchen Ihre Einwilligung”). Its accessible
-  name is now the visible action alone, with the full host sentence as its
-  accessible description. The sheet brings that sentence into view. The
-  shipped `featureConsent.textActionReason` key is unused.
+  consent action was named “Give consent…: messages need your consent” at wide
+  widths and “Review: messages need your consent” at narrow widths (DE
+  “Einwilligen…: Nachrichten brauchen Ihre Einwilligung” and
+  “Ansehen: Nachrichten brauchen Ihre Einwilligung”, respectively). Its
+  accessible name is now the visible action alone, with the full host
+  sentence as its accessible description. The sheet brings that sentence
+  into view. The shipped `featureConsent.textActionReason` key is unused.
 - AIT-608 uses `visibility:hidden` and `inert` for the unavailable fold.
   Its slot in the layout is kept. AIT-612 places the failed-save message
   beside the action once and offers Close after a failed consent load.
@@ -416,14 +419,16 @@ results Node counts when their subtests fail.
 
 AIT-640 tracks removal of the evidence-mode axe artifact accepted on mbp2607.
 
-The browser evidence carries forward from C to the final candidate head
-C′. The diff contains only `release/notes.md` and `release/README.md`. No
-browser test reads either path. At C′, the diff stat lists those two files
-and the browser-path search returns no matches (exit 1).
+The browser evidence carries forward from C through C′ to the final candidate
+head C″. Both diffs contain only `release/notes.md` and `release/README.md`.
+At C″, the searches of `test/browser` and `test/fixtures` each return no
+matches (exit 1).
 
 ```sh
 git diff --stat cb29726e94d1e90fbac1c173877048533cafcd8b..HEAD
+git diff --stat 9a45ac027cff183a8b9a016c4fbf41e02284739d..HEAD
 git grep -niE 'release/(notes|README)(\.md)?' HEAD -- test/browser
+git grep -niE 'release/(notes|README)(\.md)?' HEAD -- test/fixtures
 ```
 
 Preparation order (lane execution only):
@@ -433,7 +438,7 @@ Preparation order (lane execution only):
    pins, append sequence 39 history, and fold the next-notes stub. Commit
    with `git commit -s` using the configured identity and Codex co-author
    trailer.
-2. Run the release test set at final committed C′. The durable wrapper tries
+2. Run the release test set at final committed C″. The durable wrapper tries
    mbp2606 and falls back to the admitted mbp2607 lane. AGM2-HOLD remains
    in force. Use one AIT run at a time, headless, with load ≤ 135. WAIT
    (exit 3 or 7) means back off about five minutes and retry within the
@@ -444,7 +449,7 @@ Preparation order (lane execution only):
    exact rollback with mocks.
 
    ```sh
-   MBP2607=1 EVIDENCE_OUT="$PWD/dist/aitrc29-final-r3" FETCH_TRIES=300 \
+   MBP2607=1 EVIDENCE_OUT="$PWD/dist/aitrc29-final-r4" FETCH_TRIES=300 \
      "$HOME/.local/share/ait-qa/coordinator/rb-fetchretry.sh" \
      "$PWD" unit --test-concurrency=2 \
      test/release-candidate.test.js test/release-workflow.test.js \
@@ -457,16 +462,22 @@ Preparation order (lane execution only):
 
    Run the independent RC28 cross-package import check on every final
    tarball. Both counts must be zero.
-3. Retain `dist/aitrc29-final-r3/candidate/` and copy the evidence directory
-   to `~/.local/share/ait-qa/release-evidence/aitrc29-final-r3/`. Keep
+3. Retain `dist/aitrc29-final-r4/candidate/` and copy the evidence directory
+   to `~/.local/share/ait-qa/release-evidence/aitrc29-final-r4/`. Keep
    `first/`, `second/`, `candidate-evidence.json`, deployment pins and
-   isolated consumer evidence. Confirm `source_commit` equals C′ and bind
-   `manifest_sha256` and `normalized_digest` to `first/`.
-4. Record C′, its commits since L, final-head counts and lane, digests,
+   isolated consumer evidence. Read the r4 candidate digests from this build's
+   evidence, confirm `source_commit` equals C″ and bind the digests to `first/`.
+
+   ```sh
+   jq '{source_commit, manifest_sha256, normalized_digest}' \
+     dist/aitrc29-final-r4/candidate/candidate-evidence.json
+   ```
+
+4. Record C″, its commits since L, final-head counts and lane, digests,
    audit, import check and any pending evidence in
    `.data/ait-rc29/handoff.txt`. This keeps the final build and release
-   qualification bound to C′ without an evidence-only commit. The
-   coordinator owns the release gates and MAC-OPS owns the cut.
+   qualification bound to C″. The coordinator owns the release gates and
+   MAC-OPS owns the cut.
 
 ## Twenty-eighth candidate (AIT-614)
 
