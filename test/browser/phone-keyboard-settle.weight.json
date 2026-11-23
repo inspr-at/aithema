@@ -1,5 +1,5 @@
 {
-  "seconds": 30,
+  "seconds": 40,
   "provisional": true,
-  "evidence": "AIT-618 r6, 2026-11-22: provisional split reservation (AIT-597 method) for the two whole top-level tests moved intact out of phone-dock.test.js (keyboardSettleCheck, keyboardHostLateAddCheck). They have no rolling-main series yet (they never ran on main). Basis: remote test lane run on ed1ebc3e, the larger of two lane samples (ed1ebc3e: 19.521647667s + 4.30007425s = 23.821721917s; c65650a1: 18.285014833s + 3.941322208s). Provisional reservation = ceil(1.25 * 23.821721917) = 30s. A lane sample, not CI; rolling-main timings replace it."
+  "evidence": "AIT-635 r2: preserve the measured AIT-618 reserve basis of 23.821721917s (ed1ebc3e). At workload head 559796e3, passing lane runs 559796e35c-1778 (with captures) and 559796e35c-6090 (without captures) measured 29.006996043s and 26.861144084s across all five top-level registrations. The three AIT-635 registrations contributed 7.520468459s and 7.194118709s. With the retained basis, the larger sample is 31.342190376s, so ceil(1.25 * 31.342190376) = 40s. Rolling-main CI timings replace this provisional reservation."
 }
