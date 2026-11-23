@@ -254,10 +254,15 @@ body.admin-page :focus-visible { outline:2px solid var(--accent); outline-offset
 .ad-back:hover { color:var(--ink); text-decoration:underline; text-underline-offset:3px; }
 .ad-back svg { width:18px; height:18px; }
 .ad-title { margin:12px 0 0; font:400 38px/1.12 var(--display); letter-spacing:-.015em; }
-.ad-who { display:flex; flex-wrap:wrap; align-items:center; min-height:44px; margin:2px 0 14px; color:var(--muted); font-size:13.5px; }
-.ad-who .sep { white-space:pre; }
+.ad-who { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:center; min-height:44px; margin:2px 0 0; color:var(--muted); font-size:13.5px; }
+.ad-who .nm { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .ad-who button { min-height:44px; margin:0 -6px; padding:0 6px; border:0; border-radius:8px; background:none; color:inherit; cursor:pointer; }
 .ad-who button:hover { color:var(--ink); text-decoration:underline; text-underline-offset:3px; }
+.ad-status[data-status=operator] { margin-bottom:14px; }
+.ad-page .msr { visibility:hidden; pointer-events:none; user-select:none; }
+.ad-stack { display:grid; }
+.ad-stack > span { grid-area:1/1; }
+.ad-page[data-signed=loading] :is(.ad-fld input, .ad-usd, .ad-sub-stack, .ad-box svg, .ad-kv .v, .ad-kv.state dd > :first-child) { visibility:hidden; }
 
 /* ---------- sections: one column, hairlines, no cards ---------- */
 .ad-sec { border-top:1px solid var(--line); padding:30px 0 32px; }
@@ -318,7 +323,7 @@ body.admin-page :focus-visible { outline:2px solid var(--accent); outline-offset
 .ad-kv.state { grid-template-columns:150px minmax(0,1fr); align-items:start; margin-top:6px; padding-top:12px; border-top:1px solid var(--line); }
 .ad-state { display:flex; gap:8px; align-items:flex-start; font-size:14.5px; line-height:1.45; }
 .ad-state svg { width:16px; height:16px; margin-top:3px; color:var(--muted); }
-.ad-recover { margin:4px 0 0 24px; color:var(--muted); font-size:13px; line-height:1.5; max-width:58ch; }
+.ad-recover { display:block; margin:4px 0 0 24px; color:var(--muted); font-size:13px; line-height:1.5; max-width:58ch; }
 
 /* Protokoll */
 .ad-log { list-style:none; margin:0; padding:0; }
@@ -346,7 +351,6 @@ body.admin-page :focus-visible { outline:2px solid var(--accent); outline-offset
 .ad-discard.off { visibility:hidden; }
 .ad-status { flex:1 1 280px; display:grid; min-width:0; color:var(--muted); font-size:13.5px; line-height:1.45; }
 .ad-status > p { grid-area:1/1; margin:0; display:flex; gap:7px; align-items:flex-start; }
-.ad-status > p.msr { visibility:hidden; pointer-events:none; user-select:none; }
 .ad-status svg { width:16px; height:16px; margin-top:2px; }
 .ad-status .ok svg { color:var(--accent); }
 .ad-status .ink { color:var(--ink); }
@@ -368,7 +372,7 @@ body.admin-page :focus-visible { outline:2px solid var(--accent); outline-offset
   .ad-tiers { row-gap:18px; }
   .ad-lim { grid-template-columns:minmax(0,1fr) 132px; grid-template-areas:"lab fld" "use use"; row-gap:4px; }
   .ad-lim + .ad-lim { margin-top:14px; }
-  .ad-kv { grid-template-columns:minmax(0,1fr) auto; grid-template-areas:"k v" "h h"; }
+  .ad-kv { grid-template-columns:minmax(0,1fr) minmax(0,8.5rem); grid-template-areas:"k v" "h h"; }
   .ad-kv dt { grid-area:k; } .ad-kv .v { grid-area:v; } .ad-kv .h { grid-area:h; }
   .ad-kv.state { grid-template-columns:minmax(0,1fr); grid-template-areas:"k" "s"; row-gap:4px; } .ad-kv.state dd { grid-area:s; }
   .ad-log li { grid-template-columns:auto minmax(0,1fr); grid-template-areas:"t a" "w w"; column-gap:12px; row-gap:2px; }
@@ -378,7 +382,6 @@ body.admin-page :focus-visible { outline:2px solid var(--accent); outline-offset
 
 .ad-sub-stack { display:grid; }
 .ad-sub-stack > .ad-sub { grid-area:1/1; }
-.ad-sub-stack > .msr { visibility:hidden; pointer-events:none; }
 
 /* AIT-206: unknown until the conversation resolves; reserve both DE and EN. */
 .conversation-page #language-value { display:inline-block; inline-size:2ch; block-size:1lh; flex:none; }

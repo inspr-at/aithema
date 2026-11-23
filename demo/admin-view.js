@@ -1,6 +1,12 @@
 import { adminCopy } from './admin-copy.js';
 import { reasonSeparator, wholeCredits } from '../packages/ui/src/display.js';
 export const TIERS = ['anonymous', 'emailGiven', 'emailConfirmed'];
+const zeroLimits = { hour: 0, day: 0 };
+const loadingModel = {
+  signed: 'loading', name: '', allow: { anonymous: 0, emailGiven: 0, emailConfirmed: 0 },
+  conf: false, delivery: true, mail: zeroLimits, ip: zeroLimits, use: zeroLimits, ipUse: zeroLimits,
+  prov: { available: false }, audit: [],
+};
 export const esc = s => String(s).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 export const fill = (s, v) => s.replace(/\{(\w+)\}/g, (m, k) => v[k] ?? m);
 const svg = (d, cls = 'i', box = '0 0 24 24') => `<svg class="${cls}" viewBox="${box}" aria-hidden="true">${d}</svg>`
@@ -38,27 +44,30 @@ export function adminModel(state, audit) {
     updatedAt: s.updatedAt, sec: { credits: { mode: 'clean' }, confirm: { mode: 'clean' }, mail: { mode: 'clean' } } };
 }
 export function renderAdmin(m, locale = 'de') {
+  const loading = m.signed === 'loading';
+  if (loading) m = loadingModel;
   const C = adminCopy[locale === 'en' ? 'en' : 'de'];
   const nf = n => new Intl.NumberFormat(C.locale).format(n);
   const usd = credits => new Intl.NumberFormat(C.locale, { style: 'currency', currency: 'USD', currencyDisplay: 'code' }).format(credits / 100);
-  const hm = iso => new Intl.DateTimeFormat(C.locale, { hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
   const when = iso => new Intl.DateTimeFormat(C.locale, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
 const band = () => `<header class="ad-band"><span class="ad-wordmark"><span class="ad-mark" aria-hidden="true"></span>Aithema</span></header>`
 const head = (m) => `<a class="ad-back" href="/">${I.back}<span>${esc(C.back)}</span></a>
   <h1 class="ad-title">${esc(C.title)}</h1>
-  ${m.signed === 'in' ? `<form class="ad-who" method="post" action="/api/operator/logout/"><span class="nm">${esc(fill(C.operator, { name: m.name }))}</span><span class="sep" aria-hidden="true">${reasonSeparator}</span><button type="submit">${esc(C.logout)}</button></form>` : ''}`
+  ${m.signed === 'in' || loading ? `<form class="ad-who" method="post"><span class="nm">${loading ? '' : esc(fill(C.operator, { name: m.name }))}</span><button type="submit" disabled>${esc(C.logout)}</button></form>
+    ${statusCell('operator', [esc(C.loading), esc(C.loadFailed), esc(C.logoutFailed)], loading ? C.loading : '')}` : ''}`
 
 // The status cell stacks every message this section can show (visible one + hidden measures): no shift, ever.
-function statusCell(id, msgs) {
-  return `<div class="ad-status" data-status="${id}"><p class="cur" role="status" aria-live="polite"></p>${msgs.map(t => `<p class="msr" aria-hidden="true">${t}</p>`).join('')}</div>`
+function statusCell(id, msgs, initial = '') {
+  return `<div class="ad-status" data-status="${id}"><p class="cur" role="status" aria-live="polite">${esc(initial)}</p>${msgs.map(t => `<p class="msr" aria-hidden="true">${t}</p>`).join('')}</div>`
 }
 function saveRow(id, msgs) {
   return `<div class="ad-save"><button type="button" class="ad-btn" data-save="${id}" disabled><span class="l-save">${esc(C.save)}</span><span class="l-reload off" aria-hidden="true">${esc(C.reload)}</span></button>
     <button type="button" class="ad-discard off" data-discard="${id}" tabindex="-1" aria-hidden="true">${esc(C.discard)}</button>${statusCell(id, msgs)}</div>`
 }
-const msgSaved = () => `<span class="ok">${I.check}</span><span>${esc(fill(C.saved, { time: hm(m.savedAt ?? Date.now()) }))}</span>`
+const msgSaved = () => `<span class="ok">${I.check}</span><span>${esc(fill(C.saved, { time: C.locale === 'de' ? '23:59' : '11:59 PM' }))}</span>`
 const msgInk = t => `${I.info}<span class="ink">${esc(t)}</span>`
 const commonMsgs = () => [esc(C.dirty), esc(C.saving), msgSaved(), msgInk(C.failed), msgInk(fill(C.conflict, { time: C.locale === 'de' ? '30. Sept., 23:59' : 'Sep 30, 11:59 PM' }))]
+const measure = text => `<span class="msr" aria-hidden="true">${text}</span>`;
 
 function creditsSection(m) {
   const v = m.allow
@@ -79,11 +88,11 @@ function confirmSection(m) {
   const on = m.conf
   return `<section class="ad-sec" aria-labelledby="h-confirm" data-sec="confirm"><h2 id="h-confirm">${esc(C.confirm.h)}</h2>
     <div class="ad-body"><label class="ad-check${m.delivery ? '' : ' disabled'}"><input type="checkbox" id="f-confirm" data-sec="confirm" data-base="${on}"${on ? ' checked' : ''}${m.delivery ? '' : ' disabled'}>
-      <span class="ad-box">${I.check}</span><span><b>${esc(C.confirm.label)}</b><small>${esc(C.confirm.desc)}</small>${m.delivery ? '' : `<small>${esc(C.confirm.noDelivery)}</small>`}</span></label></div>
+      <span class="ad-box">${I.check}</span><span><b>${esc(C.confirm.label)}</b><small>${esc(C.confirm.desc)}</small><small${m.delivery ? ' class="msr" aria-hidden="true"' : ''}>${esc(C.confirm.noDelivery)}</small></span></label></div>
     ${saveRow('confirm', commonMsgs())}</section>`
 }
 function useLine(n, max, win, peak) {
-  const base = (peak ? C.mail.peak : '') + fill(win === 'hour' ? C.mail.useHour : C.mail.useDay, { n: nf(n), max: nf(max) })
+  const base = (peak ? C.mail.peak : '') + fill(win === 'hour' ? C.mail.useHour : C.mail.useDay, { n: nf(n), max: nf(max) });
   let tail = ''
   if (max === 0) tail = `${reasonSeparator}<span class="warn">${esc(C.mail.paused)}</span>`
   else if (n >= max) tail = `${reasonSeparator}<span class="warn">${esc(C.mail.reached)}</span>`
@@ -91,9 +100,15 @@ function useLine(n, max, win, peak) {
   return esc(base) + tail
 }
 function mailSection(m) {
+  const useMeasure = (win, peak) => {
+    // Reserve every warning at the largest configured limit and count width.
+    const max = win === 'hour' ? 1_000 : 10_000;
+    const line = esc((peak ? C.mail.peak : '') + fill(win === 'hour' ? C.mail.useHour : C.mail.useDay, { n: nf(99_999), max: nf(max) }));
+    return [fill(C.mail.left, { n: nf(max) }), C.mail.reached, C.mail.paused].map(text => measure(line + reasonSeparator + esc(text))).join('');
+  };
   const row = (grp, win, val, use, peak) => `<div class="ad-lim"><label for="f-${grp}-${win}">${esc(C.mail[win])}</label>
     <div class="ad-fld" data-fld="${grp}-${win}"><input id="f-${grp}-${win}" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" value="${nf(val)}" data-base="${val}" data-sec="mail"></div>
-    <p class="ad-use">${useLine(use, val, win, peak)}</p></div>`
+    <p class="ad-use ad-stack"><span>${loading ? '' : useLine(use, val, win, peak)}</span>${useMeasure(win, peak)}</p></div>`
   return `<section class="ad-sec" aria-labelledby="h-mail" data-sec="mail"><h2 id="h-mail">${esc(C.mail.h)}</h2><p class="ad-intro">${esc(C.mail.intro)}</p>
     <div class="ad-body"><div class="ad-group" role="group" aria-labelledby="h-mail-g"><h3 id="h-mail-g">${esc(C.mail.global)}</h3>
       ${row('mail', 'hour', m.mail.hour, m.use.hour)}${row('mail', 'day', m.mail.day, m.use.day)}</div>
@@ -104,15 +119,14 @@ function mailSection(m) {
 }
 function provSection(m) {
   const p = m.prov, P = C.prov
-  if (!p.available) return `<section class="ad-sec" aria-labelledby="h-prov"><h2 id="h-prov">${esc(P.h)}</h2><p class="ad-intro">${esc(P.none)}</p></section>`
   const locked = !!p.breach, remaining = locked ? 0 : Math.max(0, p.cap - p.confirmed - p.reserved - p.uncertain)
-  const kv = (k, v, h = '', cls = '') => `<div class="ad-kv${cls}"><dt>${esc(k)}</dt><dd class="v">${usd(v)}</dd><dd class="h">${esc(h)}</dd></div>`
-  const state = locked
-    ? `<span class="ad-state">${I.lock}<span>${esc(fill(P.latchedNoTime, { reason: P.reasons[p.breach.reason] }))}</span></span><p class="ad-recover">${esc(P.recovery)}</p>`
-    : `<span class="ad-state">${I.check}<span>${esc(P.open)}</span></span>`
-  return `<section class="ad-sec" aria-labelledby="h-prov" data-sec="prov"><h2 id="h-prov">${esc(P.h)}</h2><p class="ad-intro">${esc(P.intro)}</p>
+  const kv = (k, v, h = '', cls = '', showHint = p.available) => `<div class="ad-kv${cls}"><dt>${esc(k)}</dt><dd class="v">${p.available ? usd(v) : '—'}</dd><dd class="h">${showHint ? esc(h) : measure(esc(h))}</dd></div>`;
+  const lockedState = reason => `<span class="ad-state">${I.lock}<span>${esc(fill(P.latchedNoTime, { reason }))}</span></span><span class="ad-recover">${esc(P.recovery)}</span>`;
+  const state = locked ? lockedState(P.reasons[p.breach.reason]) : p.available ? `<span class="ad-state">${I.check}<span>${esc(P.open)}</span></span>` : '—';
+  const intro = loading || p.available ? P.intro : P.none;
+  return `<section class="ad-sec" aria-labelledby="h-prov" data-sec="prov"><h2 id="h-prov">${esc(P.h)}</h2><p class="ad-intro ad-stack"><span>${esc(intro)}</span>${measure(esc(intro === P.intro ? P.none : P.intro))}</p>
     <dl class="ad-body ad-dl">${kv(P.cap, p.cap)}${kv(P.confirmed, p.confirmed, P.confirmedHint)}${kv(P.reserved, p.reserved, P.reservedHint)}${kv(P.uncertain, p.uncertain, P.uncertainHint)}
-    ${kv(P.remaining, remaining, locked ? P.lockedHint : '', ' sum')}<div class="ad-kv state"><dt>${esc(P.status)}</dt><dd>${state}</dd></div></dl></section>`
+    ${kv(P.remaining, remaining, P.lockedHint, ' sum', locked)}<div class="ad-kv state"><dt>${esc(P.status)}</dt><dd class="ad-stack"><span>${state}</span>${Object.values(P.reasons).map(reason => measure(lockedState(reason))).join('')}</dd></div></dl></section>`
 }
 function changeText(c) {
   const [f, a, b] = c, LG = C.log
@@ -132,15 +146,15 @@ function logSection(m) {
   const rows = m.audit.map(r => `<li><span class="ad-t"><time datetime="${r.at}">${esc(when(r.at))}</time></span><span class="ad-a">${esc(who(r.who))}</span>
     <span class="ad-w">${r.ch ? r.ch.map(changeText).join('') : eventText(r.ev)}</span></li>`).join('')
   return `<section class="ad-sec" aria-labelledby="h-log" data-sec="log"><h2 id="h-log">${esc(C.log.h)}</h2><p class="ad-intro">${esc(C.log.intro)}</p>
-    <div class="ad-body">${m.audit.length ? `<ol class="ad-log">${rows}</ol>` : `<p class="ad-empty">${esc(C.log.empty)}</p>`}
+    <div class="ad-body">${m.audit.length ? `<ol class="ad-log">${rows}</ol>` : `<p class="ad-empty">${loading ? '' : esc(C.log.empty)}</p>`}
     ${m.more ? `<button type="button" class="ad-more">${esc(C.log.more)}</button>` : ''}${m.end ? `<p class="ad-end">${esc(C.log.end)}</p>` : ''}</div></section>`
 }
 function adminPage(m) {
-  if (m.signed !== 'in') return `<div class="ad-page" data-product data-signed="${m.signed}">${band()}<main class="ad-main">${head(m)}
+  if (m.signed !== 'in' && !loading) return `<div class="ad-page" data-product data-signed="${m.signed}">${band()}<main class="ad-main">${head(m)}
     <div class="ad-out"><p>${esc(m.signed === 'expired' ? C.out.expired : C.out.line)}</p>
-    <a class="ad-login" href="/api/operator/login/?return=admin">${I.login}<span>${esc(fill(C.out.login, { provider: C.provider }))}</span></a></div></main></div>`
+    <a class="ad-login">${I.login}<span>${esc(fill(C.out.login, { provider: C.provider }))}</span></a></div></main></div>`
   return `<div class="ad-page" data-product data-signed="${m.signed}">${band()}<main class="ad-main">${head(m)}
-    ${creditsSection(m)}${confirmSection(m)}${mailSection(m)}${provSection(m)}${logSection(m)}</main></div>`
+    <div class="ad-content"${loading ? ' inert aria-busy="true"' : ''}>${creditsSection(m)}${confirmSection(m)}${mailSection(m)}${provSection(m)}${logSection(m)}</div></main></div>`
 }
 
 
