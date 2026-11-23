@@ -80,19 +80,30 @@ async function measure(page) {
   return page.$eval('aithema-session', host => {
     const root = host.shadowRoot, workspace = root.querySelector('.workspace'), scroll = root.querySelector('.conversation-scroll');
     const { scrollHeight: documentScrollHeight, clientHeight: documentClientHeight } = document.scrollingElement;
-    const read = selector => {
-      const node = root.querySelector(selector);
+    const boxOf = node => {
       if (!node?.checkVisibility({ visibilityProperty: true })) return null;
       const { x, y, width, height } = node.getBoundingClientRect();
       return { x, y, width, height };
     };
+    const read = selector => boxOf(root.querySelector(selector));
+    const backdrop = read('.phone-dock-backdrop');
+    const backdropMask = getComputedStyle(root.querySelector('.phone-dock-backdrop')).maskImage;
+    const opaqueStop = Number.parseFloat(backdropMask.match(/([\d.]+)px\)$/)?.[1]);
+    // The last painted footer child can vary with the overview state.
+    const overviewEnd = [...root.querySelectorAll('.understanding > .foot > *')]
+      .filter(node => node.checkVisibility({ opacityProperty: true, visibilityProperty: true }))
+      .map(boxOf)
+      .filter(box => box?.width > 0 && box?.height > 0)
+      .sort((a, b) => (b.y + b.height) - (a.y + a.height))[0];
     return {
       stage: workspace.dataset.stage, entrance: workspace.dataset.entrance, layout: workspace.dataset.conceptLayout,
       keyboard: workspace.hasAttribute('data-phone-keyboard'),
       phoneBudget: Object.fromEntries(['height', 'band', 'footer', 'dock', 'bottom'].map(name =>
         [name, workspace.style.getPropertyValue(`--phone-${name}`)])),
       card: read('.ready'), route: read('.ready__route'), conversation: read('.conversation'), scroll: read('.conversation-scroll'),
-      opener: read('[data-host-opener]'), band: read('.band'), footer: read('.display-foot'), backdrop: read('.phone-dock-backdrop'),
+      opener: read('[data-host-opener]'), band: read('.band'), footer: read('.display-foot'), backdrop,
+      backdropOpaqueTop: backdrop && backdrop.y + opaqueStop,
+      overview: read('.understanding'), overviewEnd, transcriptShell: read('.transcript-shell'),
       dock: read('.composer-dock'), shell: read('.composer-shell'), slot: read('.concept-phone-slot'),
       access: read('.concept-phone-slot .concept-access'), preview: read('.concept-phone-slot .concept-preview'),
       mic: read('.composer-mic'), send: read('.send'), field: read('textarea'),
@@ -133,7 +144,6 @@ async function firstSend(page, record, ready, locale) {
   positive('send failure feedback', failed.reason);
   assert.equal(await page.$eval('aithema-session', host => host.shadowRoot.querySelector('.composer-reason').hasAttribute('data-send-failed')), false);
   for (const [name, boxes] of Object.entries({ consent, failed, live })) sameControls(ready, boxes, name);
-  close(ready.scroll.height, live.scroll.height, 'conversation height at the first send');
   return live;
 }
 
@@ -176,6 +186,33 @@ async function firstConcept(page, record, live) {
   positive('first concept preview', concept.preview);
   sameControls(live, concept, 'first concept');
   close(live.scroll.height, concept.scroll.height, 'conversation height when the first concept appears');
+  return concept;
+}
+
+async function recordLiveEnd(page, record, state) {
+  await page.evaluate(() => window.scrollTo(0, 1e6));
+  const end = await record(`${state}-end`);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  return end;
+}
+
+function assertLivePage(top, end, state) {
+  for (const key of ['band', 'conversation', 'scroll', 'transcriptShell', 'dock']) positive(`${state}/${key}`, top[key]);
+  for (const key of ['overview', 'overviewEnd', 'dock', 'backdrop']) positive(`${state}-end/${key}`, end[key]);
+  assert.equal(top.stage, 'live', state);
+  close(top.pageTop, 0, `${state}: page starts at the top`);
+  assert.ok(end.pageTop > 0, `${state}: page scrolls to the overview`);
+  close(end.pageTop, end.documentScrollHeight - end.documentClientHeight, `${state}: reached the end of the page`);
+  const contentBottom = bottom(end.overviewEnd);
+  assert.ok(contentBottom <= Math.min(end.dock.y, end.backdropOpaqueTop) + epsilon,
+    `${state}: overview content ends at ${contentBottom}, dock starts at ${end.dock.y}, backdrop is opaque at ${end.backdropOpaqueTop}`);
+  // The overview frame keeps main's page-end reserve.
+  close(end.dock.y - bottom(end.overview), 24, `${state}: live overview clearance`);
+  // The band and the dock anchor main's live conversation box.
+  close(top.conversation.y - bottom(top.band), 12, `${state}: live conversation starts below the band`);
+  close(top.dock.y - bottom(top.conversation), 8, `${state}: live conversation ends above the dock`);
+  close(end.backdropOpaqueTop, end.dock.y, `${state}: the backdrop becomes opaque at the dock`);
+  sameControls(top, end, `${state}: scrolled to end`);
 }
 
 export async function phoneReadinessCheck(t) {
@@ -230,8 +267,12 @@ export async function phoneReadinessCheck(t) {
         }
         if (item.height <= 740 && item.theme === 'light' && !item.longCard) {
           const live = await firstSend(page, record, ready, item.locale);
-          if (item.height === 740 && item.locale === 'de') await firstConcept(page, record, live);
+          const liveEnd = await recordLiveEnd(page, record, 'first-send');
+          const concept = await firstConcept(page, record, live);
+          const conceptEnd = await recordLiveEnd(page, record, 'first-concept');
           await longestFeedback(page, record, live, item.locale);
+          assertLivePage(live, liveEnd, 'first send');
+          assertLivePage(concept, conceptEnd, 'first concept');
         }
         assert.deepEqual(problems, []);
 
