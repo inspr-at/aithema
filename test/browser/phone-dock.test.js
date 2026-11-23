@@ -2,6 +2,8 @@
 // (names, options and order) so the shard packer weighs them as their own workload.
 import { test } from 'node:test';
 import { phoneReadyFitCheck, welcomeOnlyFollowCheck } from './phone-ready-fit-check.js';
+import { phoneReadinessCheck } from './phone-readiness-check.js';
+test('AIT-644: the bound image entrance uses the free phone area for host readiness without moving the composer controls', { timeout: 180_000 }, phoneReadinessCheck);
 test('AIT-603: phones, combined entrance with a real image concept layout: the welcome clamp follows the space with one-row readiness, a bottom fade only when even two lines do not fit, and a fixed clamp through the hand-off', { timeout:360_000 }, phoneReadyFitCheck);
 // r13 (Codex gatepra12 M1): the welcome-only guard follows visible recovery content; Latest still goes to the end.
 test('AIT-603 r13: phones, combined image concept layout, welcome only: a voice recovery notice is followed into view and an explicit Latest jump goes to the end', { timeout:180_000 }, welcomeOnlyFollowCheck);
