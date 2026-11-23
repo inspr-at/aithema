@@ -293,6 +293,7 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
           await run('admin logout error', signal => page.waitForFunction(error => document.querySelector('[data-status=operator] .cur')?.textContent === error,
             { signal }, adminCopy[locale].logoutFailed));
           assert.equal(logoutRequests, beforeLogout);
+          if (evidence) await run('admin logout error screenshot', () => page.screenshot({ path: join(evidence, `ait-633-admin-${locale}-${width}-failed-logout.png`) }));
         } finally { await run('restore admin base', () => page.evaluate(() => { delete document.baseURI; })); }
         await run('guarded admin logout return', () => Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }), page.keyboard.press(key)]));
         assert.equal(logoutRequests, beforeLogout + 1);

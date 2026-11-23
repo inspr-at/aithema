@@ -176,7 +176,7 @@ export const en = {
     operatorName: 'Operator: {name}',
     operatorLogout: 'Sign out',
     operatorError: 'Operator sign-in failed. Please try again.',
-    operatorLogoutError: 'Couldn’t sign out. Please try again.',
+    operatorLogoutError: 'Couldn’t sign out. Try again.',
 
     open: 'Settings', title: 'Settings', tabs: { general: 'General', model: 'AI model', local: 'Advanced' },
     processing: 'Data processing', model: 'Model', responseStyle: 'Response style', faster: 'Faster', moreThorough: 'More thorough',
