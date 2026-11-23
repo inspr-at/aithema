@@ -381,7 +381,9 @@ export const combinedEntranceStyles = `
      concept slot so it cannot obscure the last line of readiness. Keep this
      geometry through the first turn and the arrival of concept controls. */
   .workspace[data-entrance="combined"][data-concept-layout="image"]:not([data-phone-keyboard]) {
-    --phone-band-gap:.75rem; --phone-dock-fade-overhang:0px; row-gap:var(--phone-band-gap); }
+    --phone-band-gap:.75rem; --phone-dock-fade-overhang:0px; row-gap:var(--phone-band-gap);
+    /* The two grid gaps after the conversation already count toward the dock and footer reserve. */
+    padding-bottom:calc(var(--phone-dock,250px) + var(--phone-footer,57px) + var(--phone-dock-footer-gap) - 2 * var(--phone-band-gap)); }
   .workspace[data-entrance="combined"][data-concept-layout="image"]:not([data-phone-keyboard]) .conversation {
     height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-band-gap) - var(--phone-footer,57px) - var(--phone-dock,250px) - var(--phone-dock-footer-gap)); }
   /* The scroll column's gap already separates the welcome from readiness. */
