@@ -212,6 +212,17 @@ export async function phoneReadinessCheck(t) {
         close(ready.scrollTop, 0, 'the entrance starts at its top');
         const cardHeight = item.longCard ? 122 : item.locale === 'de' ? 102 : 85;
         assert.ok(Math.abs(ready.card.height - cardHeight) <= 4, `host card is approximately ${cardHeight} px high: ${ready.card.height}`);
+        const shortfall = Math.max(0, bottom(ready.card) - bottom(ready.scroll));
+        const physicalShortfall = Math.max(0, bottom(ready.card) - ready.dock.y);
+        const canScrollToCard = item.height === 664 && physicalShortfall > epsilon;
+        let scrolled;
+        if (canScrollToCard) {
+          await page.$eval('aithema-session', host => {
+            const scroll = host.shadowRoot.querySelector('.conversation-scroll'); scroll.scrollTop = scroll.scrollHeight;
+          });
+          scrolled = await record('ready-scrolled');
+          await page.$eval('aithema-session', host => { host.shadowRoot.querySelector('.conversation-scroll').scrollTop = 0; });
+        }
         if (item.height <= 740 && item.theme === 'light' && !item.longCard) {
           const live = await firstSend(page, record, ready, item.locale);
           if (item.height === 740 && item.locale === 'de') await firstConcept(page, record, live);
@@ -219,17 +230,11 @@ export async function phoneReadinessCheck(t) {
         }
         assert.deepEqual(problems, []);
 
-        const shortfall = Math.max(0, bottom(ready.card) - bottom(ready.scroll));
-        const physicalShortfall = Math.max(0, bottom(ready.card) - ready.dock.y);
-        if (item.height === 664 && physicalShortfall > epsilon) {
+        if (canScrollToCard) {
           // The only acceptable overflow is exactly the space the dock occupies.
           assert.equal(ready.clamp, '2', 'the welcome has reached its whole-line minimum');
           close(shortfall, physicalShortfall, 'the card shortfall equals the physical shortfall');
           assert.notEqual(ready.fade, 'none', 'overflow has a bottom fade');
-          await page.$eval('aithema-session', host => {
-            const scroll = host.shadowRoot.querySelector('.conversation-scroll'); scroll.scrollTop = scroll.scrollHeight;
-          });
-          const scrolled = await measure(page);
           positive('scrolled/card', scrolled.card); positive('scrolled/conversation', scrolled.scroll);
           assert.ok(bottom(scrolled.card) <= bottom(scrolled.scroll) + epsilon, 'scroll reveals the last line');
           assert.equal(scrolled.fade, 'none', 'the last line has no fade at the end');
