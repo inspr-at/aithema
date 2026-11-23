@@ -1,110 +1,129 @@
 # Aithema 2026.10
 
-Version **261121100916.0.0**. Licensed under **AGPL-3.0-only**.
+Version **261123053431.0.0**. Licensed under **AGPL-3.0-only**.
 
-The welcome stays in place when a host uses image concepts, the "Show more
-notices" focus ring stays clear of nearby text, and the footer and English
-credit copy are calmer. The combined entrance is a host opt-in and the default
-entrance remains `'choice'`; upload notices appear only where the host enables
-uploads.
+On a phone, the welcome and readiness card fit when the host uses image
+concepts, and typing leaves more room for the conversation. Consent errors
+appear beside the action, and export controls explain when a download is
+unavailable.
 
 ## What visitors notice
 
-- **Welcome stays in place (AIT-601, #494).** The welcome no longer overlaps the readiness panel when a host uses image concepts. Applies on desktop widths in the combined entrance (a host opt-in) with a host's image concept layout. When the readiness panel hands over to the live conversation, a conversation that fits stays where it is; a longer conversation still scrolls on to the visitor's message.
-- **Clear focus ring (AIT-589, #488).** With the keyboard, the focus ring on "Show more notices" no longer covers nearby text or its own label, on phones and desktops. Where the host enables uploads.
-- **Calmer footer and copy (AIT-587, #496).** The footer says "Connected" without a running number and shows the connection's start time when you point at it; English writes "credits" in lower case mid-sentence; the used-up message no longer promises an export.
+- **Steady phone typing (AIT-603, #499, #500).** On phones the welcome and the readiness card are visible without scrolling when a host uses image concepts.
+- **Calmer ready screen (AIT-608, #503).** Controls that cannot do anything yet are no longer shown.
+- **Consent errors once (AIT-612, #505).** A failed consent save shows one clear message.
+- **Natural clock times (AIT-609, #504).** Times read naturally in English and German.
+- **More room while typing (AIT-618, #507).** Typing on a small phone leaves room for your message instead of hints you cannot use.
+- **Safer owner requests (AIT-625, #506).** Your conversation data is only ever sent to the site you are on, never to another address.
+- **Clear export status (AIT-637, #509).** When export is not possible, the button says so instead of failing silently.
 
 ## Was Besucher bemerken
 
-- **Begrüßung bleibt stehen (AIT-601, #494).** Die Begrüßung überdeckt das Bereitschaftsfeld nicht mehr, wenn ein Host Bildkonzepte nutzt. Gilt auf Desktopbreiten im kombinierten Einstieg (vom Host aktiviert) mit dem Bildkonzept-Layout eines Hosts. Beim Übergang vom Bereitschaftsfeld ins laufende Gespräch bleibt ein Gespräch, das Platz hat, stehen; ein längeres Gespräch scrollt weiterhin bis zur Nachricht der Besucherin oder des Besuchers.
-- **Klarer Fokusrahmen (AIT-589, #488).** Mit der Tastatur verdeckt der Fokusrahmen von „Weitere Meldungen anzeigen“ weder benachbarten Text noch die eigene Beschriftung, auf Smartphone und Desktop. Bei vom Host aktivierten Uploads.
-- **Ruhigere Fußzeile und Texte (AIT-587, #496).** Die Fußzeile zeigt „Verbunden“ ohne laufende Zahl und nennt beim Zeigen mit der Maus den Beginn der Verbindung; die Meldung zu aufgebrauchten Credits verspricht keinen Export mehr.
+- **Ruhiges Tippen am Handy (AIT-603, #499, #500).** Auf dem Handy sind Begrüßung und Bereitschaftsfeld ohne Scrollen sichtbar, wenn ein Host Bildkonzepte nutzt.
+- **Ruhigerer Startbildschirm (AIT-608, #503).** Bedienelemente, die noch nichts tun können, werden nicht mehr angezeigt.
+- **Einwilligungsfehler einmal (AIT-612, #505).** Ein fehlgeschlagenes Speichern der Einwilligung zeigt eine klare Meldung.
+- **Natürliche Uhrzeiten (AIT-609, #504).** Uhrzeiten lesen sich auf Englisch und Deutsch natürlich.
+- **Mehr Platz beim Tippen (AIT-618, #507).** Beim Tippen auf kleinen Handys bleibt Platz für die Nachricht statt für Hinweise, die dort nicht nutzbar sind.
+- **Sicherere Anfragen (AIT-625, #506).** Ihre Gesprächsdaten gehen nur an die Seite, auf der Sie sind, nie an eine andere Adresse.
+- **Klarer Export-Status (AIT-637, #509).** Wenn der Export nicht geht, sagt es die Schaltfläche, statt still zu scheitern.
 
 ## For hosts
 
-- AIT-601 (combined entrance, desktop above 600 px, host image concept layout):
-  before live, the opener thread contains only its inline axis, so the
-  render-only welcome owns its height above readiness and no longer overlaps it;
-  live keeps the size container and phones are unchanged. The transcript's
-  40 px render-label reserve is now the shadow-internal custom property
-  `--aithema-render-reserve`; before the first reply and before any visual wish
-  that reserve is idle and no longer counts as content, so fitting content does
-  not scroll at the readiness → live hand-off. Real overflow still scrolls: the
-  transcript follows to the visitor's message at the hand-off. When a render
-  label shows while follow is suspended (for example a resting pointer) and the
-  reader is still at the latest position, the transcript moves by at most that
-  reserve so the label does not cover the last item; an item that runs past the
-  pane keeps the reading place. Fix only; no flag or option. Both the combined
-  entrance and the image concept layout are host opt-ins; the default
-  `'choice'` entrance is unchanged.
-- AIT-589: the "Show N more notices" control keeps a constant 6 px inline
-  padding and draws its keyboard focus ring inside its 44 px box vertically,
-  reaching sideways at most 4 px and never beyond the actions gap.
-- AIT-587 footer: while plainly connected the status reads `connected`
-  ("Connected" / "Verbunden") with no running timer (the timer cell keeps its
-  reserved width, hidden). The new copy key `connectedSince` with the local
-  clock time is the status's `title` and accessible description
-  (`aria-describedby`), on desktop and on the phone status below 600 px.
-- AIT-587 copy: English writes "credits" in lower case mid-sentence across the
-  credit, email and used-up copy, in the shipped confirmation mail's English
-  explanation line and on the demo host's confirmation page and admin unit; the
-  credit unit legend `1 Credit = 1 US cent` is unchanged. The used-up body
-  (EN/DE) no longer promises an export, because the export link is not always
-  shown. Host overrides keep winning.
-- AIT-587 polish inside the shadow DOM: the ready-card check stays beside the
-  first line of a wrapped value, the fold icon meets 3:1 non-text contrast at
-  rest, only a pressed Pause is filled (live and closing Pause stay outlined),
-  the summary and signals toggles share one right edge, and the overview reserve
-  applies in the same frame as a pane width change.
-- AIT-587 uploads: an upload plans its images with the image capability read
-  after the classification await, so a processing change during a pick decides
-  that pick's plan. See the AIT-610 limitation below.
+**Breaking for browser relay hosts (AIT-625).** A relay using the built-in
+browser network client requires `network.ownerFetch`. Opening the relay
+throws before any request is sent if the helper is missing. Import
+`ownerFetch` from `@inspr/aithema-ui/owner-request` and inject it. For explicit
+token authentication, pass the token as `network.sessionToken` in place of
+the raw `x-aithema-session-token` header. The relay still maps that legacy
+header to the token option if present. Cookie-authenticated hosts inject
+`ownerFetch` and omit `sessionToken`.
+
+Before (RC28):
+
+```js
+const grokVoice = createGrokVoiceClient({
+  control: voiceControl,
+  network: {
+    url: '/api/voice/grok/relay',
+    headers: { 'x-aithema-session-token': sessionToken },
+  },
+});
+```
+
+After (RC29):
+
+```js
+import { ownerFetch } from '@inspr/aithema-ui/owner-request';
+
+const grokVoice = createGrokVoiceClient({
+  control: voiceControl,
+  network: { url: '/api/voice/grok/relay', ownerFetch, sessionToken },
+});
+```
+
+### Behaviour changes and host-visible DOM
+
+- AIT-603 (#499, #500). On phones in the combined entrance with a host's
+  image concept layout, the dock leaves room for the welcome and readiness
+  panel. The consent action exposes the full host sentence as its accessible
+  description and the settings sheet reveals that sentence when opened.
+  The phone dock shows the short consent reason and action on one row while
+  the keyboard is up. If feedback clears during typing, its held height can
+  persist until the keyboard closes. This keeps Mic and Send steady.
+- AIT-608. The ready screen's unavailable fold control is now hidden and
+  inert, including for keyboard and assistive technology. Its layout space
+  is reserved until the control becomes available.
+- AIT-612. The Settings consent sheet shows a failed save once next to the
+  action. A load failure gives a specific message and a Close action so
+  the visitor can close and reopen the sheet.
+- AIT-609. The public `@inspr/aithema-ui/display` export `clockTime` now
+  formats a single-digit hour without a leading zero. For example, English
+  changes from “09:04 PM” to “9:04 PM” and German shows “21:04” for the same
+  evening time. The additive `dateClock` export combines a medium date with
+  the same time format for the conversation library. Host code that parses
+  display strings needs to accept variable-width hours.
+- AIT-618. One keyboard-up state toggles `data-phone-keyboard` and
+  `data-phone-keyboard-band` together. The compact voice band uses a 44 px
+  row and the AI notice uses one line with a More target. If a host header
+  control enters Pause's column, `data-keyboard-rail-row` allows the band
+  to grow to 88 px and moves Pause alone to the second row. That height
+  lasts until the keyboard closes. The component marks late header actions
+  with `data-keyboard-late` and orders them at the start of the header during
+  this state. See AIT-635 below for late insertion through host slots.
+- AIT-625. `@inspr/aithema-ui/owner-request` adds `ownerURL` and `ownerFetch`.
+  Session-owner requests use the page origin, reject redirects, and fail
+  closed before sending if the page lacks a usable HTTP(S) origin or the
+  target resolves off-origin. A finite owner response is buffered within
+  the deadline for headers and body, with a 64 MiB limit by default and
+  256 MiB for the conversation ZIP. The successful event stream stays
+  unbuffered. Both export controls are anchors with `role="link"` and
+  `tabindex="0"` and carry no `href`. Use the existing control activation
+  for a download or read the role when styling or scripting those controls.
+  Keyboard activation and click both request the ZIP through the helper.
+- AIT-637. When export is unavailable, visible export controls use
+  `aria-disabled` and describe the reason. The footer shows the reason and
+  exposes it as a tooltip. The composer announces it via the accessible
+  description. Both recheck on activation. On-device conversations retain
+  the separate `deviceExportUnavailable` explanation.
 
 ### Copy compatibility
 
-One new leaf key between RC27 and this release (path relative to `copy`); no key
-was removed.
+Three new leaf keys relative to RC28, with paths relative to `copy`. A
+nondefault host override wins, followed by the active locale's default and
+then English.
 
 | New copy key | EN default | DE default | Legacy fallback |
 | --- | --- | --- | --- |
-| `connectedSince` | Connected since {time} | Verbunden seit {time} | None |
+| `settings.close` | Close | Schließen | None |
+| `host.consentPage.loadFailed` | Could not load consent. Close and open it again. | Die Einwilligung konnte nicht geladen werden. Schließen und erneut öffnen. | None |
+| `exportUnavailable` | Export isn't available on this page. | Der Export ist auf dieser Seite nicht verfügbar. | None |
 
-`{time}` is the connection's start as a local clock time in the page language.
-Shared resolver: `packages/ui/src/copy-resolve.js`. A nondefault host override
-wins, then the active locale's default, then English.
+### Changed defaults relative to RC28
 
-### Changed defaults relative to RC27
-
-The complete EN/DE bundle diff between RC27 (`99a33921`) and this release
-changes 29 EN defaults and 1 DE default:
-
-- `hostSurface.usedUp.body`: EN "Your conversation stays saved. You can read and
-  export it." → "Your conversation stays saved."; DE "Ihr Gespräch bleibt
-  gespeichert. Sie können es lesen und exportieren." → "Ihr Gespräch bleibt
-  gespeichert."
-- EN "Credits" → "credits" mid-sentence, wording otherwise unchanged, in 28
-  keys: `layout.creditsUnit` (" Credits" → " credits");
-  `hostSurface.emailAsk.` `balance`, `balanceLow`, `benefitCredits`,
-  `benefitCreditsMail`, `saved`, `folded`, `lineGive`, `lineConfirm`,
-  `lineNone`, `announceAsk`, `announceLow`; `hostSurface.email.` `leadSave`,
-  `leadMail`, `leadEdit`, `leadReconfirm`, `tier`, `deleteDrop`, `deleteOver`,
-  `deleted`, `pendingTier`, `confirmed`; `hostSurface.usedUp.` `give`,
-  `confirm`, `hostConfirm`; `hostSurface.credits.` `low`, `balanceOut`,
-  `anonymous`. For example `hostSurface.credits.low` "{available} Credits left"
-  → "{available} credits left".
-- Confirmation mail (`@inspr/aithema-plugin-mail-smtp`, EN `explanation`):
-  "Once confirmed, your credit rises to {tier} Credits." → "Once confirmed, your
-  credit rises to {tier} credits." The DE mail is unchanged.
-
-### Behaviour changes without a key change
-
-- AIT-587: the footer no longer shows a running connection timer.
-- AIT-601: the pre-live welcome's height in the combined image concept layout on
-  desktop; fitting content no longer scrolls at the readiness → live hand-off
-  (real overflow still follows).
-- AIT-589: the "Show more notices" focus ring and its constant inline padding.
-
-German release prose is impersonal; quoted shipped defaults stay exact.
+The complete EN/DE bundle diff at `780d5241..fb413b06` adds the three keys
+above. It changes zero existing default strings and removes zero keys. The
+shipped EN/DE confirmation mail template text also matches RC28. Consent,
+export, layout and time-format behaviour changes are described above.
 
 ## Known limitations
 
@@ -127,38 +146,32 @@ German release prose is impersonal; quoted shipped defaults stay exact.
   (AIT-590).
 - On a phone overview (390×844), the pinned demo/contact strip sits partly under
   the composer and the collapse chevron touches “Up to date”; planned (AIT-591).
-- On phones (600 px and narrower) in the combined entrance with a host's image
-  concept layout, the ready stage leaves little space (at 390×664 the welcome is
-  cut off and readiness sits below the fold); planned (AIT-603).
 - On a 320×568 phone, following real overflow at the readiness → live hand-off
   can stop 44 px short of the visitor's first message; planned (AIT-606).
-- In the consent sheet, a failed save shows its error twice; planned (AIT-612).
-- On the ready screen the disabled fold control is drawn faint; it is to be
-  hidden until there is something to fold; planned (AIT-608).
-- In English, “Connected since” shows the time with a leading zero (for example
-  “09:04 PM” instead of “9:04 PM”); planned (AIT-609).
 - Under a stale client verdict, an upload's image bytes can reach the server,
   which refuses them, so nothing is stored; planned (AIT-610).
 - If a host page tears down its DOM environment (for example a test harness that
   removes `document`) while the assistant's late answers are still in flight,
   those answers can raise an error in that page. Normal browser pages are not
   affected; planned (AIT-615).
+- On phones with the on-screen keyboard up and Aithema's compact layout active,
+  a header control that a host inserts into `slot="account"` can overlap Pause.
+  A control inserted into `slot="contact-launcher"` can overlap while the page
+  is pinch-zoomed; planned (AIT-635).
+- Operator logout forms and `/admin` navigation still bypass the guarded
+  helper. They use same-origin routes. Only a foreign `<base>` could re-point
+  a form action. This predates RC29. The fix is planned (AIT-633).
 
 ## Breaking for hosts
 
-**No, relative to RC27 (`v261120065345.0.0`).** No existing public export,
-configuration key, HTTP status code, event, slot or host requirement changes.
-The one new copy key `connectedSince` is additive and host overrides keep
-winning. The UI package's public `./display` module gains one additive export,
-`clockTime` (a local clock time in the page language); no export is removed or
-changed. Changed defaults are wording only (EN "credits" lower case, the shorter EN/DE used-up
-body) and keep every placeholder; hosts that override these keys are unaffected.
-The confirmation mail's EN explanation line changes one letter's case and keeps
-`{tier}`; its structure, subject and DE text are unchanged. The footer's new
-`title`/`aria-describedby` and hidden timer, the AIT-601 container and scroll
-behaviour (including `--aithema-render-reserve`) and the AIT-589 focus ring live
-inside the component's shadow DOM and keep reserved geometry; they are visual
-behaviour changes, not host contract changes.
+**Yes, for browser hosts using the composed-voice relay, relative to RC28
+(`v261121100916.0.0`).** Inject the guarded `network.ownerFetch` and use
+`network.sessionToken` for explicit token authentication, as shown above.
+Code that previously read an export control's `href` must adapt to the new
+export control behaviour. The diff preserves public export names, host
+configuration outside the relay, HTTP status codes, events and slot names.
+Host styles that depend on keyboard and export markup should account for the
+DOM changes above. Copy keys and new public exports are additive.
 
 ## Availability and verification
 
@@ -173,6 +186,6 @@ and RC23's asynchronous-delivery `identity.acceptsAddress` requirement still app
 Release assets include module tarballs, workspace archive, dependency locks,
 SPDX SBOM and `release-set.json`. Verify attestations and `SHA256SUMS` before
 installation using [the verification instructions](https://github.com/inspr-at/aithema/blob/v261021043938.0.0/release/notes.md#verify-and-install)
-with tag `v261121100916.0.0` in download/installation URLs. Retain verified assets,
+with tag `v261123053431.0.0` in download/installation URLs. Retain verified assets,
 manifest and deployment pin for exact rollback. See the
-[embedding guide](https://github.com/inspr-at/aithema/blob/v261121100916.0.0/docs/embedding.md).
+[embedding guide](https://github.com/inspr-at/aithema/blob/v261123053431.0.0/docs/embedding.md).

@@ -2190,18 +2190,38 @@ import { createComposedVoice } from '@inspr/aithema-server/composed-voice/server
 import { createComposedBrowserMedia } from '@inspr/aithema-server/composed-voice/client';
 import { createComposedComponentAccounting } from '@inspr/aithema-server/composed-voice/accounting';
 import { createComposedVoiceAuthority } from '@inspr/aithema-server/composed-voice/authority';
-import { ownerFetch } from '@inspr/aithema-ui/owner-request';
 ```
 
-In the browser, the relay sends only through the guarded owner-request helper, so
-`network.ownerFetch` is required; without it the client fails closed before sending.
-A cookie host passes nothing else (the cookie rides the same-origin request). An
-explicit-token host passes its session token as `network.sessionToken`; the helper
-sends it, never a raw header:
+**Breaking for browser relay hosts (AIT-625).** A relay using the built-in
+browser network client requires `network.ownerFetch`. Opening the relay
+throws before any request is sent if the helper is missing. Import
+`ownerFetch` from `@inspr/aithema-ui/owner-request` and inject it. For explicit
+token authentication, pass the token as `network.sessionToken` in place of
+the raw `x-aithema-session-token` header. The relay still maps that legacy
+header to the token option if present. Cookie-authenticated hosts inject
+`ownerFetch` and omit `sessionToken`.
+
+Before (RC28):
 
 ```js
-const grokVoice = createGrokVoiceClient({ control: voiceControl,
-  network: { url: '/api/voice/grok/relay', ownerFetch, sessionToken } }); // sessionToken: explicit-token hosts only
+const grokVoice = createGrokVoiceClient({
+  control: voiceControl,
+  network: {
+    url: '/api/voice/grok/relay',
+    headers: { 'x-aithema-session-token': sessionToken },
+  },
+});
+```
+
+After (RC29):
+
+```js
+import { ownerFetch } from '@inspr/aithema-ui/owner-request';
+
+const grokVoice = createGrokVoiceClient({
+  control: voiceControl,
+  network: { url: '/api/voice/grok/relay', ownerFetch, sessionToken },
+});
 ```
 
 Install the module tarballs at the exact coordinate in `release/version.json`,

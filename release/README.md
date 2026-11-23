@@ -107,6 +107,245 @@ resolves to core/src/x.js, outside package/`. `release:verify` prints one
 `import check: TARBALL scanned N files, 0 cross-package imports` line per
 tarball on stderr.
 
+## Twenty-ninth candidate (AIT-639)
+
+The reserved coordinate is `261123053431.0.0` (UTC reservation time 2026-11-23T05:34:31Z),
+stable sequence 40 (previous: 39), status `reserved`, scheme `inspr-calver-3`.
+Marketing name **Aithema 2026.10** follows RC20–RC28's visible-name rule.
+Both `docs/embedding.md` and `packages/ui/src/session-element.js` use that name.
+The notes show the exact version below the title. Authority comes from the
+standing release go, Desk **4d867165-4eb5-4b69-8980-88d43a7ec64b**
+(2026-10-19), and LEAD's approval of the RC29 brief on 2026-11-23 at 06:31.
+German release prose is impersonal. The visitor entries and shipped defaults
+preserve the recorded text verbatim.
+
+The coordinator holds `release-lock/seq-40` at
+L = `fb413b060d5a914223527594053074ceb8a2037b` (#509), tag object
+`1dc3a5830b561418aadcdbcaee84c8882586a1f1`. The remote object and peeled target
+match the local lock. This is the **twenty-first release on the active
+fixed-candidate route (AIT-363 B)**. The route goes from lock and preparation
+through the coordinator's gates, true merge preserving C, candidate marker
+and MAC-OPS cut and verification. START pins independently. This preparation
+uses branch `release/ait-639-twenty-ninth-release` and worker session
+`AIT-639-r1` (`5a028c41-39fc-41f7-95f6-84018ab778e6`, builder).
+The builder prepares locally and hands off to the coordinator for review,
+PR, merge and candidate marker. History is append-only.
+
+The previous release `v261121100916.0.0` (stable sequence 39, AIT-614,
+[forge release](https://github.com/inspr-at/aithema/releases/tag/v261121100916.0.0))
+is appended to `history.json` in the existing format. Its remote tag points
+to C `6bb88f384b3a86772446f92f839ebdd3c7d68e43`, the second parent of release
+merge #498 (`780d5241`). The migration anchors retain their original values.
+
+The complete first-parent range `780d5241..fb413b06` contains exactly ten
+merges in this order. Classification uses each merge's first-parent diff.
+
+| Merge | Commit | Content |
+| --- | --- | --- |
+| #499 | `3c98d4cc` | AIT-603 PR-B, phone consent sheet shows the full host consent sentence and reveals the selected consent item |
+| #501 | `f39c9232` | AIT-621, test-only split of the host-credits unit file, with embedding-guide test references adjusted |
+| #502 | `6f61b911` | AIT-624, CI-only expansion to 16 browser and 5 unit shards |
+| #500 | `7e179429` | AIT-603 PR-A, phone dock, capped consent line and steady keyboard-up controls |
+| #503 | `669d8aab` | AIT-608, hide the disabled fold control and preserve its space |
+| #505 | `7eafd71a` | AIT-612, one failed-save error by the consent action and Close after a failed load |
+| #504 | `996bb524` | AIT-609, natural hour formatting and consistent dates with times in the conversation library |
+| #507 | `4b79e503` | AIT-618, one keyboard-up layout state, compact voice band and one-line AI notice |
+| #506 | `2ec62e83` | AIT-625, security: one guarded session-owner request helper, injected browser relay transport and bounded finite response bodies |
+| #509 | `fb413b06` = L | AIT-637, unavailable exports present a disabled state and reason |
+
+**Notes summary.** Visitor entries reproduce the EN/DE pills and benefits read
+from aeon at preparation time for AIT-603, AIT-608, AIT-612, AIT-609, AIT-618,
+AIT-625 and AIT-637. AIT-603's two PRs share one pill. AIT-621 and AIT-624
+appear only in this technical record.
+
+**Host record.** `release/next-notes.md` was already the stub
+`# Next release — unreleased`, with zero entries to fold. The [host release
+notes](notes.md#for-hosts) describe the code at L.
+
+- AIT-603 keeps the welcome and readiness visible on phones in the combined
+  entrance with a host image concept layout. The capped dock line exposes the
+  full host sentence as the consent action's accessible description. The
+  sheet brings that sentence into view. With the keyboard up, the short
+  reason and action use one row, and a held feedback row can preserve its
+  height after the feedback clears.
+- AIT-608 uses `visibility:hidden` and `inert` for the unavailable fold.
+  Its slot in the layout is kept. AIT-612 places the failed-save message
+  beside the action once and offers Close after a failed consent load.
+- AIT-609 changes the formatting of the existing
+  `@inspr/aithema-ui/display` export `clockTime` (EN “09:04 PM” → “9:04 PM”,
+  DE “21:04” for that evening time). `dateClock` is additive. The library
+  uses it to display a medium date with the same hour formatting.
+- AIT-618 toggles `data-phone-keyboard` and `data-phone-keyboard-band`
+  together and compacts the AI notice to one line. The voice band uses a
+  44 px row, with an 88 px exception when header controls enter Pause's
+  column. `data-keyboard-rail-row` latches the second row through keyboard
+  close. `data-keyboard-late` moves a late component header action to the
+  start of the header while the keyboard is up. The known late host-slot
+  overlap is AIT-635.
+- AIT-625 adds the `@inspr/aithema-ui/owner-request` subpath with `ownerURL`
+  and `ownerFetch`. A guarded request resolves once against the document
+  base, verifies the actual page origin, rejects redirects and fails
+  closed without a usable HTTP(S) origin. The deadline covers finite
+  response headers and body, with bounded buffering at 64 MiB by default
+  and 256 MiB for exports. The successful event stream stays unbuffered.
+  The footer and composer export anchors carry `role="link"`,
+  `tabindex="0"` and no `href`. Activation downloads via the guarded
+  helper. AIT-637 gives unavailable controls `aria-disabled` and an
+  accessible reason, with visible text and tooltip in the footer.
+
+### Copy compatibility
+
+Compared all leaves of the EN/DE bundles between `780d5241` and L. Three
+additive keys, zero changed defaults and zero removals. For every row a
+nondefault host override wins, followed by the active locale default and
+then English (`packages/ui/src/copy-resolve.js`).
+
+| New copy key | EN default | DE default | Legacy fallback |
+| --- | --- | --- | --- |
+| `settings.close` | Close | Schließen | None |
+| `host.consentPage.loadFailed` | Could not load consent. Close and open it again. | Die Einwilligung konnte nicht geladen werden. Schließen und erneut öffnen. | None |
+| `exportUnavailable` | Export isn't available on this page. | Der Export ist auf dieser Seite nicht verfügbar. | None |
+
+### Changed defaults relative to RC28
+
+Zero existing EN or DE bundle strings changed. The shipped EN/DE confirmation
+mail template text matches RC28. The consent sheet uses the additive keys to
+present its load error and Close. The device export reason keeps its own key.
+The dock, fold, clock formatting, and guarded download changes described above
+do not rely on changes to existing copy keys.
+
+**Known limitations.** The notes carry the open RC28 limitations AIT-549,
+AIT-551, AIT-552, AIT-571, AIT-576, AIT-578, AIT-580, AIT-590, AIT-591,
+AIT-606, AIT-610 and AIT-615. Under a stale client verdict, upload image
+bytes can reach the server, which refuses them and stores nothing. The
+AIT-610 limitation stays listed until AIT-610 returns with AIT-638. The
+notes add AIT-635 (a host control inserted into `slot="account"` with the
+keyboard up can overlap Pause, as can one inserted into
+`slot="contact-launcher"` while pinch-zoomed) and AIT-633 (pre-existing
+operator logout forms and `/admin` navigation use same-origin routes
+outside the guarded helper. Only a foreign `<base>` could re-point a form
+action). All fourteen were open in aeon at preparation time and are worded
+“planned (AIT-nnn)” in the notes. AIT-603, AIT-608, AIT-609 and AIT-612
+were all done and are removed from the list.
+
+**Breaking for hosts.** **Yes, for browser hosts using the composed-voice
+relay, relative to RC28 (`v261121100916.0.0`).** Opening the built-in
+browser relay throws before sending if `network.ownerFetch` is missing.
+Inject the exported helper. Pass the explicit session token as
+`network.sessionToken` in place of the raw header. The relay still maps
+the legacy header if present. Cookie hosts inject the helper and omit the
+token. The [release notes](notes.md#for-hosts) and [Grok setup in the
+embedding guide](../docs/embedding.md#grok-voice-host-setup-and-release-imports-ait-351)
+give the same before and after. Hosts that relied on native export URLs
+or fixed-width clock display output must adapt as described above.
+Public export names, other configuration keys, HTTP status codes, events
+and slot names are preserved. The new subpath, `dateClock`, and copy keys
+are additive. Host scripts and styles that depend on export/keyboard DOM
+should account for the changed attributes and focusability above.
+
+**CI-only:** AIT-624 (#502), 16 browser shards and 5 unit shards.
+**Test-only:** AIT-621 (#501), split the host-credits tests. The release
+unit test set below uses the same files as RC28. The release PR requires
+fully green browser CI. Voxtral remains private/parked. Grok Voice remains
+unqualified in live use. Provider-side closure remains parked until
+ElevenLabs monitoring. RC14's host requirements and RC23's
+`identity.acceptsAddress` requirement still apply.
+
+**Final-lock npm audit.** `npm audit --package-lock-only --omit=dev`
+reports **0 vulnerabilities in the release closure**.
+`npm audit --package-lock-only` also reports **0**, leaving **0 dev-only**.
+A release-closure finding stops preparation. The external dependency set
+matches RC28. The manifests, lockfile entries and internal pins mirror
+`261123053431.0.0`. Migration pins retain their original values.
+`release/evidence.json` is historical. Final-head retained evidence is
+authoritative.
+
+**presentation pin reviewed: unchanged at bd0a13816f728ad91c36d849f88168bcac4fdc6e**.
+The local and remote `inspr-at/inspr` HEAD match the pin. Both
+`release/verify-upstream-presentation.mjs` and `release/presentation-pin.mjs`
+verified the complete payload, with config SHA-256
+`bf6aa144cd73dc97dc941f0f0914138b04ae0a28fbead5123465b15b1f2a2fd9`
+and manifest SHA-256
+`a3d2d8d45f4f9c2c1f978225f4737d2248f654595237cb12231e78cff0e2ed6e`.
+A changed upstream pin stops preparation.
+
+**Accepted lane exceptions.** The coordinator's `accepted-failures.txt`
+entries at preparation time follow verbatim. Entries 4, 5, 7 and 8 remain
+retired on this range.
+
+1. AIT-529 (unit, macOS lanes): test/release-candidate-gate.test.js, "sibling marker bound failure escapes the outer rethrow guard" and "... fallback rethrow guard".
+2. AIT-531 (browser, mbp2606): every entry in known-mbp2606-browser-failures.txt (AIT-350, AIT-261 axe undefined, AIT-400 plus its nested 1 px composer case, AIT-225, the AIT-512 Control+Enter pair plus its parent, AIT-266, AIT-221 DE390 plus its parent).
+3. agm2 composed qualification:
+   - browser test/browser/composed-qualification.test.js (15);
+   - unit plugins/composed-voice/test/qualification-host.test.js (2, historical pair).
+4. AIT-545 RETIRED for new work (AIT-545 merged 2026-11-19 09:10 as cf76a680: E1 now asserts synchronous removal, not 5 ms). Applies ONLY to heads that do NOT contain cf76a680 (check: git merge-base --is-ancestor cf76a680 HEAD fails), and then exactly as before: nested "AIT-365 E1 <w>/<kind>" failing on the eventToRemovalMs assertion (scoped-consent-edges.js:65) plus its dependent parent "AIT-364 … both widths and both artifact kinds are retained" (partial-consent-frames.js:250, n !== 3). On any head that contains cf76a680, ANY E1 or AIT-364 failure is a stop.
+5. (retired 2026-11-20: AIT-261 fixed by AIT-598, merged as 5f607264, 30.9 s / 90 s in the merge group; AIT-411 by AIT-546. LEAD OK 19:4x.)
+6. AIT-548 (browser, orb-reveal): "AIT-140 … brand and returning controls exceed 25% together" (orb-reveal.test.js:140).
+7. AIT-550 RETIRED for new work (AIT-550 merged 2026-11-19 15:37 as 55933f7f: the demo host aborts and drains its work before teardown). Applies ONLY to heads that do NOT contain 55933f7f (check: git merge-base --is-ancestor 55933f7f HEAD fails), and then exactly as before: UNIT only, demo/test/host.test.js file-level "generated asynchronous activity after the test ended … document is not defined" (not test/browser/demo.test.js). On any head that contains 55933f7f, ANY demo/test/host.test.js failure is a stop.
+8. AIT-554 RETIRED for new work (AIT-554 merged 2026-11-19 11:01 as f152e427: the fixture no longer rewrites the timer during the paint wait). Applies ONLY to heads that do NOT contain f152e427 (check: git merge-base --is-ancestor f152e427 HEAD fails), and then exactly as before: "AIT-102 PR 3: voice viewport matrix…" (voice-presentation.test.js:89) ONLY with the message "<state>-1440-<theme>-<lang>.png: stable backdrop paint". On any head that contains f152e427, ANY AIT-102 failure is a stop. (Was time-boxed to RC27; now resolved.)
+
+**Main-known on mbp2607 (macOS).** The following same-lane signatures were
+seen on main at `2ec62e83`. These are separate from the canonical entries
+above. Match the names and failure classes in the final-C evidence.
+
+- `html-preview.test.js` AIT-400, `1024/light/de` geometry.
+- `question-card.test.js` AIT-512 Control+Enter cases “long reply at 390
+  with visual keyboard holds its top through final/card paints” and
+  “overview anchoring stays active during a typed-send navigation intent”.
+- `understanding-failure.test.js` AIT-221, `de 390 light` and `de 390 dark`.
+- `email-mail-space.test.js` / `email-ask.test.js`, `actual.equals`
+  screenshot failure class.
+- `voice.test.js`, “resending failed typed input…” and
+  “a reload never sends paused:false…”.
+- `host-surface.test.js` AIT-261, “axe is not defined”.
+
+Preparation order (lane execution only):
+
+1. Verify the full first-parent content range, lock, name rule, final-lock
+   audit and presentation pin. Reserve once, mirror manifests and internal
+   pins, append sequence 39 history, and fold the next-notes stub. Commit
+   with `git commit -s` using the configured identity and Codex co-author
+   trailer.
+2. Run the release test set at final committed C. The durable wrapper tries
+   mbp2606 and falls back to the admitted mbp2607 lane. AGM2-HOLD remains
+   in force. Use one AIT run at a time, headless, with load ≤ 135. WAIT
+   (exit 3 or 7) means back off about five minutes and retry within the
+   preparation window. PAUSE-MBP2607 stops work on that lane. Every
+   release-test failure is a stop except the exact AIT-529 pair on a
+   macOS lane, which must be named if seen. The candidate builds twice,
+   verifies, exercises the isolated seventeen-module consumer and proves
+   exact rollback with mocks.
+
+   ```sh
+   MBP2607=1 EVIDENCE_OUT="$PWD/dist/aitrc29-final" FETCH_TRIES=300 \
+     "$HOME/.local/share/ait-qa/coordinator/rb-fetchretry.sh" \
+     "$PWD" unit --test-concurrency=2 \
+     test/release-candidate.test.js test/release-workflow.test.js \
+     test/release-candidate-gate.test.js test/release-publication.test.js \
+     test/release-prep.test.js test/release-normalize.test.js \
+     test/release-normalize-pack.test.js test/calver.test.js \
+     test/calver-surgical.test.js test/version-presentation.test.js \
+     test/consumer-isolation.test.js test/grok-release.test.js
+   ```
+
+   Run the whole browser suite at the same C through the same durable
+   wrapper with `MBP2607=1 MBP2607_BROWSER=1`, `FETCH_TRIES=300`,
+   `EVIDENCE_OUT` and detailed failure signatures. Run one browser suite
+   at a time. Record the platform, total and per-file counts, and exact
+   match for every failure. Stop on a failure outside the accepted and
+   same-lane main-known signatures. Run the independent RC28 cross-package
+   import check on every final tarball. Both counts must be zero.
+3. Retain `dist/aitrc29-final/candidate/` and copy the evidence directory
+   to `~/.local/share/ait-qa/release-evidence/aitrc29-final/`. Keep
+   `first/`, `second/`, `candidate-evidence.json`, deployment pins and
+   isolated consumer evidence. Confirm `source_commit` equals C and bind
+   `manifest_sha256` and `normalized_digest` to `first/`.
+4. Record C, its commits since L, actual final-C counts and lane, digests,
+   audit, import check and any pending evidence in
+   `.data/ait-rc29/handoff.txt`. This keeps the final build and release
+   qualification bound to C without an evidence-only commit. The
+   coordinator owns the release gates and MAC-OPS owns the cut.
+
 ## Twenty-eighth candidate (AIT-614)
 
 The reserved coordinate is `261121100916.0.0` (UTC reservation time 2026-11-21T10:09:16Z),
