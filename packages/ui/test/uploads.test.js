@@ -962,3 +962,54 @@ for (const defaults of [en, de]) test(`AIT-563 Low 5: ${defaults.display.locale}
   assert.equal(notice.includes(defaults.uploads.failedMany), false);
   for (const name of ['first.pdf', 'second.pdf']) assert.equal(notice.split(name).length - 1, 1);
 });
+
+// AIT-610 r5 (LEAD condition 1): the server refuses a file that is not
+// positively a supported document before storing it (kind 'document', reason
+// 'unsupported'). The client names it with the existing unsupported wording.
+for (const copy of [en, de]) for (const images of [false, true])
+  test(`AIT-610 r5: ${copy.display.locale}${images ? ' with image input' : ''} a document refused at intake is named with the file-type wording`, async t => {
+    const { c, root, calls } = setup(t, { copy, images, post: () => Response.json({ accepted: true, events: [], uploads: [],
+      refused: [{ index: 0, name: 'notes.txt', kind: 'document', reason: 'unsupported' }] }, { status: 202 }) });
+    await choose(root, [new window.File(['caf\xe9'], 'notes.txt', { type: 'text/plain' })]);
+    assert.equal(calls.filter(call => call.options.method === 'POST').length, 1);
+    assert.deepEqual(c.session.uploads, []);
+    const notice = root.querySelector('.composer-reason')?.textContent ?? '';
+    assert.ok(notice.startsWith(copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'notes.txt'))), notice);
+  });
+
+// AIT-610 r6 (gate5c defect b): a browser that consumed the pending event and
+// then reconnects after a server restart gets no new event (the derived
+// 'unavailable' is never written). The reconnect refresh re-reads the session
+// and shows TICK's copy for the lost image.
+for (const copy of [en, de]) test(`AIT-610 r6: ${copy.display.locale} a reconnect after the pending event shows the derived 'unavailable' for a lost image`, async t => {
+  const staged = { id: 'img-1', kind: 'image', state: 'staged-pending', filename: 'photo.png', mediaType: 'image/png', bytes: 2048, expiresAt: Date.now() + 600_000, at: at(10) };
+  const c = document.createElement('aithema-session'), session = createSession({ demo: true, locale: copy === de ? 'de' : 'en' });
+  session.uploads = [staged];
+  session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, uploads: { available: true, reason: null }, imageInput: { available: true } } };
+  let streams = 0;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    if (url.endsWith('/events')) {
+      // The first stream ends (the server restarted); later ones stay open.
+      if (++streams === 1) return new Response(new ReadableStream({ start(controller) { controller.close(); } }));
+      return new Response(new ReadableStream({ start(controller) { options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
+    }
+    // The server restarts after the first stream (AIT-610 r7: the first stream
+    // itself reconciles, so it must still see the row pending).
+    const lost = uploads => streams < 2 ? uploads : uploads.map(u => u.id === staged.id ? { ...u, state: 'staged-refused', reason: 'unavailable' } : u);
+    if (url.endsWith('/uploads') && !options.method) return Response.json({ uploads: lost(c.session.uploads), limits: UPLOAD_LIMITS });
+    if (/\/api\/sessions\/[^/]+$/u.test(url)) return Response.json({ ...c.session, uploads: lost(c.session.uploads) });
+    return Response.json({});
+  });
+  c.configure({ copy, copyForLocale: locale => ({ en, de })[locale], session, sessionToken: 'owner-fixture', entrance: 'choice' }); document.body.append(c); t.after(() => c.remove());
+  const root = c.shadowRoot;
+  for (let i = 0; i < 6; i++) await tick();
+  assert.equal(c.session.uploads[0].state, 'staged-pending', 'before the reconnect the browser still holds the pending row');
+  t.mock.timers.tick(1000);
+  for (let i = 0; i < 12; i++) await tick();
+  assert.ok(streams >= 2, 'reconnected');
+  assert.equal(c.session.uploads[0].state, 'staged-refused', JSON.stringify(c.session.uploads[0]));
+  assert.equal(c.session.uploads[0].reason, 'unavailable');
+  const shown = [...root.querySelectorAll('.image-refusal')].map(node => node.textContent).join(' ');
+  assert.ok(shown.includes(copy.imageRefusals.unavailable), shown);
+});

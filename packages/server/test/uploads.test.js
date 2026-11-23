@@ -74,13 +74,23 @@ for (const [name, content, mediaType, extractor] of [
 });
 
 for (const [name, content, reason] of [['empty.txt', bytes(''), 'empty'], ['broken.pdf', bytes('%PDF-broken'), 'malformed'],
-  ['empty.docx', docx(''), 'empty'], ['fake.pdf', bytes('This is plain text'), 'unsupported'],
-  ['disguised.txt', pdf(), 'unsupported'], ['binary.txt', Buffer.from([0, 1, 255]), 'unsupported']]) test(`unreadable ${name} reports ${reason} and discards originals`, async t => {
+  ['empty.docx', docx(''), 'empty']]) test(`unreadable ${name} reports ${reason} and discards originals`, async t => {
   const f = setup(t); await post(f, 'unreadable', [[name, content]]); await f.handlers.idle();
   const upload = f.storage.get(f.session.id).uploads[0];
   assert.equal(upload.state, 'unreadable'); assert.equal(upload.reason, reason); assert.equal(upload.text, undefined);
   assert.equal(f.storage.uploadBytes(f.session.id, upload.id), null);
 });
+// AIT-610 r5 (LEAD condition 1, allowlist): content that is not positively a
+// supported document type is refused at intake with 'unsupported'; no row and
+// no stored bytes (it used to be stored, then reported unreadable).
+for (const [name, content] of [['fake.pdf', bytes('This is plain text')], ['disguised.txt', pdf()], ['binary.txt', Buffer.from([0, 1, 255])]])
+  test(`unsupported ${name} is refused at intake before anything is stored`, async t => {
+    const f = setup(t), receipt = await post(f, 'unreadable', [[name, content]]); await f.handlers.idle();
+    assert.deepEqual(receipt.refused, [{ index: 0, name, kind: 'document', reason: 'unsupported' }]);
+    assert.deepEqual(receipt.uploads, []);
+    assert.equal(f.storage.get(f.session.id).uploads.length, 0);
+    assert.equal(f.storage.db.prepare('SELECT COUNT(*) AS n FROM uploads').get().n, 0);
+  });
 
 test('a host-lowered extractor ceiling reports limit and discards the original', async t => {
   const presets = mockPresets(), f = setup(t, { presets });

@@ -65,7 +65,8 @@ export function createImageInput() {
             }
           });
           if (scope.signal.aborted) abort();
-          else child.send({ bytes, extension });
+          // One serialized message holds the only parent-side IPC copy of the original.
+          else child.send({ extension, bytes });
         });
       } finally { scope.dispose(); }
     },

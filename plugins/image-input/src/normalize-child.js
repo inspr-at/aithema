@@ -1,4 +1,5 @@
 import sharp from 'sharp';
+import { decoderInput } from './normalize-input.js';
 // Permission mode supplies read-only module paths and no network or write grants.
 sharp.cache(false);
 sharp.concurrency(1);
@@ -6,7 +7,7 @@ const refuse = reason => ({ status: 'staged-refused', reason });
 process.once('message', async ({ bytes, extension }) => {
   let result;
   try {
-    const input = Buffer.from(bytes), settings = { limitInputPixels: 40_000_000, pages: 1, page: 0, animated: false, failOn: 'warning', sequentialRead: true };
+    const input = decoderInput(bytes), settings = { limitInputPixels: 40_000_000, pages: 1, page: 0, animated: false, failOn: 'warning', sequentialRead: true };
     const image = sharp(input, settings), metadata = await image.metadata();
     if (!['png', 'jpeg', 'webp', 'gif'].includes(metadata.format) || extension && (extension === 'jpg' ? 'jpeg' : extension) !== metadata.format) result = refuse('unsupported');
     else if (!metadata.width || !metadata.height || metadata.width > 16384 || metadata.height > 16384 || metadata.width * metadata.height > 40_000_000) result = refuse('dimensions');
