@@ -1002,6 +1002,10 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .image-refusal { display:block; overflow-wrap:anywhere; }
 .image-refusal__name { display:block; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; min-height:1.3em; }
 .image-refusals__dismiss { flex:none; display:inline-flex; align-items:center; min-height:44px; padding:0 4px; color:inherit; font:inherit; }
+/* In the choice composer, measure the available width beside the same dismiss
+   target used by the live notice. The measuring row has no visible icon. */
+.workspace:not([data-entrance="combined"]) .image-refusals-reserve__row .image-refusals__icon { display:none; }
+.workspace:not([data-entrance="combined"]) .image-refusals-reserve__row .image-refusals__dismiss { min-width:44px; padding:0; }
 .composer-reason:has(.image-refusals):not([data-held-consent]) { transition:none; position:absolute; inset:0; width:auto; height:auto; max-height:none; overflow:visible; }
 @media(max-width:600px) {
   /* Reserve the short phone reason slot with the declared input capability. */
@@ -1033,6 +1037,12 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .upload-notice-row [data-notice-action] > :first-child { flex:none; width:max-content; max-width:none; }
 .upload-notice-row [data-notice-action][data-action-wrap] { flex-direction:column; align-items:flex-start; }
 .upload-notice-row [data-action-wrap] > :first-child { max-width:100%; }
+/* A lone image refusal can wrap beside Dismiss within the idle slot.
+   Held and batched notices keep their existing row and sheet layout. */
+.composer-feedback > .composer-reason:not([data-held-consent], :has(> .upload-notice-row ~ .upload-notice-row))
+  > .upload-notice-row .image-refusal-item[data-action-wrap] { display:flex; flex-direction:row; align-items:center; gap:5px; }
+.composer-feedback > .composer-reason:not([data-held-consent], :has(> .upload-notice-row ~ .upload-notice-row))
+  > .upload-notice-row .image-refusal-item[data-action-wrap] > .image-refusal { flex:1; min-width:0; width:auto; }
 .upload-notice-join { flex:none; white-space:pre; }
 .upload-notice-row [data-action-wrap] > .upload-notice-join { display:none; }
 .upload-notice-row .consent-action { flex:none; display:inline-flex; align-items:center; width:max-content; max-width:100%; min-width:44px; min-height:44px;

@@ -1205,6 +1205,11 @@ the phone frame follows the approved voice-specific rows.
 
 The host's `<h1 slot="brand">` is visible beside the orb and remains the page's
 heading; without it the default brand keeps its previous hidden presentation.
+
+For the header's `slot="account"` and `slot="contact-launcher"`, supply a
+44 × 44 px icon control with an `aria-label` in the current language. Clip
+wider content to that box in the compact keyboard-up band.
+
 At 600 px and above, legal links in `slot="legal"` stand at the right of the footer
 bar on the entrance and in conversation. Below 600 px, an always-visible
 **Rechtliches** / **Legal** button at the 12 px right gutter opens those links
@@ -2568,11 +2573,6 @@ the inferred marker, across all command states.
 Use the existing light-DOM `slot="account"` for the host's account content. When
 the role control is available, that slot appears only in the desktop popover;
 when absent, no account line appears. The phone role sheet has no account line.
-On a phone, a control that a host inserts while the on-screen keyboard is up,
-into `slot="account"`, or into `slot="contact-launcher"` while the page is also
-pinch-zoomed, can overlap the pause control while Aithema's compact keyboard
-layout is active; header content already in place at load is not affected
-(known limitation, AIT-635).
 No address, verification claim or account label is invented by the module. The
 phone gear opens the role section and an entry to the existing AI processing
 settings. On desktop, the role trigger follows the AI notice in the left footer

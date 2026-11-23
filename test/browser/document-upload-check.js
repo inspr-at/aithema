@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { uploadNoticeSheetCheck } from './upload-notice-sheet-check.js';
-import { uploadFollowupCheck, heldUploadCheck, heldConsentFollowupCheck, heldRegressionCheck } from './upload-followup-check.js';
+import { uploadFollowupCheck, heldUploadCheck, heldConsentFollowupCheck, heldRegressionCheck, refusalReserveCheck } from './upload-followup-check.js';
 import { mixedUploadCheck } from './mixed-upload-check.js';
 import { noticeFocusRingCheck } from './notice-focus-ring-check.js';
 import { test } from 'node:test';
@@ -26,6 +26,7 @@ export function documentUploadCheck() {
   heldUploadCheck();
   heldConsentFollowupCheck();
   heldRegressionCheck();
+  refusalReserveCheck();
   noticeFocusRingCheck();
   for (const entrance of ['choice', 'combined']) for (const width of [390, 1440]) for (const locale of ['en', 'de']) {
     const theme = locale === 'en' ? 'light' : 'dark';

@@ -455,6 +455,7 @@ export const combinedEntranceStyles = `
      header's left end (the pause column the 88 px row frees), so every other
      header control keeps its x; only Pause moves. */
   .workspace[data-entrance="combined"][data-phone-keyboard-band] .band > .header-actions > [data-keyboard-late] { order:-1; }
+  .workspace[data-entrance="combined"][data-phone-keyboard-band] .band > .header-actions > [data-keyboard-late="latest"] { order:-2; }
   .workspace[data-entrance="combined"][data-phone-keyboard-band] .band > .audio-rail > .voice-cell--pause { pointer-events:auto; }
   .workspace[data-entrance="combined"][data-phone-keyboard-band] .band > .audio-rail .voice-state {
     visibility:visible; position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
