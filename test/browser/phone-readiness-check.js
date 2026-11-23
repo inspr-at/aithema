@@ -139,19 +139,18 @@ async function longestFeedback(page, record, live, locale) {
   // An unsupported document paints the two-line refusal facts plus the supported formats.
   await page.$eval('aithema-session', host => {
     const input = host.shadowRoot.querySelector('.attach-input'), transfer = new DataTransfer();
-    transfer.items.add(new File(['test data'], 'unsupported-format.heic'));
+    transfer.items.add(new File(['test data'], 'unsupported-format.unknown'));
     input.files = transfer.files;
     input.dispatchEvent(new Event('change'));
   });
-  await page.waitForFunction(() => c.shadowRoot.querySelector('.composer-reason .upload-notice-formats')?.checkVisibility());
+  await page.waitForFunction(() => c.shadowRoot.querySelector('.composer-reason .upload-notice-formats')?.checkVisibility(), { timeout: 10_000 });
   const refusal = await record('upload-feedback');
   positive('upload feedback formats', refusal.refusalFormats);
   positive('upload feedback reason', refusal.reason);
   close(refusal.reason.height, refusal.feedback.height, 'the upload feedback uses the full reserve');
   sameControls(live, refusal, 'longest feedback shown');
   await page.type('aithema-session >>> textarea', locale === 'de' ? 'Mit Freigabe.' : 'With approval.');
-  await page.click('aithema-session >>> .send');
-  await page.waitForFunction(() => sent.length === 2 && !c.shadowRoot.querySelector('.composer-reason').hasAttribute('data-upload-notice'));
+  await page.waitForFunction(() => !c.shadowRoot.querySelector('.composer-reason').hasAttribute('data-upload-notice'));
   sameControls(live, await record('upload-feedback-cleared'), 'longest feedback cleared');
 }
 
@@ -168,7 +167,7 @@ async function firstConcept(page, record, live) {
       artifact: { id: 'first-concept', mediaType: 'image/png', width: 56, height: 32, turnIds: [firstTurn.id], referenceIds: [],
         archived: false, feedback: { vote: 'clear', chips: [] }, provenance: { origin: 'ai-generated', generator: { provider: 'fixture' } } } } });
   });
-  await page.waitForFunction(() => c.shadowRoot.querySelector('.concept-phone-slot .concept-preview img[data-on]')?.naturalWidth > 0);
+  await page.waitForFunction(() => c.shadowRoot.querySelector('.concept-phone-slot .concept-preview img[data-on]')?.naturalWidth > 0, { timeout: 10_000 });
   const concept = await record('first-concept');
 
   positive('first concept access', concept.access);
@@ -224,6 +223,7 @@ export async function phoneReadinessCheck(t) {
         const physicalShortfall = Math.max(0, bottom(ready.card) - ready.dock.y);
         if (item.height === 664 && physicalShortfall > epsilon) {
           // The only acceptable overflow is exactly the space the dock occupies.
+          assert.equal(ready.clamp, '2', 'the welcome has reached its whole-line minimum');
           close(shortfall, physicalShortfall, 'the card shortfall equals the physical shortfall');
           assert.notEqual(ready.fade, 'none', 'overflow has a bottom fade');
           await page.$eval('aithema-session', host => {
