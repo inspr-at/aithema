@@ -376,15 +376,14 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"][data-phone-short] .composer-reason { position:static; width:auto; height:auto; clip-path:none; }
   .workspace[data-entrance="combined"] .composer-dock { position:fixed; z-index:9; left:var(--aithema-gutter); right:var(--aithema-gutter); bottom:calc(var(--phone-bottom,0px) + var(--phone-footer,57px) + var(--phone-dock-footer-gap)); }
   .workspace[data-entrance="combined"] .phone-dock-backdrop { display:block; position:fixed; z-index:8; left:0; right:0; bottom:var(--phone-bottom,0px); height:calc(var(--phone-dock,250px) + var(--phone-footer,57px) + var(--phone-dock-footer-gap) + var(--phone-dock-fade-overhang,12px)); background:var(--aithema-paper); mask-image:linear-gradient(to bottom,transparent,#000 12px); }
-  /* Align the conversation and the dock using the same footer gap. The first
-     grid gap is already above the conversation. Fade the backdrop inside the
-     concept slot so it cannot obscure the last line of readiness. Keep this
-     geometry through the first turn and the arrival of concept controls. */
-  .workspace[data-entrance="combined"][data-concept-layout="image"]:not([data-phone-keyboard]) {
+  /* Fit readiness to the dock using the shared footer gap. Fade the backdrop
+     inside the concept slot to keep the last readiness line clear. The live
+     overview below the transcript keeps its full page-bottom reserve. */
+  .workspace[data-entrance="combined"][data-concept-layout="image"][data-stage="ready"]:not([data-phone-keyboard]) {
     --phone-band-gap:.75rem; --phone-dock-fade-overhang:0px; row-gap:var(--phone-band-gap);
     /* The two grid gaps after the conversation already count toward the dock and footer reserve. */
     padding-bottom:calc(var(--phone-dock,250px) + var(--phone-footer,57px) + var(--phone-dock-footer-gap) - 2 * var(--phone-band-gap)); }
-  .workspace[data-entrance="combined"][data-concept-layout="image"]:not([data-phone-keyboard]) .conversation {
+  .workspace[data-entrance="combined"][data-concept-layout="image"][data-stage="ready"]:not([data-phone-keyboard]) .conversation {
     height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-band-gap) - var(--phone-footer,57px) - var(--phone-dock,250px) - var(--phone-dock-footer-gap)); }
   /* The scroll column's gap already separates the welcome from readiness. */
   .workspace[data-entrance="combined"][data-concept-layout="image"][data-stage="ready"]:not([data-phone-keyboard]) .intro { padding-top:0; }
