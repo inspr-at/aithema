@@ -30,6 +30,7 @@ function fixture(t, { copy = en, model = 'mock', label, offered = false, served 
   t.mock.method(URL, 'createObjectURL', () => 'blob:canvas-regression');
   t.mock.method(URL, 'revokeObjectURL', () => {});
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    url = String(url).replace(/^http:\/\/localhost(?=\/)/u, ''); // AIT-610 r9: owner routes arrive resolved
     calls.push(String(url));
     if (url.endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
       options.signal.addEventListener('abort', () => controller.close(), { once: true });

@@ -64,3 +64,14 @@ test('AIT-510: cancellation reaps the decoder before returning a pixel-free refu
   const result = await pending;
   assert.equal(result.status, 'staged-refused'); assert.equal(result.reason, 'cancelled'); assert.equal(result.bytes, undefined);
 });
+// AIT-610 r4 (gate3c M1): the child decodes a view over the bytes it received
+// over IPC, never another owned copy, so the stated memory bound holds.
+test('AIT-610 r4: the normalizer child reads its input as a view, without copying the original', async () => {
+  const { decoderInput } = await import('../src/normalize-input.js');
+  const received = new Uint8Array(new ArrayBuffer(64), 8, 32).fill(7);
+  const input = decoderInput(received);
+  assert.ok(Buffer.isBuffer(input), 'sharp receives a Buffer');
+  assert.equal(input.buffer, received.buffer, 'the same memory, not a copy');
+  assert.equal(input.byteOffset, received.byteOffset);
+  assert.equal(input.byteLength, received.byteLength);
+});

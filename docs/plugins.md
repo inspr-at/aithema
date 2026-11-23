@@ -316,6 +316,139 @@ endpoint, routing, account and operation; it cannot grant another provider's
 item. Its in-memory ledger intentionally loses grants on restart. Production
 hosts persist and audit their own decisions.
 
+### Image input: the server is authoritative
+
+The browser's image admission is best effort: the composer reads the
+`imageInput` feature, and reads it again before it plans an upload. A stale
+verdict can still send image bytes, for example right after a consent, preset
+or verification change. The server decides again on every request and drops
+refused bytes. Scope: image input through the upload route (upload, paste and
+drop). Two other byte paths follow their own rules, listed below.
+
+**Boundary.** "Image bytes" here means bytes the server processes as image
+input: sent to the image normalizer, to a model as an image, or served for
+rendering as an image. Those are never stored unless the normalizer accepted
+them. A file admitted as a text document is only ever extracted and processed
+as text: it is never rendered, never served as an image and never sent to a
+model as an image (the image paths accept only rows the image intake created;
+tested). Recognizing images that are encoded as text (an SVG root, Netpbm's
+ASCII forms) is best effort: common forms are recognized and become image
+input; a form the recognizer does not identify is a text document and follows
+the document rules. This is not a claim that every text-encoded image is
+recognized.
+
+- **Upload route** (`POST /api/sessions/:id/uploads`; a retry replays the same
+  receipt by `clientEventId`). Consent, configuration, verification, normalizer
+  health, the image quota and a consent revision during admission refuse the
+  image in the receipt's `refused[]` with its kind and reason. A purpose pause
+  (409), size or part limits (413), malformed multipart (400) and unavailable
+  documents (403) refuse the whole request. The server holds at most eight
+  image originals. While all eight slots are taken, a request is refused (429,
+  `reason: 'image-normalizations'`) before its body is read. Requests admitted
+  concurrently while slots were free take slots in one synchronous step at
+  admission; images beyond the free slots are refused in the receipt with
+  reason `image-normalizations` and never held. On every exit,
+  refusal or admission, the request body is zero-filled (only the parts of
+  admitted documents stay, which the document rules store), and a failed read
+  zero-fills its partial buffers. Image originals held in memory (LEAD
+  condition 1, for the deployed Node 24 with IPC `serialization: 'advanced'`:
+  one serialized send buffer; the receiver concatenates the chunks once and
+  reads a `Uint8Array` as a view): at most eight
+  (`MAX_PENDING_IMAGE_NORMALIZATIONS`) × the per-file cap (`maxBytes`,
+  20 MiB) = 160 MiB, plus the IPC copies of the one original being normalized
+  (one job at a time in the extraction slot): the server's send buffer with one
+  growth reallocation (2 × 20 MiB) and the normalizer child's received chunks
+  plus their concatenation (2 × 20 MiB; the decoder reads a view), 80 MiB. So
+  at most 240 MiB of image originals and their IPC copies. Arithmetic over live
+  copies, not an RSS measurement. The document path is bounded by its own
+  ceilings: request bodies `MAX_PENDING_UPLOAD_REQUESTS` (3) ×
+  `maxRequestBytes` (21 MiB); one extraction job at a time (the server's
+  extraction slot, shared with images, and the extractor's single process
+  slot); per file `EXTRACTOR_LIMITS.maxBytes` (20 MiB; larger stored bytes are
+  refused `limit` before extraction), so the job's SQLite read-back, the
+  extractor's owned snapshot (taken inside the slot) and the PDF child's own
+  copy of the file are each at most 20 MiB; the child runs under
+  `maxHeapMb` (128) and the watchdog's `maxRssMb` (384); parsing stops at
+  `maxPages` (100) and `maxChars` (60,000), and OOXML at `maxEntries` (512),
+  `maxPartBytes` (16 MiB), `maxUncompressedBytes` (48 MiB) and
+  `maxCompressionRatio` (100). Intake classification never copies a whole file
+  (under 0.5 MiB, see below).
+  Classification runs before any persistence. A file is image input when its
+  signature says image (PNG, JPEG, WebP, GIF, BMP, TIFF, HEIC/AVIF, JPEG XL,
+  Netpbm, best effort for its ASCII forms), it is a recognized standalone SVG
+  (an `svg` root element, optionally prefixed, whose name ends in whitespace,
+  `/` or `>`, after an optional XML declaration, comments and doctype, whatever
+  the suffix; plain text such as `<svg=` stays text), its name has an
+  image suffix, or its client MIME says image and its name has no document
+  suffix (AIT-510: a false image MIME on a named document keeps document
+  admission; an XML document whose root is not `svg` stays a document).
+  Documents are an allowlist: a file is stored as a document only when it is
+  positively one of the types the text extraction supports today
+  (`EXTRACTABLE_MEDIA_TYPES` in `@inspr/aithema-core/extractor`: PDF, DOCX,
+  XLSX, PPTX, and UTF-8 text, CSV, Markdown, JSON or XML). Everything else
+  (UTF-16 or other non-UTF-8 text, unknown binaries, other archives, a suffix
+  that contradicts the content) is refused in the receipt with kind
+  `document` and reason `unsupported` before anything is stored. Every refused
+  Office file (`.docx`, `.xlsx`, `.pptx`), password-protected, an older format
+  renamed, damaged or using a ZIP feature the reader does not support, is
+  refused with the same `unsupported` reason ("file type not accepted"); no
+  Office-specific reason is derived at intake (AIT-610 r9). Text is
+  checked over the whole file without a copy (no control bytes, valid UTF-8),
+  and its XML root and subtype are read from at most the first 64 KiB
+  (`UPLOAD_SNIFF_PREFIX_BYTES`), in one linear pass. If the XML prolog or the
+  root name does not end within that prefix, the file is refused as
+  `unsupported`. Refused bytes are
+  never written: no `uploads` row, no blob, no temp file, no cache. For
+  idempotent replay the receipt keeps the refused positions, kinds and reasons
+  plus a SHA-256 digest over the request's names and file digests, never the
+  bytes. A digest can confirm a guess of a predictable image when the other
+  request inputs are known.
+- **Staged normalization.** An admitted image's original stays in server memory
+  only, never in SQLite, its WAL, a backup or a file. Its `staged-pending` row
+  holds no bytes. The local normalizer is the server's own verifier (local,
+  free, credential-free); the runtime checks admission again before calling it.
+  Only an accepted image's normalized output is stored (`staged-ready`). A
+  refusal (admission, type, size, dimensions, malformed) records
+  `staged-refused` with its reason. The original is then dropped and zeroed.
+  Ownership and the job are registered before anything that can throw, so an
+  exception cannot strand an original; shutdown zeroes every original it still
+  holds. A restart loses originals still waiting. Nothing is written for them:
+  a `staged-pending` image row whose original no handler in the process holds
+  is reported as `staged-refused` with reason `unavailable` (never `deadline`)
+  whenever the session, its uploads or its events are read. The answer is the
+  same on every read and covers only the rows of the session being read.
+  Expiry removes the row at its normal staging deadline, like any refusal
+  record. The client tells the visitor to attach the image again (EN and DE
+  copy).
+- **Turns** carry upload IDs, never bytes. A refused or still pending ID cannot
+  be attached.
+
+Out of scope, with their own rules:
+
+- **Composed-voice audio relay.** It accepts binary audio bodies (at most
+  16 kB per frame) for the audio transport. It is not an image input path.
+- **Images embedded in PDF or Office documents.** A document is document
+  input. Its bytes are staged and read by the local text extractor under the
+  document rules. The extractor returns text only, so an embedded image never
+  becomes image input to a model lane (tested with an image embedded in a DOCX).
+
+`packages/server/test/refused-image-bytes.test.js` covers each listed path and
+reason with a sentinel image: no stored row or table, database file, WAL or
+rollback journal, backup snapshot taken during the job, temp file (sampled
+before and during the job, nested included), write through Node's `fs` write
+APIs, console or host log entry (message, stack and `Error.cause` included),
+stdout/stderr write, stored or live event, model-lane request or response body
+holds the refused bytes. Each channel has a positive control. Exact scope of
+the `fs` hook: `writeFile`/`writeFileSync`, `appendFile`/`appendFileSync`,
+`write`/`writeSync`, `writev`/`writevSync`, `createWriteStream`,
+`fs.promises` `writeFile`/`appendFile`, and a `FileHandle`'s `write`, `writev`,
+`writeFile` and `appendFile`, so a file deleted between temp samples is still
+seen. The hook covers only the test process, which runs the server with a fake
+normalizer. The real normalizer child is a separate process and is not hooked;
+it runs under Node's permission model with read-only module paths and no write
+grant. Writes made natively outside Node's `fs` APIs (other than SQLite's own
+files, which are scanned) are not observed.
+
 ## Routing and health
 
 **OpenAI Images compatibility note (AIT-300):** direct mode (`gpt-image-2`)

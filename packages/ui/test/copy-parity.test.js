@@ -49,3 +49,9 @@ test('AIT-228: footer flag follows UI language', () => {
   assert.doesNotMatch(languageFlag('de'), /#bd2940/u);
   assert.match(languageFlag('en'), /#bd2940/u);
 });
+
+test('AIT-610: an image lost to a restart (reason unavailable) tells the visitor to attach it again, in EN and DE', () => {
+  // TICK's binding copy (AIT-610 r3 look): no "Please"/"Bitte", "can't", Sie form.
+  assert.equal(en.imageRefusals.unavailable, "Images can't be prepared right now. Attach the image again.");
+  assert.equal(de.imageRefusals.unavailable, 'Bilder lassen sich gerade nicht vorbereiten. Hängen Sie das Bild erneut an.');
+});

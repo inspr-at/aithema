@@ -16,6 +16,8 @@ export const EXTRACTOR_LIMITS: Readonly<ExtractionLimits>;
 export const UPLOAD_LIMITS: Readonly<{maxRequestBytes: number; maxFilesPerRequest: number; maxDocumentsPerSession: number; requestBudgetMs: number; providerDocumentChars: number}>;
 export const EXTRACTOR_MEDIA_TYPES: Readonly<{pdf: string; docx: string; xlsx: string; pptx: string}>;
 export const TEXT_MEDIA_TYPES: readonly string[];
+export const EXTRACTABLE_MEDIA_TYPES: readonly string[];
+export const EXTRACTOR_EXTENSIONS: Readonly<Record<'pdf' | 'docx' | 'xlsx' | 'pptx' | 'txt' | 'md' | 'csv' | 'json' | 'xml', string>>;
 export function normalizeExtractorLimits(value?: Partial<ExtractionLimits>): Readonly<ExtractionLimits>;
 export function sniffDocument(bytes: Uint8Array, limits?: ExtractionLimits): {mediaType: string; reason?: string};
 export function sniffUploadMime(bytes: Uint8Array, limits?: ExtractionLimits): string;

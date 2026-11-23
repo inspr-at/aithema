@@ -534,7 +534,7 @@ export const de = {
     "dimensions": "Die Bildabmessungen sind zu groß.",
     "deadline": "Die Bildvorbereitung hat zu lange gedauert.",
     "cancelled": "Die Bildvorbereitung wurde abgebrochen.",
-    "unavailable": "Bilder können gerade nicht vorbereitet werden.",
+    "unavailable": "Bilder lassen sich gerade nicht vorbereiten. Hängen Sie das Bild erneut an.",
     "session": "Die Bilder überschreiten die gesamte Dateigröße dieses Gesprächs.",
     "model": "Bilder werden von diesem Assistenten nicht gelesen.",
     "live-call": "Bilder lassen sich im Textmodus senden.",

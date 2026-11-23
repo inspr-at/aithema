@@ -34,6 +34,10 @@ export async function readBody(request, limit = REQUEST_LIMIT) {
   const body = declared === null ? null : Buffer.allocUnsafe(declared);
   const reader = request.body.getReader();
   let first, growing, size = 0;
+  // AIT-610 r3: a body may carry refused image bytes. Every partial buffer is
+  // zero-filled when the read fails; the caller zero-fills the returned body
+  // when it is done with it. Chunks stay the producer's: a producer may reuse
+  // its chunk buffer (AIT-219's streamed fixture does), so they are not zeroed.
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -59,6 +63,9 @@ export async function readBody(request, limit = REQUEST_LIMIT) {
     }
     if (growing) return Buffer.from(growing, 0, size);
     return first ? Buffer.from(first.buffer, first.byteOffset, first.byteLength) : Buffer.alloc(0);
+  } catch (error) {
+    body?.fill(0); first?.fill(0); if (growing) new Uint8Array(growing).fill(0);
+    throw error;
   } finally { reader.releaseLock(); }
 }
 
@@ -118,7 +125,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       const session = storage.get(id), featureMatrix = await pluginRuntime.matrix(session);
       const current = storage.get(id), { ownerHash, ...publicSession } = current;
       if (current.tombstone || current.ownerHash !== session.ownerHash) throw new NotFoundError('Session not found');
-      if (current.seq === session.seq) return { ...publicSession,
+      // AIT-610 r5: a lost staged image reads as 'unavailable' (derived, no write).
+      if (current.seq === session.seq) return { ...publicSession, uploads: uploadHandlers.reportUploads(id, publicSession.uploads),
         ...(host?.emailOffer ? { emailOffer: emailOfferPolicy(host.emailOffer) } : {}),
         ...(resolveOpener(opener, current.locale) ? { opener: resolveOpener(opener, current.locale) } : {}), ...(voiceHandlers ? { voiceLifecycle: voiceHandlers.snapshot(id) } : {}),
         ...(host?.identity?.chooseRole === true ? { roleChoice: hostHandlers.roleChoice(id) } : {}),
@@ -495,7 +503,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         request.signal.addEventListener('abort', abort, { once: true });
         stop.signal.addEventListener('abort', abort, { once: true });
         // Synchronous replay + subscription cannot interleave with a publication.
-        for (const event of storage.read(id, Number(raw))) send(event);
+        for (const event of storage.read(id, Number(raw))) send(uploadHandlers.reportEvent(id, event));
         if (!closed) set.add(send);
         if (request.signal.aborted || stop.signal.aborted) abort();
         else if (!closed) {
@@ -801,7 +809,9 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
             reason: current.consentWithdrawn ? 'consent-withdrawn' : 'publication-not-allowed' });
           else artifacts.push(storage.conceptArtifact(id, artifactId));
         }
-        return new Response(exportSession(current, artifacts, withheld, { exportedAt: new Date(now()).toISOString(),
+        // AIT-610 r6: the export shows each upload as a read does (a staged image
+        // lost to a restart is the derived 'unavailable', not raw pending).
+        return new Response(exportSession({ ...current, uploads: uploadHandlers.reportUploads(id, current.uploads) }, artifacts, withheld, { exportedAt: new Date(now()).toISOString(),
           images: current.uploads.filter(upload => upload.kind === 'image' && upload.state === 'sent').map(upload => storage.imageUpload(id, upload.id)).filter(Boolean) }), {
         headers: { 'content-type': 'application/zip', 'content-disposition': 'attachment; filename="aithema-session.zip"', 'cache-control': 'no-store' },
       });

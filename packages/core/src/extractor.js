@@ -15,6 +15,15 @@ export const EXTRACTOR_MEDIA_TYPES = Object.freeze({ pdf: 'application/pdf',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
 export const TEXT_MEDIA_TYPES = Object.freeze(['text/plain', 'text/csv', 'text/markdown', 'application/xml', 'application/json']);
+// AIT-610 r5: the one list of document types the text extraction supports
+// today (the bundled extract-pdf, extract-ooxml and extract-text formats; a test
+// keeps them in sync). Upload intake persists ONLY files positively recognized
+// as one of these; everything else is refused before persistence.
+export const EXTRACTABLE_MEDIA_TYPES = Object.freeze([...Object.values(EXTRACTOR_MEDIA_TYPES), ...TEXT_MEDIA_TYPES]);
+// Document suffixes and the type each one names.
+export const EXTRACTOR_EXTENSIONS = Object.freeze({ pdf: EXTRACTOR_MEDIA_TYPES.pdf, docx: EXTRACTOR_MEDIA_TYPES.docx,
+  xlsx: EXTRACTOR_MEDIA_TYPES.xlsx, pptx: EXTRACTOR_MEDIA_TYPES.pptx, txt: 'text/plain', md: 'text/markdown', csv: 'text/csv',
+  json: 'application/json', xml: 'application/xml' });
 const UNREADABLE_REASONS = ['unsupported', 'empty', 'malformed', 'encrypted', 'limit'];
 
 export function normalizeExtractorLimits(value = {}) {
