@@ -308,7 +308,7 @@ export const combinedEntranceStyles = `
      painted; it stays in the accessibility tree), so Send and Mic never move
      unprompted. It still opens at 0 px when nothing has shown yet. */
   .workspace[data-entrance="combined"][data-phone-keyboard] .composer-feedback[data-keyboard-kept]:not([data-saved]) > .composer-reason:is([data-shortcut],:empty) { opacity:0; pointer-events:none; }
-  .workspace[data-entrance="combined"] { height:auto; padding-bottom:calc(var(--phone-dock,250px) + var(--phone-footer,57px) + 24px); }
+  .workspace[data-entrance="combined"] { --phone-dock-footer-gap:12px; height:auto; padding-bottom:calc(var(--phone-dock,250px) + var(--phone-footer,57px) + 24px); }
   .workspace[data-entrance="combined"] .conversation { height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,250px) - 32px); min-height:0; }
   .workspace[data-entrance="combined"] [data-host-opener] { --turn-max-width:100%; padding-block:6px; }
   .workspace[data-entrance="combined"] [data-host-opener] > strong { margin-bottom:0; }
@@ -374,8 +374,18 @@ export const combinedEntranceStyles = `
   .workspace[data-entrance="combined"][data-phone-short] .transcript-latest { position:absolute; right:0; bottom:0; margin:0; }
   .workspace[data-entrance="combined"][data-phone-short] textarea { height:var(--composer-field-height,44px); min-height:44px; }
   .workspace[data-entrance="combined"][data-phone-short] .composer-reason { position:static; width:auto; height:auto; clip-path:none; }
-  .workspace[data-entrance="combined"] .composer-dock { position:fixed; z-index:9; left:var(--aithema-gutter); right:var(--aithema-gutter); bottom:calc(var(--phone-bottom,0px) + var(--phone-footer,57px) + 12px); }
-  .workspace[data-entrance="combined"] .phone-dock-backdrop { display:block; position:fixed; z-index:8; left:0; right:0; bottom:var(--phone-bottom,0px); height:calc(var(--phone-dock,250px) + var(--phone-footer,57px) + 24px); background:var(--aithema-paper); mask-image:linear-gradient(to bottom,transparent,#000 12px); }
+  .workspace[data-entrance="combined"] .composer-dock { position:fixed; z-index:9; left:var(--aithema-gutter); right:var(--aithema-gutter); bottom:calc(var(--phone-bottom,0px) + var(--phone-footer,57px) + var(--phone-dock-footer-gap)); }
+  .workspace[data-entrance="combined"] .phone-dock-backdrop { display:block; position:fixed; z-index:8; left:0; right:0; bottom:var(--phone-bottom,0px); height:calc(var(--phone-dock,250px) + var(--phone-footer,57px) + var(--phone-dock-footer-gap) + var(--phone-dock-fade-overhang,12px)); background:var(--aithema-paper); mask-image:linear-gradient(to bottom,transparent,#000 12px); }
+  /* Align the conversation and the dock using the same footer gap. The first
+     grid gap is already above the conversation. Fade the backdrop inside the
+     concept slot so it cannot obscure the last line of readiness. Keep this
+     geometry through the first turn and the arrival of concept controls. */
+  .workspace[data-entrance="combined"][data-concept-layout="image"]:not([data-phone-keyboard]) {
+    --phone-band-gap:.75rem; --phone-dock-fade-overhang:0px; row-gap:var(--phone-band-gap); }
+  .workspace[data-entrance="combined"][data-concept-layout="image"]:not([data-phone-keyboard]) .conversation {
+    height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-band-gap) - var(--phone-footer,57px) - var(--phone-dock,250px) - var(--phone-dock-footer-gap)); }
+  /* The scroll column's gap already separates the welcome from readiness. */
+  .workspace[data-entrance="combined"][data-concept-layout="image"][data-stage="ready"]:not([data-phone-keyboard]) .intro { padding-top:0; }
   /* AIT-618 r2 (TICK (a)): while the keyboard is up the AI notice is ONE text
      line. Its first sentence yields with "…" (the full text stays in the
      node), "More" keeps its 44 px target as an overlap that starts in the
