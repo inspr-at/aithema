@@ -46,13 +46,14 @@ export function adminModel(state, audit) {
 export function renderAdmin(m, locale = 'de') {
   const loading = m.signed === 'loading';
   if (loading) m = loadingModel;
+  const disabledWhileLoading = loading ? ' disabled' : '';
   const C = adminCopy[locale === 'en' ? 'en' : 'de'];
   const nf = n => new Intl.NumberFormat(C.locale).format(n);
   const usd = credits => new Intl.NumberFormat(C.locale, { style: 'currency', currency: 'USD', currencyDisplay: 'code' }).format(credits / 100);
   const when = iso => new Intl.DateTimeFormat(C.locale, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
 const band = () => `<header class="ad-band"><span class="ad-wordmark"><span class="ad-mark" aria-hidden="true"></span>Aithema</span></header>`
 const head = (m) => `<a class="ad-back" href="/">${I.back}<span>${esc(C.back)}</span></a>
-  <h1 class="ad-title">${esc(C.title)}</h1>
+  <h1 class="ad-title" id="ad-title">${esc(C.title)}</h1>
   ${m.signed === 'in' || loading ? `<form class="ad-who" method="post"><span class="nm">${loading ? '' : esc(fill(C.operator, { name: m.name }))}</span><button type="submit" disabled>${esc(C.logout)}</button></form>
     ${statusCell('operator', [esc(C.loading), esc(C.loadFailed), esc(C.logoutFailed)], loading ? C.loading : '')}` : ''}`
 
@@ -77,7 +78,7 @@ function creditsSection(m) {
     return `<span class="ad-sub-stack">${options.map((text, i) => `<span class="ad-sub${i === active ? active ? ' off' : '' : ' msr'}"${i === active ? '' : ' aria-hidden="true"'}>${esc(text)}</span>`).join('')}</span>`;
   }
   const rows = TIERS.map(t => `<div class="ad-tier"><label for="f-${t}"><span class="ad-name">${esc(C.credits.tiers[t][0])}</span>${sub(t)}</label>
-    <div class="ad-fld" data-fld="${t}"><input id="f-${t}" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" value="${nf(v[t])}" data-base="${m.allow[t]}" data-sec="credits"><span class="unit">${esc(C.credits.unit)}</span></div>
+    <div class="ad-fld" data-fld="${t}"><input id="f-${t}" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" value="${nf(v[t])}" data-base="${m.allow[t]}" data-sec="credits"${disabledWhileLoading}><span class="unit">${esc(C.credits.unit)}</span></div>
     <span class="ad-usd" data-usd="${t}">${usd(v[t])}</span></div>`).join('')
   const longestOrder = fill(C.credits.order, { tier: C.credits.tiers.emailConfirmed[0], prev: C.credits.tiers.emailGiven[0] })
   return `<section class="ad-sec" aria-labelledby="h-credits" data-sec="credits"><h2 id="h-credits">${esc(C.credits.h)}</h2><p class="ad-intro">${esc(C.credits.intro)}</p>
@@ -87,7 +88,7 @@ function creditsSection(m) {
 function confirmSection(m) {
   const on = m.conf
   return `<section class="ad-sec" aria-labelledby="h-confirm" data-sec="confirm"><h2 id="h-confirm">${esc(C.confirm.h)}</h2>
-    <div class="ad-body"><label class="ad-check${m.delivery ? '' : ' disabled'}"><input type="checkbox" id="f-confirm" data-sec="confirm" data-base="${on}"${on ? ' checked' : ''}${m.delivery ? '' : ' disabled'}>
+    <div class="ad-body"><label class="ad-check${m.delivery ? '' : ' disabled'}"><input type="checkbox" id="f-confirm" data-sec="confirm" data-base="${on}"${on ? ' checked' : ''}${m.delivery ? disabledWhileLoading : ' disabled'}>
       <span class="ad-box">${I.check}</span><span><b>${esc(C.confirm.label)}</b><small>${esc(C.confirm.desc)}</small><small${m.delivery ? ' class="msr" aria-hidden="true"' : ''}>${esc(C.confirm.noDelivery)}</small></span></label></div>
     ${saveRow('confirm', commonMsgs())}</section>`
 }
@@ -107,7 +108,7 @@ function mailSection(m) {
     return [fill(C.mail.left, { n: nf(max) }), C.mail.reached, C.mail.paused].map(text => measure(line + reasonSeparator + esc(text))).join('');
   };
   const row = (grp, win, val, use, peak) => `<div class="ad-lim"><label for="f-${grp}-${win}">${esc(C.mail[win])}</label>
-    <div class="ad-fld" data-fld="${grp}-${win}"><input id="f-${grp}-${win}" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" value="${nf(val)}" data-base="${val}" data-sec="mail"></div>
+    <div class="ad-fld" data-fld="${grp}-${win}"><input id="f-${grp}-${win}" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" value="${nf(val)}" data-base="${val}" data-sec="mail"${disabledWhileLoading}></div>
     <p class="ad-use ad-stack"><span>${loading ? '' : useLine(use, val, win, peak)}</span>${useMeasure(win, peak)}</p></div>`
   return `<section class="ad-sec" aria-labelledby="h-mail" data-sec="mail"><h2 id="h-mail">${esc(C.mail.h)}</h2><p class="ad-intro">${esc(C.mail.intro)}</p>
     <div class="ad-body"><div class="ad-group" role="group" aria-labelledby="h-mail-g"><h3 id="h-mail-g">${esc(C.mail.global)}</h3>
@@ -154,7 +155,7 @@ function adminPage(m) {
     <div class="ad-out"><p>${esc(m.signed === 'expired' ? C.out.expired : C.out.line)}</p>
     <a class="ad-login">${I.login}<span>${esc(fill(C.out.login, { provider: C.provider }))}</span></a></div></main></div>`
   return `<div class="ad-page" data-product data-signed="${m.signed}">${band()}<main class="ad-main">${head(m)}
-    <div class="ad-content"${loading ? ' inert aria-busy="true"' : ''}>${creditsSection(m)}${confirmSection(m)}${mailSection(m)}${provSection(m)}${logSection(m)}</div></main></div>`
+    <div class="ad-content" role="form" aria-labelledby="ad-title"${loading ? ' aria-busy="true"' : ''}>${creditsSection(m)}${confirmSection(m)}${mailSection(m)}${provSection(m)}${logSection(m)}</div></main></div>`
 }
 
 

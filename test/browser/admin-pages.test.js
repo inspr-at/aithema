@@ -129,14 +129,17 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
     page.on('request', r => { if (!r.url().startsWith(server.url) && !r.url().startsWith('data:')) external.push(r.url()); });
     await run('page.evaluateOnNewDocument', () => page.evaluateOnNewDocument(locale => localStorage.setItem('aithema-demo-locale', locale), locale));
     const open = async (captureFirstFrame = false, width) => {
-      let first;
+      let first, loadingForm;
       if (captureFirstFrame) stateGate = { arrived: Promise.withResolvers(), release: Promise.withResolvers() };
       try {
         await run('page.goto', () => page.goto(server.url + '/admin?lang=' + locale, { waitUntil: 'domcontentloaded' }));
         if (captureFirstFrame) {
           await run('guarded admin state arrival', () => stateGate.arrived.promise);
           assert.equal(await run('admin loading state', () => page.$eval('.ad-page', n => n.dataset.signed)), 'loading');
-          assert.equal(await run('admin form busy', () => page.$eval('.ad-content', n => n.getAttribute('aria-busy'))), 'true');
+          loadingForm = await run('admin form busy', () => page.$eval('.ad-content', n => ({
+            role: n.getAttribute('role'), ariaBusy: n.getAttribute('aria-busy'),
+          })));
+          assert.deepEqual(loadingForm, { role: 'form', ariaBusy: 'true' });
           await run('focus back link', () => page.focus('.ad-back'));
           const value = await run('attempt to focus a loading tier field', () => page.$eval('#f-emailGiven', input => {
             input.focus();
@@ -170,7 +173,8 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
         const settled = await run('settled geometry', () => loadingGeometry(page));
         assert.deepEqual(settled, first, `${locale} ${width}: loading and settled settings boxes`);
         assert.equal(await run('admin settled state', () => page.$eval('.ad-page', n => n.dataset.signed)), 'in');
-        assert.equal(await run('admin form ready', () => page.$eval('.ad-content', n => n.hasAttribute('aria-busy'))), false);
+        const settledAriaBusy = await run('admin form ready', () => page.$eval('.ad-content', n => n.getAttribute('aria-busy')));
+        assert.equal(settledAriaBusy, null);
         assert.equal(await run('settled focus', () => page.evaluate(() => document.activeElement.matches('.ad-back'))), true);
         assert.deepEqual(await run('settled tier controls', () => page.$$eval('.ad-tier input', inputs => inputs.map(input => !input.disabled && !input.readOnly))), [true, true, true]);
         assert.equal(await run('operator name', () => page.$eval('.ad-who .nm', n => n.textContent)), 'Operator: Ada');
@@ -184,7 +188,7 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
         assert.equal(await run('settled tier value', () => page.$eval('#f-emailGiven', input => input.value)), '1800');
         await run('restore settled tier value', () => edit(page, value));
         await run('restore back link focus', () => page.focus('.ad-back'));
-        tick.push({ locale, width, first, settled });
+        tick.push({ locale, width, first, settled, ariaBusy: { first: loadingForm.ariaBusy, settled: settledAriaBusy } });
       }
     };
     const shot = async (state, width, theme, part = '') => {

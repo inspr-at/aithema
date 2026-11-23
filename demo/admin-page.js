@@ -93,11 +93,13 @@ async function reload() {
   const dashboard = document.createElement('template');
   dashboard.innerHTML = renderAdmin(adminModel(fresh, log), locale);
   const page = document.querySelector('.ad-page');
+  const settings = page.querySelector('.ad-content');
   page.querySelector('.ad-who .nm').textContent = dashboard.content.querySelector('.ad-who .nm').textContent;
-  page.querySelector('.ad-content').replaceWith(dashboard.content.querySelector('.ad-content'));
+  settings.replaceChildren(...dashboard.content.querySelector('.ad-content').childNodes);
   page.dataset.signed = 'in';
   state = fresh; audit = log; loadStatus = '';
   showOperatorStatus(); wire();
+  settings.removeAttribute('aria-busy');
 }
 function updateDependencies() {
   const m = adminModel(state, audit), d = document.createElement('div'); d.innerHTML = renderAdmin(m, locale);
