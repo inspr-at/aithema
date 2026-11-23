@@ -224,15 +224,15 @@ export function reduceCredits(state, event) {
       }
       break;
     case 'balance': {
-      const view = event.balance;
-      if (view?.sessionId !== next.sessionId || !['owner', 'session', 'voiceVisitor'].every(key => {
-        const part = view?.[key];
+      const balance = event.balance;
+      if (balance?.sessionId !== next.sessionId || !['owner', 'session', 'voiceVisitor'].every(key => {
+        const part = balance?.[key];
         if (!part || !integer(part.limitMicro) || !integer(part.committedMicro)) return false;
         const expected = balancePart(part.limitMicro, part.committedMicro);
         return part.availableMicro === expected.availableMicro && part.overrunMicro === expected.overrunMicro;
       })) throw new TypeError('Invalid credit balance event');
       const project = part => balancePart(part.limitMicro, part.committedMicro, part.reservedMicro === undefined ? undefined : part);
-      next.balance = { sessionId: view.sessionId, owner: project(view.owner), session: project(view.session), voiceVisitor: project(view.voiceVisitor) };
+      next.balance = { sessionId: balance.sessionId, owner: project(balance.owner), session: project(balance.session), voiceVisitor: project(balance.voiceVisitor) };
       break;
     }
     case 'limit':

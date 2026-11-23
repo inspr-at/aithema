@@ -178,6 +178,7 @@ export const de = {
     operatorName: 'Operator: {name}',
     operatorLogout: 'Abmelden',
     operatorError: 'Die Operator-Anmeldung ist fehlgeschlagen. Bitte versuchen Sie es erneut.',
+    operatorLogoutError: 'Die Abmeldung ist fehlgeschlagen. Versuchen Sie es erneut.',
 
     open: 'Einstellungen', title: 'Einstellungen', tabs: { general: 'Allgemein', model: 'KI-Modell', local: 'Erweitert' },
     processing: 'Datenverarbeitung', model: 'Modell', responseStyle: 'Antwortstil', faster: 'Schneller', moreThorough: 'Gründlicher',

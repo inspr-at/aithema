@@ -1,5 +1,6 @@
 import { adminCopy } from './admin-copy.js';
 import { ownerFetch } from '../packages/ui/src/owner-request.js';
+import { guardOperatorLogin, wireOperatorLogout } from '../packages/ui/src/operator-actions.js';
 import { adminModel, renderAdmin, TIERS, esc, fill } from './admin-view.js';
 import { preferredLocale } from './page-preferences.js';
 
@@ -15,6 +16,7 @@ const time = at => {
   return new Intl.DateTimeFormat(C.locale, { ...(sameDay ? {} : { day: 'numeric', month: 'short' }), hour: '2-digit', minute: '2-digit' }).format(d);
 };
 let state, audit, hostNow, busy = false;
+let loadStatus = C.loading, logoutFailed = false;
 const statusIcon = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 7.6v.2"/></svg>';
 function section(id) {
   const el = document.querySelector(`.ad-sec[data-sec="${id}"]`); if (!el) return null;
@@ -71,6 +73,11 @@ function edited(id) {
 function signedOut() {
   busy = false; state = undefined;
   document.body.innerHTML = renderAdmin({ signed: 'expired' }, locale);
+  guardOperatorLogin(document.querySelector('.ad-login'), { admin: true });
+}
+function showOperatorStatus() {
+  const line = document.querySelector('[data-status=operator] .cur');
+  if (line) line.textContent = logoutFailed ? C.logoutFailed : loadStatus;
 }
 async function read(path, options) {
   // AIT-625 r7: operator requests carry the session cookies too, so they use the guarded helper.
@@ -83,7 +90,16 @@ async function read(path, options) {
 async function reload() {
   // Serialize the two reads so a 401 cannot trigger a later stale render.
   const fresh = await read('state'), log = await read('audit');
-  state = fresh; audit = log; document.body.innerHTML = renderAdmin(adminModel(state, audit), locale); wire();
+  const dashboard = document.createElement('template');
+  dashboard.innerHTML = renderAdmin(adminModel(fresh, log), locale);
+  const page = document.querySelector('.ad-page');
+  const settings = page.querySelector('.ad-content');
+  page.querySelector('.ad-who .nm').textContent = dashboard.content.querySelector('.ad-who .nm').textContent;
+  settings.replaceChildren(...dashboard.content.querySelector('.ad-content').childNodes);
+  page.dataset.signed = 'in';
+  state = fresh; audit = log; loadStatus = '';
+  showOperatorStatus(); wire();
+  settings.removeAttribute('aria-busy');
 }
 function updateDependencies() {
   const m = adminModel(state, audit), d = document.createElement('div'); d.innerHTML = renderAdmin(m, locale);
@@ -158,14 +174,18 @@ function wire() {
 addEventListener('beforeunload', event => {
   if (state && ['credits', 'confirm', 'mail'].some(id => section(id)?.dirty)) { event.preventDefault(); event.returnValue = ''; }
 });
-document.documentElement.lang = locale === 'en' ? 'en' : 'de'; document.title = C.title + ' · Aithema';
-if (document.querySelector('.ad-page')?.dataset.signed === 'in') {
+const signed = document.querySelector('.ad-page')?.dataset.signed ?? 'out';
+if (document.documentElement.lang !== C.locale) document.body.innerHTML = renderAdmin({ signed }, locale);
+document.documentElement.lang = C.locale; document.title = C.title + ' · Aithema';
+if (signed === 'loading') {
+  wireOperatorLogout(document.querySelector('.ad-who'), {
+    showError: failed => { logoutFailed = failed; showOperatorStatus(); },
+    onLogout: () => { state = undefined; },
+  });
   try { await reload(); } catch (error) {
-    if (!error.expired) {
-      // The authenticated server-rendered state stays readable; reload retries initialization.
-      const status = document.querySelector('.ad-status .cur'); if (status) status.textContent = C.failed;
-    }
+    if (!error.expired) { loadStatus = C.loadFailed; showOperatorStatus(); }
   }
 } else {
-  document.body.innerHTML = renderAdmin({ signed: document.querySelector('.ad-page')?.dataset.signed ?? 'out' }, locale);
+  const login = document.querySelector('.ad-login');
+  if (login) guardOperatorLogin(login, { admin: true });
 }

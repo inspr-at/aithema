@@ -3,6 +3,7 @@ import { de } from '../packages/ui/src/i18n/de.js';
 import { withDemoConsentCopy } from './consent-copy.js';
 import { postJson } from './post-json.js';
 import { ownerFetch } from '../packages/ui/src/owner-request.js';
+import { isOperatorRoute } from '../packages/ui/src/operator-actions.js';
 import { localeKey, sessionKey, preferredLocale, remember, mountTheme, paintUtilities } from './page-preferences.js';
 
 // START consentReturnPath: normalize first, then check again. Backslashes and
@@ -11,7 +12,7 @@ export function consentReturnPath(value, origin) {
   if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//') || /[\\\u0000-\u0020]/u.test(value)) return '/';
   try {
     const url = new URL(value, origin);
-    if (url.origin !== origin || url.pathname.startsWith('//')) return '/';
+    if (url.origin !== origin || url.pathname.startsWith('//') || isOperatorRoute(url.pathname)) return '/';
     return url.pathname + url.search + url.hash;
   } catch { return '/'; }
 }
@@ -25,7 +26,8 @@ export function translatedItem(item, copy, presentation, locale) {
 // reads and writes carry the owner cookie, so by default they go through the guarded helper.
 export async function mountConsentPage({ document = globalThis.document, location = globalThis.location,
   storage, fetchImpl = (path, init) => ownerFetch(document.defaultView, path, init),
-  submit = (path, body, options) => postJson(path, body, { ...options, view: document.defaultView }), clock = globalThis, navigate = path => location.assign(path) } = {}) {
+  submit = (path, body, options) => postJson(path, body, { ...options, view: document.defaultView }), clock = globalThis,
+  navigate = path => location.assign(new URL(consentReturnPath(path, location.origin), location.origin).href) } = {}) {
   const query = new URLSearchParams(location.search), id = query.get('session');
   const returnTo = consentReturnPath(query.get('return'), location.origin);
   const fieldset = document.querySelector('#processing-items'), status = document.querySelector('#consent-status');

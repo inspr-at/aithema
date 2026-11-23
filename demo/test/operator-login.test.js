@@ -20,7 +20,7 @@ async function fixture(t, settings = {}) {
       incoming.on('end', () => {
         const headers = new Headers();
         for (let i = 0; i < incoming.rawHeaders.length; i += 2) headers.append(incoming.rawHeaders[i], incoming.rawHeaders[i + 1]);
-        resolve(new Response(Buffer.concat(chunks), { status: incoming.statusCode, headers }));
+        resolve(new Response(chunks.length ? Buffer.concat(chunks) : null, { status: incoming.statusCode, headers }));
       });
     });
     outgoing.on('error', reject); outgoing.end(init.body);
@@ -105,6 +105,19 @@ test('AIT-165 logout requires same-origin POST and revokes the server grant', as
   }
   const response = await f.call('/api/operator/logout/', cookie, { method: 'POST', headers: { origin, 'content-type': 'application/x-www-form-urlencoded' }, body: '' });
   assert.equal(response.status, 303); assert.match(response.headers.getSetCookie()[0], /Max-Age=0/u);
+  assert.equal(Object.hasOwn(await (await f.call('/demo/config', cookie)).json(), 'operator'), false);
+});
+
+test('AIT-633 guarded logout revokes the grant and clears both cookies without an HTTP redirect', async t => {
+  const f = await fixture(t), cookie = f.grant(await f.callback(await f.login()));
+  const response = await f.call('/api/operator/logout/', cookie, {
+    method: 'POST', headers: { origin, accept: 'application/json', 'content-type': 'application/json' }, body: '{}',
+  });
+  assert.equal(response.status, 204);
+  assert.equal(response.headers.get('location'), null);
+  const cleared = response.headers.getSetCookie();
+  assert.equal(cleared.length, 2);
+  assert.ok(cleared.every(value => value.includes('Max-Age=0')));
   assert.equal(Object.hasOwn(await (await f.call('/demo/config', cookie)).json(), 'operator'), false);
 });
 

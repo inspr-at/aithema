@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { join, posix, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Window } from 'happy-dom';
 import './fixtures/page-origin.js';
@@ -30,26 +30,58 @@ function sources(dir = SRC) {
 }
 // A real JavaScript parse (typescript, already a devDependency): comments are trivia, so a `//`
 // inside a string cannot hide code, and string values arrive with their escapes decoded.
-function offenders(path, label = path) {
-  const file = ts.createSourceFile(path, readFileSync(path, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.JS), found = new Set();
-  const GLOBALS = new Set(['globalThis', 'window', 'self', 'top', 'parent', 'frames', 'view', 'defaultView']);
-  const NETWORK = new Set(['fetch', 'XMLHttpRequest', 'setRequestHeader', 'Headers', 'sendBeacon', 'EventSource', 'eval', 'Function']);
+function parse(path, source = readFileSync(path, 'utf8')) {
+  return ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+}
+function walkAst(node, visit) {
+  visit(node);
+  ts.forEachChild(node, child => walkAst(child, visit));
+}
+function staticString(node) {
+  if (!node) return undefined;
+  if (ts.isStringLiteralLike(node)) return node.text;
+  if (ts.isParenthesizedExpression(node)) return staticString(node.expression);
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const left = staticString(node.left), right = staticString(node.right);
+    if (left !== undefined && right !== undefined) return left + right;
+  }
+}
+function offenders(path, label = path, { approvedFetch, mapsOwnerHeader = false, file = parse(path) } = {}) {
+  const found = new Set();
+  const globals = new Set(['globalThis', 'window', 'self', 'top', 'parent', 'frames', 'view', 'defaultView', 'navigator', 'Reflect']);
+  const NETWORK = new Set(['fetch', 'XMLHttpRequest', 'setRequestHeader', 'Headers', 'sendBeacon', 'EventSource', 'WebSocket', 'eval', 'Function']);
   const literal = node => ts.isStringLiteralLike(node) || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node) || ts.isRegularExpressionLiteral(node);
-  const visit = node => {
-    if (ts.isIdentifier(node) || ts.isPrivateIdentifier(node)) { if (NETWORK.has(node.text)) found.add(`${label}: ${node.text} reference`); }
+  const receiver = node => ts.isParenthesizedExpression(node) ? receiver(node.expression) :
+    ts.isPropertyAccessExpression(node) ? node.name.text : ts.isIdentifier(node) ? node.text : undefined;
+  const aliases = [];
+  walkAst(file, node => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) aliases.push([node.name.text, receiver(node.initializer)]);
+  });
+  for (let size = 0; size !== globals.size;) {
+    size = globals.size;
+    for (const [name, source] of aliases) if (globals.has(source)) globals.add(name);
+  }
+  walkAst(file, node => {
+    if (ts.isIdentifier(node) || ts.isPrivateIdentifier(node)) {
+      if (NETWORK.has(node.text) && !(node.text === 'fetch' && approvedFetch?.(node))) found.add(`${label}: ${node.text} reference`);
+    }
     else if (literal(node)) {
       const value = node.text;
-      if (/x-aithema-/iu.test(value)) found.add(`${label}: owner header prefix`);
-      if (/session[-_\s]*token$/iu.test(value)) found.add(`${label}: owner header suffix`);
-      if (/\bfetch\b/u.test(value)) found.add(`${label}: fetch in a string`);
+      if (!(mapsOwnerHeader && value === HEADER)) {
+        if (/x-aithema-/iu.test(value) && value !== 'x-aithema-now') found.add(`${label}: owner header prefix`);
+        if (/session[-_\s]*token$/iu.test(value)) found.add(`${label}: owner header suffix`);
+      }
+      if (value === 'fetch') found.add(`${label}: fetch in a string`);
     } else if (ts.isElementAccessExpression(node)) {
       // A computed property on a global or a window (`globalThis['fe' + 'tch']`) can name anything.
-      const target = ts.isPropertyAccessExpression(node.expression) ? node.expression.name.text : node.expression.getText(file);
-      if (GLOBALS.has(target)) found.add(`${label}: computed access on ${target}`);
+      const target = receiver(node.expression), key = staticString(node.argumentExpression);
+      if (globals.has(target)) found.add(`${label}: computed access on ${target}`);
+      else if (NETWORK.has(key)) found.add(`${label}: computed ${key} reference`);
+    } else if (ts.isBindingElement(node) && node.propertyName && ts.isComputedPropertyName(node.propertyName)) {
+      const initializer = node.parent.parent.initializer;
+      if (initializer && globals.has(receiver(initializer))) found.add(`${label}: computed binding on ${receiver(initializer)}`);
     } else if (ts.isPropertyAccessExpression(node) && node.name.text === 'get' && node.expression.getText(file) === 'Reflect') found.add(`${label}: Reflect.get`);
-    ts.forEachChild(node, visit);
-  };
-  visit(file);
+  });
   return [...found];
 }
 
@@ -586,48 +618,155 @@ test('AIT-625 r6 element: cookie mode exports through the helper only; no export
   assert.deepEqual(strays, [], 'nothing but the helper read fetch');
 });
 
-// AIT-625 r7 (gate4c M1): every browser-shipped module outside packages/ui/src reaches the owner
-// routes only through the helper too. The scanned set is what the demo host actually serves to a
-// browser: its own source allowlist (demo/server.js), applied to demo/, plugins/, packages/server/src
-// and packages/core/src. Every served demo module carries no fetch, XHR, beacon or owner header at
-// all: the owner cookie rides EVERY same-origin request, so each one is an owner call. A served
-// non-demo module may hold a fetch port only for a non-owner endpoint (a local device model, a
-// provider), and then names no owner route; the relays have their own test above.
-function servedPattern() {
-  const path = join(ROOT, 'demo/server.js');
-  const file = ts.createSourceFile(path, readFileSync(path, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
-  let found;
-  const visit = node => { if (ts.isRegularExpressionLiteral(node) && node.text.includes('demo\\/(?:index\\.html')) found = node.text; ts.forEachChild(node, visit); };
-  visit(file);
-  assert.ok(found, 'the demo server keeps its source allowlist');
-  const end = found.lastIndexOf('/');
-  return new RegExp(found.slice(1, end), found.slice(end + 1));
+// Keep the inventory tied to both first-party asset mounts. The qualification
+// handler runs first and maps its /composed scripts to the ops directory.
+const QUALIFICATION = 'plugins/composed-voice/ops';
+function regexp(node) {
+  const end = node.text.lastIndexOf('/');
+  return new RegExp(node.text.slice(1, end), node.text.slice(end + 1));
 }
-const SERVED_ROOTS = ['demo', 'plugins', 'packages/server/src', 'packages/core/src'];
-function servedModules(root, pattern) {
+function servedPattern() {
+  const demo = parse(join(ROOT, 'demo/server.js'));
+  const qualification = parse(join(ROOT, QUALIFICATION, 'qualification-server.mjs'));
+  let demoAssets, qualificationAssets, qualificationScripts;
+  walkAst(demo, node => {
+    if (ts.isRegularExpressionLiteral(node) && node.text.includes(String.raw`demo\/(?:index\.html`)) demoAssets = regexp(node);
+  });
+  walkAst(qualification, node => {
+    if (ts.isVariableDeclaration(node) && node.name.getText(qualification) === 'asset' && ts.isRegularExpressionLiteral(node.initializer)) {
+      qualificationAssets = regexp(node.initializer);
+    }
+    if (ts.isArrayLiteralExpression(node) && node.elements.some(element =>
+      ts.isStringLiteral(element) && /^\/composed\/[\w-]+\.js$/u.test(element.text))) {
+      assert.ok(node.elements.every(ts.isStringLiteral), 'qualification script URLs are explicit');
+      qualificationScripts = new Set(node.elements.map(element => QUALIFICATION + element.text.slice('/composed'.length)));
+    }
+  });
+  assert.ok(demoAssets && qualificationAssets && qualificationScripts, 'both mounts expose their browser assets to the scan');
+  return path => demoAssets.test('/' + path) || qualificationAssets.test('/' + path) || qualificationScripts.has(path);
+}
+const SERVED_ROOTS = ['demo', 'plugins', 'packages/server/src', 'packages/core/src', 'packages/ui/src'];
+const sourceLabel = (root, path) => relative(root, path).split('\\').join('/');
+function servedModules(root, isServed) {
   const walk = dir => readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
     const path = join(dir, entry.name);
-    if (entry.isDirectory()) return ['node_modules', 'test', 'ops', 'fixtures'].includes(entry.name) ? [] : walk(path);
-    return entry.name.endsWith('.js') && pattern.test('/' + relative(root, path).split('\\').join('/')) ? [path] : [];
+    if (entry.isDirectory()) return entry.name === 'node_modules' ? [] : walk(path);
+    return /\.(?:[cm]?js|html)$/u.test(entry.name) && isServed(sourceLabel(root, path)) ? [path] : [];
   });
-  return SERVED_ROOTS.flatMap(dir => { try { return walk(join(root, dir)); } catch (error) { if (error.code === 'ENOENT') return []; throw error; } });
+  return SERVED_ROOTS.flatMap(dir => {
+    try { return walk(join(root, dir)); } catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+  });
 }
-function servedOffenders(root, pattern) {
-  const found = [];
-  for (const path of servedModules(root, pattern)) {
-    const label = relative(root, path).split('\\').join('/');
-    if (RELAYS.includes(label)) continue;
-    // admin-page.js reads the host clock header (x-aithema-now), which is not the owner header.
-    const own = offenders(path, label).filter(item => !(item === `${label}: owner header prefix` && !/x-aithema-(?!now\b)/iu.test(readFileSync(path, 'utf8'))));
-    if (label.startsWith('demo/')) { found.push(...own); continue; }
-    // Without an owner route, a fetch port or a computed access (`view?.[key]` on a local balance
-    // object in core credits.js) cannot reach an owner call; beside one, it fails.
-    const network = own.filter(item => /: (fetch reference|fetch in a string|computed access on \w+)$/u.test(item));
-    found.push(...own.filter(item => !network.includes(item)));
-    if (network.some(item => /: fetch /u.test(item)) && /['"`]\/api\//u.test(readFileSync(path, 'utf8'))) found.push(`${label}: fetch beside an owner route`);
-    if (network.some(item => /: computed access /u.test(item)) && /['"`]\/api\//u.test(readFileSync(path, 'utf8'))) found.push(`${label}: computed access beside an owner route`);
+function omitsCredentials(call) {
+  const options = call.arguments[1];
+  if (!options || !ts.isObjectLiteralExpression(options)) return false;
+  // A later spread, computed key or duplicate can override credentials.
+  for (const property of [...options.properties].reverse()) {
+    if (ts.isSpreadAssignment(property) || ts.isComputedPropertyName(property.name)) return false;
+    if (property.name.text === 'credentials') return ts.isPropertyAssignment(property) && staticString(property.initializer) === 'omit';
   }
-  return found;
+  return false;
+}
+
+const OPERATOR_PATH = /\/api\/operator(?:[/?#]|$)/u;
+const OPERATOR_ACTIONS = 'packages/ui/src/operator-actions.js';
+function memberName(node) {
+  if (ts.isPropertyAccessExpression(node)) return node.name.text;
+  if (ts.isElementAccessExpression(node)) return staticString(node.argumentExpression);
+  if (ts.isIdentifier(node)) return node.text;
+}
+function importedGuards(file, label) {
+  const guards = new Map();
+  for (const statement of file.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    const specifier = statement.moduleSpecifier.text;
+    const path = specifier.startsWith('/') ? specifier.slice(1) : posix.normalize(posix.join(posix.dirname(label), specifier));
+    const expected = path === 'packages/ui/src/owner-request.js' ? ['ownerFetch', 'ownerURL'] : path === 'packages/ui/src/post-json.js' ? ['postJson'] : [];
+    const bindings = statement.importClause?.namedBindings;
+    if (bindings && ts.isNamedImports(bindings)) for (const entry of bindings.elements) {
+      const name = (entry.propertyName ?? entry.name).text;
+      if (expected.includes(name)) guards.set(entry.name.text, name === 'postJson' ? 0 : 1);
+    }
+  }
+  return guards;
+}
+function nativeOperatorRoutes(file, label) {
+  const found = new Set(), guards = importedGuards(file, label);
+  walkAst(file, node => {
+    const value = ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node) ? node.text : staticString(node);
+    if (!value || !OPERATOR_PATH.test(value)) return;
+    let arg = node;
+    while (ts.isBinaryExpression(arg.parent) && arg.parent.operatorToken.kind === ts.SyntaxKind.PlusToken ||
+      ts.isParenthesizedExpression(arg.parent) || ts.isTemplateSpan(arg.parent) || ts.isTemplateExpression(arg.parent)) arg = arg.parent;
+    const parent = arg.parent;
+    if (ts.isCallExpression(parent) && ts.isIdentifier(parent.expression) && parent.arguments[guards.get(parent.expression.text)] === arg) return;
+    if (label === OPERATOR_ACTIONS && ts.isVariableDeclaration(parent) && parent.initializer === arg &&
+      (parent.name.getText(file) === 'operatorLoginRoute' && value === '/api/operator/login/' ||
+        parent.name.getText(file) === 'operatorLogoutRoute' && value === '/api/operator/logout/')) return;
+    found.add(`${label}: operator route outside the guarded helper`);
+  });
+  return [...found];
+}
+function nativeActions(file, label) {
+  const findings = new Set();
+  const formMember = name => ['action', 'formaction'].includes(name?.toLowerCase());
+  const safePaimosForm = node => {
+    if (label !== 'packages/ui/src/session-element.js' || !['form.action = action', 'form.submit()'].includes(node.getText(file))) return false;
+    let scope = node.parent;
+    while (scope && !ts.isMethodDeclaration(scope)) scope = scope.parent;
+    return scope?.name.getText(file) === '#createProject';
+  };
+  // These destinations are checked by consentReturnPath and paimosImportUrl.
+  const safeNavigation = new Map([
+    ['demo/consent-page.js', 'location.assign(new URL(consentReturnPath(path, location.origin), location.origin).href)'],
+    [OPERATOR_ACTIONS, "view.location.assign(new URL('/?operator=signed-out#settings-general', view.origin).href)"],
+  ]);
+  walkAst(file, node => {
+    if (ts.isCallExpression(node) && (ts.isPropertyAccessExpression(node.expression) || ts.isElementAccessExpression(node.expression))) {
+      const called = memberName(node.expression), receiver = memberName(node.expression.expression);
+      if ((['submit', 'requestSubmit'].includes(called) || called === 'setAttribute' && formMember(staticString(node.arguments[0]))) && !safePaimosForm(node))
+        findings.add(`${label}: native form submission or action`);
+      if (receiver === 'location' && ['assign', 'replace'].includes(called) && node.getText(file) !== safeNavigation.get(label))
+        findings.add(`${label}: unguarded location navigation`);
+    }
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      (ts.isPropertyAccessExpression(node.left) || ts.isElementAccessExpression(node.left))) {
+      const target = memberName(node.left), receiver = memberName(node.left.expression);
+      if (formMember(target) && receiver !== 'dataset' && !safePaimosForm(node)) findings.add(`${label}: native form action`);
+      if (target === 'location' || target === 'href' && receiver === 'location') findings.add(`${label}: unguarded location navigation`);
+    }
+  });
+  return [...findings];
+}
+function servedJavaScriptOffenders(path, label, source) {
+  const file = parse(path, source), relay = RELAYS.includes(label), helper = label === 'packages/ui/src/owner-request.js';
+  const transport = relay ? 'request' : ['plugins/device/src/index.js', 'packages/core/src/chat-completions.js'].includes(label) ? 'fetchImpl' : null;
+  const approvedFetch = node => {
+    if (helper) return true;
+    if (relay && ts.isBindingElement(node.parent) && node.parent.propertyName === node && node.parent.name.getText(file) === 'request') return true;
+    const callee = ts.isPropertyAccessExpression(node.parent) && node.parent.name === node ? node.parent : node;
+    const call = callee.parent;
+    return ts.isCallExpression(call) && call.expression === callee && omitsCredentials(call);
+  };
+  const findings = offenders(path, label, { approvedFetch, mapsOwnerHeader: helper || relay, file });
+  walkAst(file, node => {
+    if (transport && ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === transport && !omitsCredentials(node))
+      findings.push(`${label}: ${transport} must use credentials: 'omit'`);
+  });
+  return [...new Set([...findings, ...nativeOperatorRoutes(file, label), ...nativeActions(file, label)])];
+}
+function servedOffenders(root, isServed) {
+  return servedModules(root, isServed).flatMap(path => {
+    const label = sourceLabel(root, path), source = readFileSync(path, 'utf8');
+    const findings = [];
+    if (/<(?:form\b[^>]*\saction|(?:button|input)\b[^>]*\sformaction)\s*=/iu.test(source))
+      findings.push(`${label}: native form action`);
+    if (path.endsWith('.html')) {
+      if (OPERATOR_PATH.test(source)) findings.push(`${label}: native operator route`);
+      for (const [, script] of source.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/giu)) findings.push(...servedJavaScriptOffenders(path, label, script));
+    } else findings.push(...servedJavaScriptOffenders(path, label, source));
+    return findings;
+  });
 }
 
 test('AIT-625 r7 structural: every browser-served demo and plugin module reaches owner routes only through the helper', t => {
@@ -643,7 +782,60 @@ test('AIT-625 r7 structural: every browser-served demo and plugin module reaches
     mkdirSync(join(probe, 'demo')); mkdirSync(join(probe, 'plugins/device/src'), { recursive: true });
     writeFileSync(join(probe, 'demo/post-json.js'), "export const post = id => fetch(`/api/sessions/${id}/consent`, { method: 'POST' });");
     writeFileSync(join(probe, 'plugins/device/src/index.js'), "export const read = (f = globalThis.fetch) => f('/api/sessions/x');");
-    assert.deepEqual(servedOffenders(probe, pattern).sort(), ['demo/post-json.js: fetch reference', 'plugins/device/src/index.js: fetch beside an owner route']);
+    assert.deepEqual(servedOffenders(probe, pattern).sort().filter(finding => /: fetch reference$/u.test(finding)),
+      ['demo/post-json.js: fetch reference', 'plugins/device/src/index.js: fetch reference']);
+  } finally { rmSync(probe, { recursive: true, force: true }); }
+});
+
+for (const [name, source] of [
+  ['assembled URL', "export const read = parts => fetch(parts.join('/'));"],
+  ['imported URL', "import { route } from './routes.js'; export const read = () => fetch(route);"],
+  ['computed transport', 'export const read = (key, route) => globalThis[key](route);'],
+  ['aliased computed transport', 'const page = globalThis; export const read = (key, route) => page[key](route);'],
+  ['overridden omit', "export const read = (route, init) => fetch(route, { credentials: 'omit', ...init });"],
+  ['native POST form', 'export const markup = `<form action="/api/operator/logout/" method="post"></form>`;'],
+  ['assembled native form action', 'export const markup = route => `<form method="post" action="${route}"></form>`;'],
+  ['imported native form action', "import { route } from './routes.js'; export const go = form => { form.action = route; };"],
+  ['native operator navigation', "export const go = () => location.assign('/api/operator/admin/state');"],
+  ['imported operator navigation', "import { route } from './routes.js'; export const go = () => location.assign(route);"],
+  ['assembled operator navigation', "export const go = () => location.assign('/api/' + 'operator/admin/state');"],
+  ['native operator link', 'export const markup = `<a href="/api/operator/admin/state">State</a>`;'],
+  ['lookalike guard binding', "import { ownerFetch } from './unrelated.js'; export const go = view => ownerFetch(view, '/api/operator/admin/state');"],
+]) test(`AIT-633 served scan rejects ${name}`, () => {
+  const probe = mkdtempSync(join(tmpdir(), 'ait-633-served-')), label = 'plugins/device/src/index.js';
+  try {
+    mkdirSync(join(probe, 'plugins/device/src'), { recursive: true });
+    writeFileSync(join(probe, label), source);
+    assert.ok(servedOffenders(probe, servedPattern()).some(finding => finding.startsWith(`${label}:`)), label);
+  } finally { rmSync(probe, { recursive: true, force: true }); }
+});
+
+test('AIT-633 served scan accepts a request whose final options omit credentials', () => {
+  const label = 'plugins/device/src/index.js';
+  const source = "export const read = (route, init) => fetch(route, { ...init, credentials: 'omit' });";
+  assert.deepEqual(servedJavaScriptOffenders(label, label, source), []);
+});
+
+test('AIT-633 served scan includes the qualification entry and its relay', () => {
+  const paths = servedModules(ROOT, servedPattern()).map(path => relative(ROOT, path));
+  for (const label of ['plugins/composed-voice/ops/qualification-page.js', 'plugins/composed-voice/ops/qualification-output-timing.js',
+    'plugins/composed-voice/src/network-client.js']) assert.ok(paths.includes(label), label);
+  const probe = mkdtempSync(join(tmpdir(), 'ait-633-qualification-'));
+  const label = 'plugins/composed-voice/ops/qualification-page.js';
+  try {
+    mkdirSync(join(probe, 'plugins/composed-voice/ops'), { recursive: true });
+    writeFileSync(join(probe, label), 'export const read = route => fetch(route);');
+    assert.ok(servedOffenders(probe, servedPattern()).some(finding => finding.startsWith(`${label}:`)), label);
+  } finally { rmSync(probe, { recursive: true, force: true }); }
+});
+
+test('AIT-633 a module under any allowed client subdirectory is scanned', () => {
+  const probe = mkdtempSync(join(tmpdir(), 'ait-633-subdirectory-'));
+  const label = 'packages/ui/src/fixtures/network.js';
+  try {
+    mkdirSync(join(probe, 'packages/ui/src/fixtures'), { recursive: true });
+    writeFileSync(join(probe, label), 'export const read = route => fetch(route);');
+    assert.deepEqual(servedOffenders(probe, servedPattern()), [`${label}: fetch reference`]);
   } finally { rmSync(probe, { recursive: true, force: true }); }
 });
 

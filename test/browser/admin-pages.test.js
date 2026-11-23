@@ -15,11 +15,19 @@ import { fullMatrix } from './matrix-coverage.js';
 
 const states = ['overview', 'editing', 'saved', 'conflict', 'invalid', 'confirmation-off', 'no-delivery', 'cap-near', 'latched', 'audit-end', 'audit-empty', 'signed-out', 'expired'];
 const widths = [390, 1024, 1440];
+const adminAssets = /^\/(demo\/(host\.css|theme-init\.js|admin-page\.js|admin-view\.js|admin-copy\.js|utility-icons\.js|page-preferences\.js)|packages\/ui\/src\/(i18n\/(de|en|admin)\.js|display\.js|icons\.js|consent-line\.js|copy-resolve\.js|reason-separator\.js|dom\.js|owner-request\.js|operator-actions\.js|post-json\.js)|packages\/core\/src\/(ai-notice|settings|presets|consent)\.js)$/u;
 // Nightly and deliberate full evidence cover every state at every width.
 // PR CI keeps both locales/themes, with widths rotated across states.
 const geometry = page => page.evaluate(() => {
   const box = n => { const b = n.getBoundingClientRect(); return [b.x, b.y + scrollY, b.width, b.height]; };
   return [...document.querySelectorAll('.ad-sec:not([data-sec=log]),#h-log,.ad-save,.ad-btn,.ad-discard,.ad-status,.ad-tier,.ad-sub')].map(box);
+});
+const loadingGeometry = page => page.evaluate(() => {
+  const selectors = ['.ad-title', '.ad-who button', '.ad-status', '.ad-save', '.ad-tier', '.ad-tier .ad-fld', '.ad-check', '.ad-lim', '.ad-kv', '#h-log'];
+  return Object.fromEntries(selectors.map(selector => [selector, [...document.querySelectorAll(selector)].map(el => {
+    const { x, y, width, height } = el.getBoundingClientRect();
+    return { x, y: y + scrollY, width, height };
+  })]));
 });
 const edit = (page, value) => page.$eval('#f-emailGiven', (input, value) => { input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })); }, value);
 
@@ -47,12 +55,25 @@ async function closeBrowser(browser, run) {
 test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow, precision, DE/EN light/dark with rotating widths (full evidence matrix)', { timeout: (fullMatrix ? 120_000 : 60_000) + 2 * ADMIN_LAUNCH_TIMEOUT }, async t => {
   const { at, run } = adminSteps(t.signal);
   const dir = await run('mkdtemp', () => mkdtemp(join(tmpdir(), 'aithema-admin-browser-')));
-  let f, held, responseMode = 'ok', browser;
+  let f, held, stateGate, responseMode = 'ok', browser;
+  let logoutRequests = 0;
   const server = await run('listen', () => listen(async request => {
     const path = new URL(request.url).pathname;
-    if (/^\/(demo\/(host\.css|theme-init\.js|admin-page\.js|admin-view\.js|admin-copy\.js|utility-icons\.js|page-preferences\.js)|packages\/ui\/src\/(i18n\/(de|en|admin)\.js|display\.js|icons\.js|consent-line\.js|copy-resolve\.js|reason-separator\.js|dom\.js|owner-request\.js)|packages\/core\/src\/(ai-notice|settings|presets|consent)\.js)$/u.test(path)) {
+    if (adminAssets.test(path)) {
       return new Response(await run('readFile', () => readFile(new URL('../../' + path.slice(1), import.meta.url))), { headers: { 'content-type': path.endsWith('.css') ? 'text/css' : 'text/javascript' } });
     }
+    if (path === '/api/operator/admin/state' && stateGate) {
+      const gate = stateGate;
+      gate.arrived.resolve();
+      await run('held admin state release', () => gate.release.promise);
+    }
+    if (path === '/api/operator/logout/') {
+      logoutRequests++;
+      assert.equal(request.method, 'POST');
+      assert.equal(request.headers.get('accept'), 'application/json');
+      return f.sessions.handle(request);
+    }
+    if (path === '/') return new Response('<!doctype html><title>Conversation</title>', { headers: { 'content-type': 'text/html' } });
     if (request.method === 'POST' && path.endsWith('/settings')) {
       if (held) { const gate = held; held = null; gate.arrived(); await run('held settings POST release', () => gate.pending); }
       if (responseMode === '401') return new Response('{}', { status: 401 });
@@ -64,6 +85,7 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
   let releaseHeld = () => {};
   t.after(async () => {
     releaseHeld(); held = null;
+    stateGate?.release.resolve();
     const results = await Promise.allSettled([
       closeBrowser(browser, run),
       run('server.close', () => new Promise((resolve, reject) => {
@@ -90,7 +112,7 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
     f.storage.db.prepare('INSERT INTO host_mail_slots VALUES (?,?)').run(f.now() - 4_000_000, 36);
     f.storage.db.prepare('INSERT INTO host_mail_ip_slots VALUES (?,?,?)').run('stub-private-bucket', f.now() - 1000, 2);
   };
-  const evidence = process.env.AITHEMA_EVIDENCE_DIR, shots = [], pass = [], errors = [], external = [];
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR, shots = [], pass = [], errors = [], external = [], tick = [];
   if (evidence) await run('mkdir', () => mkdir(evidence, { recursive: true }));
   for (const locale of ['de', 'en']) {
     at('launch', { locale, theme: 'light', width: 390 });
@@ -106,12 +128,68 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
     });
     page.on('request', r => { if (!r.url().startsWith(server.url) && !r.url().startsWith('data:')) external.push(r.url()); });
     await run('page.evaluateOnNewDocument', () => page.evaluateOnNewDocument(locale => localStorage.setItem('aithema-demo-locale', locale), locale));
-    const open = async () => {
-      await run('page.goto', () => page.goto(server.url + '/admin?lang=' + locale, { waitUntil: 'domcontentloaded' }));
+    const open = async (captureFirstFrame = false, width) => {
+      let first, loadingForm;
+      if (captureFirstFrame) stateGate = { arrived: Promise.withResolvers(), release: Promise.withResolvers() };
+      try {
+        await run('page.goto', () => page.goto(server.url + '/admin?lang=' + locale, { waitUntil: 'domcontentloaded' }));
+        if (captureFirstFrame) {
+          await run('guarded admin state arrival', () => stateGate.arrived.promise);
+          assert.equal(await run('admin loading state', () => page.$eval('.ad-page', n => n.dataset.signed)), 'loading');
+          loadingForm = await run('admin form busy', () => page.$eval('.ad-content', n => ({
+            role: n.getAttribute('role'), ariaBusy: n.getAttribute('aria-busy'),
+          })));
+          assert.deepEqual(loadingForm, { role: 'form', ariaBusy: 'true' });
+          await run('focus back link', () => page.focus('.ad-back'));
+          const value = await run('attempt to focus a loading tier field', () => page.$eval('#f-emailGiven', input => {
+            input.focus();
+            return input.value;
+          }));
+          await run('type during admin loading', () => page.keyboard.type('9'));
+          assert.equal(await run('loading tier value', () => page.$eval('#f-emailGiven', input => input.value)), value);
+          const fields = await run('loading tier controls', () => page.$$eval('.ad-tier input', inputs => inputs.map(input => ({
+            disabled: input.disabled || input.readOnly,
+            caret: getComputedStyle(input).caretColor,
+            mutedBorder: getComputedStyle(input.closest('.ad-fld')).borderTopColor === getComputedStyle(input.closest('.ad-sec')).borderTopColor,
+          }))));
+          assert.equal(fields.length, 3);
+          for (const field of fields) assert.deepEqual(field, { disabled: true, caret: 'rgba(0, 0, 0, 0)', mutedBorder: true });
+          assert.equal(await run('loading focus', () => page.evaluate(() => document.activeElement.matches('.ad-back'))), true);
+          await run('loading fonts', () => page.evaluate(() => document.fonts.ready));
+          first = await run('loading geometry', () => loadingGeometry(page));
+          for (const [selector, boxes] of Object.entries(first)) {
+            assert.ok(boxes.length && boxes.every(box => box.width > 0 && box.height > 0), selector);
+          }
+          if (evidence) await run('loading screenshot', () => page.screenshot({ path: join(evidence, `ait-633-admin-${locale}-${width}-first.png`) }));
+        }
+      } finally {
+        if (captureFirstFrame) { stateGate.release.resolve(); stateGate = null; }
+      }
       // Await the document's module, including its initial state/audit reads and
       // event wiring, rather than paying the network-idle delay on every state.
       await run('page.evaluate', () => page.evaluate(() => import('/demo/admin-page.js')));
       await run('page.waitForSelector', signal => page.waitForSelector('.ad-page', { signal })); await run('page.evaluate', () => page.evaluate(() => document.fonts.ready));
+      if (captureFirstFrame) {
+        const settled = await run('settled geometry', () => loadingGeometry(page));
+        assert.deepEqual(settled, first, `${locale} ${width}: loading and settled settings boxes`);
+        assert.equal(await run('admin settled state', () => page.$eval('.ad-page', n => n.dataset.signed)), 'in');
+        const settledAriaBusy = await run('admin form ready', () => page.$eval('.ad-content', n => n.getAttribute('aria-busy')));
+        assert.equal(settledAriaBusy, null);
+        assert.equal(await run('settled focus', () => page.evaluate(() => document.activeElement.matches('.ad-back'))), true);
+        assert.deepEqual(await run('settled tier controls', () => page.$$eval('.ad-tier input', inputs => inputs.map(input => !input.disabled && !input.readOnly))), [true, true, true]);
+        assert.equal(await run('operator name', () => page.$eval('.ad-who .nm', n => n.textContent)), 'Operator: Ada');
+        if (evidence) await run('settled screenshot', () => page.screenshot({ path: join(evidence, `ait-633-admin-${locale}-${width}-settled.png`) }));
+        const value = await run('focus settled tier field', () => page.$eval('#f-emailGiven', input => {
+          input.focus({ preventScroll: true });
+          input.select();
+          return input.value;
+        }));
+        await run('type in settled tier field', () => page.keyboard.type('1800'));
+        assert.equal(await run('settled tier value', () => page.$eval('#f-emailGiven', input => input.value)), '1800');
+        await run('restore settled tier value', () => edit(page, value));
+        await run('restore back link focus', () => page.focus('.ad-back'));
+        tick.push({ locale, width, first, settled, ariaBusy: { first: loadingForm.ariaBusy, settled: settledAriaBusy } });
+      }
     };
     const shot = async (state, width, theme, part = '') => {
       if (!evidence) return;
@@ -158,7 +236,11 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
         }
         if (state === 'no-delivery') assert.equal(await run('page.$eval', () => page.$eval('#f-confirm', n => n.disabled)), true);
         if (state === 'latched') { const text = await run('page.$eval', () => page.$eval('[data-sec=prov]', n => n.textContent)); assert.ok(text.includes(locale === 'de' ? `Gesperrt${reasonSeparator}Grund:` : `Locked${reasonSeparator}Reason:`)); assert.ok(text.includes(locale === 'de' ? 'keine neuen Anfragen' : 'no new requests')); }
-        if (state === 'signed-out' || state === 'expired') { assert.equal(await run('page.$$eval', () => page.$$eval('.ad-sec', ns => ns.length)), 0); assert.equal(await run('page.$eval', () => page.$eval('.ad-login', n => n.getAttribute('href'))), '/api/operator/login/?return=admin'); }
+        if (state === 'signed-out' || state === 'expired') {
+          assert.equal(await run('page.$$eval', () => page.$$eval('.ad-sec', ns => ns.length)), 0);
+          assert.equal(await run('page.$eval', () => page.$eval('.ad-login', n => n.getAttribute('href'))), `${server.url}/api/operator/login/?return=admin`);
+          if (evidence && theme === 'light' && width !== 1024) await run(`AIT-633 ${state} screenshot`, () => page.screenshot({ path: join(evidence, `ait-633-admin-${locale}-${width}-${state}.png`) }));
+        }
         await shot(state, width, theme);
         if (evidence && !['signed-out', 'expired'].includes(state)) {
           for (const [part, selector] of [['-mail', '#h-mail'], ['-spending-audit', '#h-prov']]) {
@@ -169,7 +251,8 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
         pass.push(`PASS head=${evidenceCommit} AIT-169 ${locale}-${theme}-${width}/${state}`);
       }
       at('flow-open', { locale, theme, width });
-      seed(); responseMode = 'ok'; await run('page.setCookie', () => page.setCookie({ name: 'aithema-operator', value: 'g'.repeat(43), url: server.url })); await open();
+      seed(); responseMode = 'ok'; await run('page.setCookie', () => page.setCookie({ name: 'aithema-operator', value: 'g'.repeat(43), url: server.url }));
+      await open(theme === 'light' && width !== 1024, width);
       const before = await run('geometry', () => geometry(page));
       at('flow-edit');
       await run('edit', () => edit(page, '1800')); assert.deepEqual(await run('geometry', () => geometry(page)), before, 'edit: 0 px');
@@ -198,12 +281,32 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
       responseMode = 'ok'; await click(page, run, '[data-save=credits]'); await run('page.waitForSelector', signal => page.waitForSelector('[data-sec=credits][data-mode=saved]', { signal }));
       at('flow-expired');
       await run('edit', () => edit(page, '2000')); responseMode = '401'; await click(page, run, '[data-save=credits]'); await run('page.waitForSelector', signal => page.waitForSelector('.ad-out', { signal })); assert.equal(await run('page.$$eval', () => page.$$eval('.ad-sec', ns => ns.length)), 0);
+      if (theme === 'light' && width !== 1024) {
+        at('guarded admin logout', { locale, theme, width });
+        seed(); responseMode = 'ok'; await open();
+        const beforeLogout = logoutRequests;
+        const key = width === 390 ? 'Enter' : 'Space';
+        await run('simulate refused admin origin', () => page.evaluate(() => Object.defineProperty(document, 'baseURI', { configurable: true, value: 'https://elsewhere.test/' })));
+        try {
+          await run('focus admin logout', () => page.focus('.ad-who button'));
+          await run('activate refused admin logout', () => page.keyboard.press(key));
+          await run('admin logout error', signal => page.waitForFunction(error => document.querySelector('[data-status=operator] .cur')?.textContent === error,
+            { signal }, adminCopy[locale].logoutFailed));
+          assert.equal(logoutRequests, beforeLogout);
+          if (evidence) await run('admin logout error screenshot', () => page.screenshot({ path: join(evidence, `ait-633-admin-${locale}-${width}-failed-logout.png`) }));
+        } finally { await run('restore admin base', () => page.evaluate(() => { delete document.baseURI; })); }
+        await run('guarded admin logout return', () => Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }), page.keyboard.press(key)]));
+        assert.equal(logoutRequests, beforeLogout + 1);
+        assert.equal(new URL(page.url()).hash, '#settings-general');
+      }
       pass.push(`PASS head=${evidenceCommit} AIT-169 ${locale}-${theme}-${width} edit → saving → saved → conflict → reload → invalid → failed: 0.00 px shift; retry; 401 expires page`);
     }
     at('close');
     try { await closeBrowser(browser, run); } finally { browser = null; }
   }
   assert.deepEqual(errors, []); assert.deepEqual(external, []);
+  assert.equal(tick.length, 4, 'both first-frame widths in both languages');
+  if (evidence) await run('write AIT-633 geometry', () => writeFile(join(evidence, 'ait-633-admin-boxes.json'), JSON.stringify({ head: evidenceCommit, captures: tick }, null, 2) + '\n'));
   assert.equal(pass.length, states.length * 4 * (fullMatrix ? widths.length : 1) + 12, 'all DE/EN light/dark states and all 12 width/theme/locale flows');
   if (evidence) assert.equal(shots.length, (states.length * 3 - 4) * 4 * (fullMatrix ? widths.length : 1));
   if (evidence) { await run('writeFile', () => writeFile(join(evidence, 'ait-169-admin-pass-lines.txt'), pass.join('\n') + '\n')); await run('writeFile', () => writeFile(join(evidence, 'ait-169-admin-evidence.json'), JSON.stringify({ head: evidenceCommit, shots, pass }, null, 2) + '\n')); }
@@ -216,7 +319,7 @@ test('AIT-169 independent edits survive a save in another section, then each sec
   let f, browser;
   const server = await run('listen', () => listen(async request => {
     const path = new URL(request.url).pathname;
-    if (/^\/(demo\/(host\.css|theme-init\.js|admin-page\.js|admin-view\.js|admin-copy\.js|utility-icons\.js|page-preferences\.js)|packages\/ui\/src\/(i18n\/(de|en|admin)\.js|display\.js|icons\.js|consent-line\.js|copy-resolve\.js|reason-separator\.js|dom\.js|owner-request\.js)|packages\/core\/src\/(ai-notice|settings|presets|consent)\.js)$/u.test(path)) {
+    if (adminAssets.test(path)) {
       return new Response(await run('readFile', () => readFile(new URL('../../' + path.slice(1), import.meta.url))), { headers: { 'content-type': path.endsWith('.css') ? 'text/css' : 'text/javascript' } });
     }
     return await run('f.admin.handle', () => f.admin.handle(request)) ?? new Response(null, { status: 404 });

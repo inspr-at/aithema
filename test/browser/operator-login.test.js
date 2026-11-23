@@ -47,6 +47,13 @@ const geometry = page => shadow(page, c => {
   const r = c.shadowRoot, box = n => { const b = n.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
   return ['dialog.settings', '.operator-section', '.operator-row', '.operator-notice', '.settings__footer'].map(s => box(r.querySelector(s)));
 });
+const logoutGeometry = page => shadow(page, c => {
+  const selectors = ['.operator-row', '.operator-logout', '.operator-notice', '.settings__footer'];
+  return Object.fromEntries(selectors.map(selector => {
+    const { x, y, width, height } = c.shadowRoot.querySelector(selector).getBoundingClientRect();
+    return [selector, { x, y, width, height }];
+  }));
+});
 // Session SSE remains open; navigation waits for the document, then explicit UI readiness.
 const emailLayout = page => shadow(page, c => {
   const r = c.shadowRoot, e = r.querySelector('#email'), body = r.querySelector('.settings__body');
@@ -90,7 +97,7 @@ const openGeneral = async (page, returned = false) => {
 test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift',
   { timeout: 180_000 }, async t => {
     const directory = await mkdtemp(join(tmpdir(), 'aithema-operator-ui-')), issuer = await stubOperatorIssuer();
-    const evidence = process.env.AITHEMA_EVIDENCE_DIR, passLines = [], shots = [], adminEntries = [];
+    const evidence = process.env.AITHEMA_EVIDENCE_DIR, passLines = [], shots = [], adminEntries = [], tick = [];
     let browser, configured, absent;
     t.after(async () => { await browser?.close(); await configured?.kill(); await absent?.kill(); await issuer.close(); await rm(directory, { recursive: true, force: true }); });
     configured = await host(directory, issuer, true); absent = await host(directory, issuer, false);
@@ -99,6 +106,10 @@ test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off
       browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome-' + locale),
         env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
       const page = await browser.newPage(), errors = []; page.on('pageerror', e => errors.push(e.message));
+      let logoutRequests = 0;
+      page.on('request', request => {
+        if (new URL(request.url()).pathname === '/api/operator/logout/') logoutRequests++;
+      });
       await page.evaluateOnNewDocument(locale => { localStorage.setItem('aithema-demo-locale', locale); }, locale);
       const capture = async (state, width, theme) => {
         const name = `ait-165-${evidenceCommit}-${locale}-${theme}-${width}-${state}.png`;
@@ -166,9 +177,34 @@ test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off
           height: c.shadowRoot.querySelector('.operator-logout').getBoundingClientRect().height }));
         assert.equal(form.method, 'post'); assert.ok(form.height >= 44);
         await capture('signed-in', width, theme);
-        // Native form submits a same-origin POST; the replayed cookie no longer works.
-        await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }), shadow(page, c => c.shadowRoot.querySelector('.operator-logout').click())]);
+        const tickCase = theme === 'light' && width !== 1024;
+        const key = width === 390 ? 'Enter' : 'Space';
+        const oldRequests = logoutRequests;
+        await shadow(page, c => c.shadowRoot.querySelector('.operator-logout').focus({ preventScroll: true }));
+        if (tickCase) {
+          const first = await logoutGeometry(page);
+          assert.ok(Object.values(first).every(box => box.width > 0 && box.height > 0));
+          if (evidence) await captureViewport(page, join(evidence, `ait-633-operator-${locale}-${width}-signed-in.png`));
+          await page.evaluate(() => Object.defineProperty(document, 'baseURI', { configurable: true, value: 'https://elsewhere.test/' }));
+          try {
+            await page.keyboard.press(key);
+            await until(page, message => document.querySelector('aithema-session').shadowRoot.querySelector('.operator-error').textContent === message, copy.settings.operatorLogoutError);
+            assert.equal(logoutRequests, oldRequests, 'origin refusal sends nothing');
+            const settled = await logoutGeometry(page);
+            assert.deepEqual(settled, first, 'failed logout: 0 px shift');
+            assert.equal(await shadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('.operator-logout')), true);
+            if (evidence) await captureViewport(page, join(evidence, `ait-633-operator-${locale}-${width}-failed-logout.png`));
+            tick.push({ locale, width, first, settled });
+          } finally { await page.evaluate(() => { delete document.baseURI; }); }
+        }
+        await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }), page.keyboard.press(key)]);
+        assert.equal(logoutRequests, oldRequests + 1, 'keyboard logout sends exactly one request');
+        await until(page, () => {
+          const root = document.querySelector('aithema-session')?.shadowRoot;
+          return root?.activeElement?.matches('.operator-section');
+        });
         await openGeneral(page, true); assert.deepEqual(await geometry(page), before, 'sign-out: 0 px shift');
+        if (tickCase && evidence) await captureViewport(page, join(evidence, `ait-633-operator-${locale}-${width}-signed-out.png`));
         assert.equal(await page.evaluate(async () => Object.hasOwn(await (await fetch('/demo/config')).json(), 'operator')), false);
         await page.goto(configured.url + '/api/operator/callback/?state=wrong&code=wrong', { waitUntil: 'domcontentloaded' }); await openGeneral(page, true);
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.operator-error').textContent), copy.settings.operatorError);
@@ -187,6 +223,8 @@ test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off
     }
     if (evidence) await writeFile(join(evidence, `ait-165-${evidenceCommit}-passes.json`), JSON.stringify({ head: evidenceCommit, viewport: true, passLines, shots }, null, 2));
     if (evidence) await writeFile(join(evidence, 'ait-169-entry-pass-lines.txt'), adminEntries.join('\n') + '\n');
+    assert.equal(tick.length, 4, 'both logout widths in both languages');
+    if (evidence) await writeFile(join(evidence, 'ait-633-operator-boxes.json'), JSON.stringify({ head: evidenceCommit, captures: tick }, null, 2) + '\n');
     adminEntries.forEach(line => t.diagnostic(line));
     assert.equal(passLines.length, 48);
   });

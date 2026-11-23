@@ -6,20 +6,50 @@ import { OperatorSettings } from '../src/operator-settings.js';
 import { de } from '../src/i18n/de.js';
 import { en } from '../src/i18n/en.js';
 
-for (const copy of [de, en]) test(`AIT-165 final General section: muted native operator navigation and inline error (${copy.display.locale})`, async () => {
-  const window = new Window();
+for (const [mode, base] of [['same origin', null], ['foreign base', 'https://elsewhere.test/'], ['opaque origin', null]]) {
+  test(`AIT-633 settings logout submission checks ${mode}`, async t => {
+    const window = new Window({ url: 'https://host.test/' });
+    t.after(() => window.happyDOM.close());
+    if (base) window.document.head.innerHTML = `<base href="${base}">`;
+    if (mode === 'opaque origin') Object.defineProperty(window, 'origin', { value: 'null' });
+    const calls = [];
+    t.mock.method(globalThis, 'fetch', (url, options) => {
+      calls.push({ url, options });
+      return Promise.resolve(new Response(null, { status: 503 }));
+    });
+    const parent = window.document.body;
+    const operator = { provider: 'Zitadel', name: 'Ada', url: '/api/operator/login/', logoutUrl: '/api/operator/logout/' };
+    const { element } = new OperatorSettings({ parent, copy: en, operator });
+    const form = element.querySelector('form');
+    const submit = new window.Event('submit', { bubbles: true, cancelable: true });
+    form.dispatchEvent(submit);
+    assert.equal(submit.defaultPrevented, true, 'JavaScript owns the submission');
+    assert.equal(form.hasAttribute('action'), false, 'the form has no native operator action');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(element.querySelector('.operator-error').textContent, en.settings.operatorLogoutError);
+    if (mode !== 'same origin') { assert.deepEqual(calls, []); return; }
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, 'https://host.test/api/operator/logout/');
+    assert.equal(calls[0].options.method, 'POST');
+    assert.equal(calls[0].options.redirect, 'error');
+    assert.ok(calls[0].options.signal instanceof AbortSignal);
+  });
+}
+
+for (const copy of [de, en]) test(`AIT-165 final General section: muted operator navigation and inline error (${copy.display.locale})`, async () => {
+  const window = new Window({ url: 'https://host.test/' });
   try {
     const parent = window.document.createElement('div'); parent.innerHTML = '<section>Existing settings</section><section class="host-verify"></section>';
     const operator = { provider: 'Zitadel', url: '/api/operator/login/', logoutUrl: '/api/operator/logout/', adminUrl: '/admin' };
     const view = new OperatorSettings({ parent, copy, operator }), s = parent.lastElementChild;
     assert.equal(s, view.element); assert.equal(s.querySelector('h3'), null);
-    const link = s.querySelector('.operator-login'); assert.equal(link.getAttribute('href'), operator.url);
+    const link = s.querySelector('.operator-login'); assert.equal(link.getAttribute('href'), new URL(operator.url, window.location.href).href);
     assert.equal(link.textContent.trim(), copy.settings.operatorLogin.replace('{provider}', 'Zitadel'));
     assert.ok(link.querySelector('svg')); assert.equal(s.querySelector('.operator-error').textContent, '');
     view.set({ ...operator, error: true }); assert.equal(s.querySelector('.operator-error').textContent, copy.settings.operatorError);
     view.set({ ...operator, name: '<Ada>' });
     assert.equal(s.querySelector('.operator-name').textContent, 'Operator: <Ada>'); assert.equal(s.querySelector('Ada'), null);
-    assert.equal(s.querySelector('form').method, 'post'); assert.equal(s.querySelector('form').getAttribute('action'), operator.logoutUrl);
+    assert.equal(s.querySelector('form').method, 'post'); assert.equal(s.querySelector('form').hasAttribute('action'), false);
     assert.equal(s.querySelector('.operator-logout').textContent, copy.settings.operatorLogout);
     assert.equal(link.getAttribute('aria-hidden'), 'true');
     view.set({ ...operator, name: 'Ada' });
@@ -31,7 +61,8 @@ for (const copy of [de, en]) test(`AIT-165 final General section: muted native o
 for (const copy of [de, en]) {
   const operator = { provider: 'Zitadel', url: '/api/operator/login/', logoutUrl: '/api/operator/logout/', name: 'Ada' };
   for (const adminUrl of [undefined, '', null, 123, 'javascript:alert(1)', 'data:text/html,admin', 'mailto:admin@example.test',
-    '//other.test/admin', '/\\other.test/admin', '\\other.test/admin', 'https://', 'https://[invalid', 'java\nscript:alert(1)', ' /admin']) {
+    '//other.test/admin', '/\\other.test/admin', '\\other.test/admin', 'https://', 'https://[invalid', 'java\nscript:alert(1)', ' /admin',
+    '/api/operator/admin/state', '/other/../api/operator/admin/state']) {
     test(`AIT-223 no admin anchor, keeping the logout separator for ${JSON.stringify(adminUrl)} (${copy.display.locale})`, async () => {
       const window = new Window();
       try {

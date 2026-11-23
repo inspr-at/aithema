@@ -180,7 +180,7 @@ test('host options require numeric v1 and a full HTTP(S) URL without credentials
   for (const options of [undefined, {}, ...[undefined, 0, 2, '1'].map(version => ({ paimosImportUrl: 'https://paimos.example.test', paimosImportVersion: version })),
     ...['', '/import/project-draft', '//paimos.example.test/import/project-draft', 'javascript:alert(1)', 'data:text/html,test', 'file:///tmp/import',
       'https://', 'https://user:password@paimos.example.test/import/project-draft', ' https://paimos.example.test', 'https://paimos.example.test/\nimport',
-      'https:\\paimos.example.test', 1].map(url => ({ paimosImportUrl: url, paimosImportVersion: 1 }))]) {
+      'https:\\paimos.example.test', 'https://host.test/api/operator/logout/', 1].map(url => ({ paimosImportUrl: url, paimosImportVersion: 1 }))]) {
     assert.equal(paimosImportUrl(options), null);
   }
 });

@@ -45,7 +45,8 @@ export async function responseText(response, limit = 1_000_000, { signal, observ
   } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
 }
 // Shared wire parser; no retries. It is also used by the browser loopback half.
-export function createChatCompletions({ manifest, binding, resolveSecret, fetchImpl = globalThis.fetch,
+export function createChatCompletions({ manifest, binding, resolveSecret,
+  fetchImpl = (url, options) => globalThis.fetch(url, { ...options, credentials: 'omit' }),
   providerOptions = () => ({}), transportOptions = {}, billable = true, spendCap,
   spendCeiling = () => binding.maxMicro, prepareBody = body => body, prepareDispatch = body => body, observedCost, uncertainCeiling, authoritativeCost = false,
   streamSchema = false }) {
@@ -141,7 +142,7 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
     spend.options.attempt?.dispatchCost?.();
     if (spend.reservation) spendCap.dispatch?.(spend.reservation);
     const pending = Promise.resolve(fetchImpl(binding.endpoint, { ...transportOptions, method: 'POST', signal: scope.signal,
-      redirect: 'error', headers: { ...(key ? { authorization: `Bearer ${key}` } : {}), 'content-type': 'application/json' }, body }));
+      redirect: 'error', headers: { ...(key ? { authorization: `Bearer ${key}` } : {}), 'content-type': 'application/json' }, body, credentials: 'omit' }));
     // A late non-stream response may still provide billed cost after cancellation.
     const tracked = pending.then(async response => {
       if (scope.signal.aborted) {

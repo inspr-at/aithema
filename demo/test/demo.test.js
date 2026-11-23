@@ -153,7 +153,7 @@ test('preview mints use the common JSON mutation helper with no-store and redire
   assert.equal(init.signal.aborted, false); controller.abort(); assert.equal(init.signal.aborted, true);
   assert.equal(init.method, 'POST'); assert.equal(init.body, '{}'); assert.equal(init.headers['x-aithema-session-token'], 'fixture-owner');
 });
-test('client JavaScript mutations use postJson except native operator logout and configured Paimos handoff', async () => {
+test('client JavaScript mutations use postJson except the configured Paimos handoff', async () => {
   const { readFile } = await import('node:fs/promises');
   const files = await clientFiles();
   assert.ok(files.some(f => f.pathname.endsWith('/i18n/en.js')), 'nested client files are scanned');
@@ -161,11 +161,10 @@ test('client JavaScript mutations use postJson except native operator logout and
     if (file.pathname.endsWith('/packages/ui/src/post-json.js')) continue;
     let source = await readFile(file, 'utf8');
     if (file.pathname.endsWith('/packages/ui/src/operator-settings.js')) {
-      // AIT-165 requires native navigation. Permit only this fixed same-origin
-      // form, whose host route enforces Origin and revokes the operator grant.
-      const nativeLogout = 'method="post" action="/api/operator/logout/"';
-      assert.equal(source.split(nativeLogout).length, 2, 'exactly one fixed native logout form');
-      source = source.replace(nativeLogout, '');
+      // AIT-633 keeps the form semantics and handles submit with postJson.
+      const handledLogout = '<form class="operator-view operator-signed-in" method="post">';
+      assert.equal(source.split(handledLogout).length, 2, 'exactly one logout form without an operator action');
+      source = source.replace(handledLogout, '');
     }
     if (file.pathname.endsWith('/packages/ui/src/session-element.js')) {
       // AIT-242 requires top-level navigation to the validated host destination.

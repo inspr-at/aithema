@@ -1,5 +1,5 @@
 import { readAdminSettings, readAdminMailCap, readProviderCap } from './admin-read.js';
-import { renderAdmin, adminModel, esc } from './admin-view.js';
+import { renderAdmin, esc } from './admin-view.js';
 import { adminCopy } from './admin-copy.js';
 
 const headers = { 'cache-control': 'no-store', vary: 'Cookie', 'referrer-policy': 'no-referrer',
@@ -48,7 +48,7 @@ export function createAdminHTTP({ host, spendCap, operatorSessions, publicOrigin
       }
       const method = path === '/api/operator/admin/settings' ? 'POST' : 'GET';
       if (request.method !== method) { const r = json({ error: 'method-not-allowed' }, 405); r.headers.set('allow', method); return r; }
-      if (path === '/admin') return page(adminModel(state(operator), host.visitorCredits.adminAudit()), locale);
+      if (path === '/admin') return page({ signed: 'loading' }, locale);
       if (path === '/api/operator/admin/state') return json(state(operator));
       if (path === '/api/operator/admin/audit') {
         if ([...url.searchParams.keys()].some(k => k !== 'before') || url.searchParams.getAll('before').length > 1 ||

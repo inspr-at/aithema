@@ -1,4 +1,5 @@
 import { adminCopy } from '../admin-copy.js';
+import { adminModel, renderAdmin } from '../admin-view.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { adminFixture } from '../../test/fixtures/admin-host.js';
@@ -7,6 +8,23 @@ import { SQLiteStorage } from '../../packages/server/src/index.js';
 import { startChild, temporaryDb } from '../../test/helpers.js';
 
 const routes = [['/admin'], ['/api/operator/admin/state'], ['/api/operator/admin/audit'], ['/api/operator/admin/settings', { baseRevision: 1, confirmationEnabled: false }]];
+
+test('AIT-633 signed-in admin HTML contains a data-free shell and takes no operator data reads', async t => {
+  const f = await adminFixture({ name: 'Fixture Operator' }); t.after(f.close);
+  const settings = t.mock.method(f.host.visitorCredits, 'settings');
+  const audit = t.mock.method(f.host.visitorCredits, 'adminAudit');
+  const response = await f.call('/admin?lang=en');
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.doesNotMatch(html, /Fixture Operator/u);
+  assert.match(html, /data-signed="loading"/u);
+  assert.match(html, /class="ad-who"/u, 'the loading shell reserves the logout row');
+  assert.doesNotMatch(html, /action=["']\/api\/operator\/logout/u);
+  assert.equal(settings.mock.callCount(), 0);
+  assert.equal(audit.mock.callCount(), 0);
+  assert.equal((await (await f.call('/api/operator/admin/state')).json()).operator.name, 'Fixture Operator');
+});
+
 for (const [path, input] of routes) for (const mode of ['missing', 'expired', 'unconfigured']) {
   test(`AIT-169 ${path}: ${mode} session is refused on every request`, async t => {
     const f = await adminFixture({ configured: mode !== 'unconfigured' }); t.after(f.close);
@@ -14,7 +32,7 @@ for (const [path, input] of routes) for (const mode of ['missing', 'expired', 'u
     const r = await f.call(path, input, { headers: { ...(input ? { origin: f.origin, 'content-type': 'application/json' } : {}), cookie: mode === 'missing' ? '' : f.cookie } });
     assert.equal(r.status, mode === 'unconfigured' ? 404 : 401);
     assert.equal(r.headers.get('cache-control'), 'no-store'); assert.equal(r.headers.get('vary'), 'Cookie');
-    if (path === '/admin' && mode !== 'unconfigured') assert.match(await r.text(), /return=admin/u);
+    if (path === '/admin' && mode !== 'unconfigured') assert.match(await r.text(), /class="ad-login"/u);
   });
 }
 for (const [label, headers, status, body] of [
@@ -47,15 +65,16 @@ test('AIT-169 audit actor has one subject delimiter when the operator name conta
   assert.deepEqual(actor.split('#'), ['operator:AdaAdmin', 'verified-subject']);
 });
 for (const locale of ['de', 'en']) for (const ErrorType of [Error, TypeError, SyntaxError]) {
-  test(`AIT-169 page build failure is minimal HTML; API stays JSON (${locale}, ${ErrorType.name})`, async t => {
+  test(`AIT-633 an audit read failure leaves the admin shell available and the API stays JSON (${locale}, ${ErrorType.name})`, async t => {
     const f = await adminFixture(); t.after(f.close);
     f.host.visitorCredits.adminAudit = () => { throw new ErrorType('private-host-data: do not expose'); };
     const response = await f.call('/admin?lang=' + locale);
-    assert.equal(response.status, 503);
+    assert.equal(response.status, 200);
     assert.equal(response.headers.get('content-type'), 'text/html; charset=utf-8');
     assert.equal(response.headers.get('cache-control'), 'no-store');
-    const copy = adminCopy[locale].failed;
-    assert.equal(await response.text(), `<!doctype html><html lang="${locale}"><head><meta charset="utf-8"><title>${locale === 'en' ? 'Admin' : 'Verwaltung'} · Aithema</title></head><body><p>${copy}</p></body></html>`);
+    const shell = await response.text();
+    assert.match(shell, /data-signed="loading"/u);
+    assert.equal(shell.includes('private-host-data'), false);
     const api = await f.call('/api/operator/admin/audit');
     assert.equal(api.status, ErrorType === Error ? 503 : 400);
     assert.match(api.headers.get('content-type'), /^application\/json/u);
@@ -138,7 +157,10 @@ for (const locale of ['de', 'en']) test(`AIT-247 admin page renders erasure audi
   }
   const response = await f.call('/admin?lang=' + locale);
   assert.equal(response.status, 200);
-  const html = await response.text();
+  assert.equal((await response.text()).includes('erased-fixture'), false);
+  const state = await (await f.call('/api/operator/admin/state')).json();
+  const audit = await (await f.call('/api/operator/admin/audit')).json();
+  const html = renderAdmin(adminModel(state, audit), locale);
   assert.match(html, /erased-fixture/u);
   assert.match(html, /already-erased/u);
   assert.match(html, /invalid-admin-command/u);
