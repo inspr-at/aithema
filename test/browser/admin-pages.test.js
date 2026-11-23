@@ -23,7 +23,7 @@ const geometry = page => page.evaluate(() => {
   return [...document.querySelectorAll('.ad-sec:not([data-sec=log]),#h-log,.ad-save,.ad-btn,.ad-discard,.ad-status,.ad-tier,.ad-sub')].map(box);
 });
 const loadingGeometry = page => page.evaluate(() => {
-  const selectors = ['.ad-who button', '.ad-status', '.ad-save', '.ad-tier', '.ad-check', '.ad-lim', '.ad-kv', '#h-log'];
+  const selectors = ['.ad-title', '.ad-who button', '.ad-status', '.ad-save', '.ad-tier', '.ad-tier .ad-fld', '.ad-check', '.ad-lim', '.ad-kv', '#h-log'];
   return Object.fromEntries(selectors.map(selector => [selector, [...document.querySelectorAll(selector)].map(el => {
     const { x, y, width, height } = el.getBoundingClientRect();
     return { x, y: y + scrollY, width, height };
@@ -136,6 +136,22 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
         if (captureFirstFrame) {
           await run('guarded admin state arrival', () => stateGate.arrived.promise);
           assert.equal(await run('admin loading state', () => page.$eval('.ad-page', n => n.dataset.signed)), 'loading');
+          assert.equal(await run('admin form busy', () => page.$eval('.ad-content', n => n.getAttribute('aria-busy'))), 'true');
+          await run('focus back link', () => page.focus('.ad-back'));
+          const value = await run('attempt to focus a loading tier field', () => page.$eval('#f-emailGiven', input => {
+            input.focus();
+            return input.value;
+          }));
+          await run('type during admin loading', () => page.keyboard.type('9'));
+          assert.equal(await run('loading tier value', () => page.$eval('#f-emailGiven', input => input.value)), value);
+          const fields = await run('loading tier controls', () => page.$$eval('.ad-tier input', inputs => inputs.map(input => ({
+            disabled: input.disabled || input.readOnly,
+            caret: getComputedStyle(input).caretColor,
+            mutedBorder: getComputedStyle(input.closest('.ad-fld')).borderTopColor === getComputedStyle(input.closest('.ad-sec')).borderTopColor,
+          }))));
+          assert.equal(fields.length, 3);
+          for (const field of fields) assert.deepEqual(field, { disabled: true, caret: 'rgba(0, 0, 0, 0)', mutedBorder: true });
+          assert.equal(await run('loading focus', () => page.evaluate(() => document.activeElement.matches('.ad-back'))), true);
           await run('loading fonts', () => page.evaluate(() => document.fonts.ready));
           first = await run('loading geometry', () => loadingGeometry(page));
           for (const [selector, boxes] of Object.entries(first)) {
@@ -154,8 +170,20 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
         const settled = await run('settled geometry', () => loadingGeometry(page));
         assert.deepEqual(settled, first, `${locale} ${width}: loading and settled settings boxes`);
         assert.equal(await run('admin settled state', () => page.$eval('.ad-page', n => n.dataset.signed)), 'in');
+        assert.equal(await run('admin form ready', () => page.$eval('.ad-content', n => n.hasAttribute('aria-busy'))), false);
+        assert.equal(await run('settled focus', () => page.evaluate(() => document.activeElement.matches('.ad-back'))), true);
+        assert.deepEqual(await run('settled tier controls', () => page.$$eval('.ad-tier input', inputs => inputs.map(input => !input.disabled && !input.readOnly))), [true, true, true]);
         assert.equal(await run('operator name', () => page.$eval('.ad-who .nm', n => n.textContent)), 'Operator: Ada');
         if (evidence) await run('settled screenshot', () => page.screenshot({ path: join(evidence, `ait-633-admin-${locale}-${width}-settled.png`) }));
+        const value = await run('focus settled tier field', () => page.$eval('#f-emailGiven', input => {
+          input.focus({ preventScroll: true });
+          input.select();
+          return input.value;
+        }));
+        await run('type in settled tier field', () => page.keyboard.type('1800'));
+        assert.equal(await run('settled tier value', () => page.$eval('#f-emailGiven', input => input.value)), '1800');
+        await run('restore settled tier value', () => edit(page, value));
+        await run('restore back link focus', () => page.focus('.ad-back'));
         tick.push({ locale, width, first, settled });
       }
     };
