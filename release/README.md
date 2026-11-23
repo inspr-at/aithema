@@ -156,18 +156,23 @@ merges in this order. Classification uses each merge's first-parent diff.
 **Notes summary.** Visitor entries reproduce the EN/DE pills and benefits read
 from aeon at preparation time for AIT-603, AIT-608, AIT-612, AIT-609, AIT-618,
 AIT-625 and AIT-637. AIT-603's two PRs share one pill. AIT-621 and AIT-624
-appear only in this technical record.
+appear only in this technical record. The combined entrance is a host opt-in,
+and the default entrance remains `'choice'`.
 
 **Host record.** `release/next-notes.md` was already the stub
 `# Next release — unreleased`, with zero entries to fold. The [host release
 notes](notes.md#for-hosts) describe the code at L.
 
 - AIT-603 keeps the welcome and readiness visible on phones in the combined
-  entrance with a host image concept layout. The capped dock line exposes the
-  full host sentence as the consent action's accessible description. The
-  sheet brings that sentence into view. With the keyboard up, the short
-  reason and action use one row, and a held feedback row can preserve its
-  height after the feedback clears.
+  entrance with a host image concept layout. The combined entrance is a host
+  opt-in, and the default entrance remains `'choice'`. With the keyboard up,
+  the short reason and action use one row, and a held feedback row can
+  preserve its height after the feedback clears. In RC28 the composer's
+  consent action was named “Give consent…: messages need your consent”
+  (DE “Einwilligen…: Nachrichten brauchen Ihre Einwilligung”). Its accessible
+  name is now the visible action alone, with the full host sentence as its
+  accessible description. The sheet brings that sentence into view. The
+  shipped `featureConsent.textActionReason` key is unused.
 - AIT-608 uses `visibility:hidden` and `inert` for the unavailable fold.
   Its slot in the layout is kept. AIT-612 places the failed-save message
   beside the action once and offers Close after a failed consent load.
@@ -175,8 +180,10 @@ notes](notes.md#for-hosts) describe the code at L.
   `@inspr/aithema-ui/display` export `clockTime` (EN “09:04 PM” → “9:04 PM”,
   DE “21:04” for that evening time). `dateClock` is additive. The library
   uses it to display a medium date with the same hour formatting.
-- AIT-618 toggles `data-phone-keyboard` and `data-phone-keyboard-band`
-  together and compacts the AI notice to one line. The voice band uses a
+- AIT-618. The combined entrance is a host opt-in, and the default entrance
+  remains `'choice'`. In the combined entrance, AIT-618 hides the touch
+  ⌘+Enter hint, toggles `data-phone-keyboard` and `data-phone-keyboard-band`
+  together, and compacts the AI notice to one line. The voice band uses a
   44 px row, with an 88 px exception when header controls enter Pause's
   column. `data-keyboard-rail-row` latches the second row through keyboard
   close. `data-keyboard-late` moves a late component header action to the
@@ -185,8 +192,10 @@ notes](notes.md#for-hosts) describe the code at L.
 - AIT-625 adds the `@inspr/aithema-ui/owner-request` subpath with `ownerURL`
   and `ownerFetch`. A guarded request resolves once against the document
   base, verifies the actual page origin, rejects redirects and fails
-  closed without a usable HTTP(S) origin. The deadline covers finite
-  response headers and body, with bounded buffering at 64 MiB by default
+  closed without a usable HTTP(S) origin. This restriction covers
+  session-owner requests. ElevenLabs voice sends audio directly from the
+  browser to ElevenLabs. The deadline covers finite response headers and
+  body, with bounded buffering at 64 MiB by default
   and 256 MiB for exports. The successful event stream stays unbuffered.
   The footer and composer export anchors carry `role="link"`,
   `tabindex="0"` and no `href`. Activation downloads via the guarded
@@ -222,26 +231,35 @@ AIT-610 limitation stays listed until AIT-610 returns with AIT-638. The
 notes add AIT-635 (a host control inserted into `slot="account"` with the
 keyboard up can overlap Pause, as can one inserted into
 `slot="contact-launcher"` while pinch-zoomed) and AIT-633 (pre-existing
-operator logout forms and `/admin` navigation use same-origin routes
-outside the guarded helper. Only a foreign `<base>` could re-point a form
-action). All fourteen were open in aeon at preparation time and are worded
-“planned (AIT-nnn)” in the notes. AIT-603, AIT-608, AIT-609 and AIT-612
+native operator login and `/admin` links and logout forms bypass the
+guarded helper. Their relative routes normally resolve to the page's origin.
+A foreign `<base>` can re-point the links and form action. These native
+actions carry no session-owner token). All fourteen were open in aeon at
+preparation time and are worded “planned (AIT-nnn)” in the notes.
+AIT-603, AIT-608, AIT-609 and AIT-612
 were all done and are removed from the list.
 
-**Breaking for hosts.** **Yes, for browser hosts using the composed-voice
-relay, relative to RC28 (`v261121100916.0.0`).** Opening the built-in
-browser relay throws before sending if `network.ownerFetch` is missing.
-Inject the exported helper. Pass the explicit session token as
-`network.sessionToken` in place of the raw header. The relay still maps
-the legacy header if present. Cookie hosts inject the helper and omit the
-token. The [release notes](notes.md#for-hosts) and [Grok setup in the
-embedding guide](../docs/embedding.md#grok-voice-host-setup-and-release-imports-ait-351)
-give the same before and after. Hosts that relied on native export URLs
-or fixed-width clock display output must adapt as described above.
-Public export names, other configuration keys, HTTP status codes, events
-and slot names are preserved. The new subpath, `dateClock`, and copy keys
-are additive. Host scripts and styles that depend on export/keyboard DOM
-should account for the changed attributes and focusability above.
+**Breaking for hosts relative to RC28 (`v261121100916.0.0`).**
+
+- AIT-625. All component requests use `ownerFetch`. Cross-origin `baseUrl`
+  values and opaque or non-HTTP(S) page origins (such as `about:srcdoc` or a
+  sandboxed frame without `allow-same-origin`) fail before sending. Redirect
+  responses fail before the browser sends a follow-up request. Use a
+  same-origin `baseUrl`, serve the component in a page with a real HTTP(S)
+  origin, and serve owner routes without redirects.
+- AIT-625. The built-in browser relay throws before sending if
+  `network.ownerFetch` is missing. Inject the exported helper. Pass the
+  explicit token as `network.sessionToken` in place of the raw header. The
+  relay still maps the legacy header if present. Cookie hosts inject the
+  helper and omit the token. The same migration applies to direct browser
+  calls to `createNetworkRelayClient({ url, headers })`. See the [release
+  notes](notes.md#for-hosts) and the [Grok setup in the embedding
+  guide](../docs/embedding.md#grok-voice-host-setup-and-release-imports-ait-351).
+- AIT-603. Update tests and scripts that locate composer consent by accessible name to use the visible action alone. Overrides of `featureConsent.textActionReason` are ignored.
+- Hosts that rely on native export URLs or fixed-width clock display output
+  must adapt as described above. Host scripts and styles that depend on
+  export and keyboard DOM should account for the changed attributes and
+  focusability above.
 
 **CI-only:** AIT-624 (#502), 16 browser shards and 5 unit shards.
 **Test-only:** AIT-621 (#501), split the host-credits tests. The release
@@ -274,7 +292,7 @@ entries at preparation time follow verbatim. Entries 4, 5, 7 and 8 remain
 retired on this range.
 
 1. AIT-529 (unit, macOS lanes): test/release-candidate-gate.test.js, "sibling marker bound failure escapes the outer rethrow guard" and "... fallback rethrow guard".
-2. AIT-531 (browser, mbp2606): every entry in known-mbp2606-browser-failures.txt (AIT-350, AIT-261 axe undefined, AIT-400 plus its nested 1 px composer case, AIT-225, the AIT-512 Control+Enter pair plus its parent, AIT-266, AIT-221 DE390 plus its parent).
+2. AIT-531 (browser, mbp2606): every entry in known-mbp2606-browser-failures.txt (AIT-350, AIT-261 axe undefined, AIT-400 plus its nested 1 px composer case, AIT-225, the AIT-512 Control+Enter pair plus its parent, AIT-266, AIT-221 DE390 plus its parent); on mbp2607 also the two axe signatures (AIT-261, AIT-266: ReferenceError axe is not defined), a lane-only evidence-mode artifact (test/browser/matrix-coverage.js:5; CI never runs axe) (LEAD 2026-11-23 07:18, AIT-639).
 3. agm2 composed qualification:
    - browser test/browser/composed-qualification.test.js (15);
    - unit plugins/composed-voice/test/qualification-host.test.js (2, historical pair).
@@ -285,8 +303,7 @@ retired on this range.
 8. AIT-554 RETIRED for new work (AIT-554 merged 2026-11-19 11:01 as f152e427: the fixture no longer rewrites the timer during the paint wait). Applies ONLY to heads that do NOT contain f152e427 (check: git merge-base --is-ancestor f152e427 HEAD fails), and then exactly as before: "AIT-102 PR 3: voice viewport matrix…" (voice-presentation.test.js:89) ONLY with the message "<state>-1440-<theme>-<lang>.png: stable backdrop paint". On any head that contains f152e427, ANY AIT-102 failure is a stop. (Was time-boxed to RC27; now resolved.)
 
 **Main-known on mbp2607 (macOS).** The following same-lane signatures were
-seen on main at `2ec62e83`. These are separate from the canonical entries
-above. Match the names and failure classes in the final-C evidence.
+seen on main at `2ec62e83` or at the main commit named in the entry.
 
 - `html-preview.test.js` AIT-400, `1024/light/de` geometry.
 - `question-card.test.js` AIT-512 Control+Enter cases “long reply at 390
@@ -298,6 +315,116 @@ above. Match the names and failure classes in the final-C evidence.
 - `voice.test.js`, “resending failed typed input…” and
   “a reload never sends paused:false…”.
 - `host-surface.test.js` AIT-261, “axe is not defined”.
+- `composed-media.test.js`, “AIT-350: Settings provider switch viewports,
+  focus and 0 px geometry”. AIT-625 r6 reproduced the identical “S1 overflows”
+  failure at `1280×800/de` in light and dark on main `996bb524` (8 tests,
+  7 passed, 1 failed).
+
+### Whole browser suite
+
+Coordinator run on mbp2607 (macOS, headless Chromium 155.0.8059.39) at
+source C `cb29726e94d1e90fbac1c173877048533cafcd8b`. One Node invocation
+with `--test-concurrency=3` completed all 40 files. Node reported **2,577
+tests, 2,555 passed, 22 failed**, with zero cancellations, skips or todos.
+
+| File under `test/browser/` | Tests | Passed | Failed |
+| --- | ---: | ---: | ---: |
+| `admin-pages.test.js` | 2 | 2 | 0 |
+| `audio-replay.test.js` | 285 | 285 | 0 |
+| `clarify-now-status.test.js` | 8 | 8 | 0 |
+| `clarify-now.test.js` | 51 | 51 | 0 |
+| `composed-media.test.js` | 8 | 7 | 1 |
+| `composed-qualification.test.js` | 15 | 15 | 0 |
+| `confirmation-design.test.js` | 1 | 1 | 0 |
+| `consent-lines.test.js` | 128 | 128 | 0 |
+| `credit-hold.test.js` | 1 | 1 | 0 |
+| `demo.test.js` | 64 | 64 | 0 |
+| `email-ask.test.js` | 80 | 75 | 5 |
+| `email-mail-space.test.js` | 235 | 229 | 6 |
+| `email-unlock-reply.test.js` | 6 | 6 | 0 |
+| `external-plugin.test.js` | 1 | 1 | 0 |
+| `footer-width-sweep.test.js` | 5 | 5 | 0 |
+| `host-surface-email.test.js` | 4 | 4 | 0 |
+| `host-surface.test.js` | 30 | 29 | 1 |
+| `html-preview.test.js` | 86 | 84 | 2 |
+| `identity-unlock.test.js` | 17 | 17 | 0 |
+| `lane-race-kit.test.js` | 4 | 4 | 0 |
+| `language-first-paint.test.js` | 2 | 2 | 0 |
+| `operator-login.test.js` | 26 | 26 | 0 |
+| `orb-reveal.test.js` | 6 | 6 | 0 |
+| `pause-phone-uploads.test.js` | 459 | 459 | 0 |
+| `pause-phone.test.js` | 126 | 126 | 0 |
+| `phone-dock.test.js` | 226 | 226 | 0 |
+| `phone-keyboard-settle.test.js` | 22 | 22 | 0 |
+| `question-card.test.js` | 113 | 110 | 3 |
+| `safeguards.test.js` | 13 | 13 | 0 |
+| `start-journey.test.js` | 184 | 184 | 0 |
+| `start-look.test.js` | 189 | 189 | 0 |
+| `start2-display-continuity.test.js` | 15 | 15 | 0 |
+| `start2-display-geometry.test.js` | 14 | 14 | 0 |
+| `start2-display-matrix.test.js` | 1 | 1 | 0 |
+| `start2-display.test.js` | 90 | 89 | 1 |
+| `tick-followups.test.js` | 6 | 6 | 0 |
+| `understanding-failure.test.js` | 32 | 29 | 3 |
+| `upload-capacity.test.js` | 5 | 5 | 0 |
+| `visitor-credit-tiers.test.js` | 10 | 10 | 0 |
+| `voice-presentation.test.js` | 7 | 7 | 0 |
+
+All 22 failures match the same-lane signatures above, including the parent
+results Node counts when their subtests fail.
+
+- **`composed-media.test.js` (1).** “AIT-350: Settings provider switch
+  viewports, focus and 0 px geometry” reported “S1 overflows” at
+  `1280×800/de` in light and dark. Matches the AIT-625 r6 reproduction
+  on main `996bb524`.
+- **`email-ask.test.js` (5).** `de-light-390-mail`, `de-light-1440-mail`,
+  `en-light-390-mail` and `en-light-1440-mail` each reported
+  `actual.equals is not a function`. Their parent “AIT-172: email ask
+  privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail
+  pixels” reported four failed subtests. Matches the main-known screenshot
+  failure class.
+- **`email-mail-space.test.js` (6).** “AIT-171: mail-only reservation, boot
+  tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN”
+  and `de-light-390-mail`, `de-light-1440-mail`, `en-light-390-mail` and
+  `en-light-1440-mail` each reported `actual.equals is not a function`.
+  “AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440,
+  main geometry and mail pixels” reported the four failed mail subtests.
+  Matches the main-known screenshot failure class.
+- **`host-surface.test.js` (1).** “AIT-261: every terminal reason disables
+  the demo UI and preserves export in DE and EN” reported
+  `ReferenceError: axe is not defined`. Matches the main-known signature
+  and entry 2's mbp2607 scope.
+- **`html-preview.test.js` (2).** The `1024/light/de` case in
+  `test/fixtures/withdrawal-focus-frames.js` failed the default composer
+  geometry comparison against main. Its parent “AIT-400: withdrawal
+  preserves the top transcript row and reserved status slot” reported
+  one failed subtest. Matches the main-known `1024/light/de` geometry case.
+- **`question-card.test.js` (3).** “long reply at 390 with visual keyboard
+  holds its top through final/card paints” and “overview anchoring stays
+  active during a typed-send navigation intent” each reported
+  `Waiting failed: 30000ms exceeded`. Their parent “AIT-512: picks and sends
+  keep the new turn visible without stealing reading position” reported two
+  failed subtests. Matches the main-known Control+Enter pair.
+- **`start2-display.test.js` (1).** “AIT-266: host polish five decisions,
+  DE/EN touch/mouse 1440/1280x860/390” reported
+  `ReferenceError: axe is not defined`. Matches entry 2's mbp2607 scope.
+- **`understanding-failure.test.js` (3).** `de 390 light` and `de 390 dark`
+  each reported `.reaction-failure dimension 3 holds under pointer`. Their
+  parent “AIT-221 two failures: Retry at the first failure recovers both
+  lanes, overview-only unchanged, 0 px” reported two failed subtests.
+  Matches the main-known `de 390` pair.
+
+AIT-640 tracks removal of the evidence-mode axe artifact accepted on mbp2607.
+
+The browser evidence carries forward from C to the final candidate head
+C′. The diff contains only `release/notes.md` and `release/README.md`. No
+browser test reads either path. At C′, the diff stat lists those two files
+and the browser-path search returns no matches (exit 1).
+
+```sh
+git diff --stat cb29726e94d1e90fbac1c173877048533cafcd8b..HEAD
+git grep -niE 'release/(notes|README)(\.md)?' HEAD -- test/browser
+```
 
 Preparation order (lane execution only):
 
@@ -306,7 +433,7 @@ Preparation order (lane execution only):
    pins, append sequence 39 history, and fold the next-notes stub. Commit
    with `git commit -s` using the configured identity and Codex co-author
    trailer.
-2. Run the release test set at final committed C. The durable wrapper tries
+2. Run the release test set at final committed C′. The durable wrapper tries
    mbp2606 and falls back to the admitted mbp2607 lane. AGM2-HOLD remains
    in force. Use one AIT run at a time, headless, with load ≤ 135. WAIT
    (exit 3 or 7) means back off about five minutes and retry within the
@@ -317,7 +444,7 @@ Preparation order (lane execution only):
    exact rollback with mocks.
 
    ```sh
-   MBP2607=1 EVIDENCE_OUT="$PWD/dist/aitrc29-final" FETCH_TRIES=300 \
+   MBP2607=1 EVIDENCE_OUT="$PWD/dist/aitrc29-final-r3" FETCH_TRIES=300 \
      "$HOME/.local/share/ait-qa/coordinator/rb-fetchretry.sh" \
      "$PWD" unit --test-concurrency=2 \
      test/release-candidate.test.js test/release-workflow.test.js \
@@ -328,22 +455,17 @@ Preparation order (lane execution only):
      test/consumer-isolation.test.js test/grok-release.test.js
    ```
 
-   Run the whole browser suite at the same C through the same durable
-   wrapper with `MBP2607=1 MBP2607_BROWSER=1`, `FETCH_TRIES=300`,
-   `EVIDENCE_OUT` and detailed failure signatures. Run one browser suite
-   at a time. Record the platform, total and per-file counts, and exact
-   match for every failure. Stop on a failure outside the accepted and
-   same-lane main-known signatures. Run the independent RC28 cross-package
-   import check on every final tarball. Both counts must be zero.
-3. Retain `dist/aitrc29-final/candidate/` and copy the evidence directory
-   to `~/.local/share/ait-qa/release-evidence/aitrc29-final/`. Keep
+   Run the independent RC28 cross-package import check on every final
+   tarball. Both counts must be zero.
+3. Retain `dist/aitrc29-final-r3/candidate/` and copy the evidence directory
+   to `~/.local/share/ait-qa/release-evidence/aitrc29-final-r3/`. Keep
    `first/`, `second/`, `candidate-evidence.json`, deployment pins and
-   isolated consumer evidence. Confirm `source_commit` equals C and bind
+   isolated consumer evidence. Confirm `source_commit` equals C′ and bind
    `manifest_sha256` and `normalized_digest` to `first/`.
-4. Record C, its commits since L, actual final-C counts and lane, digests,
+4. Record C′, its commits since L, final-head counts and lane, digests,
    audit, import check and any pending evidence in
    `.data/ait-rc29/handoff.txt`. This keeps the final build and release
-   qualification bound to C without an evidence-only commit. The
+   qualification bound to C′ without an evidence-only commit. The
    coordinator owns the release gates and MAC-OPS owns the cut.
 
 ## Twenty-eighth candidate (AIT-614)

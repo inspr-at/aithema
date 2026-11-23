@@ -2,28 +2,29 @@
 
 Version **261123053431.0.0**. Licensed under **AGPL-3.0-only**.
 
-On a phone, the welcome and readiness card fit when the host uses image
-concepts, and typing leaves more room for the conversation. Consent errors
-appear beside the action, and export controls explain when a download is
-unavailable.
+On a phone in the combined entrance, the welcome and readiness card fit when
+the host uses image concepts, and typing leaves more room for the conversation.
+The combined entrance is a host opt-in, and the default entrance remains
+`'choice'`. Consent errors appear beside the action, and export controls explain
+when a download is unavailable.
 
 ## What visitors notice
 
-- **Steady phone typing (AIT-603, #499, #500).** On phones the welcome and the readiness card are visible without scrolling when a host uses image concepts.
+- **Steady phone typing (AIT-603, #499, #500).** On phones the welcome and the readiness card are visible without scrolling when a host uses image concepts. The combined entrance is a host opt-in, and the default entrance remains `'choice'`.
 - **Calmer ready screen (AIT-608, #503).** Controls that cannot do anything yet are no longer shown.
 - **Consent errors once (AIT-612, #505).** A failed consent save shows one clear message.
 - **Natural clock times (AIT-609, #504).** Times read naturally in English and German.
-- **More room while typing (AIT-618, #507).** Typing on a small phone leaves room for your message instead of hints you cannot use.
+- **More room while typing (AIT-618, #507).** Typing on a small phone leaves room for your message instead of hints you cannot use. The combined entrance is a host opt-in, and the default entrance remains `'choice'`.
 - **Safer owner requests (AIT-625, #506).** Your conversation data is only ever sent to the site you are on, never to another address.
 - **Clear export status (AIT-637, #509).** When export is not possible, the button says so instead of failing silently.
 
 ## Was Besucher bemerken
 
-- **Ruhiges Tippen am Handy (AIT-603, #499, #500).** Auf dem Handy sind Begrüßung und Bereitschaftsfeld ohne Scrollen sichtbar, wenn ein Host Bildkonzepte nutzt.
+- **Ruhiges Tippen am Handy (AIT-603, #499, #500).** Auf dem Handy sind Begrüßung und Bereitschaftsfeld ohne Scrollen sichtbar, wenn ein Host Bildkonzepte nutzt. Der kombinierte Einstieg ist eine Host-Option und der Standardeinstieg bleibt `'choice'`.
 - **Ruhigerer Startbildschirm (AIT-608, #503).** Bedienelemente, die noch nichts tun können, werden nicht mehr angezeigt.
 - **Einwilligungsfehler einmal (AIT-612, #505).** Ein fehlgeschlagenes Speichern der Einwilligung zeigt eine klare Meldung.
 - **Natürliche Uhrzeiten (AIT-609, #504).** Uhrzeiten lesen sich auf Englisch und Deutsch natürlich.
-- **Mehr Platz beim Tippen (AIT-618, #507).** Beim Tippen auf kleinen Handys bleibt Platz für die Nachricht statt für Hinweise, die dort nicht nutzbar sind.
+- **Mehr Platz beim Tippen (AIT-618, #507).** Beim Tippen auf kleinen Handys bleibt Platz für die Nachricht statt für Hinweise, die dort nicht nutzbar sind. Der kombinierte Einstieg ist eine Host-Option und der Standardeinstieg bleibt `'choice'`.
 - **Sicherere Anfragen (AIT-625, #506).** Ihre Gesprächsdaten gehen nur an die Seite, auf der Sie sind, nie an eine andere Adresse.
 - **Klarer Export-Status (AIT-637, #509).** Wenn der Export nicht geht, sagt es die Schaltfläche, statt still zu scheitern.
 
@@ -61,15 +62,22 @@ const grokVoice = createGrokVoiceClient({
 });
 ```
 
+The same migration applies to direct browser calls to `createNetworkRelayClient({ url, headers })`.
+
 ### Behaviour changes and host-visible DOM
 
 - AIT-603 (#499, #500). On phones in the combined entrance with a host's
   image concept layout, the dock leaves room for the welcome and readiness
-  panel. The consent action exposes the full host sentence as its accessible
-  description and the settings sheet reveals that sentence when opened.
-  The phone dock shows the short consent reason and action on one row while
-  the keyboard is up. If feedback clears during typing, its held height can
-  persist until the keyboard closes. This keeps Mic and Send steady.
+  panel. The combined entrance is a host opt-in, and the default entrance
+  remains `'choice'`. The phone dock shows the short consent reason and
+  action on one row while the keyboard is up. If feedback clears during
+  typing, its held height can persist until the keyboard closes. This keeps
+  Mic and Send steady. In RC28 the composer's consent action was named
+  “Give consent…: messages need your consent” (DE “Einwilligen…: Nachrichten
+  brauchen Ihre Einwilligung”). Its accessible name is now the visible action
+  alone, with the full host sentence as its accessible description. The
+  settings sheet reveals that sentence when opened. The shipped copy key
+  `featureConsent.textActionReason` is unused, so overrides have no effect.
 - AIT-608. The ready screen's unavailable fold control is now hidden and
   inert, including for keyboard and assistive technology. Its layout space
   is reserved until the control becomes available.
@@ -82,7 +90,9 @@ const grokVoice = createGrokVoiceClient({
   evening time. The additive `dateClock` export combines a medium date with
   the same time format for the conversation library. Host code that parses
   display strings needs to accept variable-width hours.
-- AIT-618. One keyboard-up state toggles `data-phone-keyboard` and
+- AIT-618. The combined entrance is a host opt-in, and the default entrance
+  remains `'choice'`. In the combined entrance, the touch ⌘+Enter hint is
+  hidden and one keyboard-up state toggles `data-phone-keyboard` and
   `data-phone-keyboard-band` together. The compact voice band uses a 44 px
   row and the AI notice uses one line with a More target. If a host header
   control enters Pause's column, `data-keyboard-rail-row` allows the band
@@ -93,7 +103,9 @@ const grokVoice = createGrokVoiceClient({
 - AIT-625. `@inspr/aithema-ui/owner-request` adds `ownerURL` and `ownerFetch`.
   Session-owner requests use the page origin, reject redirects, and fail
   closed before sending if the page lacks a usable HTTP(S) origin or the
-  target resolves off-origin. A finite owner response is buffered within
+  target resolves off-origin. This restriction covers session-owner
+  requests. ElevenLabs voice sends audio directly from the browser to
+  ElevenLabs. A finite owner response is buffered within
   the deadline for headers and body, with a 64 MiB limit by default and
   256 MiB for the conversation ZIP. The successful event stream stays
   unbuffered. Both export controls are anchors with `role="link"` and
@@ -158,20 +170,31 @@ export, layout and time-format behaviour changes are described above.
   a header control that a host inserts into `slot="account"` can overlap Pause.
   A control inserted into `slot="contact-launcher"` can overlap while the page
   is pinch-zoomed; planned (AIT-635).
-- Operator logout forms and `/admin` navigation still bypass the guarded
-  helper. They use same-origin routes. Only a foreign `<base>` could re-point
-  a form action. This predates RC29. The fix is planned (AIT-633).
+- Operator login and `/admin` navigation and logout forms still bypass the
+  guarded helper. The relative routes normally resolve to the page's origin.
+  A foreign `<base>` can re-point those links and the logout form action.
+  These native actions carry no session-owner token. This predates RC29.
+  The fix is planned (AIT-633).
 
 ## Breaking for hosts
 
-**Yes, for browser hosts using the composed-voice relay, relative to RC28
-(`v261121100916.0.0`).** Inject the guarded `network.ownerFetch` and use
-`network.sessionToken` for explicit token authentication, as shown above.
-Code that previously read an export control's `href` must adapt to the new
-export control behaviour. The diff preserves public export names, host
-configuration outside the relay, HTTP status codes, events and slot names.
+These changes are relative to RC28 (`v261121100916.0.0`).
+
+- AIT-625. All component requests use `ownerFetch`. Cross-origin `baseUrl`
+  values and opaque or non-HTTP(S) page origins (such as `about:srcdoc` or a
+  sandboxed frame without `allow-same-origin`) fail before sending. A redirect
+  response also fails before the browser sends a follow-up request. Serve the
+  component in a page with a real HTTP(S) origin, use a same-origin `baseUrl`,
+  and serve owner routes without redirects.
+- AIT-625. Browser relay hosts must inject `network.ownerFetch` and use
+  `network.sessionToken` for explicit token authentication, as shown above.
+  Code that read an export control's `href` must use the new control behaviour.
+- AIT-603. Update tests and scripts that locate composer consent by accessible name to use the visible action alone. Overrides of `featureConsent.textActionReason` are ignored.
+- AIT-609. Code that expects fixed-width clock display strings must accept
+  single-digit hours without a leading zero.
+
 Host styles that depend on keyboard and export markup should account for the
-DOM changes above. Copy keys and new public exports are additive.
+DOM changes above.
 
 ## Availability and verification
 
