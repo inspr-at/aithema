@@ -647,6 +647,36 @@ test('AIT-625 r7 structural: every browser-served demo and plugin module reaches
   } finally { rmSync(probe, { recursive: true, force: true }); }
 });
 
+for (const [name, source] of [
+  ['assembled URL', "export const read = parts => fetch(parts.join('/'));"],
+  ['imported URL', "import { route } from './routes.js'; export const read = () => fetch(route);"],
+  ['computed transport', 'export const read = (key, route) => globalThis[key](route);'],
+  ['overridden omit', "export const read = (route, init) => fetch(route, { credentials: 'omit', ...init });"],
+  ['native POST form', 'export const markup = `<form action="/api/operator/logout/" method="post"></form>`;'],
+  ['native operator navigation', "export const go = () => location.assign('/api/operator/admin/state');"],
+  ['native operator link', 'export const markup = `<a href="/api/operator/admin/state">State</a>`;'],
+]) test(`AIT-633 served scan rejects ${name}`, () => {
+  const probe = mkdtempSync(join(tmpdir(), 'ait-633-served-')), label = 'plugins/device/src/index.js';
+  try {
+    mkdirSync(join(probe, 'plugins/device/src'), { recursive: true });
+    writeFileSync(join(probe, label), source);
+    assert.ok(servedOffenders(probe, servedPattern()).some(finding => finding.startsWith(`${label}:`)), label);
+  } finally { rmSync(probe, { recursive: true, force: true }); }
+});
+
+test('AIT-633 served scan includes the qualification entry and its relay', () => {
+  const paths = servedModules(ROOT, servedPattern()).map(path => relative(ROOT, path));
+  for (const label of ['plugins/composed-voice/ops/qualification-page.js', 'plugins/composed-voice/ops/qualification-output-timing.js',
+    'plugins/composed-voice/src/network-client.js']) assert.ok(paths.includes(label), label);
+  const probe = mkdtempSync(join(tmpdir(), 'ait-633-qualification-'));
+  const label = 'plugins/composed-voice/ops/qualification-page.js';
+  try {
+    mkdirSync(join(probe, 'plugins/composed-voice/ops'), { recursive: true });
+    writeFileSync(join(probe, label), 'export const read = route => fetch(route);');
+    assert.ok(servedOffenders(probe, servedPattern()).some(finding => finding.startsWith(`${label}:`)), label);
+  } finally { rmSync(probe, { recursive: true, force: true }); }
+});
+
 test('AIT-625 r7 demo: postJson and the consent page send only through the helper; a foreign <base> sends nothing', async t => {
   const html = readFileSync(join(ROOT, 'demo/consent.html'), 'utf8').replace(/<script[^>]*>[\s\S]*?<\/script>/gu, '');
   const at = (base = '') => { const window = new Window({ url: 'http://app.test/consent/?session=s' });

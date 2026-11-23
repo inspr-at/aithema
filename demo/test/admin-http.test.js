@@ -7,6 +7,23 @@ import { SQLiteStorage } from '../../packages/server/src/index.js';
 import { startChild, temporaryDb } from '../../test/helpers.js';
 
 const routes = [['/admin'], ['/api/operator/admin/state'], ['/api/operator/admin/audit'], ['/api/operator/admin/settings', { baseRevision: 1, confirmationEnabled: false }]];
+
+test('AIT-633 signed-in admin HTML contains a data-free shell and takes no operator data reads', async t => {
+  const f = await adminFixture({ name: 'Fixture Operator' }); t.after(f.close);
+  const settings = t.mock.method(f.host.visitorCredits, 'settings');
+  const audit = t.mock.method(f.host.visitorCredits, 'adminAudit');
+  const response = await f.call('/admin?lang=en');
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.doesNotMatch(html, /Fixture Operator/u);
+  assert.match(html, /data-signed="loading"/u);
+  assert.match(html, /class="ad-who"/u, 'the loading shell reserves the logout row');
+  assert.doesNotMatch(html, /action=["']\/api\/operator\/logout/u);
+  assert.equal(settings.mock.callCount(), 0);
+  assert.equal(audit.mock.callCount(), 0);
+  assert.equal((await (await f.call('/api/operator/admin/state')).json()).operator.name, 'Fixture Operator');
+});
+
 for (const [path, input] of routes) for (const mode of ['missing', 'expired', 'unconfigured']) {
   test(`AIT-169 ${path}: ${mode} session is refused on every request`, async t => {
     const f = await adminFixture({ configured: mode !== 'unconfigured' }); t.after(f.close);

@@ -6,6 +6,36 @@ import { OperatorSettings } from '../src/operator-settings.js';
 import { de } from '../src/i18n/de.js';
 import { en } from '../src/i18n/en.js';
 
+for (const [mode, base] of [['same origin', null], ['foreign base', 'https://elsewhere.test/'], ['opaque origin', null]]) {
+  test(`AIT-633 settings logout submission checks ${mode}`, async t => {
+    const window = new Window({ url: 'https://host.test/' });
+    t.after(() => window.happyDOM.close());
+    if (base) window.document.head.innerHTML = `<base href="${base}">`;
+    if (mode === 'opaque origin') Object.defineProperty(window, 'origin', { value: 'null' });
+    const calls = [];
+    t.mock.method(globalThis, 'fetch', (url, options) => {
+      calls.push({ url, options });
+      return Promise.resolve(new Response(null, { status: 503 }));
+    });
+    const parent = window.document.body;
+    const operator = { provider: 'Zitadel', name: 'Ada', url: '/api/operator/login/', logoutUrl: '/api/operator/logout/' };
+    const { element } = new OperatorSettings({ parent, copy: en, operator });
+    const form = element.querySelector('form');
+    const submit = new window.Event('submit', { bubbles: true, cancelable: true });
+    form.dispatchEvent(submit);
+    assert.equal(submit.defaultPrevented, true, 'JavaScript owns the submission');
+    assert.equal(form.hasAttribute('action'), false, 'the form has no native operator action');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.ok(element.querySelector('.operator-error').textContent, 'logout failure is announced inline');
+    if (mode !== 'same origin') { assert.deepEqual(calls, []); return; }
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, 'https://host.test/api/operator/logout/');
+    assert.equal(calls[0].options.method, 'POST');
+    assert.equal(calls[0].options.redirect, 'error');
+    assert.ok(calls[0].options.signal instanceof AbortSignal);
+  });
+}
+
 for (const copy of [de, en]) test(`AIT-165 final General section: muted native operator navigation and inline error (${copy.display.locale})`, async () => {
   const window = new Window();
   try {
