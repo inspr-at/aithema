@@ -28,7 +28,9 @@ function combine(signals) {
   }
   return controller.signal;
 }
-export function createNetworkRelayClient({ url = '/composed/relay', fetch: request = globalThis.fetch, ownerFetch, headers = {}, sessionToken, view = pageView(), deadline = RELAY_REQUEST_DEADLINE_MS } = {}) {
+export function createNetworkRelayClient({ url = '/composed/relay',
+  fetch: request = (target, init) => globalThis.fetch(target, { ...init, credentials: 'omit' }),
+  ownerFetch, headers = {}, sessionToken, view = pageView(), deadline = RELAY_REQUEST_DEADLINE_MS } = {}) {
   const browser = Boolean(view) || browserRuntime();
   const hostHeaders = Object.fromEntries(Object.entries(headers).filter(([name]) => name.toLowerCase() !== OWNER_HEADER));
   const token = sessionToken ?? Object.entries(headers).find(([name]) => name.toLowerCase() === OWNER_HEADER)?.[1];
@@ -47,7 +49,7 @@ export function createNetworkRelayClient({ url = '/composed/relay', fetch: reque
       try {
         const response = browser
           ? await ownerFetch(view, url, { ...init, ...(token ? { sessionToken: token } : {}), signal, deadline: finite ? deadline : Infinity, message: 'Relay requests require same origin' })
-          : await request(String(url), { ...init, redirect: 'error', signal: id ? combine([signal, timer.signal]) : signal });
+          : await request(String(url), { ...init, redirect: 'error', signal: id ? combine([signal, timer.signal]) : signal, credentials: 'omit' });
         const value = await response.json();
         if (!response.ok) { const error = new Error('Composed relay request failed'); error.code = value.error; error.status = response.status; throw error; }
         return value;

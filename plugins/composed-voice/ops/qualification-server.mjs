@@ -87,7 +87,7 @@ export function qualificationSettings(values = process.env) {
   return { enabled: true, hostname, relayOrigin: loopbackOrigin(values.AITHEMA_COMPOSED_RELAY_ORIGIN) };
 }
 
-const asset = /^\/(?:plugins\/composed-voice\/src\/(?:browser-audio|network-client|pcm-capture-worklet|client|manifest)|packages\/core\/src\/[a-z-]+|packages\/ui\/src\/owner-request)\.js$/u;
+const asset = /^\/(?:plugins\/composed-voice\/src\/(?:browser-audio|network-client|pcm-capture-worklet|client|manifest)|packages\/core\/src\/(?!extractor-offline\.js$)[a-z-]+|packages\/ui\/src\/owner-request)\.js$/u;
 const reserved = path => path.startsWith('/composed/') || path.startsWith('/plugins/composed-voice/');
 const json = value => Response.json(value, { headers: { 'cache-control': 'no-store' } });
 async function body(request) {

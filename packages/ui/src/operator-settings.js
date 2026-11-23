@@ -1,5 +1,5 @@
 import { reasonSeparator } from './consent-line.js';
-import { guardOperatorLogin, operatorLoginRoute, operatorLogoutRoute, wireOperatorLogout } from './operator-actions.js';
+import { guardOperatorLogin, supportsOperatorActions, wireOperatorLogout } from './operator-actions.js';
 // The final General section: a guarded sign-in destination and logout request.
 // Auth state comes from the host, never from visitor identity or a local role.
 function adminHref(value) {
@@ -14,7 +14,7 @@ function adminHref(value) {
 
 export class OperatorSettings {
   constructor({ parent, copy, operator }) {
-    if (operator?.url !== operatorLoginRoute || operator.logoutUrl !== operatorLogoutRoute) return;
+    if (!supportsOperatorActions(operator)) return;
     this.copy = copy; this.operator = operator; this.logoutFailed = false;
     const section = parent.ownerDocument.createElement('section'); section.className = 'operator-section';
     section.tabIndex = -1;

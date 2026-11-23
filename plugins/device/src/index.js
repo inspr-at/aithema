@@ -21,8 +21,9 @@ export function localEndpoint(value) {
   if (url.port && (Number(url.port) < 1 || Number(url.port) > 65535)) throw failure('unavailable', 'endpoint', 'Invalid loopback port');
   return url.origin;
 }
-const transportOptions = { mode: 'cors', credentials: 'omit', cache: 'no-store', redirect: 'error', referrerPolicy: 'no-referrer' };
-export function createDeviceReasoning({ endpoint = 'http://127.0.0.1:8000', model, fetchImpl = globalThis.fetch } = {}) {
+const transportOptions = { mode: 'cors', cache: 'no-store', redirect: 'error', referrerPolicy: 'no-referrer' };
+export function createDeviceReasoning({ endpoint = 'http://127.0.0.1:8000', model,
+  fetchImpl = (url, options) => globalThis.fetch(url, { ...options, credentials: 'omit' }) } = {}) {
   const origin = localEndpoint(endpoint); let models = [], selected = model;
   async function connect(options = {}) {
     const scope = operationScope(options);
@@ -30,7 +31,7 @@ export function createDeviceReasoning({ endpoint = 'http://127.0.0.1:8000', mode
       scope.signal.throwIfAborted();
       let response;
       // The browser hides whether a stopped server, CORS or a permission blocked the request.
-      try { response = await fetchImpl(`${origin}/v1/models`, { ...transportOptions, signal: scope.signal }); }
+      try { response = await fetchImpl(`${origin}/v1/models`, { ...transportOptions, signal: scope.signal, credentials: 'omit' }); }
       catch (error) { if (scope.signal.aborted) throw error; throw failure('unavailable', 'cors'); }
       if (!response.ok) {
         await response.body?.cancel().catch(() => {});

@@ -1,8 +1,12 @@
 import { ownerURL } from './owner-request.js';
 import { postJson } from './post-json.js';
 
-export const operatorLoginRoute = '/api/operator/login/';
-export const operatorLogoutRoute = '/api/operator/logout/';
+const operatorLoginRoute = '/api/operator/login/';
+const operatorLogoutRoute = '/api/operator/logout/';
+
+export function supportsOperatorActions(operator) {
+  return operator?.url === operatorLoginRoute && operator.logoutUrl === operatorLogoutRoute;
+}
 
 // The sign-in entry needs top-level navigation so the identity provider can redirect.
 export function guardOperatorLogin(link, { admin = false } = {}) {
