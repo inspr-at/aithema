@@ -167,10 +167,9 @@ async function harness(t, evidencePath = ['ait-618', 'tick']) {
       if (granted) { best.text = structuredClone(best.analysis); best.voice = structuredClone(best.analysis); }
       if (heldImage) best.imageInput = { available: false, reason: 'current processing consent required' };
       if (host) { const configure = c.configure.bind(c); c.configure = options => configure({ ...options, host }); }
-      if (contact) { const button = document.createElement('button'); button.type = 'button'; button.slot = 'contact-launcher';
-        button.textContent = locale === 'de' ? 'Kontakt' : 'Contact'; button.style.cssText = 'width:44px;height:44px;overflow:hidden'; c.append(button); }
+      if (contact) c.insertAdjacentHTML('beforeend', contact);
       mount(snapshot);
-    }, locale, intake, granted, consent, host, contact, heldImage);
+    }, locale, intake, granted, consent, host, contact ? lateHeaderButton('contact-launcher', locale) : '', heldImage);
     await page.waitForFunction(granted => {
       const root = document.querySelector('aithema-session').shadowRoot;
       return granted ? root.querySelector('.composer-reason[data-shortcut]') : root.querySelector('.composer-reason[data-consent-feature="text"] .consent-action');
@@ -605,13 +604,13 @@ export async function keyboardHostBandCheck(t) {
         for (const [when, band] of [['keyboard down', down], ['keyboard up', up]]) if (Math.abs((band.pause?.x ?? -1) - 170) > .5) failures.push(`${name} ${when}: pause sits at x 170: ${JSON.stringify(band.pause)}`);
         if (Math.abs((up.band?.height ?? 0) - 88) > .5) failures.push(`${name}: fixture: the host header takes the pause column, so the band keeps the rail row (88 px): ${JSON.stringify(up.band)}`);
         for (const [step, change] of [['contact removed', 'remove'], ['contact added back', 'add']]) {
-          await page.$eval('aithema-session', (c, change, locale) => {
+          await page.$eval('aithema-session', (c, change, markup) => {
             if (change === 'remove') c.querySelector('[slot="contact-launcher"]')?.remove();
-            else { const button = document.createElement('button'); button.type = 'button'; button.slot = 'contact-launcher';
-              button.textContent = locale === 'de' ? 'Kontakt' : 'Contact'; button.style.cssText = 'width:44px;height:44px;overflow:hidden'; c.append(button); }
-          }, change, locale);
+            else c.insertAdjacentHTML('beforeend', markup);
+          }, change, lateHeaderButton('contact-launcher', locale));
           await page.evaluate(() => window.dispatchEvent(new Event('resize'))); await settleLong(page);
           const changed = await readBand(page), changedRoom = await read(page);
+          if (change === 'add') await checkHeaderName(page, 'contact-launcher', locale);
           await capture(page, `${name}-keyboard-up-${step.replace(/\s+/gu, '-')}`, { ...changedRoom, band: changed });
           if (!changed.keyboard) failures.push(`${name} ${step}: the keyboard stays up`);
           failures.push(...stableBoxes(`${name} ${step} (band)`, up, changed, ['band', 'orb', 'pause', 'gear', 'notice', 'more']));
