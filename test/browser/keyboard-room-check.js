@@ -110,7 +110,7 @@ const stableBoxes = (name, before, after, parts) => {
 };
 const brief = s => ({ keyboard: s.keyboard, room: +s.room.toFixed(1), lines: s.lines, scroll: s.scroll, dock: s.dock, band: s.band, notice: s.notice, status: s.status, hint: s.hint });
 
-async function harness(t) {
+async function harness(t, evidencePath = ['ait-618', 'tick']) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-keyboard-room-'));
   const server = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
@@ -118,7 +118,7 @@ async function harness(t) {
   let browser;
   t.after(async () => { try { await browser?.close(); } finally { await server.kill(); } });
   browser = await browserForFile();
-  const evidence = process.env.AITHEMA_EVIDENCE_DIR ? join(process.env.AITHEMA_EVIDENCE_DIR, 'ait-618', 'tick') : null;
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR ? join(process.env.AITHEMA_EVIDENCE_DIR, ...evidencePath) : null;
   if (evidence) await mkdir(evidence, { recursive: true });
   const index = [];
   // `touch`: a touch phone without a hardware keyboard (pointer:coarse, hover:none).
@@ -750,6 +750,107 @@ const restoreViewport = (page, { event = true } = {}) => page.evaluate(event => 
   Object.defineProperty(window, 'visualViewport', { configurable: true, value: globalThis.k1Viewport });
   if (event) window.dispatchEvent(new Event('resize'));
 }, event);
+
+// AIT-635: a real slotchange while the keyboard is already up. Model the
+// obstructed visual viewport and its scale with the same fixture as AIT-618.
+export async function keyboardLateHeaderSlotCheck(t, slot, zoom) {
+  const { open, capture } = await harness(t, ['ait-635', 'tick']);
+  const [width, height] = [320, 568];
+  const hostControl = `late-${slot}`;
+  const readState = `c => {
+    const root = c.shadowRoot, band = (${bandState})(c);
+    band.edge = [...root.querySelectorAll('.band .edge-column button')]
+      .filter(node => node.checkVisibility({ visibilityProperty: true }))
+      .map(node => { const { x, y, width, height } = node.getBoundingClientRect(); return [node.className, { x, y, width, height }]; });
+    return { ...(${roomState})(c), band, pauseFocused: root.activeElement?.classList.contains('pause') ?? false,
+      viewport: { height: visualViewport.height, scale: visualViewport.scale } };
+  }`;
+  const read = page => page.evaluate(`(${readState})(document.querySelector('aithema-session'))`);
+  const stableDock = ['composer', 'field', 'mic', 'send', 'dock', 'feedback', 'notice'];
+  const stableBand = ['orb', 'gear', 'notice', 'more'];
+  const checkHeader = (before, state, expectedRows) => {
+    assert.ok(state.keyboard && state.band.bandUp, 'the keyboard-up state stays open');
+    assert.ok(!state.footerShown, 'the footer stays collapsed');
+    assert.ok(state.pauseFocused, 'focus stays on Pause');
+    const { band, pause, header, edge } = state.band;
+    const targets = Object.fromEntries([...header, ...edge]);
+    for (const [name, box] of Object.entries({ ...targets, band, pause })) {
+      assert.ok(box?.width > 0 && box?.height > 0, `${name} has a positive box: ${JSON.stringify(box)}`);
+    }
+    for (const [name, box] of Object.entries(targets)) {
+      assert.ok(!intersects(pause, box), `Pause overlaps ${name}: ${JSON.stringify([pause, box])}`);
+    }
+    assert.ok(Math.abs(band.height - expectedRows * 44) <= .5, `the band has ${expectedRows} 44 px row(s): ${band.height}`);
+    assert.ok(Math.abs(pause.x - 170) <= .5 && Math.abs(pause.y - (expectedRows - 1) * 44) <= .5, `Pause position: ${JSON.stringify(pause)}`);
+    assert.deepEqual(stableBoxes('band controls', before.band, state.band, stableBand), []);
+    assert.deepEqual(stableBoxes('dock controls', before, state, stableDock), []);
+    const expectedBand = { ...before.band.band, height: expectedRows * 44 };
+    const expectedPause = { ...before.band.pause, y: (expectedRows - 1) * 44 };
+    assert.deepEqual(stableBoxes('band and Pause', { band: expectedBand, pause: expectedPause }, state.band, ['band', 'pause']), []);
+    const beforeTargets = Object.fromEntries([...before.band.header, ...before.band.edge]);
+    assert.deepEqual(stableBoxes('existing header controls', beforeTargets, targets, Object.keys(beforeTargets)), []);
+    assert.ok(state.lines >= 1, `at least one whole transcript line is visible: ${JSON.stringify(brief(state))}`);
+  };
+  for (const viewport of [308, 340]) for (const locale of ['en', 'de']) {
+    const name = `${width}x${height}-vv${viewport}-${locale}-${slot}${zoom ? '-zoomed' : ''}`;
+    await t.test(name, async () => {
+      const problems = [];
+      const page = await open({ width, height, locale, intake: 'image', host: { library: true } }, problems);
+      const save = (phase, state) => viewport === 308 ? capture(page, `${name}-${phase}`, state) : Promise.resolve();
+      try {
+        await reply(page, true);
+        await keyboardUp(page, viewport);
+        await settleLong(page);
+        await page.$eval('aithema-session', c => {
+          // The geometry fixture emulates a live reply without a voice provider.
+          c.shadowRoot.querySelector('.audio-rail').inert = false;
+          c.shadowRoot.querySelector('.voice-cell--pause > .pause').focus({ preventScroll: true });
+        });
+        if (zoom) await setViewportMock(page, { height: viewport / 2, scale: 2 });
+        await settleLong(page);
+        const before = await read(page);
+        await save('1-before-insert', before);
+        assert.deepEqual(before.viewport, { height: zoom ? viewport / 2 : viewport, scale: zoom ? 2 : 1 });
+        assert.deepEqual(before.band.header.map(([part]) => part), ['conversations-toggle', 'settings-open']);
+        checkHeader(before, before, 1);
+
+        const label = slot === 'account' ? (locale === 'de' ? 'Konto' : 'Account') : (locale === 'de' ? 'Kontakt' : 'Contact');
+        // Slot delivery runs at the microtask checkpoint. Measure in the first
+        // frame after that checkpoint, with no resize event after insertion.
+        const immediate = await page.evaluate(`(async () => {
+          const c = document.querySelector('aithema-session'), button = document.createElement('button');
+          button.type = 'button'; button.slot = ${JSON.stringify(slot)}; button.className = ${JSON.stringify(hostControl)};
+          button.textContent = ${JSON.stringify(label)}; button.style.cssText = 'width:44px;height:44px;overflow:hidden';
+          c.append(button);
+          await new Promise(resolve => requestAnimationFrame(resolve));
+          return (${readState})(c);
+        })()`);
+        await settleLong(page);
+        const added = await read(page);
+        await save('2-after-insert', { ...added, immediate });
+        for (const state of [immediate, added]) {
+          assert.deepEqual(state.viewport, before.viewport);
+          const inserted = Object.fromEntries(state.band.header)[hostControl];
+          assert.ok(inserted?.width > 0 && inserted?.height > 0, `${slot} is painted in the header`);
+          checkHeader(before, state, 2);
+          assert.ok(state.scroll?.width > 0 && state.scroll?.height > 0 && before.scroll?.width > 0 && before.scroll?.height > 0);
+          assert.ok(Math.abs(before.scroll.height - state.scroll.height - 44) <= .5, 'the transcript pane gives up 44 px');
+        }
+        assert.deepEqual(stableBoxes('new control through settle', Object.fromEntries(immediate.band.header), Object.fromEntries(added.band.header), [hostControl]), []);
+        if (zoom) {
+          await setViewportMock(page, { height: viewport }); await settleLong(page);
+          const unzoomed = await read(page);
+          await save('3-after-unzoom', unzoomed);
+          checkHeader(added, unzoomed, 2);
+        }
+        await page.$eval('aithema-session', (c, slot) => c.querySelector(`[slot="${slot}"]`).remove(), slot);
+        await settleLong(page);
+        checkHeader(before, await read(page), 2);
+        assert.deepEqual(problems, []);
+      } finally { await page.close(); }
+    });
+  }
+}
 export async function keyboardSettleCheck(t) {
   const { open, read, capture } = await harness(t);
   const readBand = page => page.$eval('aithema-session', bandState);
