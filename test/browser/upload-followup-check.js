@@ -87,15 +87,15 @@ const unavailableProbe = {
   de: 'Bilder lassen sich gerade nicht vorbereiten. Hängen Sie das Bild erneut an.',
 };
 
-async function configureRefusalFixture(page, entrance, locale, copy) {
-  await inShadow(page, (c, { entrance, locale, copy }) => {
+async function configureRefusalFixture(page, entrance, locale, copy, staged = true) {
+  await inShadow(page, (c, { entrance, locale, copy, staged }) => {
     const session = structuredClone(c.session);
     session.id = crypto.randomUUID(); session.seq = 0; session.locale = locale;
     session.settings.voice = 'off'; session.settings.origin = 'chosen';
     session.transcript = [{ id: 'established', role: 'user', content: 'Project documents', at: new Date(0).toISOString() }];
     session.featureMatrix = { best: Object.fromEntries(['text', 'analysis', 'uploads', 'imageInput'].map(key => [key, { available: true }])) };
-    session.uploads = [{ id: 'staged', filename: 'photo.png', kind: 'image', state: 'staged-ready',
-      bytes: 68, mediaType: 'image/png', digest: 'fixture', w: 1, h: 1, at: new Date(0).toISOString() }];
+    session.uploads = staged ? [{ id: 'staged', filename: 'photo.png', kind: 'image', state: 'staged-ready',
+      bytes: 68, mediaType: 'image/png', digest: 'fixture', w: 1, h: 1, at: new Date(0).toISOString() }] : [];
     window.fetch = async (url, options = {}) => {
       if (/\/events(?:\?|$)/u.test(String(url))) return new Response(new ReadableStream({
         start(controller) { options.signal?.addEventListener('abort', () => controller.close(), { once: true }); },
@@ -108,9 +108,9 @@ async function configureRefusalFixture(page, entrance, locale, copy) {
       return Response.json(c.session);
     };
     c.configure({ session, copy, entrance, sessionToken: 'fixture', voiceClient: {} });
-  }, { entrance, locale, copy });
+  }, { entrance, locale, copy, staged });
   await startTyping(page);
-  await waitForShadow(page, '.staged-image[data-state="staged-ready"]');
+  if (staged) await waitForShadow(page, '.staged-image[data-state="staged-ready"] .image-thumbnail');
 }
 
 function refusalGeometry(c, { entrance, text }) {
@@ -177,9 +177,10 @@ export function refusalReserveCheck() {
       };
       const clearImage = () => inShadow(page, c => {
         const root = c.shadowRoot;
-        const more = root.querySelector('.upload-notices-more'); more?.click();
-        root.querySelector('.image-refusals__dismiss:not([hidden])')?.click();
-        root.querySelector('.upload-notices-sheet[open]')?.close();
+        root.querySelector('.upload-notices-more')?.click();
+        const sheet = root.querySelector('.upload-notices-sheet[open]');
+        (sheet ?? root).querySelector('button.image-refusals__dismiss')?.click();
+        sheet?.close();
       });
       const checkImage = async ({ entrance, mode, reason, sentence, idle, screenshot, probe }) => {
         await refuseImage(reason);
@@ -192,6 +193,7 @@ export function refusalReserveCheck() {
         assertRefusalBoxes(idle, cleared);
         assert.equal(cleared.shown, null, 'dismiss clears the refusal');
         assert.equal(shown.more, false, 'a single refusal is visible without opening a sheet');
+        assert.equal(cleared.more, false, 'dismissing the only refusal clears disclosure');
         assert.equal(visibility.unreachable, false, 'all visible notice text fits without clipping or scrolling');
         assert.ok(visibility.texts.some(line => line.text === sentence && line.reachable), `complete reason: ${sentence}`);
         if (probe) {
@@ -202,9 +204,11 @@ export function refusalReserveCheck() {
           assert.ok(shown.shownRects.at(-1)?.width > 0 && shown.shownRects.at(-1).height > 0, 'visible end of the full probe sentence');
         }
       };
+      let stagedMain;
       for (const entrance of ['choice', 'combined']) await t.test(entrance, async mode => {
         await configureRefusalFixture(page, entrance, locale, copy);
         const idle = await geometry(entrance, longest[1]);
+        if (entrance === 'choice') stagedMain = idle;
         assertRefusalBoxes(idle, idle);
         await capture(entrance, 'idle', idle, true);
         for (const [reason, sentence] of entrance === 'choice' ? reasons : [longest]) {
@@ -234,12 +238,17 @@ export function refusalReserveCheck() {
       });
       if (width === 390) await t.test('AIT-610 copy probe', async probe => {
         const sentence = unavailableProbe[locale], entrance = 'choice';
-        await configureRefusalFixture(page, entrance, locale, { ...copy, imageRefusals: { ...copy.imageRefusals, unavailable: sentence } });
-        const idle = await geometry(entrance, sentence), expected = idleGeometry.boxes[`image-${width}-${locale}`]['.composer'].height;
-        probe.diagnostic(`${process.platform} ${width}/${locale}: idle ${idle.boxes.composer.height} px (main ${expected}), reserve: ${idle.reservedRects.length} lines`);
+        const probeCopy = { ...copy, imageRefusals: { ...copy.imageRefusals, unavailable: sentence } };
+        await configureRefusalFixture(page, entrance, locale, probeCopy, false);
+        const empty = await geometry(entrance, sentence), expected = idleGeometry.boxes[`image-${width}-${locale}`]['.composer'].height;
+        await capture('probe', 'empty', empty);
+        await probe.test('idle height', () => assert.ok(Math.abs(empty.boxes.composer.height - expected) <= .5,
+          `probe idle composer height ${empty.boxes.composer.height} px vs main ${expected} px`));
+        await configureRefusalFixture(page, entrance, locale, probeCopy);
+        const idle = await geometry(entrance, sentence);
+        probe.diagnostic(`${process.platform} ${width}/${locale}: empty idle ${empty.boxes.composer.height} px (main ${expected}), staged idle ${idle.boxes.composer.height} px, reserve: ${idle.reservedRects.length} lines`);
         await capture('probe', 'idle', idle, locale === 'de');
-        await probe.test('idle height', () => assert.ok(Math.abs(idle.boxes.composer.height - expected) <= .5,
-          `probe idle composer height ${idle.boxes.composer.height} px vs main ${expected} px`));
+        await probe.test('staged idle geometry', () => assertRefusalBoxes(stagedMain, idle));
         await probe.test('show and clear', () => checkImage({ entrance, mode: 'probe', reason: 'unavailable', sentence, idle,
           screenshot: locale === 'de', probe: true }));
       });
