@@ -128,30 +128,39 @@ function prefixBytes(bytes) {
 // `steps` (optional, AIT-610 r11) counts the characters the scan visits,
 // every indexOf span included, so tests prove linearity without a clock.
 function xmlRoot(text, whole, steps) {
-  const visit = n => { if (steps) steps.prefix += n; };
   const space = code => code === 0x20 || code === 0x09 || code === 0x0a || code === 0x0d;
   const open = () => whole ? null : 'incomplete';
-  const find = (token, at) => { const end = text.indexOf(token, at); visit((end < 0 ? text.length : end + token.length) - at); return end; };
-  const until = (at, token) => { const end = find(token, at); return end < 0 ? -1 : end + token.length; };
+  const until = (at, token) => {
+    const end = text.indexOf(token, at);
+    if (steps) steps.prefix += (end < 0 ? text.length : end + token.length) - at;
+    return end < 0 ? -1 : end + token.length;
+  };
   const name = /[A-Za-z_][\w.:-]*/uy;
   let i = text.charCodeAt(0) === 0xfeff ? 1 : 0;
   for (;;) {
-    while (i < text.length && space(text.charCodeAt(i))) { i++; visit(1); }
+    while (i < text.length && space(text.charCodeAt(i))) {
+      i++;
+      if (steps) steps.prefix += 1;
+    }
     if (i >= text.length) return open();
     if (text[i] !== '<') return null;
     // A token cut by a truncated prefix ('<!DO', '<!-', '<') cannot be told
     // apart from a prolog item: fail closed.
     if (!whole && text.length - i < 10) return 'incomplete';
     let end;
-    visit(9); // the token checks read at most 9 characters
+    if (steps) steps.prefix += 9; // the token checks read at most 9 characters
     if (text.startsWith('<?', i)) end = until(i + 2, '?>');
     else if (text.startsWith('<!--', i)) end = until(i + 4, '-->');
     else if (/^<!doctype/iu.test(text.slice(i, i + 9))) {
       end = -1;
       for (let j = i + 9, subset = false; j >= 0 && j < text.length;) {
-        const c = text[j]; visit(1);
-        if (c === '"' || c === "'") { const close = find(c, j + 1); j = close < 0 ? -1 : close + 1; }
-        else if (subset && text.startsWith('<!--', j)) j = until(j + 4, '-->');
+        const c = text[j];
+        if (steps) steps.prefix += 1;
+        if (c === '"' || c === "'") {
+          const close = text.indexOf(c, j + 1);
+          if (steps) steps.prefix += (close < 0 ? text.length : close + 1) - (j + 1);
+          j = close < 0 ? -1 : close + 1;
+        } else if (subset && text.startsWith('<!--', j)) j = until(j + 4, '-->');
         else if (subset && text.startsWith('<?', j)) j = until(j + 2, '?>');
         else if (c === '[' && !subset) { subset = true; j++; }
         else if (c === ']' && subset) { subset = false; j++; }
@@ -162,7 +171,7 @@ function xmlRoot(text, whole, steps) {
       name.lastIndex = i + 1;
       const root = name.exec(text);
       if (!root) return null;
-      visit(root[0].length + 1);
+      if (steps) steps.prefix += root[0].length + 1;
       // r6 (gate5c): the name must END there (whitespace, '/' or '>'), so
       // plain text such as '<svg=' is not an svg root. A name that runs to the
       // end of a truncated prefix cannot be decided: fail closed.
