@@ -20,7 +20,7 @@ async function fixture(t, settings = {}) {
       incoming.on('end', () => {
         const headers = new Headers();
         for (let i = 0; i < incoming.rawHeaders.length; i += 2) headers.append(incoming.rawHeaders[i], incoming.rawHeaders[i + 1]);
-        resolve(new Response(Buffer.concat(chunks), { status: incoming.statusCode, headers }));
+        resolve(new Response(chunks.length ? Buffer.concat(chunks) : null, { status: incoming.statusCode, headers }));
       });
     });
     outgoing.on('error', reject); outgoing.end(init.body);
