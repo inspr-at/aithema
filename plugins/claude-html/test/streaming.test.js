@@ -148,7 +148,11 @@ test('AIT-465 a failed body read reconciles and releases the reader', async t =>
 
 for (const mode of ['cancelled', 'deadline', 'idle']) {
   test(`AIT-465 ${mode} aborts an active HTML stream and reconciles`, { timeout: 5000 }, async t => {
-    t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 1_000_000 });
+    const advance = ms => {
+      // Let the spend ledger renew its lease while the response is idle.
+      for (let elapsed = 0; elapsed < ms; elapsed += 5000) t.mock.timers.tick(Math.min(5000, ms - elapsed));
+    };
     const abort = new AbortController(), reading = Promise.withResolvers();
     const afterKeepAlive = Promise.withResolvers(), afterEmpty = Promise.withResolvers();
     let stream, cancelled = false, reads = 0;
@@ -169,10 +173,10 @@ for (const mode of ['cancelled', 'deadline', 'idle']) {
     if (mode === 'cancelled') abort.abort();
     else if (mode === 'deadline') t.mock.timers.tick(deadlineMs);
     else {
-      t.mock.timers.tick(idleMs - 1);
+      advance(idleMs - 1);
       stream.enqueue(encode.encode(keepAlive));
       await afterKeepAlive.promise;
-      t.mock.timers.tick(idleMs - 1);
+      advance(idleMs - 1);
       assert.equal(f.requests[0].signal.aborted, false, 'comment bytes renew the idle window');
       stream.enqueue(new Uint8Array());
       await afterEmpty.promise;
