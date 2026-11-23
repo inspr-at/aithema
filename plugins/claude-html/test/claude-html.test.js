@@ -1,9 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createServer } from 'node:http';
-import { once } from 'node:events';
+import { EventEmitter, once } from 'node:events';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,6 +10,7 @@ import { buildMessages, callCeilingMicro, createClaudeHTML, createSpendLedger, c
 import { PluginError, PluginRegistry, validateManifest, isHTMLArtifact, verifyHTMLArtifact, inspectHTML, uiGenerationConformance,
   IPTC_DIGITAL_SOURCE } from '@inspr/aithema-core';
 import { previousDocument } from '../src/html-artifact.js';
+import { completionStream } from '../../../test/fixtures/chat-completion-stream.js';
 const dummy = readFileSync(new URL('../../../test/fixtures/click-dummy.html', import.meta.url), 'utf8');
 const spec = { prompt: 'Host brief: Fixit, repair requests for a housing cooperative.', language: 'en',
   understanding: { summary: 'Tenants report repairs; the caretaker plans them.', slots: { operations: 'hosted', data: null },
@@ -31,32 +31,32 @@ function options(extra = {}) {
     report: terminal => { reports.push(terminal); }, ...extra };
 }
 const completion = (content, usage = { prompt_tokens: 1200, completion_tokens: 3400, cost: 0.0728 }, finish = 'stop') =>
-  JSON.stringify({ id: 'gen-fixture', model: DEFAULT_MODEL, choices: [{ index: 0, finish_reason: finish, message: { role: 'assistant', content } }], usage });
-async function fake(t, { capMicro = DEFAULT_CAP_MICRO, maxMicro = 1_000_000 } = {}) {
-  const records = [], requests = []; let respond = (_req, res) => res.end(completion(dummy));
-  const server = createServer(async (req, res) => {
-    // Give each request its own socket: aborted stalls must not leave pooled
-    // transport recovery waiting for timers on the frozen application clock.
-    res.setHeader('connection', 'close');
-    const chunks = []; for await (const chunk of req) chunks.push(chunk);
-    const record = { path: req.url, headers: req.headers, body: JSON.parse(Buffer.concat(chunks)) }; records.push(record);
-    if (record.body.messages.at(-1).content.includes('fixture-stall')) {
-      res.writeHead(200); res.write('{'); server.emit('fixture-stall', record); return;
-    }
-    respond(record, res);
-  });
-  server.listen(0, '127.0.0.1'); await once(server, 'listening');
-  t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
-  const origin = `http://127.0.0.1:${server.address().port}`, baseUrl = `${origin}/api/v1`;
+  completionStream(content, { id: 'gen-fixture', usage, finish });
+function fake(t, { capMicro = DEFAULT_CAP_MICRO, maxMicro = 1_000_000 } = {}) {
+  const records = [], requests = [], events = new EventEmitter();
+  let respond = () => completion(dummy);
+  const baseUrl = 'https://example.test/api/v1';
   const binding = { plugin: 'claude-html', model: DEFAULT_MODEL, effort: 'none', endpoint: baseUrl, accountRef: 'fixture-account',
     secretRef: 'fixture-secret-ref', maxMicro, maxTokens: 32_000,
     rates: { inputMicro: 1, outputMicro: 30, inputUSD: 0.000001, outputUSD: (maxMicro - 100_000) / 32_000 / 1_000_000 } };
-  const fetchImpl = (url, init) => { assert.equal(new URL(url).origin, origin, 'fixture must never call a provider'); requests.push({ url, init }); return fetch(url, init); };
-  const spendPath = join(mkdtempSync(join(tmpdir(), 'claude-html-')), 'spend.json');
+  const fetchImpl = (url, init) => {
+    assert.equal(url, `${baseUrl}/chat/completions`);
+    requests.push({ url, init });
+    const record = { path: new URL(url).pathname, headers: init.headers, body: JSON.parse(init.body) };
+    records.push(record);
+    if (record.body.messages.at(-1).content.includes('fixture-stall')) {
+      return new Response(new ReadableStream({
+        pull() { events.emit('fixture-stall', record); },
+      }, { highWaterMark: 0 }), { headers: { 'content-type': 'text/event-stream' } });
+    }
+    return respond(record);
+  };
+  const dir = mkdtempSync(join(tmpdir(), 'claude-html-')), spendPath = join(dir, 'spend.json');
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
   const make = (extra = {}) => createClaudeHTML({ binding, baseUrl, spendPath, capMicro, resolveSecret: () => 'local-fixture', fetchImpl, ...extra });
-  return { origin, baseUrl, binding, records, requests, fetchImpl, spendPath, make, plugin: make(), respond(fn) { respond = fn; },
-    stalled: () => once(server, 'fixture-stall').then(([record]) => record),
-    onStall: fn => server.on('fixture-stall', fn),
+  return { baseUrl, binding, records, requests, fetchImpl, spendPath, make, plugin: make(), respond(fn) { respond = fn; },
+    stalled: () => once(events, 'fixture-stall').then(([record]) => record),
+    onStall: fn => events.on('fixture-stall', fn),
     ceiling: (input = spec, feedback = '', previous) => callCeilingMicro(buildMessages(input, feedback, previous).messages, binding),
     spent: () => JSON.parse(readFileSync(spendPath, 'utf8')) };
 }
@@ -74,7 +74,8 @@ test('generate posts one chat completion with usage accounting and returns a ver
   const record = f.records[0]; assert.equal(record.path, '/api/v1/chat/completions');
   assert.equal(record.headers.authorization, 'Bearer local-fixture');
   assert.equal(record.body.model, DEFAULT_MODEL); assert.deepEqual(record.body.usage, { include: true });
-  assert.equal(record.body.stream, false); assert.equal(record.body.max_tokens, 32_000);
+  assert.equal(record.body.stream, true); assert.deepEqual(record.body.stream_options, { include_usage: true });
+  assert.equal(record.body.max_tokens, 32_000);
   assert.deepEqual(record.body.provider, { require_parameters: true, allow_fallbacks: false,
     max_price: { prompt: f.binding.rates.inputUSD * 1_000_000, completion: f.binding.rates.outputUSD * 1_000_000 } });
   assert.deepEqual(record.body.reasoning, { enabled: false });
@@ -94,15 +95,16 @@ test('generate posts one chat completion with usage accounting and returns a ver
     totalMicro: 72_800, costCeilingBreached: false });
   assert.equal(JSON.stringify(result).includes('local-fixture'), false);
 });
-test('efforts mirror the OpenRouter adapter; none preserves the exact request bytes', async t => {
+test('efforts mirror the OpenRouter adapter; none preserves its exact reasoning option in the streaming request', async t => {
   const f = await fake(t);
   assert.deepEqual(manifest.models[0].efforts, ['none', 'low', 'medium', 'high', 'xhigh', 'max']);
   await f.plugin.generate(spec, '', options());
   const expected = JSON.stringify({ model: f.binding.model, messages: buildMessages(spec, '').messages,
-    max_tokens: f.binding.maxTokens, stream: false, usage: { include: true },
+    max_tokens: f.binding.maxTokens, stream: true, usage: { include: true },
     provider: { require_parameters: true, allow_fallbacks: false,
-      max_price: { prompt: 1, completion: 28.125 } }, reasoning: { enabled: false } });
-  assert.equal(f.requests[0].init.body, expected, 'none keeps the pre-AIT-324 request byte-identical');
+      max_price: { prompt: 1, completion: 28.125 } }, reasoning: { enabled: false },
+    stream_options: { include_usage: true } });
+  assert.equal(f.requests[0].init.body, expected, 'none keeps reasoning disabled with the streamed wire options');
   for (const effort of manifest.models[0].efforts.filter(effort => effort !== 'none')) {
     const plugin = f.plugin.bind({ ...f.binding, effort });
     await plugin.generate(spec, '', options());
@@ -116,13 +118,13 @@ test('high reserves the total reasoning and output allowance and settles inclusi
   const ceiling = inputBytes + 900_000; // 32,000 total tokens * 28.125 micro, including reasoning.
   assert.equal(callCeilingMicro(buildMessages(spec, '').messages, binding), ceiling);
   assert.equal(plugin.estimateCost(spec), ceiling, 'conversation admission reserves the same total ceiling');
-  f.respond((record, res) => {
+  f.respond(record => {
     assert.deepEqual(record.body.reasoning, { effort: 'high' });
     assert.equal(record.body.max_tokens, 32_000, 'effort must not raise the admitted total token allowance');
     assert.equal(plugin.spend.snapshot().reservedMicro, ceiling);
     // OpenRouter completion_tokens already includes the separately detailed reasoning tokens.
-    res.end(completion(dummy, { prompt_tokens: 1200, completion_tokens: 3400,
-      completion_tokens_details: { reasoning_tokens: 3000 }, cost: 0.0728 }));
+    return completion(dummy, { prompt_tokens: 1200, completion_tokens: 3400,
+      completion_tokens_details: { reasoning_tokens: 3000 }, cost: 0.0728 });
   });
   await plugin.generate(spec, '', o);
   assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'completed',
@@ -132,7 +134,7 @@ test('high reserves the total reasoning and output allowance and settles inclusi
 });
 test('edit sends the previous dummy without its provenance record, requires feedback and bumps the revision', async t => {
   const previous = await editSource(t), f = await fake(t), o = options();
-  f.respond((_req, res) => res.end(completion(dummy.replace('Revision 1:', 'Revision 2: the flat comes first. Revision 1:'))));
+  f.respond(() => completion(dummy.replace('Revision 1:', 'Revision 2: the flat comes first. Revision 1:')));
   const result = await f.plugin.edit(previous, spec, feedback, o), user = f.records[0].body.messages[1].content;
   assert.match(user, /Write revision 2 of the click-dummy as a revision of the previous dummy/u);
   assert.match(user, /<previous_dummy revision="1">\n<!doctype html>\n<html lang="en">/u); assert.doesNotMatch(user, /aithema-provenance/u);
@@ -149,7 +151,7 @@ test('model text is repaired by removing capability only: fences, prose, font li
     .replace('<meta charset="utf-8">', '<meta charset="utf-8"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter"><meta http-equiv="refresh" content="30">')
     .replace(':root {', "@import url('https://fonts.googleapis.com/css2?family=Inter');\n:root {")
     .replace('<h1>Fixit</h1>', '<h1><a href="https://example.invalid/home">Fixit</a></h1>')}\n\`\`\`\nEnjoy!`;
-  f.respond((_req, res) => res.end(completion(messy)));
+  f.respond(() => completion(messy));
   const result = await f.plugin.generate(spec, '', options()), text = new TextDecoder().decode(result.bytes);
   assert.equal(await verifyHTMLArtifact(result), true);
   assert.doesNotMatch(text, /<link|@import|http-equiv|```|Enjoy|googleapis/u); assert.match(text, /<a href="#">Fixit<\/a>/u);
@@ -159,17 +161,17 @@ test('output that stays unsafe or incomplete is rejected while paid usage and co
   for (const [content, finish] of [[dummy.replace('<main', '<img src="https://example.invalid/p.png" alt=""><main'), 'stop'],
     [dummy.replace('<script>', '<script>fetch("/collect");'), 'stop'], [dummy.replace('</head>', '<base href="#"></head>'), 'stop'],
     ['<div>no document</div>', 'stop'], [dummy, 'length'], [`${dummy}\n${'<!-- pad -->'.repeat(50_000)}${dummy}`, 'stop']]) {
-    f.respond((_req, res) => res.end(completion(content, { prompt_tokens: 10, completion_tokens: 20, cost: 0.5 }, finish)));
+    f.respond(() => completion(content, { prompt_tokens: 10, completion_tokens: 20, cost: 0.5 }, finish));
     const o = options(); await assert.rejects(f.plugin.generate(spec, '', o), error => ['invalid-output', 'limit'].includes(error.code));
     assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'cancelled', usage: { inputTokens: 10, outputTokens: 20 }, chargedMicro: 500_000 }]);
   }
   assert.equal(f.spent().spentMicro, 6 * 500_000);
-  f.respond((_req, res) => res.end('{private-broken-json'));
+  f.respond(() => new Response('data: {broken-json\n\n', { headers: { 'content-type': 'text/event-stream' } }));
   await assert.rejects(f.plugin.generate(spec, '', options()), { code: 'invalid-output' });
 });
 test('the USD cap hard-stops before dispatch, persists across instances and is reported by health', async t => {
   const f = await fake(t, { capMicro: 2_500_000, maxMicro: 1_000_000 });
-  f.respond((_req, res) => res.end(completion(dummy, { prompt_tokens: 1, completion_tokens: 1, cost: 0.9 })));
+  f.respond(() => completion(dummy, { prompt_tokens: 1, completion_tokens: 1, cost: 0.9 }));
   await f.plugin.generate(spec, '', options()); await f.plugin.generate(spec, '', options());
   assert.equal(f.spent().spentMicro, 1_800_000);
   const o = options(); await assert.rejects(f.plugin.generate(spec, '', o), { code: 'limit' });
@@ -191,14 +193,14 @@ test('concurrent calls cannot overcommit; a reservation left by a crash stays co
 });
 test('unknown cost and 5xx keep the full ceiling; 4xx without usage release at zero', async t => {
   const f = await fake(t, { maxMicro: 700_000 });
-  f.respond((_req, res) => res.end(completion(dummy, { prompt_tokens: 5, completion_tokens: 6 })));
+  f.respond(() => completion(dummy, { prompt_tokens: 5, completion_tokens: 6 }));
   const completed = options();
   await f.plugin.generate(spec, '', completed); assert.equal(f.plugin.spend.snapshot().uncertainMicro, f.ceiling());
   assert.equal(f.spent().spentMicro, 0);
   assert.equal(completed.reports[0].chargedMicro, f.ceiling(), 'tokens alone do not lower the wallet below the account charge');
   for (const [status, code] of [[401, 'auth'], [402, 'limit'], [403, 'auth'], [429, 'rate-limit'], [500, 'provider']]) {
     const before = f.plugin.spend.snapshot().uncertainMicro;
-    f.respond((_req, res) => { res.writeHead(status); res.end('private-provider-detail'); });
+    f.respond(() => new Response('private-provider-detail', { status }));
     const o = options(); await assert.rejects(f.plugin.generate(spec, '', o), error => error.code === code && error.message === code);
     if (status >= 500) assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'uncertain', chargedMicro: f.ceiling() }]);
     assert.equal(f.plugin.spend.snapshot().uncertainMicro - before, status < 500 ? 0 : f.ceiling(), String(status)); assert.deepEqual(f.spent().reservations, {});
@@ -211,7 +213,7 @@ test('unknown cost and 5xx keep the full ceiling; 4xx without usage release at z
 for (const status of [408, 499]) test(`AIT-340: ${status} without usage retains the ceiling and refuses the next draft under the cap`, async t => {
   const f = await fake(t, { capMicro: 1_000_000 }), first = options();
   assert.ok(f.ceiling() <= 1_000_000 && 2 * f.ceiling() > 1_000_000, 'the cap fits one ceiling only');
-  f.respond((_req, res) => { res.writeHead(status); res.end('request timed out'); });
+  f.respond(() => new Response('request timed out', { status }));
   await assert.rejects(f.plugin.generate(spec, '', first), { code: 'provider' });
   const second = options();
   await assert.rejects(f.plugin.generate(spec, '', second), { code: 'limit' });
@@ -225,7 +227,7 @@ for (const status of [408, 499]) test(`AIT-340: ${status} without usage retains 
 });
 test('AIT-340: plain 400 without usage settles at zero and permits another draft', async t => {
   const f = await fake(t, { capMicro: 1_000_000 });
-  f.respond((_req, res) => { res.writeHead(400); res.end('invalid request'); });
+  f.respond(() => new Response('invalid request', { status: 400 }));
   for (let i = 0; i < 2; i++) {
     const o = options();
     await assert.rejects(f.plugin.generate(spec, '', o), { code: 'provider' });
@@ -239,7 +241,7 @@ test('AIT-340: plain 400 without usage settles at zero and permits another draft
 });
 test('AIT-340: 400 with usage but no cost retains the ceiling and needs a receipt', async t => {
   const f = await fake(t, { capMicro: 1_000_000 }), o = options();
-  f.respond((_req, res) => { res.writeHead(400); res.end(JSON.stringify({ usage: { prompt_tokens: 5, completion_tokens: 6 } })); });
+  f.respond(() => Response.json({ usage: { prompt_tokens: 5, completion_tokens: 6 } }, { status: 400 }));
   await assert.rejects(f.plugin.generate(spec, '', o), { code: 'provider' });
   assert.equal(f.plugin.spend.snapshot().uncertainMicro, f.ceiling());
   assert.deepEqual(f.plugin.costEvidence(o.attempt.attemptId), {}, 'usage alone is not a cost receipt');
@@ -285,8 +287,7 @@ test('active cancellation and deadlines end stalled calls as uncertain at the co
     const controller = new AbortController(), o = options({ signal: controller.signal, deadlineAt: Date.now() + (mode === 'deadline' ? 60 : 3000) });
     t.after(() => controller.abort());
     const stall = { ...spec, prompt: 'fixture-stall' };
-    // Arm observation before starting work; dispatch alone does not prove the
-    // server received the body. Loaded HTTP startup must not spend the deadline.
+    // Wait for the reader to request data before advancing the operation clock.
     const observed = f.stalled();
     let settled = false;
     const pending = operation === 'edit' ? f.plugin.edit(previous, stall, 'fixture-stall', o) : f.plugin.generate(stall, '', o);
@@ -366,7 +367,7 @@ test('claude-html passes reusable kind conformance with fake active stalls and e
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
   const f = await fake(t), previous = await editSource(t);
   // The unchanged conformance kit arms 30ms active aborts/deadlines. Advance
-  // those timers only when the server has received and stalled each request.
+  // those timers only when the stream reader stalls on each request.
   let stalls = 0;
   f.onStall(() => { stalls++; t.mock.timers.tick(30); });
   assert.deepEqual(await uiGenerationConformance(f.plugin, { spec, feedback, artifact: previous }, {
@@ -409,7 +410,7 @@ test('the gate reproduction records $9.50 + $1.00 and disables the plugin on a $
   const plugin = f.make({ binding });
   assert.equal(callCeilingMicro(buildMessages(spec, '').messages, plugin.binding), 100_000);
   writeFileSync(f.spendPath, JSON.stringify({ version: 1, spentMicro: 9_500_000, reservations: {} }));
-  f.respond((_req, res) => res.end(completion(dummy, { prompt_tokens: 1, completion_tokens: 1, cost: 1 })));
+  f.respond(() => completion(dummy, { prompt_tokens: 1, completion_tokens: 1, cost: 1 }));
   const o = options(); await assert.rejects(plugin.generate(spec, '', o), { code: 'limit' });
   assert.equal(f.spent().spentMicro, 10_500_000); assert.equal(f.spent().costCeilingBreached, true);
   assert.deepEqual(f.spent().reservations, {}); assert.equal(o.reports[0].outcome, 'cancelled');
@@ -420,7 +421,7 @@ test('the gate reproduction records $9.50 + $1.00 and disables the plugin on a $
   assert.equal(f.requests.length, 1, 'no dispatch after the breached ceiling');
 });
 test('a ceiling breach below the total cap also stays unavailable across restarts', async t => {
-  const f = await fake(t); f.respond((_req, res) => res.end(completion(dummy, { cost: 1, prompt_tokens: 1, completion_tokens: 1 })));
+  const f = await fake(t); f.respond(() => completion(dummy, { cost: 1, prompt_tokens: 1, completion_tokens: 1 }));
   await assert.rejects(f.plugin.generate(spec, '', options()), { code: 'limit' });
   assert.equal(f.spent().spentMicro, 1_000_000);
   assert.deepEqual(await f.make().health(options()), { available: false, reason: 'cost ceiling breached' });

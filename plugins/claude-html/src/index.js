@@ -1,4 +1,4 @@
-import { createBinding, deepFreeze, beginInvocation, operationScope, normalizedError, providerUsage, PluginError, generationId } from '@inspr/aithema-core';
+import { createBinding, deepFreeze, beginInvocation, operationScope, normalizedError, providerUsage, PluginError, generationId, untilCancelled } from '@inspr/aithema-core';
 import { buildMessages } from './prompt.js';
 import { repairHTML, previousDocument, htmlArtifact } from './html-artifact.js';
 import { createSpendLedger, callCeilingMicro, costMicro, DEFAULT_CAP_MICRO } from './spend.js';
@@ -19,25 +19,36 @@ const EFFORTS = ['none', 'low', 'medium', 'high', 'xhigh', 'max'];
 export const manifest = deepFreeze({ id: 'claude-html', version: '0.0.0', apiVersion: '^1.0.0',
   kinds: ['ui-generation'], placement: 'server', entrypoints: { server: './src/index.js' },
   configSchema: { type: 'object', properties: {}, additionalProperties: false }, vendor: { name: 'Anthropic via OpenRouter', url: 'https://openrouter.ai' },
+  // The provider streams internally. Generate and edit each return one artifact.
   models: [{ id: '*', operations: ['generate', 'edit'], streaming: false, structured: false,
     efforts: EFFORTS, languages: ['en', 'de'], germanQuality: 'unverified', formats: ['text/html'],
     processingLocations: ['unverified'], qualification: 'unverified', expiresAt: null,
     evidence: ['https://openrouter.ai/anthropic'],
     cost: { unit: 'token', inputMicro: null, outputMicro: null, reviewedAt: null } }] });
 const RESPONSE_LIMIT = 4 * 1024 * 1024;
-function abortable(promise, signal) {
-  let abort;
-  const cancelled = new Promise((_, reject) => { abort = () => reject(signal.reason); signal.addEventListener('abort', abort, { once: true });
-    if (signal.aborted) abort(); });
-  return Promise.race([promise, cancelled]).finally(() => signal.removeEventListener('abort', abort));
+// SSE repeats provider metadata on each chunk. Budget about 1 KiB of wire
+// framing per token for a 32,000-token render while bounding each event.
+const STREAM_LIMIT = 32 * 1024 * 1024;
+// Allow silent stretches between provider keep-alives while bounding a stalled
+// body well before the time budget for a long render.
+const STREAM_IDLE_MS = 30_000;
+function providerError(status) {
+  return new PluginError(status === 401 || status === 403 ? 'auth' : status === 402 ? 'limit' :
+    status === 429 ? 'rate-limit' : 'provider');
+}
+function responseReader(response, limit = RESPONSE_LIMIT) {
+  if (!response.body) throw new PluginError('invalid-output');
+  if (Number(response.headers.get('content-length')) > limit) {
+    void response.body.cancel().catch(() => {});
+    throw new PluginError('limit');
+  }
+  return response.body.getReader();
 }
 async function readText(response, signal, observeId) {
-  if (!response.body) throw new PluginError('invalid-output');
-  if (Number(response.headers.get('content-length')) > RESPONSE_LIMIT) { void response.body.cancel().catch(() => {}); throw new PluginError('limit'); }
-  const reader = response.body.getReader(), chunks = []; let size = 0, prefix = '';
+  const reader = responseReader(response), chunks = []; let size = 0, prefix = '';
   try {
     while (true) {
-      signal.throwIfAborted(); const { value, done } = await abortable(reader.read(), signal); if (done) break;
+      signal.throwIfAborted(); const { value, done } = await untilCancelled(reader.read(), signal); if (done) break;
       size += value.byteLength; if (size > RESPONSE_LIMIT) throw new PluginError('limit'); chunks.push(value);
       if (observeId && prefix.length < 8192) {
         prefix += Buffer.from(value).toString('utf8').slice(0, 8192 - prefix.length);
@@ -47,6 +58,70 @@ async function readText(response, signal, observeId) {
     }
     return Buffer.concat(chunks, size).toString('utf8');
   } finally { void reader.cancel().catch(() => {}); reader.releaseLock(); }
+}
+async function readDraftStream(response, signal, observe, idle) {
+  const reader = responseReader(response, STREAM_LIMIT), decoder = new TextDecoder(), content = [];
+  const separator = /\r?\n\r?\n/gu;
+  let buffer = '', offset = 0, size = 0, timer, id, usage, finished = false, invalidChoice = false;
+  const refreshIdle = () => {
+    clearTimeout(timer);
+    if (idle) timer = setTimeout(() => idle.abort(new PluginError('deadline')), STREAM_IDLE_MS);
+  };
+  try {
+    refreshIdle();
+    while (true) {
+      signal.throwIfAborted();
+      const { value, done } = await untilCancelled(reader.read(), signal);
+      if (done) throw new PluginError('invalid-output');
+      if (value.byteLength) refreshIdle();
+      size += value.byteLength;
+      if (size > STREAM_LIMIT) throw new PluginError('limit');
+      // Check only new text plus a possible separator split across reads.
+      separator.lastIndex = Math.max(0, buffer.length - 3);
+      buffer += decoder.decode(value, { stream: true });
+      let boundary;
+      while ((boundary = separator.exec(buffer))) {
+        if (boundary.index - offset > RESPONSE_LIMIT) throw new PluginError('limit');
+        const data = buffer.slice(offset, boundary.index).split(/\r?\n/u)
+          .filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
+        offset = separator.lastIndex;
+        if (!data) continue; // Comments and keep-alives already counted as bytes.
+        if (data === '[DONE]') {
+          signal.throwIfAborted();
+          if (usage != null) observe({ usage });
+          return { content: content.join(''), valid: finished && !invalidChoice && content.length > 0 };
+        }
+        const chunk = JSON.parse(data);
+        if (!chunk || typeof chunk !== 'object' || Array.isArray(chunk)) throw new PluginError('invalid-output');
+        if (!id) {
+          id = generationId(chunk.id);
+          if (id) observe({ id });
+        }
+        if (chunk.error) throw providerError(chunk.error.code);
+        const choice = chunk.choices?.[0], delta = choice?.delta;
+        if (chunk.choices?.length > 1 || (choice?.index ?? 0) !== 0 || delta?.tool_calls) invalidChoice = true;
+        if (typeof delta?.content === 'string') content.push(delta.content);
+        else if (delta?.content != null) invalidChoice = true;
+        if (choice?.finish_reason != null) {
+          finished = true;
+          if (choice.finish_reason !== 'stop') invalidChoice = true;
+        }
+        // The receipt may be a dedicated chunk or travel with the stop choice.
+        // A cut stream keeps only its generation ID for reconciliation.
+        if (chunk.usage != null && (finished || !choice)) usage = chunk.usage;
+      }
+      buffer = buffer.slice(offset);
+      offset = 0;
+      if (buffer.length > RESPONSE_LIMIT) throw new PluginError('limit');
+    }
+  } catch (error) {
+    if (error instanceof PluginError || signal.aborted) throw error;
+    throw new PluginError('invalid-output');
+  } finally {
+    clearTimeout(timer);
+    void reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
 }
 /**
  * Claude click-dummy generation through OpenRouter chat completions.
@@ -123,13 +198,15 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
       try { checkLifetime(); return response; }
       catch (error) {
         // A late paid response cannot publish a draft, but its receipt still repairs costs.
-        if (!(response.status >= 400 && response.status < 500) && !response.headers.get('content-type')?.includes('application/json')) {
+        if (!response.ok && !(response.status >= 400 && response.status < 500) &&
+          !response.headers.get('content-type')?.includes('application/json')) {
           void response.body?.cancel().catch(() => {}); throw error;
         }
         const late = operationScope({ deadlineAt: Date.now() + 1000 });
         void (async () => {
           try {
-            await observeResponse(response, late.signal);
+            if (response.ok) await readDraftStream(response, late.signal, observe);
+            else await observeResponse(response, late.signal);
             await receipts;
             if (cost !== null) await ledger.reconcileAttempt(options.attempt.attemptId, cost);
           } catch { /* Durable unknown costs remain retryable. */ }
@@ -157,10 +234,11 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
       // Verified live on AIT-113, 2026-10-09: provider.max_price is USD per
       // million tokens. Shift configured decimals exactly, as on the reasoning route.
       // max_tokens covers reasoning plus visible output; never raise it for effort.
-      const body = JSON.stringify({ model: binding.model, messages, max_tokens: binding.maxTokens, stream: false,
+      const body = JSON.stringify({ model: binding.model, messages, max_tokens: binding.maxTokens, stream: true,
         usage: { include: true }, provider: { ...binding.routing, require_parameters: true, allow_fallbacks: false,
           max_price: providerMaxPrice({ prompt: binding.rates.inputUSD, completion: binding.rates.outputUSD }) },
-        reasoning: binding.effort === 'none' ? { enabled: false } : { effort: binding.effort } });
+        reasoning: binding.effort === 'none' ? { enabled: false } : { effort: binding.effort },
+        stream_options: { include_usage: true } });
       checkLifetime();
       reservation = await ledger.reserve(ceiling, { attemptId: options.attempt?.attemptId, provider: 'openrouter' });
       checkLifetime();
@@ -169,26 +247,21 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
       await ledger.dispatch(reservation);
       invocation.dispatch(); dispatched = true;
       options.attempt?.dispatchCost?.(); checkLifetime();
+      const idle = new AbortController(), fetchSignal = AbortSignal.any([scope.signal, idle.signal]);
       // Close even a late response from a transport that ignores cancellation.
-      const response = checkedResponse(await abortable(Promise.resolve().then(() => fetchImpl(endpoint, { method: 'POST', signal: scope.signal,
+      const response = checkedResponse(await untilCancelled(Promise.resolve().then(() => fetchImpl(endpoint, { method: 'POST', signal: fetchSignal,
         redirect: 'error', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body })).then(checkedResponse), scope.signal));
       if (!response.ok) {
         try { await observeResponse(response, scope.signal); }
         catch { /* An incomplete response retains the dispatched ceiling. */ }
-        throw new PluginError(response.status === 401 || response.status === 403 ? 'auth' : response.status === 402 ? 'limit' :
-          response.status === 429 ? 'rate-limit' : 'provider');
+        throw providerError(response.status);
       }
-      let payload;
-      try { payload = JSON.parse(await readText(response, scope.signal, id => observe({ id }))); }
-      catch (error) { if (error instanceof PluginError || scope.signal.aborted) throw error; throw new PluginError('invalid-output'); }
-      observe(payload);
+      const draft = await readDraftStream(response, fetchSignal, observe, idle);
       if (cost !== null && cost > ceiling) {
         ledgerFailures.set(ledger, 'cost ceiling breached'); throw new PluginError('limit');
       }
-      if (payload?.error) throw new PluginError('provider');
-      const choice = payload?.choices?.[0];
-      if (payload?.choices?.length !== 1 || choice?.finish_reason !== 'stop' || typeof choice?.message?.content !== 'string') throw new PluginError('invalid-output');
-      const html = repairHTML(choice.message.content);
+      if (!draft.valid) throw new PluginError('invalid-output');
+      const html = repairHTML(draft.content);
       checkLifetime();
       const result = htmlArtifact(html, { prompt: messages.map(m => m.content).join('\n\n'), model: binding.model, operation, now: (options.now ?? now)() });
       checkLifetime();

@@ -5,6 +5,7 @@ import { createClaudeHTML, buildMessages, callCeilingMicro } from '../../../plug
 import { createOpenRouterReasoning } from '../../../plugins/openrouter/src/index.js';
 import { requestCeilingMicro } from '../../../plugins/openrouter/src/pricing.js';
 import { temporaryDb } from '../../../test/helpers.js';
+import { completionStream } from '../../../test/fixtures/chat-completion-stream.js';
 
 const spec = { prompt: 'Create a repair click-dummy', language: 'en', understanding: { summary: 'Repairs' } };
 const html = '<!doctype html><html><head><title>Repairs</title></head><body><h1>Repairs</h1></body></html>';
@@ -39,9 +40,10 @@ for (const first of ['reasoning', 'html']) test(`${first} spending reduces the o
         assert.deepEqual(body.provider.max_price, { prompt: 1.4, completion: 14 });
         assert.deepEqual(body.provider.only, ['Anthropic']); assert.deepEqual(body.provider.ignore, ['Azure']);
         assert.equal(body.provider.require_parameters, true);
+        return completionStream(html, { usage: { prompt_tokens: 1, completion_tokens: 1, cost: htmlCeiling / 1000000 } });
       }
-      return Response.json({ choices: [{ finish_reason: 'stop', message: { content: isHTML ? html : '{"summary":"ok"}' } }],
-        usage: { prompt_tokens: 1, completion_tokens: 1, cost: (isHTML ? htmlCeiling : reasoningCeiling) / 1000000 } });
+      return Response.json({ choices: [{ finish_reason: 'stop', message: { content: '{"summary":"ok"}' } }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, cost: reasoningCeiling / 1000000 } });
     };
     return {
       html: createClaudeHTML({ binding: htmlBinding, spend, capMicro, resolveSecret: () => 'fake', fetchImpl: fake }),
@@ -104,8 +106,8 @@ test('high holds its full total-token ceiling in the shared cap and settles reas
     const body = JSON.parse(init.body);
     assert.deepEqual(body.reasoning, { effort: 'high' }); assert.equal(body.max_tokens, 1000);
     assert.equal(spend.snapshot().reservedMicro, ceiling);
-    return Response.json({ choices: [{ finish_reason: 'stop', message: { content: html } }],
-      usage: { prompt_tokens: 10, completion_tokens: 1000, completion_tokens_details: { reasoning_tokens: 800 }, cost: 0.014014 } });
+    return completionStream(html, { usage: { prompt_tokens: 10, completion_tokens: 1000,
+      completion_tokens_details: { reasoning_tokens: 800 }, cost: 0.014014 } });
   } });
   await plugin.generate(spec, '', { ...options(), report: report => reports.push(report) });
   assert.deepEqual(reports[0].usage, { inputTokens: 10, outputTokens: 1000 });

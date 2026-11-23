@@ -10,6 +10,7 @@ import { createClaudeHTML, createSpendLedger } from '@inspr/aithema-plugin-claud
 import { createPluginRuntime } from '@inspr/aithema-server';
 import { PluginRegistry } from '@inspr/aithema-core';
 import { temporaryDb } from '../../test/helpers.js';
+import { completionStream } from '../../test/fixtures/chat-completion-stream.js';
 import { createSpendCap } from '../../packages/server/src/spend-cap.js';
 import { htmlConfig } from '../html-config.js';
 
@@ -40,9 +41,8 @@ for (const mode of ['completed', 'invalid-output', 'http-error', 'http-zero', 'h
         if (mode === 'http-non-json') return new Response('Not JSON', { status: 500 });
         const usage = mode === 'http-unknown-json' ? undefined : { prompt_tokens: 10, completion_tokens: 20,
           ...(mode === 'http-tokens-only' ? {} : { cost: mode === 'http-zero' ? 0 : 0.001234 }) };
-        return Response.json({ usage,
-          choices: [{ finish_reason: mode === 'invalid-output' ? 'length' : 'stop', message: { content: document } }] },
-        { status: mode.startsWith('http-') ? 500 : 200 });
+        if (mode.startsWith('http-')) return Response.json({ usage }, { status: 500 });
+        return completionStream(document, { usage, finish: mode === 'invalid-output' ? 'length' : 'stop' });
       } });
     const pending = plugin.generate({ prompt: 'Repairs', language: 'en' }, '', { signal: controller.signal,
       deadlineAt: Date.now() + 5000, attempt: claim, report: terminal => budget.settle(claim.claimId, terminal, binding.rates) });
@@ -107,9 +107,8 @@ test('AIT-134 gate: default JSON drafts ledger retains uncertain costs and recon
     const { binding } = htmlConfig(values);
     plugin = createClaudeHTML({ binding, spendPath, resolveSecret: () => 'fixture',
       fetchImpl: async (url, options) => {
-        if (options.method === 'POST') return Response.json({ id: 'gen-json-ledger',
-          usage: { prompt_tokens: 10, completion_tokens: 20 },
-          choices: [{ finish_reason: 'stop', message: { content: document } }] });
+        if (options.method === 'POST') return completionStream(document, { id: 'gen-json-ledger',
+          usage: { prompt_tokens: 10, completion_tokens: 20 } });
         state.queries++; assert.equal(new URL(url).searchParams.get('id'), 'gen-json-ledger');
         return Response.json(state.final ? { data: { id: 'gen-json-ledger', total_cost: 0.001234 } } : {},
           { status: state.final ? 200 : 404 });
@@ -494,9 +493,8 @@ for (const lossAt of ['before dispatch', 'known-cost response', 'unknown-cost re
     const budget = new SQLiteBudgetLedger(storage), session = storage.create(), { binding } = htmlConfig(values);
     const reports = [], plugin = createClaudeHTML({ binding, spend, resolveSecret: () => 'fixture', fetchImpl: async () => {
       calls++; clock += 30_001;
-      return Response.json({ id: 'gen-fenced-draft', usage: { prompt_tokens: 10, completion_tokens: 20,
-        ...(lossAt === 'known-cost response' ? { cost: 0.001234 } : {}) },
-      choices: [{ finish_reason: 'stop', message: { content: document } }] });
+      return completionStream(document, { id: 'gen-fenced-draft', usage: { prompt_tokens: 10, completion_tokens: 20,
+        ...(lossAt === 'known-cost response' ? { cost: 0.001234 } : {}) } });
     } });
     const request = { prompt: 'Repairs', language: 'en' }, ceiling = plugin.estimateCost(request);
     const { attemptId } = budget.admit({ sessionId: session.id, lane: 'concept', maxMicro: ceiling,
