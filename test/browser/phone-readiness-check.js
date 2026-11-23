@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
 import { startChild } from '../helpers.js';
 import { fixture } from './combined-entrance-check.js';
 import { welcome } from './combined-image-opener-check.js';
@@ -10,23 +9,25 @@ import { browserForFile } from './shared-browser.js';
 
 const hostCopy = {
   de: {
-    title: 'Vor dem Gespräch', missing: 'Beim ersten Senden erforderlich', change: 'Einstellungen',
+    title: 'Bereit', missing: 'Beim ersten Senden erforderlich', change: 'Ändern',
     route: 'Ihre Gesprächsdaten und die Inhalte, die Sie im Gespräch teilen, werden für Ihre Anfrage von den empfohlenen Anbietern verarbeitet.',
   },
   en: {
-    title: 'Before you start', missing: 'Required when you first send', change: 'Settings',
+    title: 'Ready', missing: 'Required when you first send', change: 'Settings',
     route: 'Your conversation data is processed by the host’s recommended providers to assist with your request.',
   },
 };
 const cases = [664, 740, 844].flatMap(height => ['de', 'en'].flatMap(locale =>
   (height === 844 ? ['light'] : ['light', 'dark']).map(theme => ({ height, locale, theme }))));
+// The longer German summary on the bound release wrapped to another row.
+for (const theme of ['light', 'dark']) cases.push({ height: 740, locale: 'de', theme, longCard: true });
 const epsilon = .5;
 const bottom = box => box.y + box.height;
 const controls = ['mic', 'send', 'field'];
 const positive = (name, box) => assert.ok(box?.width > 0 && box?.height > 0, `${name} has a positive box: ${JSON.stringify(box)}`);
 const close = (actual, expected, label) => assert.ok(Math.abs(actual - expected) <= epsilon, `${label}: ${actual} vs ${expected} px`);
 
-async function openHost(page, url, { height, locale, theme }) {
+async function openHost(page, url, { height, locale, theme, longCard }) {
   await page.setViewport({ width: 390, height, hasTouch: true });
   await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.setRequestInterception(true);
@@ -36,13 +37,14 @@ async function openHost(page, url, { height, locale, theme }) {
   });
   await page.goto(`${url}/combined-fixture?locale=${locale}&passiveDenied`);
   await page.waitForFunction(() => globalThis.ready && c.shadowRoot.querySelector('.composer-status').textContent.length > 0);
-  await page.evaluate(async ({ locale, text, words }) => {
+  await page.evaluate(async ({ locale, text, words, longCard }) => {
     const base = (await import(`/packages/ui/src/i18n/${locale}.js`))[locale];
     const { title, missing, change, route } = words;
     // Hosts supply their strings via configure(copy); the normal readiness
     // render owns the card, its wrapping, and the processing line.
     globalThis.fixtureCopy = { ...base, ready: { ...base.ready, title, missing, change },
       chooser: { ...base.chooser, summary: { ...base.chooser.summary, best: route } },
+      ...(longCard && { uploadsSupported: 'Unterstützt: PDF, Office, Text, PNG, JPEG, WebP, GIF.' }),
       featureConsent: { ...base.featureConsent, text: `${base.featureConsent.text} `.repeat(4).trim() } };
     const snapshot = structuredClone(c.session);
     snapshot.opener = { text, locale };
@@ -52,7 +54,8 @@ async function openHost(page, url, { height, locale, theme }) {
     snapshot.featureMatrix.best.images = { available: true };
     c.style.setProperty('--aithema-height', `${innerHeight}px`);
     mount(snapshot);
-  }, { locale, text: welcome[locale], words: hostCopy[locale] });
+  }, { locale, text: welcome[locale], longCard,
+    words: longCard ? { ...hostCopy[locale], title: 'Vor dem Gespräch', change: 'Einstellungen' } : hostCopy[locale] });
 }
 
 async function measure(page) {
@@ -133,7 +136,7 @@ async function firstSendAndConcept(page, record, ready) {
   close(live.scroll.height, concept.scroll.height, 'conversation height when the first concept appears');
 }
 
-test('AIT-644: the bound image entrance uses the free phone area for host readiness without moving the composer controls', { timeout: 180_000 }, async t => {
+export async function phoneReadinessCheck(t) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-readiness-'));
   const server = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
@@ -144,7 +147,7 @@ test('AIT-644: the bound image entrance uses the free phone area for host readin
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
   if (evidence) await mkdir(evidence, { recursive: true });
   for (const item of cases) {
-    const name = `390x${item.height}-${item.locale}-${item.theme}`;
+    const name = `390x${item.height}-${item.locale}-${item.theme}${item.longCard ? '-long' : ''}`;
     await t.test(name, async () => {
       const page = await browser.newPage(), problems = [];
       try {
@@ -167,9 +170,9 @@ test('AIT-644: the bound image entrance uses the free phone area for host readin
         for (const key of ['card', 'route', 'conversation', 'scroll', 'opener', 'band', 'footer', 'dock', 'shell', 'slot', 'backdrop', 'feedback', ...controls]) positive(key, ready[key]);
         close(ready.slot.height, 44, 'real bound image slot');
         close(ready.scrollTop, 0, 'the entrance starts at its top');
-        const cardHeight = item.locale === 'de' ? 102 : 85;
+        const cardHeight = item.longCard ? 122 : item.locale === 'de' ? 102 : 85;
         assert.ok(Math.abs(ready.card.height - cardHeight) <= 4, `host card is approximately ${cardHeight} px high: ${ready.card.height}`);
-        if (item.height === 740 && item.locale === 'de' && item.theme === 'light') await firstSendAndConcept(page, record, ready);
+        if (item.height === 740 && item.locale === 'de' && item.theme === 'light' && !item.longCard) await firstSendAndConcept(page, record, ready);
         assert.deepEqual(problems, []);
 
         const shortfall = Math.max(0, bottom(ready.card) - bottom(ready.scroll));
@@ -194,4 +197,4 @@ test('AIT-644: the bound image entrance uses the free phone area for host readin
       } finally { await page.close(); }
     });
   }
-});
+}
