@@ -82,6 +82,171 @@ export async function visibleFeedback(page) {
   return visibility;
 }
 
+const unavailableProbe = {
+  en: "Images can't be prepared right now. Attach the image again.",
+  de: 'Bilder lassen sich gerade nicht vorbereiten. Hängen Sie das Bild erneut an.',
+};
+
+async function configureRefusalFixture(page, entrance, locale, copy) {
+  await inShadow(page, (c, { entrance, locale, copy }) => {
+    const session = structuredClone(c.session);
+    session.id = crypto.randomUUID(); session.seq = 0; session.locale = locale;
+    session.settings.voice = 'off'; session.settings.origin = 'chosen';
+    session.transcript = [{ id: 'established', role: 'user', content: 'Project documents', at: new Date(0).toISOString() }];
+    session.featureMatrix = { best: Object.fromEntries(['text', 'analysis', 'uploads', 'imageInput'].map(key => [key, { available: true }])) };
+    session.uploads = [{ id: 'staged', filename: 'photo.png', kind: 'image', state: 'staged-ready',
+      bytes: 68, mediaType: 'image/png', digest: 'fixture', w: 1, h: 1, at: new Date(0).toISOString() }];
+    window.fetch = async (url, options = {}) => {
+      if (/\/events(?:\?|$)/u.test(String(url))) return new Response(new ReadableStream({
+        start(controller) { options.signal?.addEventListener('abort', () => controller.close(), { once: true }); },
+      }));
+      if (String(url).endsWith('/uploads')) return Response.json({ limits: {} });
+      if (String(url).endsWith('/image')) {
+        const png = atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=');
+        return new Response(Uint8Array.from(png, char => char.charCodeAt(0)), { headers: { 'content-type': 'image/png' } });
+      }
+      return Response.json(c.session);
+    };
+    c.configure({ session, copy, entrance, sessionToken: 'fixture', voiceClient: {} });
+  }, { entrance, locale, copy });
+  await startTyping(page);
+  await waitForShadow(page, '.staged-image[data-state="staged-ready"]');
+}
+
+function refusalGeometry(c, { entrance, text }) {
+  const root = c.shadowRoot;
+  const box = element => element?.getBoundingClientRect().toJSON() ?? null;
+  const control = entrance === 'choice' ? ['attach', '.attach'] : ['mic', '.composer-mic'];
+  const boxes = { attach: null, mic: null, ...Object.fromEntries([
+    ['field', '.composer textarea'], control, ['send', '.composer .send'],
+    ['feedback', '.composer-feedback'], ['composer', '.composer'],
+  ].map(([name, selector]) => [name, box(root.querySelector(selector))])) };
+  const reason = root.querySelector('.composer-reason');
+  const shown = [...reason.querySelectorAll('.image-refusal__reason')].find(node => node.textContent === text && !node.closest('[hidden]'));
+  const reserved = [...root.querySelectorAll('.image-feedback-reserve .image-refusal__reason')].find(node => node.textContent === text);
+  const textRects = element => {
+    if (!element) return [];
+    const range = document.createRange(); range.selectNodeContents(element);
+    return [...range.getClientRects()].map(rect => rect.toJSON());
+  };
+  return { boxes, more: Boolean(reason.querySelector('.upload-notices-more')), reserve: box(root.querySelector('.image-feedback-reserve')),
+    shown: box(shown?.parentElement), shownRects: textRects(shown), reserved: box(reserved?.parentElement), reservedRects: textRects(reserved) };
+}
+
+function assertRefusalBoxes(before, after) {
+  for (const [name, box] of Object.entries(after.boxes)) {
+    if (!box && !before.boxes[name]) continue;
+    assert.ok(box?.width > 0 && box.height > 0, `${name}: positive box`);
+    for (const axis of ['x', 'y', 'width', 'height']) {
+      assert.ok(Math.abs(box[axis] - before.boxes[name][axis]) <= .5,
+        `${name}.${axis} moves by ${box[axis] - before.boxes[name][axis]} px`);
+    }
+  }
+}
+
+export function refusalReserveCheck() {
+  for (const width of [390, 1440]) for (const locale of ['en', 'de']) {
+    test(`AIT-638: ${width}/${locale}/light refusal reserve`, { timeout: 120000 }, async t => {
+      const directory = await mkdtemp(join(tmpdir(), 'aithema-refusal-reserve-'));
+      const demo = await startDemo(directory), browser = await browserForFile(), page = await browser.newPage();
+      t.after(async () => { await page.close(); await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); });
+      await preparePage(page, [locale]); await page.setViewport({ width, height: width === 390 ? 844 : 900, hasTouch: width === 390 });
+      await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
+      await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
+      const copy = { en, de }[locale], reasons = Object.entries(copy.imageRefusals);
+      const longest = reasons.reduce((a, b) => a[1].length >= b[1].length ? a : b);
+      const documentName = 'filename.unknown';
+      const documentFacts = copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', documentName));
+      const evidence = process.env.AITHEMA_EVIDENCE_DIR;
+      const settle = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const geometry = async (entrance, text) => {
+        await settle();
+        return inShadow(page, refusalGeometry, { entrance, text });
+      };
+      const capture = async (mode, state, result, screenshot) => {
+        if (!evidence) return;
+        await mkdir(evidence, { recursive: true });
+        const prefix = join(evidence, `ait638-${width}-${locale}-${mode}-${state}`);
+        if (screenshot) await page.screenshot({ path: `${prefix}.png` });
+        await writeFile(`${prefix}.json`, JSON.stringify({ platform: process.platform, ...result }, null, 2));
+      };
+      const refuseImage = async reason => {
+        await inShadow(page, (c, reason) => c.receive({ sessionId: c.session.id, seq: c.session.seq + 1, type: 'upload.state',
+          data: { ...c.session.uploads[0], id: 'refused', filename: reason === 'unsupported' ? 'photo.heic' : 'photo.png',
+            state: 'staged-refused', reason } }), reason);
+      };
+      const clearImage = () => inShadow(page, c => {
+        const root = c.shadowRoot;
+        const more = root.querySelector('.upload-notices-more'); more?.click();
+        root.querySelector('.image-refusals__dismiss:not([hidden])')?.click();
+        root.querySelector('.upload-notices-sheet[open]')?.close();
+      });
+      const checkImage = async ({ entrance, mode, reason, sentence, idle, screenshot, probe }) => {
+        await refuseImage(reason);
+        const shown = await geometry(entrance, sentence), visibility = await inShadow(page, feedbackVisibility);
+        await capture(mode, `${reason}-shown`, { ...shown, visibility }, screenshot);
+        await clearImage();
+        const cleared = await geometry(entrance, sentence);
+        await capture(mode, `${reason}-cleared`, cleared, screenshot && !probe);
+        assertRefusalBoxes(idle, shown);
+        assertRefusalBoxes(idle, cleared);
+        assert.equal(cleared.shown, null, 'dismiss clears the refusal');
+        assert.equal(shown.more, false, 'a single refusal is visible without opening a sheet');
+        assert.equal(visibility.unreachable, false, 'all visible notice text fits without clipping or scrolling');
+        assert.ok(visibility.texts.some(line => line.text === sentence && line.reachable), `complete reason: ${sentence}`);
+        if (probe) {
+          assert.ok(shown.reserved?.width > 0 && shown.reserved.height > 0, 'positive reserve reason box');
+          assert.ok(shown.reservedRects.length <= 4, `probe reserve wraps to ${shown.reservedRects.length} lines (height ${idle.boxes.composer.height} px)`);
+          assert.ok(shown.reserved.width >= shown.shown.width - .5,
+            `probe reserve width ${shown.reserved.width} px fits the rendered column ${shown.shown.width} px`);
+          assert.ok(shown.shownRects.at(-1)?.width > 0 && shown.shownRects.at(-1).height > 0, 'visible end of the full probe sentence');
+        }
+      };
+      for (const entrance of ['choice', 'combined']) await t.test(entrance, async mode => {
+        await configureRefusalFixture(page, entrance, locale, copy);
+        const idle = await geometry(entrance, longest[1]);
+        assertRefusalBoxes(idle, idle);
+        await capture(entrance, 'idle', idle, true);
+        for (const [reason, sentence] of entrance === 'choice' ? reasons : [longest]) {
+          await mode.test(reason, () => checkImage({ entrance, mode: entrance, reason, sentence, idle, screenshot: reason === longest[0] }));
+        }
+        await mode.test('document reserve', async () => {
+          await inShadow(page, (c, name) => {
+            const transfer = new DataTransfer(); transfer.items.add(new File(['unknown'], name));
+            const input = c.shadowRoot.querySelector('.attach-input'); input.files = transfer.files; input.dispatchEvent(new Event('change'));
+          }, documentName);
+          await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot
+            .querySelector('.composer-reason').hasAttribute('data-upload-feedback'));
+          const shown = await geometry(entrance), visibility = await inShadow(page, feedbackVisibility);
+          await capture(entrance, 'document-shown', { ...shown, visibility });
+          await inShadow(page, c => c.shadowRoot.querySelector('textarea').dispatchEvent(new Event('input', { bubbles: true })));
+          const cleared = await geometry(entrance);
+          await capture(entrance, 'document-cleared', cleared);
+          assertRefusalBoxes(idle, shown);
+          assertRefusalBoxes(idle, cleared);
+          assert.equal(shown.more, false, 'a single document refusal is visible without opening a sheet');
+          assert.equal(visibility.unreachable, false, 'document text fits without clipping or scrolling');
+          for (const text of [documentFacts, copy.uploadsSupported]) {
+            assert.ok(visibility.texts.some(line => line.text.trim() === text && line.reachable), `complete document reserve: ${text}`);
+          }
+          assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.composer-reason').hasAttribute('data-upload-feedback')), false);
+        });
+      });
+      if (width === 390) await t.test('AIT-610 copy probe', async probe => {
+        const sentence = unavailableProbe[locale], entrance = 'choice';
+        await configureRefusalFixture(page, entrance, locale, { ...copy, imageRefusals: { ...copy.imageRefusals, unavailable: sentence } });
+        const idle = await geometry(entrance, sentence), expected = idleGeometry.boxes[`image-${width}-${locale}`]['.composer'].height;
+        probe.diagnostic(`${process.platform} ${width}/${locale}: idle ${idle.boxes.composer.height} px (main ${expected}), reserve: ${idle.reservedRects.length} lines`);
+        await capture('probe', 'idle', idle, locale === 'de');
+        await probe.test('idle height', () => assert.ok(Math.abs(idle.boxes.composer.height - expected) <= .5,
+          `probe idle composer height ${idle.boxes.composer.height} px vs main ${expected} px`));
+        await probe.test('show and clear', () => checkImage({ entrance, mode: 'probe', reason: 'unavailable', sentence, idle,
+          screenshot: locale === 'de', probe: true }));
+      });
+    });
+  }
+}
+
 function feedbackBoxes(visibility) {
   return visibility.texts.map(text => ({ text: text.text,
     width: text.rects.length ? Math.max(...text.rects.map(r => r.right)) - Math.min(...text.rects.map(r => r.left)) : 0,

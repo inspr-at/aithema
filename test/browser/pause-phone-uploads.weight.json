@@ -1,5 +1,5 @@
 {
-  "seconds": 241,
+  "seconds": 265,
   "provisional": true,
-  "evidence": "AIT-597, 2026-11-20: provisional split reservation for 48 whole top-level tests: the moved document-upload chain (AIT-556/559/561/563/566) and the 1440 AIT-510 image-input matrix. Trusted pre-split pause-phone rolling-main CI series (44650109778-1, 44682541019-1, 44688985679-1, 44707193689-1, 44725948096-1, 44736662387-1, 44742965802-1; merge-group, attempt 1): sum of these tests' per-test nearest-rank p95 = 192.373785211s (largest single-run sum 191.661455523s). Provisional reservation = ceil(1.25 * 192.373785211) = 241s, as AIT-557 reserved the clarify split. Replaces the pre-split pause-phone weight and floors; rolling-main timings of the new workload will replace it, as AIT-558 did. Remote lane diagnostics stay outside trusted rolling CI samples."
+  "evidence": "AIT-597 split baseline: 48 top-level tests, summed rolling-main per-test p95 192.373785211s (runs 44650109778-1, 44682541019-1, 44688985679-1, 44707193689-1, 44725948096-1, 44736662387-1, 44742965802-1). AIT-638 adds four top-level cases with 19s forecast based on the AIT-597 average (4s per case plus evidence and in-page reconfiguration). Provisional reservation = ceil(1.25 * (192.373785211 + 19)) = 265s. Recheck the increment on the remote lane before handoff. Remote lane diagnostics stay outside trusted rolling CI samples."
 }
