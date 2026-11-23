@@ -108,6 +108,19 @@ test('AIT-165 logout requires same-origin POST and revokes the server grant', as
   assert.equal(Object.hasOwn(await (await f.call('/demo/config', cookie)).json(), 'operator'), false);
 });
 
+test('AIT-633 guarded logout revokes the grant and clears both cookies without an HTTP redirect', async t => {
+  const f = await fixture(t), cookie = f.grant(await f.callback(await f.login()));
+  const response = await f.call('/api/operator/logout/', cookie, {
+    method: 'POST', headers: { origin, accept: 'application/json', 'content-type': 'application/json' }, body: '{}',
+  });
+  assert.equal(response.status, 204);
+  assert.equal(response.headers.get('location'), null);
+  const cleared = response.headers.getSetCookie();
+  assert.equal(cleared.length, 2);
+  assert.ok(cleared.every(value => value.includes('Max-Age=0')));
+  assert.equal(Object.hasOwn(await (await f.call('/demo/config', cookie)).json(), 'operator'), false);
+});
+
 for (const key of ['AITHEMA_OPERATOR_ISSUER', 'AITHEMA_OPERATOR_CLIENT_ID', 'AITHEMA_OPERATOR_SUBJECT']) {
   test(`AIT-165 feature off without ${key}`, async t => {
     const f = await fixture(t, { [key]: '' });

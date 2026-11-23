@@ -26,7 +26,7 @@ for (const [mode, base] of [['same origin', null], ['foreign base', 'https://els
     assert.equal(submit.defaultPrevented, true, 'JavaScript owns the submission');
     assert.equal(form.hasAttribute('action'), false, 'the form has no native operator action');
     await new Promise(resolve => setImmediate(resolve));
-    assert.ok(element.querySelector('.operator-error').textContent, 'logout failure is announced inline');
+    assert.equal(element.querySelector('.operator-error').textContent, en.settings.operatorLogoutError);
     if (mode !== 'same origin') { assert.deepEqual(calls, []); return; }
     assert.equal(calls.length, 1);
     assert.equal(calls[0].url, 'https://host.test/api/operator/logout/');
@@ -36,20 +36,20 @@ for (const [mode, base] of [['same origin', null], ['foreign base', 'https://els
   });
 }
 
-for (const copy of [de, en]) test(`AIT-165 final General section: muted native operator navigation and inline error (${copy.display.locale})`, async () => {
-  const window = new Window();
+for (const copy of [de, en]) test(`AIT-165 final General section: muted operator navigation and inline error (${copy.display.locale})`, async () => {
+  const window = new Window({ url: 'https://host.test/' });
   try {
     const parent = window.document.createElement('div'); parent.innerHTML = '<section>Existing settings</section><section class="host-verify"></section>';
     const operator = { provider: 'Zitadel', url: '/api/operator/login/', logoutUrl: '/api/operator/logout/', adminUrl: '/admin' };
     const view = new OperatorSettings({ parent, copy, operator }), s = parent.lastElementChild;
     assert.equal(s, view.element); assert.equal(s.querySelector('h3'), null);
-    const link = s.querySelector('.operator-login'); assert.equal(link.getAttribute('href'), operator.url);
+    const link = s.querySelector('.operator-login'); assert.equal(link.getAttribute('href'), new URL(operator.url, window.location.href).href);
     assert.equal(link.textContent.trim(), copy.settings.operatorLogin.replace('{provider}', 'Zitadel'));
     assert.ok(link.querySelector('svg')); assert.equal(s.querySelector('.operator-error').textContent, '');
     view.set({ ...operator, error: true }); assert.equal(s.querySelector('.operator-error').textContent, copy.settings.operatorError);
     view.set({ ...operator, name: '<Ada>' });
     assert.equal(s.querySelector('.operator-name').textContent, 'Operator: <Ada>'); assert.equal(s.querySelector('Ada'), null);
-    assert.equal(s.querySelector('form').method, 'post'); assert.equal(s.querySelector('form').getAttribute('action'), operator.logoutUrl);
+    assert.equal(s.querySelector('form').method, 'post'); assert.equal(s.querySelector('form').hasAttribute('action'), false);
     assert.equal(s.querySelector('.operator-logout').textContent, copy.settings.operatorLogout);
     assert.equal(link.getAttribute('aria-hidden'), 'true');
     view.set({ ...operator, name: 'Ada' });

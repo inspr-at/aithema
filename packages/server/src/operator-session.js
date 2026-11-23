@@ -80,7 +80,7 @@ export function createOperatorSessions({ provider, store, publicOrigin, now = Da
         if (request.headers.get('origin') !== publicOrigin || request.headers.get('sec-fetch-site') === 'cross-site') return refused(403);
         store.revoke(cookie(request, OPERATOR_COOKIE));
         store.takeState(cookie(request, OPERATOR_STATE_COOKIE), stateBinding, now());
-        const response = redirect('/#settings-general');
+        const response = request.headers.get('accept') === 'application/json' ? refused(204) : redirect('/#settings-general');
         response.headers.append('set-cookie', cookieHeader(OPERATOR_COOKIE, '', 0));
         response.headers.append('set-cookie', cookieHeader(OPERATOR_STATE_COOKIE, '', 0));
         return response;

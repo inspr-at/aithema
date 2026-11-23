@@ -1,5 +1,6 @@
 import { reasonSeparator } from './consent-line.js';
-// The final General section: native navigation and a same-origin POST form.
+import { guardOperatorLogin, operatorLoginRoute, operatorLogoutRoute, wireOperatorLogout } from './operator-actions.js';
+// The final General section: a guarded sign-in destination and logout request.
 // Auth state comes from the host, never from visitor identity or a local role.
 function adminHref(value) {
   if (typeof value !== 'string' || !value || /[\s\\\u0000-\u001f\u007f]/u.test(value)) return null;
@@ -13,16 +14,20 @@ function adminHref(value) {
 
 export class OperatorSettings {
   constructor({ parent, copy, operator }) {
-    if (operator?.url !== '/api/operator/login/' || operator.logoutUrl !== '/api/operator/logout/') return;
-    this.copy = copy; this.operator = operator;
+    if (operator?.url !== operatorLoginRoute || operator.logoutUrl !== operatorLogoutRoute) return;
+    this.copy = copy; this.operator = operator; this.logoutFailed = false;
     const section = parent.ownerDocument.createElement('section'); section.className = 'operator-section';
+    section.tabIndex = -1;
     section.innerHTML = `<div class="operator-row">
-      <a class="operator-view operator-login" href="/api/operator/login/">
+      <a class="operator-view operator-login">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M14 4h6v16h-6M3 12h12m-4-4 4 4-4 4"/></svg><span></span></a>
-      <form class="operator-view operator-signed-in" method="post" action="/api/operator/logout/">
+      <form class="operator-view operator-signed-in" method="post">
         <span class="operator-name"></span><span class="operator-separator" aria-hidden="true">${reasonSeparator}</span><button type="submit" class="operator-logout"></button></form>
       </div><div class="operator-notice"><p class="m-notice operator-error" role="status" aria-live="polite"></p>
+        <p class="m-notice operator-error-measure operator-login-measure" aria-hidden="true"></p>
         <p class="m-notice operator-error-measure" aria-hidden="true"></p></div>`;
+    guardOperatorLogin(section.querySelector('.operator-login'));
+    wireOperatorLogout(section.querySelector('form'), { showError: failed => { this.logoutFailed = failed; this.paint(); } });
     this.element = section; this.paint(); parent.append(section);
   }
   setCopy(copy) { this.copy = copy; this.paint(); }
@@ -49,7 +54,8 @@ export class OperatorSettings {
       admin.setAttribute('href', href); admin.textContent = c.operatorAdmin;
     }
     s.querySelector('.operator-logout').textContent = c.operatorLogout;
-    s.querySelector('.operator-error').textContent = this.operator.error && !signedIn ? c.operatorError : '';
-    s.querySelector('.operator-error-measure').textContent = c.operatorError;
+    s.querySelector('.operator-error').textContent = signedIn ? (this.logoutFailed ? c.operatorLogoutError : '') : (this.operator.error ? c.operatorError : '');
+    s.querySelector('.operator-login-measure').textContent = c.operatorError;
+    s.querySelector('.operator-error-measure:last-child').textContent = c.operatorLogoutError;
   }
 }
