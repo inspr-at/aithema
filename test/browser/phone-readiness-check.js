@@ -17,9 +17,22 @@ const hostCopy = {
     route: 'Your conversation data is processed by the host’s recommended providers to assist with your request.',
   },
 };
+const standInCopy = {
+  de: { ...hostCopy.de, missing: 'Beim Senden nötig',
+    route: 'Ihre Gesprächsdaten\nwerden von empfohlenen\nAnbietern verarbeitet.' },
+  en: { ...hostCopy.en, route: 'Recommended providers\nprocess your conversation data.' },
+};
+const longStandInCopy = { ...standInCopy.de,
+  route: 'Ihre Gesprächsdaten\nund geteilten Inhalte\nwerden von empfohlenen\nAnbietern verarbeitet.',
+  // Keep the long-card fixture's formats on one line in the dock reserve.
+  uploadsSupported: 'PDF, Office, PNG, JPEG.',
+};
+const longHostCopy = { ...hostCopy.de, title: 'Vor dem Gespräch', change: 'Einstellungen',
+  uploadsSupported: 'Unterstützt: PDF, Office, Text, PNG, JPEG, WebP, GIF.',
+};
 const cases = [664, 740, 844].flatMap(height => ['de', 'en'].flatMap(locale =>
   (height === 844 ? ['light'] : ['light', 'dark']).map(theme => ({ height, locale, theme }))));
-// The longer German summary on the bound release wrapped to another row.
+// The longer German card on the bound release needed another line.
 for (const theme of ['light', 'dark']) cases.push({ height: 740, locale: 'de', theme, longCard: true });
 const epsilon = .5;
 const bottom = box => box.y + box.height;
@@ -27,7 +40,7 @@ const controls = ['mic', 'send', 'field'];
 const positive = (name, box) => assert.ok(box?.width > 0 && box?.height > 0, `${name} has a positive box: ${JSON.stringify(box)}`);
 const close = (actual, expected, label) => assert.ok(Math.abs(actual - expected) <= epsilon, `${label}: ${actual} vs ${expected} px`);
 
-async function openHost(page, url, { height, locale, theme, longCard }) {
+async function openHost(page, url, { height, locale, theme, longCard }, collectEvidence) {
   await page.setViewport({ width: 390, height, hasTouch: true });
   await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.setRequestInterception(true);
@@ -37,15 +50,15 @@ async function openHost(page, url, { height, locale, theme, longCard }) {
   });
   await page.goto(`${url}/combined-fixture?locale=${locale}&passiveDenied`);
   await page.waitForFunction(() => globalThis.ready && c.shadowRoot.querySelector('.composer-status').textContent.length > 0);
-  await page.evaluate(async ({ locale, text, words, longCard }) => {
+  return page.evaluate(async ({ locale, text, words, realWords, collectEvidence }) => {
     const base = (await import(`/packages/ui/src/i18n/${locale}.js`))[locale];
-    const { title, missing, change, route } = words;
     // Hosts supply their strings via configure(copy); the normal readiness
-    // render owns the card, its wrapping, and the processing line.
-    globalThis.fixtureCopy = { ...base, ready: { ...base.ready, title, missing, change },
+    // render owns the card and the processing line.
+    const copy = ({ title, missing, change, route, uploadsSupported = base.uploadsSupported }) => ({
+      ...base, ready: { ...base.ready, title, missing, change },
       chooser: { ...base.chooser, summary: { ...base.chooser.summary, best: route } },
-      ...(longCard && { uploadsSupported: 'Unterstützt: PDF, Office, Text, PNG, JPEG, WebP, GIF.' }),
-      featureConsent: { ...base.featureConsent, text: `${base.featureConsent.text} `.repeat(4).trim() } };
+      uploadsSupported,
+      featureConsent: { ...base.featureConsent, text: `${base.featureConsent.text} `.repeat(4).trim() } });
     const snapshot = structuredClone(c.session);
     snapshot.opener = { text, locale };
     snapshot.visualsBound = true;
@@ -67,9 +80,23 @@ async function openHost(page, url, { height, locale, theme, longCard }) {
       return Response.json(refreshed);
     };
     c.style.setProperty('--aithema-height', `${innerHeight}px`);
+    let realCopyCardHeight;
+    if (collectEvidence) {
+      globalThis.fixtureCopy = copy(realWords);
+      mount(snapshot);
+      await document.fonts.ready;
+      const box = c.shadowRoot.querySelector('.ready')?.getBoundingClientRect();
+      realCopyCardHeight = box?.width > 0 && box.height > 0 ? box.height : null;
+    }
+    // Short explicit lines make the fixture height independent of font wrapping.
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync('.ready__route { white-space: pre; }');
+    c.shadowRoot.adoptedStyleSheets.push(sheet);
+    globalThis.fixtureCopy = copy(words);
     mount(snapshot);
-  }, { locale, text: welcome[locale], longCard,
-    words: longCard ? { ...hostCopy[locale], title: 'Vor dem Gespräch', change: 'Einstellungen' } : hostCopy[locale] });
+    return realCopyCardHeight;
+  }, { locale, text: welcome[locale], collectEvidence,
+    words: longCard ? longStandInCopy : standInCopy[locale], realWords: longCard ? longHostCopy : hostCopy[locale] });
 }
 
 async function measure(page) {
@@ -231,10 +258,11 @@ export async function phoneReadinessCheck(t) {
       const page = await browser.newPage(), problems = [];
       try {
         page.on('pageerror', error => problems.push(error.message));
-        await openHost(page, server.url, item);
+        const realCopyCardHeight = await openHost(page, server.url, item, Boolean(evidence));
         const record = async state => {
           const boxes = await measure(page);
           if (evidence) {
+            if (state === 'ready') boxes.realCopyCardHeight = realCopyCardHeight;
             await writeFile(join(evidence, `${name}-${state}.json`), JSON.stringify(boxes, null, 2));
             await page.screenshot({ path: join(evidence, `${name}-${state}.png`), captureBeyondViewport: false });
           }
