@@ -12,6 +12,7 @@ import { openRouterConfig } from '../openrouter-config.js';
 import { createProcessingConsent } from '../processing-consent.js';
 import { demoPresets } from '../choices.js';
 import { startChild, temporaryDb, post, ownedRequest, testToken, unzip } from '../../test/helpers.js';
+import { completionStream } from '../../test/fixtures/chat-completion-stream.js';
 
 const model = 'anthropic/claude-opus-5.5';
 const values = { AITHEMA_HTML_MODE: 'claude', OPENROUTER_MODEL: model, OPENROUTER_PROVIDER_ONLY: ' "Anthropic, Google" ',
@@ -132,7 +133,9 @@ test('start2 drafts run at milestones in the background; conversation and select
   const fetchImpl = async (endpoint, init) => {
     assert.equal(endpoint, 'https://openrouter.ai/api/v1/chat/completions');
     const body = JSON.parse(init.body);
-    if (body.stream) return new Response('data: {"choices":[{"delta":{"content":"Please continue."},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"cost":0}}\n\ndata: [DONE]\n\n');
+    if (body.model === speech) return completionStream('Please continue.', {
+      usage: { prompt_tokens: 1, completion_tokens: 1, cost: 0 },
+    });
     if (body.response_format) {
       const current = body.messages.filter(m => m.role === 'user' && !m.content.startsWith('{')).at(-1).content;
       const raw = { summary: 'Repair requests', signals: [], openQuestions: [], actor: null, engagement: null,
@@ -145,8 +148,8 @@ test('start2 drafts run at milestones in the background; conversation and select
     }
     calls.push(body); started.resolve();
     if (calls.length === 1) await released.promise;
-    return Response.json({ usage: { prompt_tokens: 10, completion_tokens: 20, cost: .001234 },
-      choices: [{ finish_reason: 'stop', message: { content: `<!doctype html><html lang="en"><head><!-- Revision ${calls.length}: Repairs. --><meta charset="utf-8"><title>Repairs</title></head><body><button onclick="this.textContent='Open'">Repairs</button></body></html>` } }] });
+    const draft = `<!doctype html><html lang="en"><head><!-- Revision ${calls.length}: Repairs. --><meta charset="utf-8"><title>Repairs</title></head><body><button onclick="this.textContent='Open'">Repairs</button></body></html>`;
+    return completionStream(draft, { usage: { prompt_tokens: 10, completion_tokens: 20, cost: .001234 } });
   };
   const reasoning = createOpenRouterReasoning({ binding: reasoningConfig.reaction, prices: reasoningConfig.prices,
     spendCap: spend, resolveSecret: () => 'fixture', fetchImpl });
@@ -214,8 +217,8 @@ test('withdrawing only drafts aborts a dispatched render before it finishes and 
   let draftSignal, calls = 0;
   const html = createClaudeHTML({ binding, spend, resolveSecret: () => 'fixture', fetchImpl: async (_endpoint, init) => {
     calls++; draftSignal = init.signal; started.resolve(); await released.promise;
-    return Response.json({ usage: { prompt_tokens: 1, completion_tokens: 1, cost: .001234 },
-      choices: [{ finish_reason: 'stop', message: { content: '<!doctype html><html lang="en"><head><!-- Revision 1: Repairs. --><meta charset="utf-8"><title>Repairs</title></head><body>Repairs</body></html>' } }] });
+    return completionStream('<!doctype html><html lang="en"><head><!-- Revision 1: Repairs. --><meta charset="utf-8"><title>Repairs</title></head><body>Repairs</body></html>',
+      { usage: { prompt_tokens: 1, completion_tokens: 1, cost: .001234 } });
   } });
   const reasoning = createMockReasoning(), presets = mockPresets();
   presets.best.plugins.push('claude-html'); presets.best.bindings.html = binding;
@@ -263,7 +266,11 @@ test('START HTML lane uses real consent and routing; paid publication, owner rea
     assert.deepEqual(body.provider, isHTML ? configured.binding.routing : reasoningConfig.understanding.routing);
     assert.deepEqual(body.provider.max_price, { prompt: 1.4, completion: 14 });
     assert.deepEqual(body.reasoning, { enabled: false });
-    assert.equal(body.stream, false); assert.equal(init.redirect, 'error');
+    if (isHTML) {
+      assert.equal(body.stream, true);
+      assert.deepEqual(body.stream_options, { include_usage: true });
+    } else assert.equal(body.stream, false);
+    assert.equal(init.redirect, 'error');
     calls.push(body);
     if (isHTML) htmlCalls.push(body);
     const ceiling = isHTML ? callCeilingMicro(body.messages, configured.binding)
@@ -272,8 +279,9 @@ test('START HTML lane uses real consent and routing; paid publication, owner rea
     const cost = isHTML && htmlCalls.length === 1 ? 0 : (ceiling + (reasoningOverrun ? 1 : 0) - .5) / 1000000;
     const html = `<!doctype html><html lang="de"><head><!-- Revision ${htmlCalls.length}: Reparaturen. -->
       <meta charset="utf-8"><title>Reparaturen</title></head><body><h1>Übersicht</h1><button onclick="this.textContent='Offen'">Reparaturen</button></body></html>`;
-    return Response.json({ choices: [{ finish_reason: 'stop', message: { content: isHTML ? html : '{"summary":"Repairs"}' } }],
-      usage: { prompt_tokens: 1, completion_tokens: 1, cost } });
+    const usage = { prompt_tokens: 1, completion_tokens: 1, cost };
+    if (isHTML) return completionStream(html, { usage });
+    return Response.json({ choices: [{ finish_reason: 'stop', message: { content: '{"summary":"Repairs"}' } }], usage });
   };
   const reasoning = createOpenRouterReasoning({ binding: reasoningConfig.understanding, spendCap: spend,
     prices: configured.prices, resolveSecret: () => 'fake', fetchImpl });

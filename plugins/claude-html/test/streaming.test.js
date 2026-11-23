@@ -9,7 +9,7 @@ import { previousDocument } from '../src/html-artifact.js';
 
 const idleMs = 30_000;
 const generationId = 'gen-draft-first';
-const html = '<!doctype html><html lang="de"><head><title>Reparaturen</title></head><body><h1>Grüße 🏠</h1></body></html>';
+const html = '<!doctype html>\n<html lang="de"><head><title>Reparaturen</title></head><body><h1>Grüße 🏠</h1></body></html>';
 const spec = { prompt: 'Reparaturen anzeigen', language: 'de' };
 const usage = { prompt_tokens: 1200, completion_tokens: 3400, cost: 0.0728 };
 const keepAlive = ': OPENROUTER PROCESSING\r\n\r\n';
@@ -75,7 +75,10 @@ async function assertReconciles(f) {
 }
 
 test('AIT-465 streams one HTML request and settles only the final usage receipt', async t => {
-  const response = mockStream(keepAlive, first, delta(html.slice(0, 60)), keepAlive, delta(html.slice(60)), stop, receipt, done);
+  const response = mockStream(keepAlive, first, event({
+    choices: [{ index: 0, delta: { content: html.slice(0, 60) } }],
+    usage: { prompt_tokens: 1200, completion_tokens: 1, cost: 0.0001 },
+  }), keepAlive, delta(html.slice(60)), stop, receipt, done);
   const f = setup(t, response);
   const artifact = await f.generate();
   assert.equal(f.requests.length, 1);
