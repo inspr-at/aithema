@@ -50,8 +50,22 @@ async function openHost(page, url, { height, locale, theme, longCard }) {
     snapshot.opener = { text, locale };
     snapshot.visualsBound = true;
     snapshot.conceptVisualKind = 'image';
-    snapshot.featureMatrix.best.imageInput = { available: true };
-    snapshot.featureMatrix.best.images = { available: true };
+    const features = { imageInput: { available: true }, images: { available: true } };
+    Object.assign(snapshot.featureMatrix.best, features);
+    const fetchSession = globalThis.fetch;
+    globalThis.fetch = async (url, options) => {
+      const path = new URL(url, location.href).pathname;
+      const sessionPath = `/api/sessions/${c.session.id}`;
+      if (path === `${sessionPath}/consent`) {
+        return Response.json({ consentRevision: c.session.consentRevision, selected: granted ? ['fixture-visual-consent'] : [],
+          features: { images: ['fixture-visual-consent'] } });
+      }
+      const response = await fetchSession(url, options);
+      if (path !== sessionPath) return response;
+      const refreshed = await response.json();
+      Object.assign(refreshed.featureMatrix.best, features);
+      return Response.json(refreshed);
+    };
     c.style.setProperty('--aithema-height', `${innerHeight}px`);
     mount(snapshot);
   }, { locale, text: welcome[locale], longCard,
@@ -82,6 +96,7 @@ async function measure(page) {
       access: read('.concept-phone-slot .concept-access'), preview: read('.concept-phone-slot .concept-preview'),
       mic: read('.composer-mic'), send: read('.send'), field: read('textarea'),
       feedback: read('.composer-feedback'), reason: read('.composer-reason'),
+      refusalFormats: read('.composer-reason .upload-notice-formats'),
       scrollTop: scroll.scrollTop, scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight,
       pageTop: window.scrollY, fade: getComputedStyle(scroll).maskImage,
       clamp: workspace.style.getPropertyValue('--opener-lines'),
@@ -97,8 +112,8 @@ function sameControls(initial, next, state) {
   }
 }
 
-async function firstSendAndConcept(page, record, ready) {
-  await page.type('aithema-session >>> textarea', 'Ein Rechnungssystem.');
+async function firstSend(page, record, ready, locale) {
+  await page.type('aithema-session >>> textarea', locale === 'de' ? 'Ein Rechnungssystem.' : 'An invoice system.');
   await page.click('aithema-session >>> .send');
   await page.waitForFunction(() => trace.includes('consent'));
   const consent = await record('first-send-consent');
@@ -112,6 +127,35 @@ async function firstSendAndConcept(page, record, ready) {
   await page.click('aithema-session >>> .send');
   await page.waitForFunction(() => sent.length === 1 && c.shadowRoot.querySelector('.workspace').dataset.stage === 'live');
   const live = await record('first-send');
+  positive('long consent feedback', consent.reason);
+  positive('send failure feedback', failed.reason);
+  assert.equal(await page.$eval('aithema-session', host => host.shadowRoot.querySelector('.composer-reason').hasAttribute('data-send-failed')), false);
+  for (const [name, boxes] of Object.entries({ consent, failed, live })) sameControls(ready, boxes, name);
+  close(ready.scroll.height, live.scroll.height, 'conversation height at the first send');
+  return live;
+}
+
+async function longestFeedback(page, record, live, locale) {
+  // An unsupported document paints the two-line refusal facts plus the supported formats.
+  await page.$eval('aithema-session', host => {
+    const input = host.shadowRoot.querySelector('.attach-input'), transfer = new DataTransfer();
+    transfer.items.add(new File(['test data'], 'unsupported-format.heic'));
+    input.files = transfer.files;
+    input.dispatchEvent(new Event('change'));
+  });
+  await page.waitForFunction(() => c.shadowRoot.querySelector('.composer-reason .upload-notice-formats')?.checkVisibility());
+  const refusal = await record('upload-feedback');
+  positive('upload feedback formats', refusal.refusalFormats);
+  positive('upload feedback reason', refusal.reason);
+  close(refusal.reason.height, refusal.feedback.height, 'the upload feedback uses the full reserve');
+  sameControls(live, refusal, 'longest feedback shown');
+  await page.type('aithema-session >>> textarea', locale === 'de' ? 'Mit Freigabe.' : 'With approval.');
+  await page.click('aithema-session >>> .send');
+  await page.waitForFunction(() => sent.length === 2 && !c.shadowRoot.querySelector('.composer-reason').hasAttribute('data-upload-notice'));
+  sameControls(live, await record('upload-feedback-cleared'), 'longest feedback cleared');
+}
+
+async function firstConcept(page, record, live) {
   await page.evaluate(async () => {
     const canvas = document.createElement('canvas'); canvas.width = 56; canvas.height = 32;
     const context = canvas.getContext('2d'); context.fillStyle = '#14918c'; context.fillRect(0, 0, 56, 32);
@@ -127,12 +171,9 @@ async function firstSendAndConcept(page, record, ready) {
   await page.waitForFunction(() => c.shadowRoot.querySelector('.concept-phone-slot .concept-preview img[data-on]')?.naturalWidth > 0);
   const concept = await record('first-concept');
 
-  positive('long consent feedback', consent.reason);
-  positive('send failure feedback', failed.reason);
-  assert.equal(await page.$eval('aithema-session', host => host.shadowRoot.querySelector('.composer-reason').hasAttribute('data-send-failed')), false);
   positive('first concept access', concept.access);
   positive('first concept preview', concept.preview);
-  for (const [name, boxes] of Object.entries({ consent, failed, live, concept })) sameControls(ready, boxes, name);
+  sameControls(live, concept, 'first concept');
   close(live.scroll.height, concept.scroll.height, 'conversation height when the first concept appears');
 }
 
@@ -172,7 +213,11 @@ export async function phoneReadinessCheck(t) {
         close(ready.scrollTop, 0, 'the entrance starts at its top');
         const cardHeight = item.longCard ? 122 : item.locale === 'de' ? 102 : 85;
         assert.ok(Math.abs(ready.card.height - cardHeight) <= 4, `host card is approximately ${cardHeight} px high: ${ready.card.height}`);
-        if (item.height === 740 && item.locale === 'de' && item.theme === 'light' && !item.longCard) await firstSendAndConcept(page, record, ready);
+        if (item.height <= 740 && item.theme === 'light' && !item.longCard) {
+          const live = await firstSend(page, record, ready, item.locale);
+          if (item.height === 740 && item.locale === 'de') await firstConcept(page, record, live);
+          await longestFeedback(page, record, live, item.locale);
+        }
         assert.deepEqual(problems, []);
 
         const shortfall = Math.max(0, bottom(ready.card) - bottom(ready.scroll));
@@ -194,6 +239,7 @@ export async function phoneReadinessCheck(t) {
           assert.equal(ready.fade, 'none', 'fitting readiness has no fade');
         }
         close(bottom(ready.scroll), ready.dock.y, 'the readiness viewport runs down to the dock top');
+        close(ready.backdrop.y, ready.dock.y, 'the dock backdrop starts below the reading area');
       } finally { await page.close(); }
     });
   }
