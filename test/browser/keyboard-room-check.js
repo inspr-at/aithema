@@ -20,6 +20,7 @@ import { join } from 'node:path';
 import { browserForFile } from './shared-browser.js';
 import { startChild } from '../helpers.js';
 import { fixture } from './combined-entrance-check.js';
+import { icon } from '../../packages/ui/src/icons.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 
@@ -109,6 +110,23 @@ const stableBoxes = (name, before, after, parts) => {
   return failures;
 };
 const brief = s => ({ keyboard: s.keyboard, room: +s.room.toFixed(1), lines: s.lines, scroll: s.scroll, dock: s.dock, band: s.band, notice: s.notice, status: s.status, hint: s.hint });
+
+const headerLabel = (slot, locale) => slot === 'account'
+  ? (locale === 'de' ? 'Konto' : 'Account')
+  : (locale === 'de' ? 'Kontakt' : 'Contact');
+const contactIcon = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>';
+const lateHeaderButton = (slot, locale, hidden = false) => `<button type="button" slot="${slot}" class="late-${slot}"
+  aria-label="${headerLabel(slot, locale)}" style="display:${hidden ? 'none' : 'grid'};place-items:center;box-sizing:border-box;
+  width:44px;height:44px;overflow:hidden;padding:0;border:0;outline:none;background:none;color:var(--aithema-muted)">
+  ${slot === 'account' ? icon('person') : contactIcon}</button>`;
+const checkHeaderName = async (page, slot, locale) => {
+  const button = await page.$(`aithema-session > button[slot="${slot}"]`);
+  assert.ok(button, `${slot} has a native button`);
+  try {
+    const named = await page.accessibility.snapshot({ root: button });
+    assert.equal(named?.name, headerLabel(slot, locale), `${slot} has its localized accessible name`);
+  } finally { await button.dispose(); }
+};
 
 async function harness(t, evidencePath = ['ait-618', 'tick']) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-keyboard-room-'));
@@ -626,11 +644,6 @@ export async function keyboardHostLateAddCheck(t) {
       if (intersects(all[i][1], all[j][1])) failures.push(`${tag}: the ${all[i][0]} and ${all[j][0]} targets intersect: ${JSON.stringify([all[i][1], all[j][1]])}`);
     return failures;
   };
-  const contact = (page, change, locale) => page.$eval('aithema-session', (c, change, locale) => {
-    if (change === 'remove') c.querySelector('[slot="contact-launcher"]')?.remove();
-    else { const button = document.createElement('button'); button.type = 'button'; button.slot = 'contact-launcher';
-      button.textContent = locale === 'de' ? 'Kontakt' : 'Contact'; button.style.cssText = 'width:44px;height:44px;overflow:hidden'; c.append(button); }
-  }, change, locale);
   const pauseFocused = page => page.$eval('aithema-session', c => Boolean(c.shadowRoot.activeElement?.closest('.voice-cell--pause')));
   // r6 (TICK M4 (b)): every header control already painted keeps its box (Conversations x 224, Settings x 268);
   // only Pause moves.
@@ -677,9 +690,8 @@ export async function keyboardHostLateAddCheck(t) {
         // frame, before any further paint; then nothing moves after the frames settle.
         // One page expression (DevTools evaluation; bandState inlined), so no round trip lets another frame pass.
         const addedNow = await page.evaluate(`(async () => {
-          const c = document.querySelector('aithema-session'), button = document.createElement('button');
-          button.type = 'button'; button.slot = 'contact-launcher'; button.textContent = ${JSON.stringify(locale === 'de' ? 'Kontakt' : 'Contact')};
-          button.style.cssText = 'width:44px;height:44px;overflow:hidden'; c.append(button);
+          const c = document.querySelector('aithema-session');
+          c.insertAdjacentHTML('beforeend', ${JSON.stringify(lateHeaderButton('contact-launcher', locale))});
           await new Promise(resolve => requestAnimationFrame(resolve));
           return (${bandState})(c);
         })()`);
@@ -689,6 +701,7 @@ export async function keyboardHostLateAddCheck(t) {
         failures.push(...headerKept(`${name} before -> added at once`, before, addedNow));
         await settleLong(page);
         const added = await readBand(page), addedRoom = await read(page);
+        await checkHeaderName(page, 'contact-launcher', locale);
         failures.push(...headerKept(`${name} before -> added`, before, added));
         failures.push(...stableBoxes(`${name} added at once -> settled (band)`, addedNow, added, ['band', 'orb', 'pause', 'gear', 'notice', 'more']));
         await capture(page, `${name}-2-after-contact-added`, { ...addedRoom, band: added });
@@ -705,7 +718,7 @@ export async function keyboardHostLateAddCheck(t) {
         if (addedRoom.lines < 1) failures.push(`${name}: added: at least one whole transcript line is visible: ${JSON.stringify(brief(addedRoom))}`);
         if (!(addedRoom.scroll?.height < room.scroll?.height - 43.5)) failures.push(`${name}: added: the 44 px come out of the transcript pane: ${room.scroll?.height} -> ${addedRoom.scroll?.height}`);
         // Grow-only: Contact removed while the keyboard is up keeps 88.
-        await contact(page, 'remove', locale);
+        await page.$eval('aithema-session', c => c.querySelector('[slot="contact-launcher"]').remove());
         await settleLong(page);
         const removed = await readBand(page), removedRoom = await read(page);
         failures.push(...headerKept(`${name} before -> removed`, before, removed));
@@ -751,9 +764,9 @@ const restoreViewport = (page, { event = true } = {}) => page.evaluate(event => 
   if (event) window.dispatchEvent(new Event('resize'));
 }, event);
 
-// AIT-635: a real slotchange while the keyboard is already up. Model the
-// obstructed visual viewport and its scale with the same fixture as AIT-618.
-export async function keyboardLateHeaderSlotCheck(t, slot, zoom) {
+// AIT-635: exercise the slot and resize observers with the keyboard already up.
+// Model the obstructed visual viewport and its scale as in AIT-618.
+export async function keyboardLateHeaderSlotCheck(t, slot, { zoom = false, resize = false } = {}) {
   const { open, capture } = await harness(t, ['ait-635', 'tick']);
   const [width, height] = [320, 568];
   const hostControl = `late-${slot}`;
@@ -791,12 +804,13 @@ export async function keyboardLateHeaderSlotCheck(t, slot, zoom) {
     assert.deepEqual(stableBoxes('existing header controls', beforeTargets, targets, Object.keys(beforeTargets)), []);
     assert.ok(state.lines >= 1, `at least one whole transcript line is visible: ${JSON.stringify(brief(state))}`);
   };
-  for (const viewport of [308, 340]) for (const locale of ['en', 'de']) {
+  const scenes = resize ? [[308, 'en']] : [[308, 'en'], [308, 'de'], [340, 'en'], [340, 'de']];
+  for (const [viewport, locale] of scenes) {
     const name = `${width}x${height}-vv${viewport}-${locale}-${slot}${zoom ? '-zoomed' : ''}`;
     await t.test(name, async () => {
       const problems = [];
       const page = await open({ width, height, locale, intake: 'image', host: { library: true } }, problems);
-      const save = (phase, state) => viewport === 308 ? capture(page, `${name}-${phase}`, state) : Promise.resolve();
+      const save = (phase, state) => viewport === 308 && !resize ? capture(page, `${name}-${phase}`, state) : Promise.resolve();
       try {
         await reply(page, true);
         await keyboardUp(page, viewport);
@@ -807,6 +821,7 @@ export async function keyboardLateHeaderSlotCheck(t, slot, zoom) {
           c.shadowRoot.querySelector('.voice-cell--pause > .pause').focus({ preventScroll: true });
         });
         if (zoom) await setViewportMock(page, { height: viewport / 2, scale: 2 });
+        if (resize) await page.$eval('aithema-session', (c, markup) => c.insertAdjacentHTML('beforeend', markup), lateHeaderButton(slot, locale, true));
         await settleLong(page);
         const before = await read(page);
         await save('1-before-insert', before);
@@ -814,14 +829,20 @@ export async function keyboardLateHeaderSlotCheck(t, slot, zoom) {
         assert.deepEqual(before.band.header.map(([part]) => part), ['conversations-toggle', 'settings-open']);
         checkHeader(before, before, 1);
 
-        const label = slot === 'account' ? (locale === 'de' ? 'Konto' : 'Account') : (locale === 'de' ? 'Kontakt' : 'Contact');
-        // Slot delivery runs at the microtask checkpoint. Measure in the first
-        // frame after that checkpoint, with no resize event after insertion.
-        const immediate = await page.evaluate(`(async () => {
-          const c = document.querySelector('aithema-session'), button = document.createElement('button');
-          button.type = 'button'; button.slot = ${JSON.stringify(slot)}; button.className = ${JSON.stringify(hostControl)};
-          button.textContent = ${JSON.stringify(label)}; button.style.cssText = 'width:44px;height:44px;overflow:hidden';
-          c.append(button);
+        // Let ResizeObserver deliver after the first frame. For slotchange,
+        // delivery runs at the microtask checkpoint before the first frame.
+        const immediate = resize ? await page.evaluate(`(async () => {
+          const c = document.querySelector('aithema-session');
+          const slot = c.shadowRoot.querySelector('slot[name="account"]');
+          const [button] = slot.assignedElements();
+          slot.addEventListener('slotchange', () => { button.dataset.slotChanged = ''; });
+          button.style.display = 'grid';
+          await new Promise(resolve => requestAnimationFrame(resolve));
+          await new Promise(resolve => requestAnimationFrame(resolve));
+          return (${readState})(c);
+        })()`) : await page.evaluate(`(async () => {
+          const c = document.querySelector('aithema-session');
+          c.insertAdjacentHTML('beforeend', ${JSON.stringify(lateHeaderButton(slot, locale))});
           await new Promise(resolve => requestAnimationFrame(resolve));
           return (${readState})(c);
         })()`);
@@ -836,6 +857,7 @@ export async function keyboardLateHeaderSlotCheck(t, slot, zoom) {
           assert.ok(state.scroll?.width > 0 && state.scroll?.height > 0 && before.scroll?.width > 0 && before.scroll?.height > 0);
           assert.ok(Math.abs(before.scroll.height - state.scroll.height - 44) <= .5, 'the transcript pane gives up 44 px');
         }
+        await checkHeaderName(page, slot, locale);
         assert.deepEqual(stableBoxes('new control through settle', Object.fromEntries(immediate.band.header), Object.fromEntries(added.band.header), [hostControl]), []);
         if (zoom) {
           await setViewportMock(page, { height: viewport }); await settleLong(page);
@@ -843,9 +865,14 @@ export async function keyboardLateHeaderSlotCheck(t, slot, zoom) {
           await save('3-after-unzoom', unzoomed);
           checkHeader(added, unzoomed, 2);
         }
-        await page.$eval('aithema-session', (c, slot) => c.querySelector(`[slot="${slot}"]`).remove(), slot);
+        await page.$eval('aithema-session', (c, slot, resize) => {
+          const button = c.querySelector(`[slot="${slot}"]`);
+          if (resize) button.style.display = 'none';
+          else button.remove();
+        }, slot, resize);
         await settleLong(page);
         checkHeader(before, await read(page), 2);
+        if (resize) assert.equal(await page.$eval(`aithema-session > .${hostControl}`, button => button.hasAttribute('data-slot-changed')), false, 'resizing the assigned account does not fire slotchange');
         assert.deepEqual(problems, []);
       } finally { await page.close(); }
     });

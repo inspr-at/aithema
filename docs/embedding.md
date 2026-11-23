@@ -1205,6 +1205,11 @@ the phone frame follows the approved voice-specific rows.
 
 The host's `<h1 slot="brand">` is visible beside the orb and remains the page's
 heading; without it the default brand keeps its previous hidden presentation.
+
+For the header's `slot="account"` and `slot="contact-launcher"`, supply a
+44 × 44 px icon control with an `aria-label` in the current language. The
+compact keyboard-up band clips wider content to that box.
+
 At 600 px and above, legal links in `slot="legal"` stand at the right of the footer
 bar on the entrance and in conversation. Below 600 px, an always-visible
 **Rechtliches** / **Legal** button at the 12 px right gutter opens those links
