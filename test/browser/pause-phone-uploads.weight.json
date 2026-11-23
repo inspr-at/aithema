@@ -1,5 +1,5 @@
 {
-  "seconds": 265,
+  "seconds": 255,
   "provisional": true,
-  "evidence": "AIT-597 split baseline: 48 top-level tests, summed rolling-main per-test p95 192.373785211s (runs 44650109778-1, 44682541019-1, 44688985679-1, 44707193689-1, 44725948096-1, 44736662387-1, 44742965802-1). AIT-638 adds four top-level cases with 19s forecast based on the AIT-597 average (4s per case plus evidence and in-page reconfiguration). Provisional reservation = ceil(1.25 * (192.373785211 + 19)) = 265s. Recheck the increment on the remote lane before handoff. Remote lane diagnostics stay outside trusted rolling CI samples."
+  "evidence": "AIT-597 split baseline: 48 top-level tests, summed rolling-main per-test p95 192.373785211s (runs 44650109778-1, 44682541019-1, 44688985679-1, 44707193689-1, 44725948096-1, 44736662387-1, 44742965802-1). AIT-638 adds four top-level cases: 2.550134875s + 3.5386635s + 2.694469s + 2.380970125s = 11.1642375s on the macOS lane at ae8e18dc with captures. Provisional reservation = ceil(1.25 * (192.373785211 + 11.1642375)) = 255s. Remote lane diagnostics stay outside trusted rolling CI samples."
 }

@@ -124,19 +124,25 @@ function refusalGeometry(c, { entrance, text }) {
   const reason = root.querySelector('.composer-reason');
   const shown = [...reason.querySelectorAll('.image-refusal__reason')].find(node => node.textContent === text && !node.closest('[hidden]'));
   const reserved = [...root.querySelectorAll('.image-feedback-reserve .image-refusal__reason')].find(node => node.textContent === text);
+  const measuringRow = reserved?.closest('.image-refusals-reserve__row');
   const textRects = element => {
     if (!element) return [];
     const range = document.createRange(); range.selectNodeContents(element);
     return [...range.getClientRects()].map(rect => rect.toJSON());
   };
-  return { boxes, more: Boolean(reason.querySelector('.upload-notices-more')), reserve: box(root.querySelector('.image-feedback-reserve')),
-    shown: box(shown?.parentElement), shownRects: textRects(shown), reserved: box(reserved?.parentElement), reservedRects: textRects(reserved) };
+  return { entrance, boxes, more: Boolean(reason.querySelector('.upload-notices-more')), reserve: box(root.querySelector('.image-feedback-reserve')),
+    shown: box(shown?.parentElement), shownRects: textRects(shown), reserved: box(reserved?.parentElement), reservedRects: textRects(reserved),
+    reservedDismiss: box(measuringRow?.querySelector('.image-refusals__dismiss')), reserveGap: measuringRow ? parseFloat(getComputedStyle(measuringRow).columnGap) : null };
 }
 
 function assertRefusalBoxes(before, after) {
+  const absent = before.entrance === 'choice' ? 'mic' : 'attach';
   for (const [name, box] of Object.entries(after.boxes)) {
-    if (!box && !before.boxes[name]) continue;
+    if (name === absent) { assert.equal(box, null); continue; }
     assert.ok(box?.width > 0 && box.height > 0, `${name}: positive box`);
+    if (name === 'send' || name === 'attach') {
+      assert.ok(Math.abs(box.width - 44) <= .5 && Math.abs(box.height - 44) <= .5, `${name}: 44 px square`);
+    }
     for (const axis of ['x', 'y', 'width', 'height']) {
       assert.ok(Math.abs(box[axis] - before.boxes[name][axis]) <= .5,
         `${name}.${axis} moves by ${box[axis] - before.boxes[name][axis]} px`);
@@ -196,8 +202,14 @@ export function refusalReserveCheck() {
         assert.equal(cleared.more, false, 'dismissing the only refusal clears disclosure');
         assert.equal(visibility.unreachable, false, 'all visible notice text fits without clipping or scrolling');
         assert.ok(visibility.texts.some(line => line.text === sentence && line.reachable), `complete reason: ${sentence}`);
-        if (probe) {
+        if (entrance === 'choice') {
           assert.ok(shown.reserved?.width > 0 && shown.reserved.height > 0, 'positive reserve reason box');
+          assert.ok(shown.reservedDismiss.width > 0 && shown.reservedDismiss.height > 0, 'positive reserve dismiss box');
+          const available = shown.boxes.feedback.width - shown.reservedDismiss.width - shown.reserveGap;
+          assert.ok(Math.abs(shown.reserved.width - available) <= .5,
+            `reserve uses the available width beside Dismiss: ${shown.reserved.width} px of ${available} px`);
+        }
+        if (probe) {
           assert.ok(shown.reservedRects.length <= 4, `probe reserve wraps to ${shown.reservedRects.length} lines (height ${idle.boxes.composer.height} px)`);
           assert.ok(shown.reserved.width >= shown.shown.width - .5,
             `probe reserve width ${shown.reserved.width} px fits the rendered column ${shown.shown.width} px`);
