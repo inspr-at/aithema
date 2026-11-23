@@ -650,7 +650,7 @@ const sourceLabel = (root, path) => relative(root, path).split('\\').join('/');
 function servedModules(root, isServed) {
   const walk = dir => readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
     const path = join(dir, entry.name);
-    if (entry.isDirectory()) return ['node_modules', 'test', 'fixtures'].includes(entry.name) ? [] : walk(path);
+    if (entry.isDirectory()) return entry.name === 'node_modules' ? [] : walk(path);
     return /\.(?:[cm]?js|html)$/u.test(entry.name) && isServed(sourceLabel(root, path)) ? [path] : [];
   });
   return SERVED_ROOTS.flatMap(dir => {
@@ -826,6 +826,16 @@ test('AIT-633 served scan includes the qualification entry and its relay', () =>
     mkdirSync(join(probe, 'plugins/composed-voice/ops'), { recursive: true });
     writeFileSync(join(probe, label), 'export const read = route => fetch(route);');
     assert.ok(servedOffenders(probe, servedPattern()).some(finding => finding.startsWith(`${label}:`)), label);
+  } finally { rmSync(probe, { recursive: true, force: true }); }
+});
+
+test('AIT-633 a module under any allowed client subdirectory is scanned', () => {
+  const probe = mkdtempSync(join(tmpdir(), 'ait-633-subdirectory-'));
+  const label = 'packages/ui/src/fixtures/network.js';
+  try {
+    mkdirSync(join(probe, 'packages/ui/src/fixtures'), { recursive: true });
+    writeFileSync(join(probe, label), 'export const read = route => fetch(route);');
+    assert.deepEqual(servedOffenders(probe, servedPattern()), [`${label}: fetch reference`]);
   } finally { rmSync(probe, { recursive: true, force: true }); }
 });
 
